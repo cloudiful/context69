@@ -1,0 +1,143 @@
+mod defaults;
+mod load;
+mod normalize;
+mod types;
+mod validate;
+
+pub use defaults::{
+    DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
+    DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS,
+};
+pub use load::validate_legacy_runtime_import_config;
+pub use types::{
+    ApiConfig, AppDbConfig, AuthConfig, AuthSigningKeyConfig, BootstrapAdminConfig, Config,
+    ConnectionConfig, EmbeddingConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig,
+    QdrantConfig, SchedulerConfig, SourceConfig, SyncStrategy, parse_sync_strategy,
+};
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        env, fs,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{
+        DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
+        DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, SourceConfig, types::FileConfig,
+        normalize::normalize_source_config,
+    };
+
+    #[test]
+    fn scheduler_lease_fields_fall_back_to_defaults_when_missing_from_toml() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let path = env::temp_dir().join(format!("context69-config-{unique}.toml"));
+
+        fs::write(
+            &path,
+            r#"
+[app_db]
+url = "postgres://postgres:postgres@127.0.0.1:5432/context69"
+
+[qdrant]
+url = "http://127.0.0.1:6334"
+collection_name = "context69_chunks"
+recreate_on_dimension_mismatch = false
+
+[embedding]
+base_url = "http://127.0.0.1:11434/v1"
+model = "nomic-embed-text"
+dimensions = 768
+timeout_secs = 30
+
+[file_library]
+storage_root = "./data/library"
+max_upload_size_mb = 64
+max_upload_request_size_mb = 256
+ingest_concurrency = 2
+pdf_pages_per_task = 5
+
+[scheduler]
+interval_secs = 300
+run_on_start = true
+max_concurrency = 4
+job_id = "context69-sync"
+
+[api]
+bind_addr = "0.0.0.0:8096"
+
+[mcp]
+enabled = true
+"#,
+        )
+        .expect("test config should be written");
+
+        let parsed: FileConfig =
+            toml::from_str(&fs::read_to_string(&path).expect("test config should be readable"))
+                .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(
+            parsed.scheduler.execution_guard_ttl,
+            Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS)
+        );
+        assert_eq!(
+            parsed.scheduler.execution_guard_renew_interval,
+            Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS)
+        );
+    }
+
+    #[test]
+    fn source_config_metadata_defaults_and_normalization_are_compatible() {
+        let parsed: FileConfig = toml::from_str(
+            r#"
+[[connections]]
+name = "gov-info"
+database_url = "postgres://example"
+
+[[sources]]
+key = " gov_documents "
+connection = " gov-info "
+sync_strategy = "cursor"
+
+[sources.connector]
+base_query = " SELECT 1 "
+batch_size = 200
+"#,
+        )
+        .expect("config should parse without source metadata fields");
+
+        let normalized = normalize_source_config(SourceConfig {
+            key: parsed.sources[0].key.clone(),
+            display_name: Some(" 国务院/部委政策公文 ".to_string()),
+            description: Some(" 覆盖正式政策公文 ".to_string()),
+            example_queries: vec![
+                " 新能源汽车 购置税 政策 ".to_string(),
+                "新能源汽车 购置税 政策".to_string(),
+                "".to_string(),
+            ],
+            connection: parsed.sources[0].connection.clone(),
+            sync_strategy: parsed.sources[0].sync_strategy,
+            connector: parsed.sources[0].connector.clone(),
+        })
+        .expect("source config should normalize");
+
+        assert!(parsed.sources[0].display_name.is_none());
+        assert!(parsed.sources[0].description.is_none());
+        assert!(parsed.sources[0].example_queries.is_empty());
+        assert_eq!(normalized.key, "gov_documents");
+        assert_eq!(normalized.connection, "gov-info");
+        assert_eq!(
+            normalized.display_name.as_deref(),
+            Some("国务院/部委政策公文")
+        );
+        assert_eq!(normalized.description.as_deref(), Some("覆盖正式政策公文"));
+        assert_eq!(
+            normalized.example_queries,
+            vec!["新能源汽车 购置税 政策".to_string()]
+        );
+    }
+}

@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "tailwindcss-primeui";
+@import "./styles/theme.css";
+@import "./styles/base.css";
+@import "./styles/components.css";
+@import "./styles/utilities.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));

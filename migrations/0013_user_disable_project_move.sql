@@ -1,0 +1,2 @@
+ALTER TABLE context69.users
+    ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;

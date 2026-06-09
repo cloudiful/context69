@@ -1,0 +1,16 @@
+@theme {
+  --color-app-bg: #111111;
+  --color-app-surface: #171717;
+  --color-app-surface-muted: #1f1f1f;
+  --color-app-surface-soft: #262626;
+  --color-app-border: #303030;
+  --color-app-border-strong: #4a4a4a;
+  --color-app-text: #f4f4f4;
+  --color-app-text-muted: #c8c8c8;
+  --color-app-text-dim: #8d8d8d;
+  --color-app-accent: #fafafa;
+  --color-app-accent-soft: #2a2a2a;
+  --color-app-danger: #6b6b6b;
+  --color-app-warning: #f59e0b;
+  --color-app-success: #22c55e;
+}
