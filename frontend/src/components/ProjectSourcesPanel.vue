@@ -11,6 +11,7 @@ import { apiClient, type SourceConfigInput, type SourceConnectionResponse, type 
 const props = defineProps<{
   groupKey: string;
   projectKey: string;
+  canManage?: boolean;
 }>();
 
 const { t } = useI18n();
@@ -116,6 +117,7 @@ onMounted(() => {
 
     <div v-if="!editorOpen">
       <SourceTable
+        :can-manage="props.canManage"
         :sources="sources"
         :syncing-map="syncingMap"
         :deleting-map="deletingMap"
@@ -132,7 +134,7 @@ onMounted(() => {
       </AppStateMessage>
     </div>
 
-    <div v-else class="app-form-block">
+    <div v-else-if="props.canManage" class="app-form-block">
       <div class="workspace-block-header">
         <p class="section-title">{{ editingSource ? t("sources.editSource") : t("sources.newSource") }}</p>
       </div>

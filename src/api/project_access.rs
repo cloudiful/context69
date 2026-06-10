@@ -27,7 +27,7 @@ pub(crate) fn require_project_role(
     required: MembershipRole,
 ) -> Result<()> {
     let Some(actual) = project.current_role else {
-        return Err(anyhow!("unknown project"));
+        return Err(anyhow!("insufficient permissions for project"));
     };
     if actual.rank() < required.rank() {
         return Err(anyhow!("insufficient permissions for project"));
@@ -46,4 +46,36 @@ pub(crate) fn project_access_error_response(error: anyhow::Error) -> axum::respo
     };
 
     (status, Json(ApiErrorResponse { error: message })).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::require_project_role;
+    use crate::{
+        contracts::{MembershipRole, Visibility},
+        domain::ProjectRecord,
+    };
+
+    fn public_project(current_role: Option<MembershipRole>) -> ProjectRecord {
+        ProjectRecord {
+            id: 1,
+            group_id: 1,
+            group_key: "public".to_string(),
+            project_key: "default-public".to_string(),
+            name: "Default Public Project".to_string(),
+            visibility: Visibility::Public,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            current_role,
+        }
+    }
+
+    #[test]
+    fn public_project_without_membership_returns_permission_error() {
+        let error = require_project_role(&public_project(None), MembershipRole::Maintainer)
+            .expect_err("permission check should fail");
+        assert_eq!(error.to_string(), "insufficient permissions for project");
+    }
 }

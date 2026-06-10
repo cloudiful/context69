@@ -10,12 +10,15 @@ import AppTableToolbar from "./AppTableToolbar.vue";
 import type { SourceStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   sources: SourceStatus[];
   syncingMap: Record<string, boolean>;
   deletingMap: Record<string, boolean>;
   errorMap: Record<string, string>;
-}>();
+  canManage?: boolean;
+}>(), {
+  canManage: true,
+});
 
 const emit = defineEmits<{
   create: [];
@@ -78,6 +81,13 @@ function originLabel(source: SourceStatus) {
   }
   return t("sources.origin.unknown");
 }
+
+function handleRowSelect(source: SourceStatus) {
+  if (!props.canManage) {
+    return;
+  }
+  emit("select", source);
+}
 </script>
 
 <template>
@@ -92,7 +102,7 @@ function originLabel(source: SourceStatus) {
         <Button class="tool-action" severity="secondary" variant="outlined" @click="emit('refresh')">
           {{ t("sources.refresh") }}
         </Button>
-        <Button class="tool-action tool-action-primary" type="button" @click="emit('create')">
+        <Button v-if="props.canManage" class="tool-action tool-action-primary" type="button" @click="emit('create')">
           {{ t("sources.newSource") }}
         </Button>
       </template>
@@ -109,7 +119,7 @@ function originLabel(source: SourceStatus) {
         sort-field="source_key"
         :sort-order="1"
         table-style="width: 100%"
-        @row-click="emit('select', $event.data)"
+        @row-click="handleRowSelect($event.data)"
       >
         <template #empty>
           <div class="py-8 text-center text-sm text-app-text-dim">
@@ -233,6 +243,7 @@ function originLabel(source: SourceStatus) {
         </Column>
 
         <Column
+          v-if="props.canManage"
           :header="t('sources.table.action')"
           class="w-56"
           header-class="source-table-header-nowrap"
@@ -331,7 +342,7 @@ function originLabel(source: SourceStatus) {
             {{ errorMap[source.source_key] }}
           </p>
 
-          <div class="tool-card-actions">
+          <div v-if="props.canManage" class="tool-card-actions">
             <Button class="source-table-action" type="button" severity="secondary" variant="outlined" @click="emit('edit', source)">
               {{ t("common.edit") }}
             </Button>

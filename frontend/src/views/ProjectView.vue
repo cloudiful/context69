@@ -57,6 +57,16 @@ const tabs = computed(() => [
   { key: "members", label: t("project.tabs.members") },
 ]);
 
+function roleRank(role?: string | null) {
+  if (role === "owner") return 3;
+  if (role === "maintainer") return 2;
+  if (role === "viewer") return 1;
+  return 0;
+}
+
+const canManageProject = computed(() => roleRank(project.value?.current_role) >= 2);
+const canOwnProject = computed(() => roleRank(project.value?.current_role) >= 3);
+
 async function loadProject() {
   try {
     errorMessage.value = "";
@@ -182,14 +192,14 @@ onMounted(() => {
   <div class="workspace-page">
     <AppPanel :title="project?.name || projectKey">
       <template #actions>
-        <div class="flex gap-2">
+        <div v-if="canManageProject" class="flex gap-2">
           <Button severity="secondary" variant="outlined" @click="projectDialogVisible = true">
             {{ t("common.edit") }}
           </Button>
-          <Button severity="secondary" variant="outlined" @click="moveDialogVisible = true">
+          <Button v-if="canOwnProject" severity="secondary" variant="outlined" @click="moveDialogVisible = true">
             {{ t("common.move") }}
           </Button>
-          <Button severity="danger" variant="outlined" @click="confirmDeleteProject">
+          <Button v-if="canOwnProject" severity="danger" variant="outlined" @click="confirmDeleteProject">
             {{ t("common.delete") }}
           </Button>
         </div>
@@ -228,13 +238,22 @@ onMounted(() => {
             <Tag :value="project?.visibility || '--'" severity="secondary" />
           </div>
           <div class="workspace-overview-card">
+            <span class="section-label">{{ t("groups.currentRole") }}</span>
+            <Tag :value="project?.current_role || '--'" :severity="roleSeverity(project?.current_role)" />
+          </div>
+          <div class="workspace-overview-card">
             <span class="section-label">{{ t("project.summary.members") }}</span>
             <strong>{{ members.length }}</strong>
           </div>
         </div>
       </section>
 
-      <ProjectSourcesPanel v-else-if="activeTab === 'sources'" :group-key="groupKey" :project-key="projectKey" />
+      <ProjectSourcesPanel
+        v-else-if="activeTab === 'sources'"
+        :group-key="groupKey"
+        :project-key="projectKey"
+        :can-manage="canManageProject"
+      />
       <ProjectFilesPanel v-else-if="activeTab === 'files'" :group-key="groupKey" :project-key="projectKey" />
 
       <section v-else class="workspace-block">
@@ -242,7 +261,11 @@ onMounted(() => {
           <div>
             <p class="section-title">{{ t("project.membersTitle") }}</p>
           </div>
-          <Button class="tool-action-primary" @click="editingMember = null; selectedMemberUser = null; memberDialogVisible = true">
+          <Button
+            v-if="canManageProject"
+            class="tool-action-primary"
+            @click="editingMember = null; selectedMemberUser = null; memberDialogVisible = true"
+          >
             {{ t("members.add") }}
           </Button>
         </div>
@@ -257,7 +280,7 @@ onMounted(() => {
               <Tag :value="data.role" :severity="roleSeverity(data.role)" />
             </template>
           </Column>
-          <Column :header="t('common.edit')">
+          <Column v-if="canManageProject" :header="t('common.edit')">
             <template #body="{ data }">
               <div class="flex gap-2">
                 <Button

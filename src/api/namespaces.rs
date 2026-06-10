@@ -434,11 +434,12 @@ fn namespace_error_response(error: anyhow::Error) -> axum::response::Response {
         || message.contains("unknown user")
     {
         StatusCode::NOT_FOUND
+    } else if message.contains("insufficient permissions") {
+        StatusCode::FORBIDDEN
     } else if message.contains("must not be empty")
         || message.contains("cannot be broader")
         || message.contains("only admins")
         || message.contains("personal groups")
-        || message.contains("insufficient permissions")
         || message.contains("already exists")
         || message.contains("user account is disabled")
         || message.contains("invalid")
@@ -503,5 +504,24 @@ fn project_member_response(member: NamespaceMemberRecord) -> ProjectMemberRespon
         login_name: member.login_name,
         display_name: member.display_name,
         role: member.role,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{body, http::StatusCode};
+
+    use super::namespace_error_response;
+
+    #[tokio::test]
+    async fn insufficient_permissions_maps_to_forbidden() {
+        let response = namespace_error_response(anyhow::anyhow!("insufficient permissions for project"));
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let bytes = body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body to read");
+        let payload = String::from_utf8(bytes.to_vec()).expect("utf8 body");
+        assert!(payload.contains("insufficient permissions for project"));
     }
 }

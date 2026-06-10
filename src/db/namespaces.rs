@@ -964,7 +964,7 @@ fn ensure_role_at_least(
     required: MembershipRole,
     resource_name: &str,
 ) -> Result<()> {
-    let actual = actual.ok_or_else(|| anyhow!("unknown {resource_name}"))?;
+    let actual = actual.ok_or_else(|| anyhow!("insufficient permissions for {resource_name}"))?;
     if actual.rank() < required.rank() {
         return Err(anyhow!("insufficient permissions for {resource_name}"));
     }
