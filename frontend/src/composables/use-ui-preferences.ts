@@ -8,11 +8,13 @@ const SIDEBAR_STORAGE_KEY = "context69.sidebar-collapsed";
 interface UiPreferencesState {
   theme: AppTheme;
   sidebarCollapsed: boolean;
+  mobileNavOpen: boolean;
 }
 
 const state = reactive<UiPreferencesState>({
   theme: resolveInitialTheme(),
   sidebarCollapsed: readStoredSidebarCollapsed(),
+  mobileNavOpen: false,
 });
 
 let hydrated = false;
@@ -67,6 +69,18 @@ function toggleSidebar() {
   persistSidebarCollapsed(state.sidebarCollapsed);
 }
 
+function openMobileNav() {
+  state.mobileNavOpen = true;
+}
+
+function closeMobileNav() {
+  state.mobileNavOpen = false;
+}
+
+function toggleMobileNav() {
+  state.mobileNavOpen = !state.mobileNavOpen;
+}
+
 function getStorage(): Storage | null {
   if (typeof window === "undefined") {
     return null;
@@ -85,5 +99,8 @@ export function useUiPreferences() {
     setTheme,
     toggleTheme,
     toggleSidebar,
+    openMobileNav,
+    closeMobileNav,
+    toggleMobileNav,
   };
 }

@@ -128,6 +128,13 @@ Development guides:
 - [API Reference](/Users/cloudiful/codes/research/context69/docs/api.md)
 - [Architecture Notes](/Users/cloudiful/codes/research/context69/docs/architecture.md)
 
+Local dev entrypoints:
+
+```bash
+nu scripts/dev.nu backend
+nu scripts/dev.nu full
+```
+
 ## API
 
 Runtime endpoints include:

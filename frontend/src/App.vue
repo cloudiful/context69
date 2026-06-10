@@ -4,6 +4,7 @@ import ConfirmDialog from "primevue/confirmdialog";
 import Toast from "primevue/toast";
 
 import AppContextBar from "./components/AppContextBar.vue";
+import AppMobileNav from "./components/AppMobileNav.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import { useUiPreferences } from "./composables/use-ui-preferences";
 import { authSessionState } from "./services/auth";
@@ -28,5 +29,6 @@ onMounted(() => {
         <RouterView />
       </div>
     </main>
+    <AppMobileNav />
   </div>
 </template>

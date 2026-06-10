@@ -2,17 +2,18 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
 import SearchForm from "../components/SearchForm.vue";
+import SearchHistoryPanel from "../components/SearchHistoryPanel.vue";
 import SearchResultList from "../components/SearchResultList.vue";
+import SearchSelectionPreview from "../components/SearchSelectionPreview.vue";
 import { apiClient, type SearchHit, type SearchResponse, type SourceStatus } from "../services/api";
-import { formatDate, formatScore } from "../utils/format";
 import { addSearchHistoryEntry, clearSearchHistory, readSearchHistory, type SearchHistoryEntry } from "../utils/search-history";
 import { createDefaultFilters, filtersFromQuery, filtersToQuery, buildSearchPayload } from "../utils/search";
+import { buildSearchTarget } from "../utils/search-target";
 
 const route = useRoute();
 const router = useRouter();
@@ -90,22 +91,6 @@ function updateFilters(nextFilters: typeof filters.value) {
   filters.value = nextFilters;
 }
 
-function formatHistorySummary(entry: SearchHistoryEntry) {
-  const parts = [];
-
-  if (entry.sourceKey) {
-    parts.push(t("search.history.sourceValue", { source: entry.sourceKey }));
-  }
-  if (entry.publishedAfter || entry.publishedBefore) {
-    parts.push(t("search.history.dateRange", {
-      after: entry.publishedAfter || "—",
-      before: entry.publishedBefore || "—",
-    }));
-  }
-
-  return parts.join(" · ");
-}
-
 async function rerunHistory(entry: SearchHistoryEntry) {
   filters.value = {
     query: entry.query,
@@ -122,26 +107,8 @@ function resetHistory() {
   historyEntries.value = [];
 }
 
-function buildTarget(hit: SearchHit) {
-  if (hit.is_library_file && hit.library_file_id) {
-    return {
-      name: "library",
-      query: {
-        file: hit.library_file_id,
-      },
-    };
-  }
-
-  return {
-    name: "document",
-    params: {
-      id: hit.document_id,
-    },
-  };
-}
-
 function openHit(hit: SearchHit) {
-  void router.push(buildTarget(hit));
+  void router.push(buildSearchTarget(hit));
 }
 
 onMounted(async () => {
@@ -178,37 +145,11 @@ onBeforeUnmount(() => {
         @update:filters="updateFilters"
       />
 
-      <AppPanel
-        v-if="visibleHistoryEntries.length > 0"
-        class="search-history-panel"
-        :title="t('search.history.title')"
-      >
-        <template #actions>
-          <Button
-            class="search-history-clear"
-            severity="secondary"
-            variant="text"
-            @click="resetHistory"
-          >
-            {{ t("search.history.clear") }}
-          </Button>
-        </template>
-
-        <div class="search-history-cloud">
-          <button
-            v-for="entry in visibleHistoryEntries"
-            :key="`${entry.query}-${entry.sourceKey}-${entry.publishedAfter}-${entry.publishedBefore}-${entry.limit}`"
-            class="search-history-chip"
-            type="button"
-            @click="rerunHistory(entry)"
-          >
-            <span class="search-history-chip-query">{{ entry.query }}</span>
-            <span v-if="formatHistorySummary(entry)" class="search-history-chip-meta">
-              {{ formatHistorySummary(entry) }}
-            </span>
-          </button>
-        </div>
-      </AppPanel>
+      <SearchHistoryPanel
+        :entries="visibleHistoryEntries"
+        @clear="resetHistory"
+        @rerun="rerunHistory"
+      />
     </section>
 
     <AppPanel
@@ -230,7 +171,7 @@ onBeforeUnmount(() => {
           </AppStateMessage>
         </template>
 
-        <div v-if="results" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,32rem)] xl:items-start">
+        <div v-if="results" class="search-results-layout">
           <SearchResultList
             class="min-w-0"
             :hits="results.hits"
@@ -239,33 +180,11 @@ onBeforeUnmount(() => {
             @select="selectedHit = $event"
           />
 
-          <aside class="hidden min-w-0 rounded-[1.1rem] border border-app-border bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] xl:sticky xl:top-3 xl:block xl:max-h-[calc(100vh-6rem)] xl:overflow-auto">
-            <div v-if="selectedHit" class="grid gap-3">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <p class="section-label">{{ selectedHit.source_key }}</p>
-                  <h3 class="truncate text-base font-semibold text-app-text">{{ selectedHit.title }}</h3>
-                  <p class="text-xs leading-5 text-app-text-dim">
-                    {{ t("search.result.published", { date: formatDate(selectedHit.published_at) }) }}
-                    · {{ t("search.result.score") }} {{ formatScore(selectedHit.score) }}
-                  </p>
-                </div>
-                <button class="min-h-8 shrink-0 rounded-lg border border-app-border bg-app-surface-soft/45 px-3 text-sm font-medium text-app-text shadow-none transition hover:border-app-border-strong hover:bg-app-surface-soft/72" type="button" @click="openHit(selectedHit)">
-                  {{ t("common.open") }}
-                </button>
-              </div>
-
-              <p v-if="selectedHit.library_path" class="text-xs leading-5 text-app-text-dim">
-                {{ selectedHit.library_path }}<span v-if="selectedHit.library_section_label"> · {{ selectedHit.library_section_label }}</span>
-              </p>
-
-              <pre class="content-pre max-h-[calc(100vh-17rem)]">{{ selectedHit.chunk_text }}</pre>
-            </div>
-
-            <AppStateMessage v-else :title="t('search.noMatchesTitle')">
-              {{ t("search.noMatchesMessage") }}
-            </AppStateMessage>
-          </aside>
+          <SearchSelectionPreview
+            class="hidden xl:block"
+            :selected-hit="selectedHit"
+            @open="openHit"
+          />
         </div>
       </AsyncStateBlock>
     </AppPanel>

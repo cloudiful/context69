@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
@@ -19,35 +18,7 @@ const emit = defineEmits<{
   select: [SearchHit];
 }>();
 
-const router = useRouter();
 const { t } = useI18n();
-
-function buildTarget(hit: SearchHit) {
-  if (hit.is_library_file && hit.library_file_id) {
-    return {
-      name: "library",
-      query: {
-        file: hit.library_file_id,
-      },
-    };
-  }
-
-  return {
-    name: "document",
-    params: {
-      id: hit.document_id,
-    },
-  };
-}
-
-function openHit(hit: SearchHit) {
-  const target = buildTarget(hit);
-  emit("open", hit);
-  if (!router.hasRoute(String(target.name))) {
-    return;
-  }
-  void router.push(target);
-}
 </script>
 
 <template>
@@ -63,7 +34,7 @@ function openHit(hit: SearchHit) {
       class="search-results-table tool-table-desktop"
       @update:selection="emit('select', $event)"
       @row-click="emit('select', $event.data)"
-      @row-dblclick="openHit($event.data)"
+      @row-dblclick="emit('open', $event.data)"
     >
       <Column :header="t('search.resultsTitle')" field="title" style="min-width: 24rem">
         <template #body="{ data: hit }">
@@ -106,7 +77,7 @@ function openHit(hit: SearchHit) {
             variant="outlined"
             size="small"
             :label="t('common.open')"
-            @click.stop="openHit(hit)"
+            @click.stop="emit('open', hit)"
           />
         </template>
       </Column>
@@ -119,7 +90,7 @@ function openHit(hit: SearchHit) {
         class="tool-card"
         :class="{ 'tool-card-selected': selectedHit?.chunk_id === hit.chunk_id }"
         @click="emit('select', hit)"
-        @dblclick="openHit(hit)"
+        @dblclick="emit('open', hit)"
       >
         <div class="tool-card-header">
           <div class="min-w-0">
@@ -142,7 +113,7 @@ function openHit(hit: SearchHit) {
             variant="outlined"
             size="small"
             :label="t('common.open')"
-            @click.stop="openHit(hit)"
+            @click.stop="emit('open', hit)"
           />
         </div>
 

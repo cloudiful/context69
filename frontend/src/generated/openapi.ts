@@ -388,6 +388,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/{group_key}/projects/{project_key}/library/texts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_project_library_text"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/{group_key}/projects/{project_key}/library/tree": {
         parameters: {
             query?: never;
@@ -606,6 +622,22 @@ export interface paths {
         get: operations["get_library_job"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/library/texts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_library_text"];
         delete?: never;
         options?: never;
         head?: never;
@@ -887,6 +919,14 @@ export interface components {
             name: string;
             project_key: string;
             visibility: components["schemas"]["Visibility"];
+        };
+        CreateTextRequest: {
+            content: string;
+            /** Format: uuid */
+            folder_id?: string | null;
+            source_uri?: string | null;
+            summary?: string | null;
+            title: string;
         };
         DoclingConnectionSettingsResponse: {
             base_url?: string | null;
@@ -2526,6 +2566,49 @@ export interface operations {
             };
         };
     };
+    create_project_library_text: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group key */
+                group_key: string;
+                /** @description Project key */
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTextRequest"];
+            };
+        };
+        responses: {
+            /** @description Created text library entry */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryUploadResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_project_library_tree: {
         parameters: {
             query?: never;
@@ -3205,6 +3288,48 @@ export interface operations {
             };
             /** @description Job not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    create_library_text: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTextRequest"];
+            };
+        };
+        responses: {
+            /** @description Created text library entry */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryUploadResponse"];
+                };
+            };
+            /** @description Invalid text payload */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

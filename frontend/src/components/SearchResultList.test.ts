@@ -1,5 +1,4 @@
-import { flushPromises, mount } from "@vue/test-utils";
-import { createMemoryHistory, createRouter } from "vue-router";
+import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
 import { createTestI18n } from "../test-utils/i18n";
@@ -7,26 +6,7 @@ import { testPrimeVuePlugin } from "../test-utils/primevue";
 import SearchResultList from "./SearchResultList.vue";
 
 describe("SearchResultList", () => {
-  it("navigates to the document detail route", async () => {
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        {
-          path: "/search",
-          name: "search",
-          component: { template: "<div>search</div>" },
-        },
-        {
-          path: "/documents/:id",
-          name: "document",
-          component: { template: "<div>document detail</div>" },
-        },
-      ],
-    });
-
-    router.push("/search");
-    await router.isReady();
-
+  it("emits open for document hits", async () => {
     const wrapper = mount(SearchResultList, {
       props: {
         hits: [
@@ -50,37 +30,20 @@ describe("SearchResultList", () => {
         ],
       },
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testPrimeVuePlugin, createTestI18n()],
       },
     });
 
     await wrapper.get('[data-testid="search-result-open"]').trigger("click");
-    await flushPromises();
-
-    expect(router.currentRoute.value.name).toBe("document");
-    expect(router.currentRoute.value.params.id).toBe("42");
+    expect(wrapper.emitted("open")?.[0]).toEqual([
+      expect.objectContaining({
+        document_id: 42,
+        chunk_id: "chunk-1",
+      }),
+    ]);
   });
 
-  it("routes library-backed hits to the library view", async () => {
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        {
-          path: "/search",
-          name: "search",
-          component: { template: "<div>search</div>" },
-        },
-        {
-          path: "/library",
-          name: "library",
-          component: { template: "<div>library</div>" },
-        },
-      ],
-    });
-
-    router.push("/search");
-    await router.isReady();
-
+  it("renders library-backed hits and emits open", async () => {
     const wrapper = mount(SearchResultList, {
       props: {
         hits: [
@@ -108,7 +71,7 @@ describe("SearchResultList", () => {
         ],
       },
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testPrimeVuePlugin, createTestI18n()],
       },
     });
 
@@ -116,9 +79,11 @@ describe("SearchResultList", () => {
     expect(wrapper.find(".search-card-list").exists()).toBe(true);
     expect(wrapper.find(".tool-card").text()).toContain("Budget Workbook");
     await wrapper.get('[data-testid="search-result-open"]').trigger("click");
-    await flushPromises();
-
-    expect(router.currentRoute.value.name).toBe("library");
-    expect(router.currentRoute.value.query.file).toBe("file-2");
+    expect(wrapper.emitted("open")?.[0]).toEqual([
+      expect.objectContaining({
+        library_file_id: "file-2",
+        chunk_id: "chunk-2",
+      }),
+    ]);
   });
 });

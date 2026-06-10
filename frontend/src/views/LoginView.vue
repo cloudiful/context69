@@ -68,19 +68,27 @@ async function submit() {
 
 <template>
   <div class="auth-page-shell">
-    <AppPanel class="auth-panel" :title="t('auth.title')" :label="t('auth.label')">
-      <template #actions>
-        <p v-if="authSessionState.user" class="auth-session-caption">
-          {{ authSessionState.user.display_name }}
-        </p>
-      </template>
-
-      <div class="auth-page-copy">
-        <p class="text-sm text-app-text-dim">
-          {{ t("auth.description") }}
-        </p>
+    <section class="auth-hero">
+      <div class="auth-hero-mark">C69</div>
+      <div class="auth-hero-copy">
+        <p class="section-label">{{ t("auth.label") }}</p>
+        <h1 class="auth-hero-title">Context69</h1>
+        <p class="auth-hero-text">{{ t("auth.description") }}</p>
       </div>
 
+      <div class="auth-hero-tags" aria-label="Available workspaces">
+        <span class="auth-hero-tag">{{ t("nav.search") }}</span>
+        <span class="auth-hero-tag">{{ t("nav.groups") }}</span>
+        <span class="auth-hero-tag">{{ t("nav.settings") }}</span>
+      </div>
+
+      <div v-if="authSessionState.user" class="auth-hero-user">
+        <span class="auth-session-caption">{{ authSessionState.user.display_name }}</span>
+        <span class="text-xs text-app-text-dim">{{ authSessionState.user.login_name }}</span>
+      </div>
+    </section>
+
+    <AppPanel class="auth-panel" :title="t('auth.title')" :label="t('auth.label')">
       <AppStateMessage
         v-if="sessionReasonMessage"
         severity="warn"
