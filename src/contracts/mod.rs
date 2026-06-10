@@ -17,6 +17,7 @@ pub use library::{
     LibraryFileDetailResponse, LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse,
     LibraryIngestJobResponse, LibraryIngestStatus, LibraryPreviewContentFormat,
     LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
+    UpsertLibraryTextRequest,
 };
 pub use mcp::McpDocumentArgs;
 pub use namespace::{

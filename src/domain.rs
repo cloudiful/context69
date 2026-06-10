@@ -98,6 +98,7 @@ pub struct LibraryFileRecord {
     pub project_key: String,
     pub visibility: Visibility,
     pub folder_id: Option<Uuid>,
+    pub external_id: Option<String>,
     pub filename: String,
     pub media_type: String,
     pub size_bytes: i64,

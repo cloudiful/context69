@@ -8,6 +8,10 @@ use context69_contracts::{
     GroupMemberResponse, GroupResponse, HealthResponse, ProjectMemberResponse, ProjectResponse,
     SearchRequest, SearchResponse,
 };
+use context69_contracts::library::{
+    CreateTextRequest, LibraryUploadResponse, UpsertLibraryTextRequest,
+};
+use context69_contracts::sources::SyncOutcome;
 use reqwest::{
     Method, RequestBuilder, Response, StatusCode, Url,
     header::{AUTHORIZATION, USER_AGENT},
@@ -32,6 +36,7 @@ pub struct Context69ClientBuilder {
     base_url: Option<Url>,
     user_agent: Option<String>,
     timeout: Option<Duration>,
+    access_token: Option<String>,
 }
 
 impl Context69Client {
@@ -40,6 +45,17 @@ impl Context69Client {
             base_url: None,
             user_agent: None,
             timeout: None,
+            access_token: None,
+        }
+    }
+
+    pub fn with_access_token(&self, token: impl Into<String>) -> Context69Client {
+        Context69Client {
+            client: self.client.clone(),
+            base_url: self.base_url.clone(),
+            session: Arc::new(RwLock::new(SessionState {
+                access_token: Some(token.into()),
+            })),
         }
     }
 
@@ -158,6 +174,31 @@ impl Context69Client {
         Ok(response)
     }
 
+    pub async fn sync_source(&self, source_key: &str) -> Result<SyncOutcome, Error> {
+        let path = format!("/v1/sources/{source_key}/sync");
+        self.send_json(Method::POST, &path, None::<&()>).await
+    }
+
+    pub async fn create_project_library_text(
+        &self,
+        group_key: &str,
+        project_key: &str,
+        request: &CreateTextRequest,
+    ) -> Result<LibraryUploadResponse, Error> {
+        let path = format!("/v1/groups/{group_key}/projects/{project_key}/library/texts");
+        self.send_json(Method::POST, &path, Some(request)).await
+    }
+
+    pub async fn upsert_project_library_text(
+        &self,
+        group_key: &str,
+        project_key: &str,
+        request: &UpsertLibraryTextRequest,
+    ) -> Result<LibraryUploadResponse, Error> {
+        let path = format!("/v1/groups/{group_key}/projects/{project_key}/library/texts");
+        self.send_json(Method::PUT, &path, Some(request)).await
+    }
+
     async fn send_json<TReq, TRes>(
         &self,
         method: Method,
@@ -193,6 +234,8 @@ impl Context69Client {
         if response.status() != StatusCode::UNAUTHORIZED {
             return Ok(response);
         }
+
+        let _ = response.bytes().await;
 
         match self.refresh().await {
             Ok(_) => self.send_request(method, path, body, true).await,
@@ -315,6 +358,11 @@ impl Context69ClientBuilder {
         Ok(self)
     }
 
+    pub fn with_access_token(mut self, token: impl Into<String>) -> Self {
+        self.access_token = Some(token.into());
+        self
+    }
+
     pub fn build(self) -> Result<Context69Client, Error> {
         let base_url = self
             .base_url
@@ -339,7 +387,9 @@ impl Context69ClientBuilder {
         Ok(Context69Client {
             client,
             base_url,
-            session: Arc::new(RwLock::new(SessionState::default())),
+            session: Arc::new(RwLock::new(SessionState {
+                access_token: self.access_token,
+            })),
         })
     }
 }
@@ -361,11 +411,19 @@ mod tests {
     use axum::{
         Json, Router,
         extract::State,
-        http::{HeaderMap, StatusCode},
-        response::IntoResponse,
+        http::{HeaderMap, HeaderValue, StatusCode, header},
+        response::{IntoResponse, Response},
         routing::{get, post},
     };
-    use context69_contracts::{AuthUserResponse, GroupKind, HealthStatus, MembershipRole, SearchHit, Visibility};
+    use chrono::NaiveDate;
+    use context69_contracts::{
+        AuthUserResponse, GroupKind, HealthStatus, MembershipRole, SearchHit, Visibility,
+    };
+    use context69_contracts::library::{
+        CreateTextRequest, LibraryFileSummary, LibraryIngestJobResponse,
+        LibraryIngestStatus, LibraryUploadResponse, UpsertLibraryTextRequest,
+    };
+    use context69_contracts::sources::SyncOutcome;
     use serde_json::json;
     use tokio::net::TcpListener;
 
@@ -373,6 +431,9 @@ mod tests {
     struct TestState {
         search_calls: Arc<AtomicUsize>,
         refresh_calls: Arc<AtomicUsize>,
+        create_text_calls: Arc<AtomicUsize>,
+        upsert_text_calls: Arc<AtomicUsize>,
+        sync_calls: Arc<AtomicUsize>,
     }
 
     async fn spawn_test_server() -> (String, TestState) {
@@ -383,6 +444,12 @@ mod tests {
             .route("/v1/auth/refresh", post(refresh_handler))
             .route("/v1/search", post(search_handler))
             .route("/v1/groups", get(groups_handler))
+            .route(
+                "/v1/groups/{group_key}/projects/{project_key}/library/texts",
+                post(create_project_library_text_handler)
+                    .put(upsert_project_library_text_handler),
+            )
+            .route("/v1/sources/{source_key}/sync", post(sync_source_handler))
             .with_state(state.clone());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
@@ -402,24 +469,42 @@ mod tests {
         })
     }
 
-    async fn login_handler() -> impl IntoResponse {
-        (
-            [(
-                "set-cookie",
-                "context69_refresh=refresh-ok; HttpOnly; Path=/",
-            )],
-            Json(token_response("token-initial")),
+    fn json_response<T>(status: StatusCode, value: &T) -> Response
+    where
+        T: serde::Serialize,
+    {
+        (status, Json(value)).into_response()
+    }
+
+    fn json_response_with_cookie<T>(
+        status: StatusCode,
+        value: &T,
+        set_cookie: &'static str,
+    ) -> Response
+    where
+        T: serde::Serialize,
+    {
+        let mut response = json_response(status, value);
+        response
+            .headers_mut()
+            .append(header::SET_COOKIE, HeaderValue::from_static(set_cookie));
+        response
+    }
+
+    async fn login_handler() -> Response {
+        json_response_with_cookie(
+            StatusCode::OK,
+            &token_response("token-initial"),
+            "context69_refresh=refresh-ok; HttpOnly; Path=/",
         )
     }
 
-    async fn refresh_handler(State(state): State<TestState>) -> impl IntoResponse {
+    async fn refresh_handler(State(state): State<TestState>) -> Response {
         state.refresh_calls.fetch_add(1, Ordering::SeqCst);
-        (
-            [(
-                "set-cookie",
-                "context69_refresh=refresh-ok; HttpOnly; Path=/",
-            )],
-            Json(token_response("token-refreshed")),
+        json_response_with_cookie(
+            StatusCode::OK,
+            &token_response("token-refreshed"),
+            "context69_refresh=refresh-ok; HttpOnly; Path=/",
         )
     }
 
@@ -427,7 +512,7 @@ mod tests {
         State(state): State<TestState>,
         headers: HeaderMap,
         Json(request): Json<SearchRequest>,
-    ) -> impl IntoResponse {
+    ) -> Response {
         let call = state.search_calls.fetch_add(1, Ordering::SeqCst);
         let bearer = headers
             .get(AUTHORIZATION)
@@ -435,93 +520,172 @@ mod tests {
             .unwrap_or_default();
 
         if request.query == "bad request" {
-            return (
+            return json_response(
                 StatusCode::BAD_REQUEST,
-                Json(ApiErrorResponse {
+                &ApiErrorResponse {
                     error: "invalid query".to_string(),
-                }),
-            )
-                .into_response();
+                },
+            );
         }
 
         if call == 0 && bearer == "Bearer token-initial" {
-            return (
+            return json_response(
                 StatusCode::UNAUTHORIZED,
-                Json(ApiErrorResponse {
+                &ApiErrorResponse {
                     error: "expired".to_string(),
-                }),
-            )
-                .into_response();
+                },
+            );
         }
 
         if bearer != "Bearer token-refreshed" {
-            return (
+            return json_response(
                 StatusCode::UNAUTHORIZED,
-                Json(ApiErrorResponse {
+                &ApiErrorResponse {
                     error: "missing bearer token".to_string(),
-                }),
-            )
-                .into_response();
+                },
+            );
         }
 
-        Json(SearchResponse {
-            query: request.query,
-            hits: vec![SearchHit {
-                chunk_id: uuid::Uuid::nil(),
-                document_id: 42,
-                group_key: "team".to_string(),
-                project_key: "docs".to_string(),
-                visibility: Visibility::Private,
-                source_key: "source".to_string(),
-                external_id: "ext-1".to_string(),
-                title: "Document".to_string(),
-                summary: Some("Summary".to_string()),
-                source_uri: "https://example.test/doc".to_string(),
-                published_at: None,
-                chunk_index: 0,
-                chunk_text: "hello".to_string(),
-                score: 0.9,
-                vector_score: Some(0.9),
-                keyword_score: None,
-                rerank_score: None,
-                match_reason: None,
-                metadata_json: json!({}),
-                library_file_id: None,
-                library_section_label: None,
-                library_path: None,
-                is_library_file: false,
-            }],
-        })
-        .into_response()
+        json_response(
+            StatusCode::OK,
+            &SearchResponse {
+                query: request.query,
+                hits: vec![SearchHit {
+                    chunk_id: uuid::Uuid::nil(),
+                    document_id: 42,
+                    group_key: "team".to_string(),
+                    project_key: "docs".to_string(),
+                    visibility: Visibility::Private,
+                    source_key: "source".to_string(),
+                    external_id: "ext-1".to_string(),
+                    title: "Document".to_string(),
+                    summary: Some("Summary".to_string()),
+                    source_uri: "https://example.test/doc".to_string(),
+                    published_at: None,
+                    chunk_index: 0,
+                    chunk_text: "hello".to_string(),
+                    score: 0.9,
+                    vector_score: Some(0.9),
+                    keyword_score: None,
+                    rerank_score: None,
+                    match_reason: None,
+                    metadata_json: json!({}),
+                    library_file_id: None,
+                    library_section_label: None,
+                    library_path: None,
+                    is_library_file: false,
+                }],
+            },
+        )
     }
 
-    async fn groups_handler(headers: HeaderMap) -> impl IntoResponse {
+    async fn groups_handler(headers: HeaderMap) -> Response {
         let bearer = headers
             .get(AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
         if bearer != "Bearer token-refreshed" {
-            return (
+            return json_response(
                 StatusCode::UNAUTHORIZED,
-                Json(ApiErrorResponse {
+                &ApiErrorResponse {
                     error: "missing bearer token".to_string(),
-                }),
-            )
-                .into_response();
+                },
+            );
         }
 
-        Json(vec![GroupResponse {
-            group_id: 1,
-            group_key: "team".to_string(),
-            parent_group_key: None,
-            name: "Team".to_string(),
-            visibility: Visibility::Private,
-            kind: GroupKind::Shared,
-            current_role: Some(MembershipRole::Owner),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        }])
-        .into_response()
+        json_response(
+            StatusCode::OK,
+            &vec![GroupResponse {
+                group_id: 1,
+                group_key: "team".to_string(),
+                parent_group_key: None,
+                name: "Team".to_string(),
+                visibility: Visibility::Private,
+                kind: GroupKind::Shared,
+                current_role: Some(MembershipRole::Owner),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            }],
+        )
+    }
+
+    fn require_authorized(headers: &HeaderMap) -> Result<(), StatusCode> {
+        let bearer = headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        if bearer == "Bearer token-refreshed" || bearer == "Bearer manual-token" {
+            Ok(())
+        } else {
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+
+    async fn create_project_library_text_handler(
+        State(state): State<TestState>,
+        headers: HeaderMap,
+        Json(request): Json<CreateTextRequest>,
+    ) -> Response {
+        state.create_text_calls.fetch_add(1, Ordering::SeqCst);
+        if require_authorized(&headers).is_err() {
+            return json_response(
+                StatusCode::UNAUTHORIZED,
+                &ApiErrorResponse {
+                    error: "missing bearer token".to_string(),
+                },
+            );
+        }
+        assert_eq!(request.title, "Hello");
+        json_response(
+            StatusCode::OK,
+            &sample_library_upload("created-file", "created-job"),
+        )
+    }
+
+    async fn upsert_project_library_text_handler(
+        State(state): State<TestState>,
+        headers: HeaderMap,
+        Json(request): Json<UpsertLibraryTextRequest>,
+    ) -> Response {
+        state.upsert_text_calls.fetch_add(1, Ordering::SeqCst);
+        if require_authorized(&headers).is_err() {
+            return json_response(
+                StatusCode::UNAUTHORIZED,
+                &ApiErrorResponse {
+                    error: "missing bearer token".to_string(),
+                },
+            );
+        }
+        assert_eq!(request.external_id, "ext-1");
+        assert_eq!(request.published_at, Some(NaiveDate::from_ymd_opt(2026, 6, 10).expect("date")));
+        assert_eq!(request.metadata_json, json!({"topic":"gov"}));
+        json_response(
+            StatusCode::OK,
+            &sample_library_upload("upserted-file", "upserted-job"),
+        )
+    }
+
+    async fn sync_source_handler(
+        State(state): State<TestState>,
+        headers: HeaderMap,
+    ) -> Response {
+        state.sync_calls.fetch_add(1, Ordering::SeqCst);
+        if require_authorized(&headers).is_err() {
+            return json_response(
+                StatusCode::UNAUTHORIZED,
+                &ApiErrorResponse {
+                    error: "missing bearer token".to_string(),
+                },
+            );
+        }
+        json_response(
+            StatusCode::OK,
+            &SyncOutcome {
+                records_seen: 10,
+                records_changed: 4,
+                chunks_upserted: 12,
+            },
+        )
     }
 
     fn token_response(access_token: &str) -> AuthTokenResponse {
@@ -538,6 +702,43 @@ mod tests {
                 personal_group_key: "admin".to_string(),
                 personal_group_role: Some(MembershipRole::Owner),
             },
+        }
+    }
+
+    fn sample_library_upload(file_id: &str, job_id: &str) -> LibraryUploadResponse {
+        LibraryUploadResponse {
+            files: vec![LibraryFileSummary {
+                file_id: uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111")
+                    .expect("uuid"),
+                group_key: "team".to_string(),
+                project_key: "docs".to_string(),
+                visibility: Visibility::Private,
+                folder_id: None,
+                filename: file_id.to_string(),
+                media_type: "text/plain".to_string(),
+                size_bytes: 5,
+                ingest_status: LibraryIngestStatus::Succeeded,
+                error_message: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                ingested_at: Some(chrono::Utc::now()),
+            }],
+            jobs: vec![LibraryIngestJobResponse {
+                job_id: uuid::Uuid::parse_str("22222222-2222-2222-2222-222222222222")
+                    .expect("uuid"),
+                group_key: "team".to_string(),
+                project_key: "docs".to_string(),
+                visibility: Visibility::Private,
+                file_id: uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111")
+                    .expect("uuid"),
+                status: LibraryIngestStatus::Succeeded,
+                docling_task_id: Some(job_id.to_string()),
+                error_message: None,
+                created_at: chrono::Utc::now(),
+                started_at: Some(chrono::Utc::now()),
+                finished_at: Some(chrono::Utc::now()),
+                updated_at: chrono::Utc::now(),
+            }],
         }
     }
 
@@ -639,5 +840,83 @@ mod tests {
             }
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[tokio::test]
+    async fn builder_access_token_can_call_protected_api() {
+        let (base_url, state) = spawn_test_server().await;
+        let client = Context69Client::builder()
+            .base_url(&base_url)
+            .expect("base url")
+            .with_access_token("manual-token")
+            .build()
+            .expect("client");
+
+        let outcome = client.sync_source("gov_documents").await.expect("sync response");
+        assert_eq!(outcome.records_changed, 4);
+        assert_eq!(state.sync_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn derived_client_access_token_overrides_session() {
+        let (base_url, state) = spawn_test_server().await;
+        let client = Context69Client::builder()
+            .base_url(&base_url)
+            .expect("base url")
+            .build()
+            .expect("client");
+        let derived = client.with_access_token("manual-token");
+
+        let response = derived
+            .create_project_library_text(
+                "team",
+                "docs",
+                &CreateTextRequest {
+                    folder_id: None,
+                    title: "Hello".to_string(),
+                    content: "world".to_string(),
+                    source_uri: None,
+                    summary: None,
+                },
+            )
+            .await
+            .expect("create response");
+
+        assert_eq!(response.files[0].filename, "created-file");
+        assert_eq!(state.create_text_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn upsert_project_library_text_sends_request_body() {
+        let (base_url, state) = spawn_test_server().await;
+        let client = Context69Client::builder()
+            .base_url(&base_url)
+            .expect("base url")
+            .with_access_token("manual-token")
+            .build()
+            .expect("client");
+
+        let response = client
+            .upsert_project_library_text(
+                "team",
+                "docs",
+                &UpsertLibraryTextRequest {
+                    external_id: "ext-1".to_string(),
+                    folder_id: None,
+                    title: "Hello".to_string(),
+                    content: "world".to_string(),
+                    source_uri: None,
+                    summary: None,
+                    published_at: Some(
+                        NaiveDate::from_ymd_opt(2026, 6, 10).expect("published_at"),
+                    ),
+                    metadata_json: json!({"topic":"gov"}),
+                },
+            )
+            .await
+            .expect("upsert response");
+
+        assert_eq!(response.files[0].filename, "upserted-file");
+        assert_eq!(state.upsert_text_calls.load(Ordering::SeqCst), 1);
     }
 }

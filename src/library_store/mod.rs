@@ -30,6 +30,18 @@ pub struct LibraryStore {
 pub struct NewLibraryFile {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,
+    pub external_id: Option<String>,
+    pub filename: String,
+    pub media_type: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub storage_rel_path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateLibraryTextFile {
+    pub folder_id: Option<Uuid>,
+    pub external_id: Option<String>,
     pub filename: String,
     pub media_type: String,
     pub size_bytes: i64,
@@ -60,6 +72,7 @@ struct FileRow {
     visibility: String,
     id: Uuid,
     folder_id: Option<Uuid>,
+    external_id: Option<String>,
     filename: String,
     media_type: String,
     size_bytes: i64,

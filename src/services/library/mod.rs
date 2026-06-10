@@ -21,6 +21,7 @@ use crate::{
         LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse,
         LibraryIngestJobResponse, LibraryIngestStatus, LibraryTreeResponse,
         LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
+        UpsertLibraryTextRequest,
     },
     db::Database,
     docling::{DoclingClient, DoclingInputKind, DoclingOutput, DoclingRequest},
@@ -81,6 +82,9 @@ struct IngestSection {
     summary: Option<String>,
     body_text: String,
     source_uri: Option<String>,
+    external_id: Option<String>,
+    published_at: Option<chrono::NaiveDate>,
+    metadata_json: Value,
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +154,21 @@ fn build_library_metadata(
         "library_filename": file.filename,
         "library_media_type": file.media_type,
     })
+}
+
+fn merge_library_metadata(user_metadata: &Value, system_metadata: Value) -> Result<Value> {
+    let Some(system_object) = system_metadata.as_object() else {
+        return Err(anyhow!("system library metadata must be an object"));
+    };
+    let mut merged = match user_metadata {
+        Value::Null => serde_json::Map::new(),
+        Value::Object(map) => map.clone(),
+        _ => return Err(anyhow!("metadata_json must be an object")),
+    };
+    for (key, value) in system_object {
+        merged.insert(key.clone(), value.clone());
+    }
+    Ok(Value::Object(merged))
 }
 
 #[cfg(test)]

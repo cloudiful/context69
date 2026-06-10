@@ -55,6 +55,9 @@ pub(super) fn extract_xlsx_sections(filename: &str, value: &Value) -> Result<Vec
             summary: None,
             body_text: normalize_body(&body),
             source_uri: None,
+            external_id: None,
+            published_at: None,
+            metadata_json: serde_json::json!({}),
         });
     }
 

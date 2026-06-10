@@ -1415,6 +1415,58 @@
       }
     },
     "/v1/groups/{group_key}/projects/{project_key}/library/texts": {
+      "put": {
+        "tags": [],
+        "operationId": "upsert_project_library_text",
+        "parameters": [
+          {
+            "name": "group_key",
+            "in": "path",
+            "description": "Group key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertLibraryTextRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Upserted text library entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryUploadResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Project not found"
+          }
+        }
+      },
       "post": {
         "tags": [],
         "operationId": "create_project_library_text",
@@ -5399,6 +5451,54 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "UpsertLibraryTextRequest": {
+        "type": "object",
+        "required": [
+          "external_id",
+          "title",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "metadata_json": {
+            "type": "object"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
           }
         }
       },

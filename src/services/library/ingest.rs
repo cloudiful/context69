@@ -149,6 +149,9 @@ impl LibraryService {
             summary: None,
             body_text: normalize_body(&parts.join("\n\n")),
             source_uri: None,
+            external_id: None,
+            published_at: None,
+            metadata_json: json!({}),
         }])
     }
 
@@ -181,6 +184,9 @@ impl LibraryService {
             summary: None,
             body_text: normalize_body(&text),
             source_uri: None,
+            external_id: None,
+            published_at: None,
+            metadata_json: json!({}),
         }])
     }
 
@@ -215,6 +221,9 @@ impl LibraryService {
                 summary: None,
                 body_text: normalize_body(&fallback),
                 source_uri: None,
+                external_id: None,
+                published_at: None,
+                metadata_json: json!({}),
             }]);
         }
         Ok(sections)
@@ -234,6 +243,9 @@ impl LibraryService {
             summary: None,
             body_text: normalize_body(text),
             source_uri: None,
+            external_id: None,
+            published_at: None,
+            metadata_json: json!({}),
         }])
     }
 
@@ -256,9 +268,15 @@ impl LibraryService {
         let mut mappings = Vec::new();
 
         for (index, section) in sections.into_iter().enumerate() {
-            let metadata_json = build_library_metadata(file, &folder_path, &section);
+            let metadata_json = merge_library_metadata(
+                &section.metadata_json,
+                build_library_metadata(file, &folder_path, &section),
+            )?;
             let normalized = normalize_record(SourceRecord {
-                external_id: format!("{}:{}", file.id, section.section_key),
+                external_id: section
+                    .external_id
+                    .clone()
+                    .unwrap_or_else(|| format!("{}:{}", file.id, section.section_key)),
                 title: section.title.clone(),
                 body_text: section.body_text.clone(),
                 source_uri: section
@@ -266,7 +284,7 @@ impl LibraryService {
                     .clone()
                     .unwrap_or_else(|| format!("context69://library/files/{}", file.id)),
                 summary: section.summary.clone(),
-                published_at: None,
+                published_at: section.published_at,
                 updated_at: Utc::now(),
                 metadata_json,
             });

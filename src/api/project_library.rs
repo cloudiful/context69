@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::contracts::{
     CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
     LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse,
-    MembershipRole, MoveFileRequest, MoveFolderRequest,
+    MembershipRole, MoveFileRequest, MoveFolderRequest, UpsertLibraryTextRequest,
 };
 
 use super::{
@@ -119,6 +119,44 @@ pub(crate) async fn create_project_library_text(
         .await
     {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/v1/groups/{group_key}/projects/{project_key}/library/texts",
+    params(
+        ("group_key" = String, Path, description = "Group key"),
+        ("project_key" = String, Path, description = "Project key")
+    ),
+    request_body = UpsertLibraryTextRequest,
+    responses(
+        (status = 200, description = "Upserted text library entry", body = LibraryUploadResponse),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Project not found")
+    )
+)]
+pub(crate) async fn upsert_project_library_text(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path((group_key, project_key)): Path<(String, String)>,
+    Json(request): Json<UpsertLibraryTextRequest>,
+) -> impl IntoResponse {
+    let project = match project_for_user(&state, session.user.id, &group_key, &project_key).await {
+        Ok(project) => project,
+        Err(error) => return project_access_error_response(error),
+    };
+    if let Err(error) = require_project_role(&project, MembershipRole::Maintainer) {
+        return project_access_error_response(error);
+    }
+    match state
+        .app
+        .library
+        .upsert_text_file_in_project(&project, &request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }

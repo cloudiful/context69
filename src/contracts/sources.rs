@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub use context69_contracts::{ListSourcesResponse, SourceOriginStatusKind, SourceStatus};
+pub use context69_contracts::sources::{
+    ListSourcesResponse, SourceOriginStatusKind, SourceStatus, SyncOutcome,
+};
 
 use super::Visibility;
 
@@ -39,11 +41,4 @@ pub struct UpsertSourceConnectionRequest {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct SyncOutcome {
-    pub records_seen: usize,
-    pub records_changed: usize,
-    pub chunks_upserted: usize,
 }

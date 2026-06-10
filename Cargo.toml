@@ -25,7 +25,7 @@ axum-extra = { version = "0.10.3", features = ["cookie"] }
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 config = { package = "cloudiful-config", version = "0.6.2" }
-context69-contracts = { version = "0.1.0" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.1.0" }
 futures = "0.3.32"
 jsonwebtoken = "9.3.1"
 lopdf = "0.40.0"

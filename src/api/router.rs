@@ -15,7 +15,7 @@ use super::{
     ApiState, auth_middleware, create_admin_user, create_group, create_library_folder,
     create_library_text,
     create_project, create_project_library_folder, create_project_source,
-    create_project_library_text,
+    create_project_library_text, upsert_project_library_text,
     create_provider_account, create_source,
     create_source_connection, delete_library_file, delete_library_folder,
     delete_project_library_file, delete_project_library_folder, delete_provider_account,
@@ -187,7 +187,7 @@ fn project_scoped_routes(upload_body_limit: usize) -> Router<ApiState> {
         )
         .route(
             "/v1/groups/{group_key}/projects/{project_key}/library/texts",
-            post(create_project_library_text),
+            post(create_project_library_text).put(upsert_project_library_text),
         )
         .route(
             "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}/move",

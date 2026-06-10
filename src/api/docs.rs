@@ -20,6 +20,7 @@ use crate::contracts::{
     SourceConfigInput, SourceConnectionResponse, SourceStatus, SyncOutcome,
     UpdateAdminUserRequest, UpdateDoclingSettingsRequest, UpdateGroupRequest,
     UpdateProjectRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    UpsertLibraryTextRequest,
     UpsertMembershipRequest, UpsertProviderAccountRequest, UpsertSourceConnectionRequest,
     UserDirectoryEntryResponse, Visibility,
 };
@@ -53,7 +54,7 @@ use crate::api::{
         __path_delete_project_library_folder, __path_get_project_library_file,
         __path_get_project_library_job, __path_get_project_library_tree,
         __path_move_project_library_file, __path_move_project_library_folder,
-        __path_create_project_library_text,
+        __path_create_project_library_text, __path_upsert_project_library_text,
         __path_upload_project_library_files,
     },
     project_sources::{
@@ -130,6 +131,7 @@ use crate::api::{
         get_project_library_tree,
         create_project_library_folder,
         create_project_library_text,
+        upsert_project_library_text,
         move_project_library_folder,
         delete_project_library_folder,
         upload_project_library_files,
@@ -200,6 +202,7 @@ use crate::api::{
         SyncOutcome,
         CreateFolderRequest,
         CreateTextRequest,
+        UpsertLibraryTextRequest,
         MoveFolderRequest,
         MoveFileRequest,
         LibraryFolderResponse,

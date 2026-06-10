@@ -2,37 +2,46 @@ use anyhow::Result;
 use chrono::Utc;
 use uuid::Uuid;
 
-use super::{FileRow, LibraryFileRecord, LibraryIngestStatus, LibraryStore, NewLibraryFile};
 use super::mappers::file_from_row;
+use super::{
+    FileRow, LibraryFileRecord, LibraryIngestStatus, LibraryStore, NewLibraryFile,
+    UpdateLibraryTextFile,
+};
+
+const FILE_COLUMNS: &str = r#"
+    group_id,
+    (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
+    project_id,
+    (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
+    visibility,
+    id,
+    folder_id,
+    external_id,
+    filename,
+    media_type,
+    size_bytes,
+    sha256,
+    storage_rel_path,
+    ingest_status,
+    error_message,
+    created_at,
+    updated_at,
+    ingested_at
+"#;
 
 impl LibraryStore {
     pub async fn list_files(&self) -> Result<Vec<LibraryFileRecord>> {
-        let rows = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             SELECT
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
+                {FILE_COLUMNS}
             FROM context69.library_files
             ORDER BY filename, id
-            "#,
-        )
-        .fetch_all(self.db.pool())
-        .await?;
+            "#
+        );
+        let rows = sqlx::query_as::<_, FileRow>(&query)
+            .fetch_all(self.db.pool())
+            .await?;
 
         rows.into_iter().map(file_from_row).collect()
     }
@@ -42,99 +51,54 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        let rows = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             SELECT
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
+                {FILE_COLUMNS}
             FROM context69.library_files
             WHERE id = ANY($1)
             ORDER BY filename, id
-            "#,
-        )
-        .bind(file_ids)
-        .fetch_all(self.db.pool())
-        .await?;
+            "#
+        );
+        let rows = sqlx::query_as::<_, FileRow>(&query)
+            .bind(file_ids)
+            .fetch_all(self.db.pool())
+            .await?;
 
         rows.into_iter().map(file_from_row).collect()
     }
 
     pub async fn list_files_in_project(&self, project_id: i64) -> Result<Vec<LibraryFileRecord>> {
-        let rows = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             SELECT
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
+                {FILE_COLUMNS}
             FROM context69.library_files
             WHERE project_id = $1
             ORDER BY filename, id
-            "#,
-        )
-        .bind(project_id)
-        .fetch_all(self.db.pool())
-        .await?;
+            "#
+        );
+        let rows = sqlx::query_as::<_, FileRow>(&query)
+            .bind(project_id)
+            .fetch_all(self.db.pool())
+            .await?;
 
         rows.into_iter().map(file_from_row).collect()
     }
 
     pub async fn get_file(&self, file_id: Uuid) -> Result<Option<LibraryFileRecord>> {
-        let row = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             SELECT
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
+                {FILE_COLUMNS}
             FROM context69.library_files
             WHERE id = $1
-            "#,
-        )
-        .bind(file_id)
-        .fetch_optional(self.db.pool())
-        .await?;
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(file_id)
+            .fetch_optional(self.db.pool())
+            .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -144,41 +108,49 @@ impl LibraryStore {
         project_id: i64,
         file_id: Uuid,
     ) -> Result<Option<LibraryFileRecord>> {
-        let row = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             SELECT
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
+                {FILE_COLUMNS}
             FROM context69.library_files
             WHERE project_id = $1
               AND id = $2
-            "#,
-        )
-        .bind(project_id)
-        .bind(file_id)
-        .fetch_optional(self.db.pool())
-        .await?;
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(project_id)
+            .bind(file_id)
+            .fetch_optional(self.db.pool())
+            .await?;
+
+        row.map(file_from_row).transpose()
+    }
+
+    pub async fn get_file_by_external_id_in_project(
+        &self,
+        project_id: i64,
+        external_id: &str,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let query = format!(
+            r#"
+            SELECT
+                {FILE_COLUMNS}
+            FROM context69.library_files
+            WHERE project_id = $1
+              AND external_id = $2
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(project_id)
+            .bind(external_id)
+            .fetch_optional(self.db.pool())
+            .await?;
 
         row.map(file_from_row).transpose()
     }
 
     pub async fn create_file(&self, file: &NewLibraryFile) -> Result<LibraryFileRecord> {
-        let row = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             WITH folder_scope AS (
                 SELECT group_id, project_id, visibility
@@ -204,6 +176,7 @@ impl LibraryStore {
                 project_id,
                 visibility,
                 folder_id,
+                external_id,
                 filename,
                 media_type,
                 size_bytes,
@@ -222,37 +195,24 @@ impl LibraryStore {
                 $5,
                 $6,
                 $7,
+                $8,
                 'pending'
             FROM resolved_scope rs
             RETURNING
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
-            "#,
-        )
-        .bind(file.id)
-        .bind(file.folder_id)
-        .bind(&file.filename)
-        .bind(&file.media_type)
-        .bind(file.size_bytes)
-        .bind(&file.sha256)
-        .bind(&file.storage_rel_path)
-        .fetch_one(self.db.pool())
-        .await?;
+                {FILE_COLUMNS}
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(file.id)
+            .bind(file.folder_id)
+            .bind(&file.external_id)
+            .bind(&file.filename)
+            .bind(&file.media_type)
+            .bind(file.size_bytes)
+            .bind(&file.sha256)
+            .bind(&file.storage_rel_path)
+            .fetch_one(self.db.pool())
+            .await?;
 
         file_from_row(row)
     }
@@ -262,18 +222,18 @@ impl LibraryStore {
         project_id: i64,
         file: &NewLibraryFile,
     ) -> Result<LibraryFileRecord> {
-        let row = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             WITH folder_scope AS (
                 SELECT group_id, project_id, visibility
                 FROM context69.library_folders
                 WHERE id = $2
-                  AND project_id = $8
+                  AND project_id = $9
             ),
             project_scope AS (
                 SELECT p.group_id, p.id AS project_id, p.visibility
                 FROM context69.projects p
-                WHERE p.id = $8
+                WHERE p.id = $9
             ),
             resolved_scope AS (
                 SELECT group_id, project_id, visibility FROM folder_scope
@@ -287,6 +247,7 @@ impl LibraryStore {
                 project_id,
                 visibility,
                 folder_id,
+                external_id,
                 filename,
                 media_type,
                 size_bytes,
@@ -305,40 +266,70 @@ impl LibraryStore {
                 $5,
                 $6,
                 $7,
+                $8,
                 'pending'
             FROM resolved_scope rs
             RETURNING
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
-            "#,
-        )
-        .bind(file.id)
-        .bind(file.folder_id)
-        .bind(&file.filename)
-        .bind(&file.media_type)
-        .bind(file.size_bytes)
-        .bind(&file.sha256)
-        .bind(&file.storage_rel_path)
-        .bind(project_id)
-        .fetch_one(self.db.pool())
-        .await?;
+                {FILE_COLUMNS}
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(file.id)
+            .bind(file.folder_id)
+            .bind(&file.external_id)
+            .bind(&file.filename)
+            .bind(&file.media_type)
+            .bind(file.size_bytes)
+            .bind(&file.sha256)
+            .bind(&file.storage_rel_path)
+            .bind(project_id)
+            .fetch_one(self.db.pool())
+            .await?;
 
         file_from_row(row)
+    }
+
+    pub async fn update_text_file_in_project(
+        &self,
+        project_id: i64,
+        file_id: Uuid,
+        update: &UpdateLibraryTextFile,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let query = format!(
+            r#"
+            UPDATE context69.library_files
+            SET
+                folder_id = $3,
+                external_id = $4,
+                filename = $5,
+                media_type = $6,
+                size_bytes = $7,
+                sha256 = $8,
+                storage_rel_path = $9,
+                ingest_status = 'pending',
+                error_message = NULL,
+                ingested_at = NULL,
+                updated_at = now()
+            WHERE project_id = $1
+              AND id = $2
+            RETURNING
+                {FILE_COLUMNS}
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(project_id)
+            .bind(file_id)
+            .bind(update.folder_id)
+            .bind(&update.external_id)
+            .bind(&update.filename)
+            .bind(&update.media_type)
+            .bind(update.size_bytes)
+            .bind(&update.sha256)
+            .bind(&update.storage_rel_path)
+            .fetch_optional(self.db.pool())
+            .await?;
+
+        row.map(file_from_row).transpose()
     }
 
     pub async fn move_file(
@@ -346,35 +337,20 @@ impl LibraryStore {
         file_id: Uuid,
         target_folder_id: Option<Uuid>,
     ) -> Result<Option<LibraryFileRecord>> {
-        let row = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             UPDATE context69.library_files
             SET folder_id = $2, updated_at = now()
             WHERE id = $1
             RETURNING
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
-            "#,
-        )
-        .bind(file_id)
-        .bind(target_folder_id)
-        .fetch_optional(self.db.pool())
-        .await?;
+                {FILE_COLUMNS}
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(file_id)
+            .bind(target_folder_id)
+            .fetch_optional(self.db.pool())
+            .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -385,37 +361,22 @@ impl LibraryStore {
         file_id: Uuid,
         target_folder_id: Option<Uuid>,
     ) -> Result<Option<LibraryFileRecord>> {
-        let row = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             UPDATE context69.library_files
             SET folder_id = $3, updated_at = now()
             WHERE project_id = $1
               AND id = $2
             RETURNING
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
-            "#,
-        )
-        .bind(project_id)
-        .bind(file_id)
-        .bind(target_folder_id)
-        .fetch_optional(self.db.pool())
-        .await?;
+                {FILE_COLUMNS}
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(project_id)
+            .bind(file_id)
+            .bind(target_folder_id)
+            .fetch_optional(self.db.pool())
+            .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -432,37 +393,22 @@ impl LibraryStore {
         } else {
             None
         };
-        let row = sqlx::query_as::<_, FileRow>(
+        let query = format!(
             r#"
             UPDATE context69.library_files
             SET ingest_status = $2, error_message = $3, ingested_at = $4, updated_at = now()
             WHERE id = $1
             RETURNING
-                group_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
-                visibility,
-                id,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_rel_path,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
-            "#,
-        )
-        .bind(file_id)
-        .bind(status.as_str())
-        .bind(error_message)
-        .bind(ingested_at)
-        .fetch_optional(self.db.pool())
-        .await?;
+                {FILE_COLUMNS}
+            "#
+        );
+        let row = sqlx::query_as::<_, FileRow>(&query)
+            .bind(file_id)
+            .bind(status.as_str())
+            .bind(error_message)
+            .bind(ingested_at)
+            .fetch_optional(self.db.pool())
+            .await?;
 
         row.map(file_from_row).transpose()
     }

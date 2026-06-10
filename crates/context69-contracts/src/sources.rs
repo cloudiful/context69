@@ -43,3 +43,10 @@ pub struct SourceStatus {
 pub struct ListSourcesResponse {
     pub sources: Vec<SourceStatus>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct SyncOutcome {
+    pub records_seen: usize,
+    pub records_changed: usize,
+    pub chunks_upserted: usize,
+}

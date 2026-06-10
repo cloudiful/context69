@@ -1,8 +1,10 @@
 use context69_contracts::{
-    AuthLoginRequest, GroupKind, GroupResponse, HealthResponse, HealthStatus, ListSourcesResponse,
-    MembershipRole, SearchRequest, SourceOriginStatusKind, SourceStatus, Visibility,
+    AuthLoginRequest, CreateTextRequest, GroupKind, GroupResponse, HealthResponse, HealthStatus,
+    LibraryUploadResponse, ListSourcesResponse, MembershipRole, SearchRequest,
+    SourceOriginStatusKind, SourceStatus, UpsertLibraryTextRequest, Visibility,
 };
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 #[test]
 fn serializes_and_deserializes_core_requests() {
@@ -27,6 +29,28 @@ fn serializes_and_deserializes_core_requests() {
         serde_json::from_value(serde_json::to_value(login).expect("serialize login"))
             .expect("deserialize login");
     assert_eq!(roundtrip.login_name, "admin");
+
+    let text_request = CreateTextRequest {
+        folder_id: Some(Uuid::nil()),
+        title: "Doc".to_string(),
+        content: "Hello".to_string(),
+        source_uri: Some("https://example.test/doc".to_string()),
+        summary: Some("Summary".to_string()),
+    };
+    let text_roundtrip: CreateTextRequest =
+        serde_json::from_value(serde_json::to_value(text_request).expect("serialize text request"))
+            .expect("deserialize text request");
+    assert_eq!(text_roundtrip.title, "Doc");
+
+    let upsert_request: UpsertLibraryTextRequest = serde_json::from_value(json!({
+        "external_id": "doc-1",
+        "title": "Doc",
+        "content": "Hello",
+        "published_at": "2026-06-10"
+    }))
+    .expect("deserialize upsert request");
+    assert_eq!(upsert_request.metadata_json, json!({}));
+    assert_eq!(upsert_request.external_id, "doc-1");
 }
 
 #[test]
@@ -82,4 +106,11 @@ fn serializes_core_responses() {
     };
     let health_json = serde_json::to_value(health).expect("serialize health");
     assert_eq!(health_json["status"], json!("degraded"));
+
+    let library_upload = LibraryUploadResponse {
+        files: vec![],
+        jobs: vec![],
+    };
+    let upload_json = serde_json::to_value(library_upload).expect("serialize library upload");
+    assert_eq!(upload_json, json!({ "files": [], "jobs": [] }));
 }

@@ -52,6 +52,7 @@ pub(super) fn file_from_row(row: FileRow) -> Result<LibraryFileRecord> {
         project_key: row.project_key,
         visibility: row.visibility.parse().unwrap_or(Visibility::Private),
         folder_id: row.folder_id,
+        external_id: row.external_id,
         filename: row.filename,
         media_type: row.media_type,
         size_bytes: row.size_bytes,

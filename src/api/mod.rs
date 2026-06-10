@@ -45,7 +45,7 @@ pub(crate) use project_library::{
     create_project_library_folder, delete_project_library_file,
     delete_project_library_folder, get_project_library_file, get_project_library_job,
     get_project_library_tree, move_project_library_file, move_project_library_folder,
-    create_project_library_text,
+    create_project_library_text, upsert_project_library_text,
     upload_project_library_files,
 };
 pub(crate) use project_sources::{
