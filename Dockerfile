@@ -3,7 +3,7 @@ FROM oven/bun:1 AS frontend-build
 WORKDIR /app/frontend
 ARG TARGETARCH
 
-COPY frontend/package.json frontend/bun.lock ./
+COPY frontend/package.json ./
 RUN --mount=type=cache,target=/root/.cache/bun,sharing=locked \
     --mount=type=cache,target=/root/.bun/install/cache,sharing=locked \
     bun install --frozen-lockfile
