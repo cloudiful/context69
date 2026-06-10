@@ -16,7 +16,7 @@ FROM rust:1-bookworm AS build
 WORKDIR /app
 ARG TARGETARCH
 
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates/context69-contracts/Cargo.toml crates/context69-contracts/Cargo.toml
 COPY crates/context69-sdk/Cargo.toml crates/context69-sdk/Cargo.toml
 
@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
     cargo build --release
 
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates crates
 COPY src src
 COPY migrations migrations
