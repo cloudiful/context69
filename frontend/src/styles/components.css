@@ -3,8 +3,16 @@
     @apply grid min-h-screen items-start bg-app-bg text-app-text md:grid-cols-[auto_minmax(0,1fr)];
   }
 
+  .app-shell.is-login-route {
+    @apply block;
+  }
+
   .app-main-shell {
     @apply flex min-h-screen min-w-0 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3;
+  }
+
+  .app-main-shell.is-login-route {
+    @apply px-0 py-0 pb-0;
   }
 
   .app-sidebar {
@@ -379,69 +387,50 @@
   }
 
   .auth-page-shell {
-    @apply mx-auto grid min-h-[calc(100vh-5rem)] w-full max-w-6xl gap-4 px-3 py-4 md:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] md:items-stretch md:py-6;
-  }
-
-  .auth-hero {
-    @apply hidden min-w-0 rounded-[1.5rem] border border-app-border/70 bg-app-surface-muted/30 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:grid md:grid-rows-[auto_1fr_auto] md:gap-5;
-  }
-
-  .auth-hero-mark {
-    @apply flex h-14 w-14 items-center justify-center rounded-2xl border border-app-border bg-app-surface-soft/65 text-base font-bold tracking-[0.18em] text-app-text;
-  }
-
-  .auth-hero-copy {
-    @apply grid content-end gap-3;
-  }
-
-  .auth-hero-title {
-    @apply text-3xl font-semibold tracking-[-0.02em] text-app-text;
-  }
-
-  .auth-hero-text {
-    @apply max-w-xl text-sm leading-7 text-app-text-muted;
-  }
-
-  .auth-hero-tags {
-    @apply flex flex-wrap gap-2;
-  }
-
-  .auth-hero-tag {
-    @apply inline-flex min-h-8 items-center rounded-full border border-app-border/70 bg-app-surface-soft/45 px-3 text-sm font-medium text-app-text-muted;
-  }
-
-  .auth-hero-user {
-    @apply grid gap-1 rounded-2xl border border-app-border/70 bg-app-surface-soft/35 px-4 py-3;
+    @apply flex min-h-[calc(100vh-5rem)] w-full items-center justify-center px-3 py-6;
   }
 
   .auth-panel {
-    @apply w-full self-center md:self-stretch;
+    @apply w-full max-w-[27rem];
   }
 
   .auth-panel > .p-card-body {
-    @apply gap-5 p-4 md:h-full md:gap-6 md:p-5;
+    @apply gap-4 p-4 md:gap-4 md:p-5;
   }
 
-  .auth-page-copy {
-    @apply grid gap-2;
+  .auth-session-inline {
+    @apply grid gap-1 rounded-xl border border-app-border/70 bg-app-surface-soft/25 px-3 py-2;
+  }
+
+  .auth-session-inline-name {
+    @apply text-sm font-semibold text-app-text;
   }
 
   .auth-form {
-    @apply grid gap-4;
+    @apply grid gap-3;
+  }
+
+  .auth-field {
+    @apply gap-2;
+  }
+
+  .auth-field .p-inputtext {
+    @apply min-h-12 rounded-2xl border-app-border/80 bg-app-surface-soft/34 px-4 text-sm text-app-text shadow-none;
+  }
+
+  .auth-field .p-inputtext:enabled:focus {
+    @apply border-app-border-strong;
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.08);
   }
 
   .auth-form-actions {
-    @apply flex justify-end;
+    @apply pt-1;
   }
 
   .auth-submit-button {
-    @apply w-full md:w-auto;
-    min-width: 8rem;
+    @apply w-full;
   }
 
-  .auth-session-caption {
-    @apply text-xs text-app-text-dim;
-  }
 
   .search-results-panel.p-card {
     border-radius: 1.1rem;

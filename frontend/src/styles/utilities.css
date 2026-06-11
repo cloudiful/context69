@@ -878,9 +878,8 @@
 
     .auth-page-shell {
       min-height: auto;
-      gap: 0.75rem;
       padding: 0.75rem;
-      align-content: start;
+      justify-content: stretch;
     }
 
     .auth-panel > .p-card-body {
@@ -890,6 +889,11 @@
 
     .auth-form {
       gap: 0.85rem;
+    }
+
+    .auth-field .p-inputtext {
+      min-height: 2.8rem;
+      border-radius: 1rem;
     }
 
     .auth-form-actions {

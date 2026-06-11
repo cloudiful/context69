@@ -28,7 +28,9 @@ export const zhCN = {
     title: "登录",
     description: "使用 Context69 账号登录后，才能继续访问搜索、文件库、来源和设置。",
     loginName: "登录名",
+    loginNamePlaceholder: "输入登录名",
     password: "密码",
+    passwordPlaceholder: "输入密码",
     signIn: "登录",
     signingIn: "登录中...",
     logout: "退出登录",
@@ -39,6 +41,10 @@ export const zhCN = {
     sessionExpired: "登录态已过期，请重新登录。",
     sessionRestoreFailed: "会话恢复失败，请重新登录。",
     sessionStateTitle: "会话状态",
+    validation: {
+      loginNameRequired: "登录名不能为空。",
+      passwordRequired: "密码不能为空。",
+    },
   },
   language: {
     label: "语言",

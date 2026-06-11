@@ -28,7 +28,9 @@ export const en = {
     title: "Sign In",
     description: "Use your Context69 account to restore access to search, library, sources, and settings.",
     loginName: "Login Name",
+    loginNamePlaceholder: "Enter your login name",
     password: "Password",
+    passwordPlaceholder: "Enter your password",
     signIn: "Sign In",
     signingIn: "Signing In...",
     logout: "Log Out",
@@ -39,6 +41,10 @@ export const en = {
     sessionExpired: "Your session has expired. Sign in again to continue.",
     sessionRestoreFailed: "Session recovery failed. Sign in again to continue.",
     sessionStateTitle: "Session State",
+    validation: {
+      loginNameRequired: "Login Name is required.",
+      passwordRequired: "Password is required.",
+    },
   },
   language: {
     label: "Language",

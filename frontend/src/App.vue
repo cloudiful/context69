@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
+import { useRoute } from "vue-router";
 import ConfirmDialog from "primevue/confirmdialog";
 import Toast from "primevue/toast";
 
@@ -11,6 +12,8 @@ import { authSessionState } from "./services/auth";
 
 const preferences = useUiPreferences();
 const appReady = computed(() => authSessionState.ready);
+const route = useRoute();
+const isLoginRoute = computed(() => route.name === "login");
 
 onMounted(() => {
   preferences.hydrate();
@@ -18,12 +21,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'is-login-route': isLoginRoute }">
     <ConfirmDialog />
     <Toast position="bottom-right" />
     <AppSidebar />
 
-    <main class="app-main-shell">
+    <main class="app-main-shell" :class="{ 'is-login-route': isLoginRoute }">
       <AppContextBar />
       <div v-if="appReady" class="flex-1">
         <RouterView />

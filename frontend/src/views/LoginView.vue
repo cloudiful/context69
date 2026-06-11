@@ -2,21 +2,38 @@
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import { Form, FormField } from "@primevue/forms";
+import { zodResolver } from "@primevue/forms/resolvers/zod";
 import Button from "primevue/button";
+import Fluid from "primevue/fluid";
+import InputText from "primevue/inputtext";
+import Message from "primevue/message";
+import * as z from "zod";
 
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
-import AppTextField from "../components/AppTextField.vue";
 import { AuthError, authSessionState, login } from "../services/auth";
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 
-const loginName = ref("");
-const password = ref("");
 const errorMessage = ref("");
 const busy = ref(false);
+
+const initialValues = {
+  login_name: "",
+  password: "",
+};
+
+const resolver = computed(() =>
+  zodResolver(
+    z.object({
+      login_name: z.string().trim().min(1, { message: t("auth.validation.loginNameRequired") }),
+      password: z.string().min(1, { message: t("auth.validation.passwordRequired") }),
+    }),
+  ),
+);
 
 const sessionReasonMessage = computed(() => {
   const reason = route.query.reason;
@@ -34,8 +51,28 @@ const redirectTarget = computed(() => {
   return typeof redirect === "string" && redirect ? redirect : "/search";
 });
 
-async function submit() {
+function readAuthError(error: unknown) {
+  if (error instanceof AuthError) {
+    return error;
+  }
+
+  if (error && typeof error === "object" && "reason" in error) {
+    const reason = typeof error.reason === "string" ? error.reason : "unknown";
+    const message = "message" in error && typeof error.message === "string"
+      ? error.message
+      : t("auth.loginFailed");
+    return new AuthError(message, 0, reason as AuthError["reason"]);
+  }
+
+  return null;
+}
+
+async function submit(event: { valid: boolean; values: Record<string, unknown> }) {
   if (busy.value) {
+    return;
+  }
+
+  if (!event.valid) {
     return;
   }
 
@@ -44,18 +81,19 @@ async function submit() {
 
   try {
     await login({
-      login_name: loginName.value.trim(),
-      password: password.value,
+      login_name: String(event.values.login_name ?? "").trim(),
+      password: String(event.values.password ?? ""),
     });
     await router.replace(redirectTarget.value);
   } catch (error) {
-    if (error instanceof AuthError) {
-      if (error.reason === "invalid_credentials") {
+    const authError = readAuthError(error);
+    if (authError) {
+      if (authError.reason === "invalid_credentials") {
         errorMessage.value = t("auth.invalidCredentials");
-      } else if (error.reason === "network") {
+      } else if (authError.reason === "network") {
         errorMessage.value = t("auth.networkError");
       } else {
-        errorMessage.value = error.message || t("auth.loginFailed");
+        errorMessage.value = authError.message || t("auth.loginFailed");
       }
     } else {
       errorMessage.value = t("auth.loginFailed");
@@ -68,27 +106,12 @@ async function submit() {
 
 <template>
   <div class="auth-page-shell">
-    <section class="auth-hero">
-      <div class="auth-hero-mark">C69</div>
-      <div class="auth-hero-copy">
-        <p class="section-label">{{ t("auth.label") }}</p>
-        <h1 class="auth-hero-title">Context69</h1>
-        <p class="auth-hero-text">{{ t("auth.description") }}</p>
-      </div>
-
-      <div class="auth-hero-tags" aria-label="Available workspaces">
-        <span class="auth-hero-tag">{{ t("nav.search") }}</span>
-        <span class="auth-hero-tag">{{ t("nav.groups") }}</span>
-        <span class="auth-hero-tag">{{ t("nav.settings") }}</span>
-      </div>
-
-      <div v-if="authSessionState.user" class="auth-hero-user">
-        <span class="auth-session-caption">{{ authSessionState.user.display_name }}</span>
+    <AppPanel class="auth-panel" :title="t('auth.title')">
+      <div v-if="authSessionState.user" class="auth-session-inline">
+        <span class="auth-session-inline-name">{{ authSessionState.user.display_name }}</span>
         <span class="text-xs text-app-text-dim">{{ authSessionState.user.login_name }}</span>
       </div>
-    </section>
 
-    <AppPanel class="auth-panel" :title="t('auth.title')" :label="t('auth.label')">
       <AppStateMessage
         v-if="sessionReasonMessage"
         severity="warn"
@@ -105,34 +128,64 @@ async function submit() {
         {{ errorMessage }}
       </AppStateMessage>
 
-      <form class="auth-form" @submit.prevent="submit">
-        <AppTextField
-          input-id="login-name"
-          :label="t('auth.loginName')"
-          autocomplete="username"
-          :model-value="loginName"
-          @update:model-value="loginName = $event"
-        />
-        <AppTextField
-          input-id="login-password"
-          :label="t('auth.password')"
-          type="password"
-          autocomplete="current-password"
-          :model-value="password"
-          @update:model-value="password = $event"
-        />
+      <Fluid>
+        <Form
+          class="auth-form"
+          :initial-values="initialValues"
+          :resolver="resolver"
+          @submit="submit"
+        >
+          <FormField v-slot="$field" name="login_name" :initial-value="initialValues.login_name">
+            <label class="app-form-field auth-field">
+              <span class="app-form-field-label">{{ t("auth.loginName") }}</span>
+              <InputText
+                id="login-name"
+                v-bind="$field.props"
+                :model-value="$field.value"
+                :disabled="busy"
+                :placeholder="t('auth.loginNamePlaceholder')"
+                autocomplete="username"
+                fluid
+                @update:model-value="$field.props.onInput({ value: $event })"
+              />
+              <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
+                {{ $field.error?.message }}
+              </Message>
+            </label>
+          </FormField>
 
-        <div class="auth-form-actions">
-          <Button
-            class="app-primary-button auth-submit-button"
-            type="submit"
-            :disabled="busy"
-            :loading="busy"
-          >
-            {{ busy ? t("auth.signingIn") : t("auth.signIn") }}
-          </Button>
-        </div>
-      </form>
+          <FormField v-slot="$field" name="password" :initial-value="initialValues.password">
+            <label class="app-form-field auth-field">
+              <span class="app-form-field-label">{{ t("auth.password") }}</span>
+              <InputText
+                id="login-password"
+                v-bind="$field.props"
+                :model-value="$field.value"
+                type="password"
+                :disabled="busy"
+                :placeholder="t('auth.passwordPlaceholder')"
+                autocomplete="current-password"
+                fluid
+                @update:model-value="$field.props.onInput({ value: $event })"
+              />
+              <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
+                {{ $field.error?.message }}
+              </Message>
+            </label>
+          </FormField>
+
+          <div class="auth-form-actions">
+            <Button
+              class="app-primary-button auth-submit-button"
+              type="submit"
+              :disabled="busy"
+              :loading="busy"
+            >
+              {{ busy ? t("auth.signingIn") : t("auth.signIn") }}
+            </Button>
+          </div>
+        </Form>
+      </Fluid>
     </AppPanel>
   </div>
 </template>
