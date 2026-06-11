@@ -396,7 +396,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        put: operations["upsert_project_library_text"];
         post: operations["create_project_library_text"];
         delete?: never;
         options?: never;
@@ -1393,6 +1393,18 @@ export interface components {
             rerank_model: string;
             /** Format: int64 */
             timeout_secs: number;
+        };
+        UpsertLibraryTextRequest: {
+            content: string;
+            external_id: string;
+            /** Format: uuid */
+            folder_id?: string | null;
+            metadata_json?: Record<string, never>;
+            /** Format: date */
+            published_at?: string | null;
+            source_uri?: string | null;
+            summary?: string | null;
+            title: string;
         };
         UpsertMembershipRequest: {
             login_name: string;
@@ -2558,6 +2570,49 @@ export interface operations {
                 };
             };
             /** @description Project or job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    upsert_project_library_text: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group key */
+                group_key: string;
+                /** @description Project key */
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertLibraryTextRequest"];
+            };
+        };
+        responses: {
+            /** @description Upserted text library entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryUploadResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Project not found */
             404: {
                 headers: {
                     [name: string]: unknown;
