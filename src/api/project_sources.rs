@@ -84,7 +84,12 @@ pub(crate) async fn create_project_source(
         project_key: project.project_key.clone(),
         visibility: project.visibility,
     };
-    match state.app.sync.create_source_in_scope(&scope, &request).await {
+    match state
+        .app
+        .sync
+        .create_source_in_scope(&scope, &request)
+        .await
+    {
         Ok(source) => (StatusCode::CREATED, Json(source)).into_response(),
         Err(error) => source_management_error_response(error),
     }

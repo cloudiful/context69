@@ -4,8 +4,7 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     contracts::{
-        DoclingConnectionSettingsResponse, DoclingConversionSettings, DoclingEnrichmentSettings,
-        DoclingOcrSettings, DoclingSettingsResponse, DoclingSettingsSource,
+        DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,
         DoclingVlmSettingsResponse, ProviderAccountResponse, RuntimeChunkingSettings,
         RuntimeEmbeddingSettings, RuntimeFileLibrarySettings, RuntimeQdrantSettings,
         RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse,
@@ -19,8 +18,7 @@ use crate::{
     },
     docling::{
         DEFAULT_DOCLING_POLL_INTERVAL_SECS, DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig,
-        DoclingConnectionConfig, DoclingConversionConfig, DoclingEnrichmentConfig,
-        DoclingOcrConfig, DoclingVlmConfig,
+        DoclingConnectionConfig, DoclingVlmConfig,
     },
     support::normalize::{normalize_optional_string, normalize_string_list},
 };
@@ -68,16 +66,16 @@ pub(super) fn docling_settings_from_request(
         base_url: request.connection.base_url.trim().to_string(),
         timeout_secs: request.connection.timeout_secs,
         poll_interval_secs: request.connection.poll_interval_secs,
-        pdf_backend: normalize_optional_string(request.conversion.pdf_backend.clone()),
-        images_scale: request.conversion.images_scale,
-        image_export_mode: normalize_optional_string(request.conversion.image_export_mode.clone()),
-        do_ocr: request.ocr.do_ocr,
-        force_ocr: request.ocr.force_ocr,
-        ocr_engine: normalize_optional_string(request.ocr.ocr_engine.clone()),
-        ocr_lang: normalize_string_list(request.ocr.ocr_lang.clone()),
-        do_code_enrichment: request.enrichment.do_code_enrichment,
-        do_formula_enrichment: request.enrichment.do_formula_enrichment,
-        do_picture_description: request.enrichment.do_picture_description,
+        pdf_backend: None,
+        images_scale: None,
+        image_export_mode: Some("placeholder".to_string()),
+        do_ocr: true,
+        force_ocr: false,
+        ocr_engine: Some("rapidocr".to_string()),
+        ocr_lang: normalize_string_list(Vec::new()),
+        do_code_enrichment: true,
+        do_formula_enrichment: true,
+        do_picture_description: true,
         provider_account_key: normalize_optional_string(request.vlm.provider_account_key.clone()),
         vlm_pipeline_model: normalize_optional_string(request.vlm.vlm_pipeline_model.clone()),
         picture_description_model: normalize_optional_string(
@@ -161,9 +159,6 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
             timeout_secs: DEFAULT_DOCLING_TIMEOUT_SECS,
             poll_interval_secs: DEFAULT_DOCLING_POLL_INTERVAL_SECS,
         },
-        conversion: DoclingConversionSettings::default(),
-        ocr: DoclingOcrSettings::default(),
-        enrichment: DoclingEnrichmentSettings::default(),
         vlm: DoclingVlmSettingsResponse {
             provider_account_key: None,
             vlm_pipeline_model: None,
@@ -203,22 +198,6 @@ pub(super) fn response_from_stored(
             timeout_secs: settings.timeout_secs,
             poll_interval_secs: settings.poll_interval_secs,
         },
-        conversion: DoclingConversionSettings {
-            pdf_backend: settings.pdf_backend,
-            images_scale: settings.images_scale,
-            image_export_mode: settings.image_export_mode,
-        },
-        ocr: DoclingOcrSettings {
-            do_ocr: settings.do_ocr,
-            force_ocr: settings.force_ocr,
-            ocr_engine: settings.ocr_engine,
-            ocr_lang: settings.ocr_lang,
-        },
-        enrichment: DoclingEnrichmentSettings {
-            do_code_enrichment: settings.do_code_enrichment,
-            do_formula_enrichment: settings.do_formula_enrichment,
-            do_picture_description: settings.do_picture_description,
-        },
         vlm: DoclingVlmSettingsResponse {
             provider_account_key: settings.provider_account_key,
             vlm_pipeline_model: settings.vlm_pipeline_model,
@@ -241,22 +220,6 @@ pub(super) fn config_from_stored(
             base_url: settings.base_url,
             timeout: Duration::from_secs(settings.timeout_secs),
             poll_interval: Duration::from_secs(settings.poll_interval_secs),
-        },
-        conversion: DoclingConversionConfig {
-            pdf_backend: settings.pdf_backend,
-            images_scale: settings.images_scale,
-            image_export_mode: settings.image_export_mode,
-        },
-        ocr: DoclingOcrConfig {
-            do_ocr: settings.do_ocr,
-            force_ocr: settings.force_ocr,
-            ocr_engine: settings.ocr_engine,
-            ocr_lang: settings.ocr_lang,
-        },
-        enrichment: DoclingEnrichmentConfig {
-            do_code_enrichment: settings.do_code_enrichment,
-            do_formula_enrichment: settings.do_formula_enrichment,
-            do_picture_description: settings.do_picture_description,
         },
         vlm: DoclingVlmConfig {
             openai_base_url,

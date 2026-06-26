@@ -150,6 +150,7 @@ impl LibraryStore {
                 lfd.section_label,
                 lfd.sort_order,
                 d.title,
+                lf.media_type,
                 (
                     SELECT dc.chunk_text
                     FROM context69.document_chunks dc
@@ -161,6 +162,7 @@ impl LibraryStore {
                 ) AS chunk_text
             FROM context69.library_file_documents lfd
             INNER JOIN context69.documents d ON d.id = lfd.document_id
+            INNER JOIN context69.library_files lf ON lf.id = lfd.file_id
             WHERE lfd.file_id = $1
             ORDER BY lfd.sort_order ASC, lfd.section_key ASC
             "#,
@@ -172,7 +174,7 @@ impl LibraryStore {
         Ok(rows
             .into_iter()
             .map(|row| LibraryDocumentSectionPreview {
-                content_format: infer_preview_content_format(&row.title, "text/plain"),
+                content_format: infer_preview_content_format(&row.title, &row.media_type),
                 document_id: row.document_id,
                 section_key: row.section_key,
                 section_label: row.section_label,

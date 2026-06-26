@@ -6,7 +6,6 @@ import type {
 } from "../../services/api";
 import type {
   DraftDoclingSettings,
-  DraftDoclingSettingsEnvelope,
   DraftRuntimeSettings,
   DraftSearchSettings,
   ProviderAccountDraft,
@@ -52,21 +51,6 @@ export function createDoclingDraft(): DraftDoclingSettings {
       base_url: "",
       timeout_secs: 120,
       poll_interval_secs: 2,
-    },
-    conversion: {
-      pdf_backend: "",
-      images_scale: null,
-      image_export_mode: "",
-    },
-    ocr: {
-      do_ocr: true,
-      force_ocr: false,
-      ocr_engine: "",
-    },
-    enrichment: {
-      do_code_enrichment: false,
-      do_formula_enrichment: false,
-      do_picture_description: false,
     },
     vlm: {
       provider_account_key: "",
@@ -138,37 +122,19 @@ export function runtimeResponseToDraft(
 
 export function doclingResponseToDraft(
   response: DoclingSettingsResponse,
-): DraftDoclingSettingsEnvelope {
+): DraftDoclingSettings {
   return {
-    draft: {
-      connection: {
-        base_url: response.connection.base_url ?? "",
-        timeout_secs: response.connection.timeout_secs,
-        poll_interval_secs: response.connection.poll_interval_secs,
-      },
-      conversion: {
-        pdf_backend: response.conversion.pdf_backend ?? "",
-        images_scale: response.conversion.images_scale ?? null,
-        image_export_mode: response.conversion.image_export_mode ?? "",
-      },
-      ocr: {
-        do_ocr: response.ocr.do_ocr,
-        force_ocr: response.ocr.force_ocr,
-        ocr_engine: response.ocr.ocr_engine ?? "",
-      },
-      enrichment: {
-        do_code_enrichment: !!response.enrichment.do_code_enrichment,
-        do_formula_enrichment: !!response.enrichment.do_formula_enrichment,
-        do_picture_description: !!response.enrichment.do_picture_description,
-      },
-      vlm: {
-        provider_account_key: response.vlm.provider_account_key ?? "",
-        vlm_pipeline_model: response.vlm.vlm_pipeline_model ?? "",
-        picture_description_model: response.vlm.picture_description_model ?? "",
-        code_formula_model: response.vlm.code_formula_model ?? "",
-      },
+    connection: {
+      base_url: response.connection.base_url ?? "",
+      timeout_secs: response.connection.timeout_secs,
+      poll_interval_secs: response.connection.poll_interval_secs,
     },
-    ocrLangText: (response.ocr.ocr_lang ?? []).join(", "),
+    vlm: {
+      provider_account_key: response.vlm.provider_account_key ?? "",
+      vlm_pipeline_model: response.vlm.vlm_pipeline_model ?? "",
+      picture_description_model: response.vlm.picture_description_model ?? "",
+      code_formula_model: response.vlm.code_formula_model ?? "",
+    },
   };
 }
 

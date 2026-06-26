@@ -17,9 +17,8 @@ impl LibraryService {
         project: &crate::domain::ProjectRecord,
         request: &CreateTextRequest,
     ) -> Result<LibraryUploadResponse> {
-        let (created_file, created_job) = self
-            .create_text_file_inner(Some(project), request)
-            .await?;
+        let (created_file, created_job) =
+            self.create_text_file_inner(Some(project), request).await?;
         Ok(LibraryUploadResponse {
             files: vec![created_file],
             jobs: vec![created_job],
@@ -84,7 +83,10 @@ impl LibraryService {
                 .with_context(|| format!("unknown folder {folder_id}"))?;
         }
 
-        let file_id = existing.as_ref().map(|file| file.id).unwrap_or_else(Uuid::new_v4);
+        let file_id = existing
+            .as_ref()
+            .map(|file| file.id)
+            .unwrap_or_else(Uuid::new_v4);
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
         let storage_rel_path = storage::build_storage_rel_path(file_id, &filename);
@@ -112,10 +114,10 @@ impl LibraryService {
                     .with_context(|| format!("unknown file {}", existing_file.id))?;
                 if existing_file.storage_rel_path != updated.storage_rel_path {
                     let old_path = self.storage_root.join(existing_file.storage_rel_path);
-                    if let Err(error) = fs::remove_file(&old_path) {
-                        if error.kind() != std::io::ErrorKind::NotFound {
-                            warn!(path = %old_path.display(), error = %error, "failed to remove stale library file");
-                        }
+                    if let Err(error) = fs::remove_file(&old_path)
+                        && error.kind() != std::io::ErrorKind::NotFound
+                    {
+                        warn!(path = %old_path.display(), error = %error, "failed to remove stale library file");
                     }
                 }
                 updated
@@ -241,8 +243,14 @@ impl LibraryService {
         }
 
         let kind = storage::detect_file_kind(&upload.filename, &upload.media_type)?;
-        if kind != LibraryFileKind::PlainText {
-            self.load_docling_client().await?;
+        match kind {
+            LibraryFileKind::Pdf | LibraryFileKind::Docx => {
+                self.load_docling_pdf_converter().await?;
+            }
+            LibraryFileKind::Xlsx => {
+                self.load_docling_xlsx_client().await?;
+            }
+            LibraryFileKind::PlainText => {}
         }
         let file_id = Uuid::new_v4();
         let job_id = Uuid::new_v4();
@@ -297,8 +305,14 @@ impl LibraryService {
         }
 
         let kind = storage::detect_file_kind(&upload.filename, &upload.media_type)?;
-        if kind != LibraryFileKind::PlainText {
-            self.load_docling_client().await?;
+        match kind {
+            LibraryFileKind::Pdf | LibraryFileKind::Docx => {
+                self.load_docling_pdf_converter().await?;
+            }
+            LibraryFileKind::Xlsx => {
+                self.load_docling_xlsx_client().await?;
+            }
+            LibraryFileKind::PlainText => {}
         }
         let file_id = Uuid::new_v4();
         let job_id = Uuid::new_v4();
@@ -526,7 +540,11 @@ impl LibraryService {
             storage_rel_path,
         };
         let created = match project {
-            Some(project) => self.store.create_file_in_project(project.id, &new_file).await?,
+            Some(project) => {
+                self.store
+                    .create_file_in_project(project.id, &new_file)
+                    .await?
+            }
             None => self.store.create_file(&new_file).await?,
         };
         let _created_job = self.store.create_job(job_id, file_id).await?;
@@ -599,7 +617,8 @@ impl LibraryService {
                 self.store
                     .update_file_status(file.id, LibraryIngestStatus::Succeeded, None, true)
                     .await?;
-                self.bump_search_generation(search_generation_reason).await?;
+                self.bump_search_generation(search_generation_reason)
+                    .await?;
                 Ok(())
             }
             Err(error) => {
@@ -615,12 +634,7 @@ impl LibraryService {
                     )
                     .await?;
                 self.store
-                    .update_file_status(
-                        file.id,
-                        LibraryIngestStatus::Failed,
-                        Some(&message),
-                        false,
-                    )
+                    .update_file_status(file.id, LibraryIngestStatus::Failed, Some(&message), false)
                     .await?;
                 Err(error)
             }

@@ -211,7 +211,10 @@ impl LibraryStore {
         Ok(())
     }
 
-    pub async fn list_storage_paths_for_files(&self, file_ids: &[Uuid]) -> Result<Vec<(Uuid, String)>> {
+    pub async fn list_storage_paths_for_files(
+        &self,
+        file_ids: &[Uuid],
+    ) -> Result<Vec<(Uuid, String)>> {
         if file_ids.is_empty() {
             return Ok(Vec::new());
         }

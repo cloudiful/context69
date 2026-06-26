@@ -106,13 +106,6 @@ describe("apiClient", () => {
           timeout_secs: 120,
           poll_interval_secs: 2,
         },
-        conversion: {},
-        ocr: {
-          do_ocr: true,
-          force_ocr: false,
-          ocr_lang: [],
-        },
-        enrichment: {},
         vlm: {
           provider_account_key: null,
         },
@@ -130,18 +123,6 @@ describe("apiClient", () => {
           base_url: "http://docling:5001",
           timeout_secs: 180,
           poll_interval_secs: 3,
-        },
-        conversion: {
-          pdf_backend: "dlparse_v2",
-        },
-        ocr: {
-          do_ocr: true,
-          force_ocr: false,
-          ocr_engine: "rapidocr",
-          ocr_lang: ["en"],
-        },
-        enrichment: {
-          do_picture_description: true,
         },
         vlm: {
           provider_account_key: "openrouter-default",
@@ -168,20 +149,6 @@ describe("apiClient", () => {
           timeout_secs: 180,
           poll_interval_secs: 3,
         },
-        conversion: {
-          pdf_backend: "dlparse_v2",
-        },
-        ocr: {
-          do_ocr: true,
-          force_ocr: false,
-          ocr_engine: "rapidocr",
-          ocr_lang: ["en"],
-        },
-        enrichment: {
-          do_code_enrichment: false,
-          do_formula_enrichment: false,
-          do_picture_description: true,
-        },
         vlm: {
           provider_account_key: "openrouter-default",
           vlm_pipeline_model: "gemini-3-flash",
@@ -204,20 +171,6 @@ describe("apiClient", () => {
           base_url: "http://docling:5001",
           timeout_secs: 180,
           poll_interval_secs: 3,
-        },
-        conversion: {
-          pdf_backend: "dlparse_v2",
-        },
-        ocr: {
-          do_ocr: true,
-          force_ocr: false,
-          ocr_engine: "rapidocr",
-          ocr_lang: ["en"],
-        },
-        enrichment: {
-          do_code_enrichment: false,
-          do_formula_enrichment: false,
-          do_picture_description: true,
         },
         vlm: {
           provider_account_key: "openrouter-default",

@@ -1,10 +1,7 @@
 use axum::{Json, extract::Multipart, http::StatusCode, response::IntoResponse};
 use uuid::Uuid;
 
-use crate::{
-    contracts::ApiErrorResponse,
-    services::library::UploadedLibraryFile,
-};
+use crate::{contracts::ApiErrorResponse, services::library::UploadedLibraryFile};
 
 pub(crate) async fn read_library_uploads(
     mut multipart: Multipart,

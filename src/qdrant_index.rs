@@ -13,7 +13,11 @@ use serde_json::json;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::{config::QdrantConfig, contracts::SearchRequest, domain::{AccessScope, ChunkPayload}};
+use crate::{
+    config::QdrantConfig,
+    contracts::SearchRequest,
+    domain::{AccessScope, ChunkPayload},
+};
 
 #[derive(Debug, Clone)]
 pub struct SearchPointHit {
@@ -329,9 +333,9 @@ impl QdrantIndex {
 fn point_id_to_uuid(point_id: PointId) -> Result<Uuid> {
     let raw = point_id
         .point_id_options
-        .and_then(|value| match value {
-            qdrant_client::qdrant::point_id::PointIdOptions::Uuid(value) => Some(value),
-            qdrant_client::qdrant::point_id::PointIdOptions::Num(value) => Some(value.to_string()),
+        .map(|value| match value {
+            qdrant_client::qdrant::point_id::PointIdOptions::Uuid(value) => value,
+            qdrant_client::qdrant::point_id::PointIdOptions::Num(value) => value.to_string(),
         })
         .context("unsupported point id")?;
     Ok(Uuid::parse_str(&raw)?)

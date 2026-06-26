@@ -19,22 +19,10 @@ pub(super) fn detect_file_kind(filename: &str, media_type: &str) -> Result<Libra
     {
         return Ok(LibraryFileKind::Xlsx);
     }
-    if lowered.ends_with(".txt")
-        || lowered.ends_with(".md")
-        || media_type.starts_with("text/")
-    {
+    if lowered.ends_with(".txt") || lowered.ends_with(".md") || media_type.starts_with("text/") {
         return Ok(LibraryFileKind::PlainText);
     }
     Err(anyhow!("unsupported file type for {}", filename))
-}
-
-pub(super) fn file_kind_to_format(kind: LibraryFileKind) -> &'static str {
-    match kind {
-        LibraryFileKind::Pdf => "pdf",
-        LibraryFileKind::Docx => "docx",
-        LibraryFileKind::Xlsx => "xlsx",
-        LibraryFileKind::PlainText => "txt",
-    }
 }
 
 pub(super) fn write_storage_file(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -84,18 +72,4 @@ pub(super) fn hash_bytes(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
-}
-
-pub(super) fn build_pdf_ranges(total_pages: u32, pages_per_task: u32) -> Vec<(u32, u32)> {
-    if total_pages == 0 {
-        return Vec::new();
-    }
-    let mut ranges = Vec::new();
-    let mut start = 1;
-    while start <= total_pages {
-        let end = (start + pages_per_task - 1).min(total_pages);
-        ranges.push((start, end));
-        start = end + 1;
-    }
-    ranges
 }

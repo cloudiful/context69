@@ -191,7 +191,9 @@ impl LibraryService {
             .get_folder_in_project(project.id, folder_id)
             .await?
             .with_context(|| format!("unknown folder {folder_id}"))?;
-        let file_ids = self.descendant_file_ids_in_project(project.id, folder_id).await?;
+        let file_ids = self
+            .descendant_file_ids_in_project(project.id, folder_id)
+            .await?;
         self.delete_file_ids(&file_ids).await?;
         self.store.delete_folder_record(folder_id).await?;
         self.bump_search_generation("library folder delete").await?;

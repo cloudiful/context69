@@ -95,7 +95,10 @@ impl Database {
             .iter()
             .map(|score| score.query_text_trimmed.as_str())
             .collect::<Vec<_>>();
-        let chunk_ids = scores.iter().map(|score| score.chunk_id).collect::<Vec<_>>();
+        let chunk_ids = scores
+            .iter()
+            .map(|score| score.chunk_id)
+            .collect::<Vec<_>>();
         let values = scores.iter().map(|score| score.score).collect::<Vec<_>>();
 
         sqlx::query(

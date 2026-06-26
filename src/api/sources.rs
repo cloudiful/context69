@@ -41,9 +41,7 @@ pub(crate) async fn list_sources(State(state): State<ApiState>) -> impl IntoResp
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
-pub(crate) async fn list_source_connections(
-    State(state): State<ApiState>,
-) -> impl IntoResponse {
+pub(crate) async fn list_source_connections(State(state): State<ApiState>) -> impl IntoResponse {
     match state.app.sync.list_source_connections().await {
         Ok(connections) => (StatusCode::OK, Json(connections)).into_response(),
         Err(error) => source_management_error_response(error),

@@ -5,12 +5,10 @@ use crate::chunking::ChunkingConfig;
 use super::types::{
     ApiConfig, AppDbConfig, AuthConfig, AuthSigningKeyConfig, BootstrapAdminConfig,
     ConnectionConfig, EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig,
-    PostgresSqlConnectorConfig, QdrantConfig, SchedulerConfig, SourceConfig,
-    default_mcp_bind_addr,
+    PostgresSqlConnectorConfig, QdrantConfig, SchedulerConfig, SourceConfig, default_mcp_bind_addr,
 };
 
-pub(super) const DEFAULT_APP_DB_URL: &str =
-    "postgres://postgres:postgres@127.0.0.1:5432/context69";
+pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
 pub(super) const DEFAULT_QDRANT_URL: &str = "http://127.0.0.1:6334";
 pub(super) const DEFAULT_COLLECTION_NAME: &str = "context69_chunks";
 pub(super) const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8096";

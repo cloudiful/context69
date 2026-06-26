@@ -42,7 +42,10 @@ impl Context69McpServer {
         }
     }
 
-    fn user_id_from_context(&self, context: &RequestContext<RoleServer>) -> Result<Option<i64>, McpError> {
+    fn user_id_from_context(
+        &self,
+        context: &RequestContext<RoleServer>,
+    ) -> Result<Option<i64>, McpError> {
         let Some(parts) = context.extensions.get::<axum::http::request::Parts>() else {
             return Ok(None);
         };
@@ -163,107 +166,107 @@ impl Context69McpServer {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Context69McpServer {
-    fn list_resources(
+    async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
-        async move {
-            let user_id = self.user_id_from_context(&context)?;
-            let sources = self.visible_sources(user_id).await.map_err(internal_error)?;
-            let resources = sources
-                .into_iter()
-                .map(|source| {
-                    RawResource::new(
-                        format!("context69://sources/{}", source.source_key),
-                        source.source_key,
-                    )
-                    .with_description("Configured source checkpoint status")
-                    .with_mime_type("application/json")
-                    .no_annotation()
-                })
-                .collect::<Vec<_>>();
-            Ok(ListResourcesResult {
-                meta: None,
-                resources,
-                next_cursor: None,
+    ) -> Result<ListResourcesResult, McpError> {
+        let user_id = self.user_id_from_context(&context)?;
+        let sources = self
+            .visible_sources(user_id)
+            .await
+            .map_err(internal_error)?;
+        let resources = sources
+            .into_iter()
+            .map(|source| {
+                RawResource::new(
+                    format!("context69://sources/{}", source.source_key),
+                    source.source_key,
+                )
+                .with_description("Configured source checkpoint status")
+                .with_mime_type("application/json")
+                .no_annotation()
             })
-        }
+            .collect::<Vec<_>>();
+        Ok(ListResourcesResult {
+            meta: None,
+            resources,
+            next_cursor: None,
+        })
     }
 
-    fn list_resource_templates(
+    async fn list_resource_templates(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
-        async move {
-            Ok(ListResourceTemplatesResult {
-                meta: None,
-                resource_templates: vec![
-                    RawResourceTemplate::new(
-                        "context69://documents/{document_id}",
-                        "context69-document",
-                    )
-                    .with_description("Fetch a single indexed document")
-                    .with_mime_type("application/json")
-                    .no_annotation(),
-                ],
-                next_cursor: None,
-            })
-        }
+    ) -> Result<ListResourceTemplatesResult, McpError> {
+        Ok(ListResourceTemplatesResult {
+            meta: None,
+            resource_templates: vec![
+                RawResourceTemplate::new(
+                    "context69://documents/{document_id}",
+                    "context69-document",
+                )
+                .with_description("Fetch a single indexed document")
+                .with_mime_type("application/json")
+                .no_annotation(),
+            ],
+            next_cursor: None,
+        })
     }
 
-    fn read_resource(
+    async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
-        async move {
-            let uri = request.uri;
-            if let Some(source_key) = uri.strip_prefix("context69://sources/") {
-                let user_id = self.user_id_from_context(&context)?;
-                let sources = self.visible_sources(user_id).await.map_err(internal_error)?;
-                let source = sources
-                    .into_iter()
-                    .find(|source| source.source_key == source_key)
-                    .context("source not found")
-                    .map_err(|error| McpError::resource_not_found(error.to_string(), None))?;
-                let content = serde_json::to_string_pretty(&source)
-                    .map_err(|error| internal_error(anyhow::Error::new(error)))?;
-                return Ok(ReadResourceResult::new(vec![
-                    ResourceContents::text(content, uri).with_mime_type("application/json"),
-                ]));
-            }
-
-            if let Some(document_id) = uri.strip_prefix("context69://documents/") {
-                let document_id = document_id.parse::<i64>().map_err(|error| {
-                    McpError::invalid_params(format!("invalid document id: {error}"), None)
-                })?;
-                let scope = self.scope_from_context(&context, None, None).await?;
-                let document = self
-                    .app
-                    .query
-                    .get_document(document_id, &scope)
-                    .await
-                    .map_err(|error| {
-                        if error.to_string().contains("not found") {
-                            McpError::resource_not_found(error.to_string(), None)
-                        } else {
-                            internal_error(error)
-                        }
-                    })?;
-                let content = serde_json::to_string_pretty(&document)
-                    .map_err(|error| internal_error(anyhow::Error::new(error)))?;
-                return Ok(ReadResourceResult::new(vec![
-                    ResourceContents::text(content, uri).with_mime_type("application/json"),
-                ]));
-            }
-
-            Err(McpError::resource_not_found(
-                format!("unknown resource uri: {uri}"),
-                None,
-            ))
+    ) -> Result<ReadResourceResult, McpError> {
+        let uri = request.uri;
+        if let Some(source_key) = uri.strip_prefix("context69://sources/") {
+            let user_id = self.user_id_from_context(&context)?;
+            let sources = self
+                .visible_sources(user_id)
+                .await
+                .map_err(internal_error)?;
+            let source = sources
+                .into_iter()
+                .find(|source| source.source_key == source_key)
+                .context("source not found")
+                .map_err(|error| McpError::resource_not_found(error.to_string(), None))?;
+            let content = serde_json::to_string_pretty(&source)
+                .map_err(|error| internal_error(anyhow::Error::new(error)))?;
+            return Ok(ReadResourceResult::new(vec![
+                ResourceContents::text(content, uri).with_mime_type("application/json"),
+            ]));
         }
+
+        if let Some(document_id) = uri.strip_prefix("context69://documents/") {
+            let document_id = document_id.parse::<i64>().map_err(|error| {
+                McpError::invalid_params(format!("invalid document id: {error}"), None)
+            })?;
+            let scope = self.scope_from_context(&context, None, None).await?;
+            let document = self
+                .app
+                .query
+                .get_document(document_id, &scope)
+                .await
+                .map_err(|error| {
+                    if error.to_string().contains("not found") {
+                        McpError::resource_not_found(error.to_string(), None)
+                    } else {
+                        internal_error(error)
+                    }
+                })?;
+            let content = serde_json::to_string_pretty(&document)
+                .map_err(|error| internal_error(anyhow::Error::new(error)))?;
+            return Ok(ReadResourceResult::new(vec![
+                ResourceContents::text(content, uri).with_mime_type("application/json"),
+            ]));
+        }
+
+        Err(McpError::resource_not_found(
+            format!("unknown resource uri: {uri}"),
+            None,
+        ))
     }
 }
 

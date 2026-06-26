@@ -24,8 +24,8 @@ mod tests {
 
     use super::{
         DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
-        DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, SourceConfig, types::FileConfig,
-        normalize::normalize_source_config,
+        DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, SourceConfig,
+        normalize::normalize_source_config, types::FileConfig,
     };
 
     #[test]

@@ -3,17 +3,12 @@ use std::collections::HashSet;
 use anyhow::{Result, anyhow};
 
 use crate::{
-    chunking::ChunkingConfig,
-    docling::{
-        DoclingConfig, VALID_IMAGE_EXPORT_MODES, VALID_OCR_ENGINES, VALID_PDF_BACKENDS,
-    },
-    support::{
-        normalize::normalize_optional_string,
-        validate::validate_optional_choice,
-    },
+    chunking::ChunkingConfig, docling::DoclingConfig, support::normalize::normalize_optional_string,
 };
 
-use super::types::{AuthConfig, ConnectionConfig, FileLibraryConfig, SchedulerConfig, SourceConfig};
+use super::types::{
+    AuthConfig, ConnectionConfig, FileLibraryConfig, SchedulerConfig, SourceConfig,
+};
 
 pub(super) fn validate_scheduler_config(config: &SchedulerConfig) -> Result<()> {
     if config.max_concurrency == 0 {
@@ -51,63 +46,29 @@ pub(super) fn validate_docling_config(config: Option<&DoclingConfig>) -> Result<
     if docling.connection.poll_interval.as_secs() == 0 {
         return Err(anyhow!("docling.poll_interval_secs must be greater than 0"));
     }
-    validate_optional_choice(
-        "docling.conversion.pdf_backend",
-        docling.conversion.pdf_backend.as_deref(),
-        VALID_PDF_BACKENDS,
-    )?;
-    validate_optional_choice(
-        "docling.conversion.image_export_mode",
-        docling.conversion.image_export_mode.as_deref(),
-        VALID_IMAGE_EXPORT_MODES,
-    )?;
-    validate_optional_choice(
-        "docling.ocr.ocr_engine",
-        docling.ocr.ocr_engine.as_deref(),
-        VALID_OCR_ENGINES,
-    )?;
-    if let Some(scale) = docling.conversion.images_scale
-        && scale <= 0.0
-    {
-        return Err(anyhow!(
-            "docling.conversion.images_scale must be greater than 0"
-        ));
-    }
-
-    let enrichment_enabled = docling.enrichment.do_code_enrichment
-        || docling.enrichment.do_formula_enrichment
-        || docling.enrichment.do_picture_description;
-    if !enrichment_enabled {
-        return Ok(());
-    }
-
     if normalize_optional_string(docling.vlm.openai_base_url.clone()).is_none() {
         return Err(anyhow!(
-            "docling.vlm.openai_base_url is required when enrichment is enabled"
+            "docling.vlm.openai_base_url is required for PDF/DOCX conversion"
         ));
     }
     if normalize_optional_string(docling.vlm.api_key.clone()).is_none() {
         return Err(anyhow!(
-            "docling.vlm.api_key is required when enrichment is enabled"
+            "docling.vlm.api_key is required for PDF/DOCX conversion"
         ));
     }
     if normalize_optional_string(docling.vlm.vlm_pipeline_model.clone()).is_none() {
         return Err(anyhow!(
-            "docling.vlm.vlm_pipeline_model is required when enrichment is enabled"
+            "docling.vlm.vlm_pipeline_model is required for PDF/DOCX conversion"
         ));
     }
-    if docling.enrichment.do_picture_description
-        && normalize_optional_string(docling.vlm.picture_description_model.clone()).is_none()
-    {
+    if normalize_optional_string(docling.vlm.picture_description_model.clone()).is_none() {
         return Err(anyhow!(
-            "docling.vlm.picture_description_model is required when picture description is enabled"
+            "docling.vlm.picture_description_model is required for PDF/DOCX conversion"
         ));
     }
-    if (docling.enrichment.do_code_enrichment || docling.enrichment.do_formula_enrichment)
-        && normalize_optional_string(docling.vlm.code_formula_model.clone()).is_none()
-    {
+    if normalize_optional_string(docling.vlm.code_formula_model.clone()).is_none() {
         return Err(anyhow!(
-            "docling.vlm.code_formula_model is required when code or formula enrichment is enabled"
+            "docling.vlm.code_formula_model is required for PDF/DOCX conversion"
         ));
     }
     Ok(())
@@ -212,7 +173,9 @@ pub(super) fn validate_auth_config(config: &AuthConfig) -> Result<()> {
         return Err(anyhow!("auth.access_token_ttl_secs must be greater than 0"));
     }
     if config.refresh_token_ttl.as_secs() == 0 {
-        return Err(anyhow!("auth.refresh_token_ttl_secs must be greater than 0"));
+        return Err(anyhow!(
+            "auth.refresh_token_ttl_secs must be greater than 0"
+        ));
     }
     if config.refresh_cookie_name.trim().is_empty() {
         return Err(anyhow!("auth.refresh_cookie_name must not be empty"));
@@ -245,7 +208,9 @@ pub(super) fn validate_auth_config(config: &AuthConfig) -> Result<()> {
             return Err(anyhow!("auth.bootstrap_admin.login_name must not be empty"));
         }
         if admin.display_name.trim().is_empty() {
-            return Err(anyhow!("auth.bootstrap_admin.display_name must not be empty"));
+            return Err(anyhow!(
+                "auth.bootstrap_admin.display_name must not be empty"
+            ));
         }
         if admin.password.trim().len() < 8 {
             return Err(anyhow!(

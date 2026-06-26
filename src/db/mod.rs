@@ -18,8 +18,8 @@ mod search_settings;
 mod source_connections;
 mod sync_runs;
 
-use rows::*;
 pub use auth::RefreshTokenRecord;
+use rows::*;
 
 #[derive(Clone)]
 pub struct Database {

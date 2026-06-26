@@ -39,9 +39,6 @@ import {
 } from "../utils/settings";
 import { clearSearchHistory, readSearchHistory } from "../utils/search-history";
 
-const OCR_ENGINES = ["auto", "easyocr", "kserve_v2_ocr", "ocrmac", "rapidocr", "tesserocr", "tesseract"];
-const PDF_BACKENDS = ["pypdfium2", "docling_parse", "dlparse_v1", "dlparse_v2", "dlparse_v4"];
-const IMAGE_EXPORT_MODES = ["placeholder", "embedded", "referenced"];
 const providerKindOptions = [{ label: "openai_compatible", value: "openai_compatible" }];
 const timeoutPresets = [60, 120, 300];
 const pollPresets = [2, 5, 10];
@@ -66,7 +63,6 @@ export function useSettingsPage() {
   const adminUsersError = ref("");
   const adminUsersBusy = ref(false);
   const adminUsersCreateBusy = ref(false);
-  const ocrLangText = ref("");
   const selectedProviderAccountKey = ref("");
   const rerankApiKeyDraft = ref("");
   const clearStoredRerankApiKey = ref(false);
@@ -104,9 +100,7 @@ export function useSettingsPage() {
         label: t("settings.docling.title"),
         items: [
           { id: "settings-connection", label: t("settings.docling.connectionTitle") },
-          { id: "settings-ocr", label: t("settings.docling.ocrTitle") },
-          { id: "settings-conversion", label: t("settings.docling.conversionTitle") },
-          { id: "settings-enrichment", label: t("settings.docling.enrichmentTitle") },
+          { id: "settings-vlm", label: t("settings.docling.vlmTitle") },
         ],
       },
     ];
@@ -161,21 +155,6 @@ export function useSettingsPage() {
     },
   });
 
-  const ocrEngineOptions = computed(() => [
-    { label: t("settings.docling.useServiceDefault"), value: "" },
-    ...OCR_ENGINES.map((value) => ({ label: value, value })),
-  ]);
-
-  const pdfBackendOptions = computed(() => [
-    { label: t("settings.docling.useServiceDefault"), value: "" },
-    ...PDF_BACKENDS.map((value) => ({ label: value, value })),
-  ]);
-
-  const imageExportModeOptions = computed(() => [
-    { label: t("settings.docling.useServiceDefault"), value: "" },
-    ...IMAGE_EXPORT_MODES.map((value) => ({ label: value, value })),
-  ]);
-
   const searchModeOptions = computed(() => [
     { label: t("settings.search.modeHybrid"), value: "hybrid" },
     { label: t("settings.search.modeVector"), value: "vector" },
@@ -225,30 +204,6 @@ export function useSettingsPage() {
     },
   });
 
-  const ocrToggleModel = computed({
-    get: () => ({
-      do_ocr: doclingDraft.ocr.do_ocr,
-      force_ocr: doclingDraft.ocr.force_ocr,
-    }),
-    set: (value: Record<string, boolean>) => {
-      doclingDraft.ocr.do_ocr = !!value.do_ocr;
-      doclingDraft.ocr.force_ocr = !!value.force_ocr;
-    },
-  });
-
-  const enrichmentToggleModel = computed({
-    get: () => ({
-      do_code_enrichment: doclingDraft.enrichment.do_code_enrichment,
-      do_formula_enrichment: doclingDraft.enrichment.do_formula_enrichment,
-      do_picture_description: doclingDraft.enrichment.do_picture_description,
-    }),
-    set: (value: Record<string, boolean>) => {
-      doclingDraft.enrichment.do_code_enrichment = !!value.do_code_enrichment;
-      doclingDraft.enrichment.do_formula_enrichment = !!value.do_formula_enrichment;
-      doclingDraft.enrichment.do_picture_description = !!value.do_picture_description;
-    },
-  });
-
   const rerankToggleModel = computed({
     get: () => ({ rerank_enabled: searchDraft.rerank_enabled }),
     set: (value: Record<string, boolean>) => {
@@ -294,7 +249,7 @@ export function useSettingsPage() {
 
   const doclingHasChanges = computed(() => (
     doclingSettings.value
-      && JSON.stringify(buildDoclingPayload(doclingDraft, ocrLangText.value)) !== JSON.stringify(doclingResponseToPayload(doclingSettings.value))
+      && JSON.stringify(buildDoclingPayload(doclingDraft)) !== JSON.stringify(doclingResponseToPayload(doclingSettings.value))
   ));
 
   const searchHasChanges = computed(() => {
@@ -420,7 +375,7 @@ export function useSettingsPage() {
       const [runtime, docling, search] = await Promise.all([
         runtimeHasChanges.value ? apiClient.updateRuntimeSettings(buildRuntimePayload(runtimeDraft)) : Promise.resolve(runtimeSettings.value),
         doclingHasChanges.value
-          ? apiClient.updateDoclingSettings(buildDoclingPayload(doclingDraft, ocrLangText.value))
+          ? apiClient.updateDoclingSettings(buildDoclingPayload(doclingDraft))
           : Promise.resolve(doclingSettings.value),
         searchHasChanges.value
           ? apiClient.updateSearchSettings(
@@ -622,9 +577,7 @@ export function useSettingsPage() {
   }
 
   function assignDoclingDraft(response: DoclingSettingsResponse) {
-    const { draft, ocrLangText: nextOcrLangText } = doclingResponseToDraft(response);
-    Object.assign(doclingDraft, draft);
-    ocrLangText.value = nextOcrLangText;
+    Object.assign(doclingDraft, doclingResponseToDraft(response));
   }
 
   function assignSearchDraft(response: SearchSettingsResponse) {
@@ -653,15 +606,9 @@ export function useSettingsPage() {
     disableAdminUser,
     enableAdminUser,
     doclingProviderOptions,
-    enrichmentToggleModel,
     hasChanges,
-    imageExportModeOptions,
     loading,
-    ocrEngineOptions,
-    ocrLangText,
-    ocrToggleModel,
     pageError,
-    pdfBackendOptions,
     pollPresetOptions,
     providerAccountOptions,
     providerDraft,

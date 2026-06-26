@@ -935,29 +935,9 @@ export interface components {
             /** Format: int64 */
             timeout_secs: number;
         };
-        DoclingConversionSettings: {
-            image_export_mode?: string | null;
-            /** Format: double */
-            images_scale?: number | null;
-            pdf_backend?: string | null;
-        };
-        DoclingEnrichmentSettings: {
-            do_code_enrichment?: boolean;
-            do_formula_enrichment?: boolean;
-            do_picture_description?: boolean;
-        };
-        DoclingOcrSettings: {
-            do_ocr: boolean;
-            force_ocr: boolean;
-            ocr_engine?: string | null;
-            ocr_lang?: string[];
-        };
         DoclingSettingsResponse: {
             configured: boolean;
             connection: components["schemas"]["DoclingConnectionSettingsResponse"];
-            conversion: components["schemas"]["DoclingConversionSettings"];
-            enrichment: components["schemas"]["DoclingEnrichmentSettings"];
-            ocr: components["schemas"]["DoclingOcrSettings"];
             source: components["schemas"]["DoclingSettingsSource"];
             vlm: components["schemas"]["DoclingVlmSettingsResponse"];
         };
@@ -1357,9 +1337,6 @@ export interface components {
         };
         UpdateDoclingSettingsRequest: {
             connection: components["schemas"]["UpdateDoclingConnectionSettings"];
-            conversion?: components["schemas"]["DoclingConversionSettings"];
-            enrichment?: components["schemas"]["DoclingEnrichmentSettings"];
-            ocr?: components["schemas"]["DoclingOcrSettings"];
             vlm?: components["schemas"]["UpdateDoclingVlmSettings"];
         };
         UpdateDoclingVlmSettings: {

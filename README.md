@@ -7,6 +7,8 @@
 - Pulls text records from PostgreSQL-backed sources
 - Normalizes, chunks, and embeds documents
 - Stores vectors in Qdrant
+- Converts library PDF/DOCX files through `cloudiful-docling-convert`
+- Converts library XLSX files through the Docling async JSON API
 - Exposes a search API and MCP endpoints
 - Includes an optional Vue-based web UI
 
@@ -57,6 +59,12 @@ Run MCP over stdio:
 cargo run -- mcp-stdio
 ```
 
+Initialize the application database:
+
+```bash
+cargo run --bin db_init
+```
+
 ## Configuration
 
 The application reads configuration from the platform config directory:
@@ -74,7 +82,12 @@ Common environment overrides:
 - `CONTEXT69_APP_DB__URL`
 - `CONTEXT69_QDRANT__URL`
 - `CONTEXT69_EMBEDDING__API_KEY`
+- `CONTEXT69_DOCLING__CONNECTION__BASE_URL`
+- `CONTEXT69_DOCLING__VLM__OPENAI_BASE_URL`
 - `CONTEXT69_DOCLING__VLM__API_KEY`
+- `CONTEXT69_DOCLING__VLM__VLM_PIPELINE_MODEL`
+- `CONTEXT69_DOCLING__VLM__PICTURE_DESCRIPTION_MODEL`
+- `CONTEXT69_DOCLING__VLM__CODE_FORMULA_MODEL`
 - `CONTEXT69_SCHEDULER__VALKEY_URL`
 
 Detailed configuration docs:
@@ -134,6 +147,19 @@ Local dev entrypoints:
 nu scripts/dev.nu backend
 nu scripts/dev.nu full
 ```
+
+Database and SQLx workflow:
+
+```bash
+cargo run --bin db_init
+cargo sqlx prepare --workspace -- --all-targets
+```
+
+Notes:
+
+- `db_init` is migration-only. It uses `DATABASE_URL` first, then falls back to `CONTEXT69_APP_DB__URL` / `app_db.url`.
+- `cargo sqlx prepare` reads `DATABASE_URL`. Keep it aligned with `CONTEXT69_APP_DB__URL` when using the app config override.
+- SQLx metadata is stored in `.sqlx/` and should be refreshed after migration or checked-query changes.
 
 ## API
 

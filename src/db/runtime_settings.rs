@@ -174,8 +174,14 @@ impl Database {
         )
         .bind(&settings.embedding.provider_account_key)
         .bind(&settings.embedding.model)
-        .bind(i64::try_from(settings.embedding.dimensions).context("embedding dimensions too large")?)
-        .bind(i64::try_from(settings.embedding.timeout_secs).context("embedding timeout too large")?)
+        .bind(
+            i64::try_from(settings.embedding.dimensions)
+                .context("embedding dimensions too large")?,
+        )
+        .bind(
+            i64::try_from(settings.embedding.timeout_secs)
+                .context("embedding timeout too large")?,
+        )
         .execute(&mut *tx)
         .await?;
 
@@ -200,9 +206,15 @@ impl Database {
                 updated_at = now()
             "#,
         )
-        .bind(i64::try_from(settings.scheduler.interval_secs).context("scheduler interval too large")?)
+        .bind(
+            i64::try_from(settings.scheduler.interval_secs)
+                .context("scheduler interval too large")?,
+        )
         .bind(settings.scheduler.run_on_start)
-        .bind(i64::try_from(settings.scheduler.max_concurrency).context("scheduler max_concurrency too large")?)
+        .bind(
+            i64::try_from(settings.scheduler.max_concurrency)
+                .context("scheduler max_concurrency too large")?,
+        )
         .bind(&settings.scheduler.job_id)
         .bind(&settings.scheduler.valkey_url)
         .execute(&mut *tx)
@@ -224,7 +236,10 @@ impl Database {
             "#,
         )
         .bind(i64::try_from(settings.chunking.max_chars).context("chunking max_chars too large")?)
-        .bind(i64::try_from(settings.chunking.overlap_chars).context("chunking overlap_chars too large")?)
+        .bind(
+            i64::try_from(settings.chunking.overlap_chars)
+                .context("chunking overlap_chars too large")?,
+        )
         .execute(&mut *tx)
         .await?;
 
@@ -250,9 +265,18 @@ impl Database {
             "#,
         )
         .bind(&settings.file_library.storage_root)
-        .bind(i64::try_from(settings.file_library.max_upload_size_mb).context("file_library max_upload_size_mb too large")?)
-        .bind(i64::try_from(settings.file_library.max_upload_request_size_mb).context("file_library max_upload_request_size_mb too large")?)
-        .bind(i64::try_from(settings.file_library.ingest_concurrency).context("file_library ingest_concurrency too large")?)
+        .bind(
+            i64::try_from(settings.file_library.max_upload_size_mb)
+                .context("file_library max_upload_size_mb too large")?,
+        )
+        .bind(
+            i64::try_from(settings.file_library.max_upload_request_size_mb)
+                .context("file_library max_upload_request_size_mb too large")?,
+        )
+        .bind(
+            i64::try_from(settings.file_library.ingest_concurrency)
+                .context("file_library ingest_concurrency too large")?,
+        )
         .bind(i64::from(settings.file_library.pdf_pages_per_task))
         .execute(&mut *tx)
         .await?;

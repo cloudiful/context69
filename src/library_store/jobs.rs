@@ -2,8 +2,8 @@ use anyhow::Result;
 use chrono::Utc;
 use uuid::Uuid;
 
-use super::{JobRow, LibraryIngestJobRecord, LibraryIngestStatus, LibraryStore};
 use super::mappers::job_from_row;
+use super::{JobRow, LibraryIngestJobRecord, LibraryIngestStatus, LibraryStore};
 
 impl LibraryStore {
     pub async fn create_job(&self, job_id: Uuid, file_id: Uuid) -> Result<LibraryIngestJobRecord> {

@@ -5,8 +5,7 @@ use crate::{
         UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::StoredSearchSettings,
-    docling::{VALID_IMAGE_EXPORT_MODES, VALID_OCR_ENGINES, VALID_PDF_BACKENDS},
-    support::{normalize::normalize_optional_string, validate::validate_choice},
+    support::normalize::normalize_optional_string,
 };
 
 pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -> Result<()> {
@@ -99,56 +98,25 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
     if request.connection.poll_interval_secs == 0 {
         return Err(anyhow!("docling.poll_interval_secs must be greater than 0"));
     }
-    if let Some(scale) = request.conversion.images_scale
-        && scale <= 0.0
-    {
-        return Err(anyhow!("docling.images_scale must be greater than 0"));
+    if normalize_optional_string(request.vlm.provider_account_key.clone()).is_none() {
+        return Err(anyhow!(
+            "docling.vlm.provider_account_key is required for PDF/DOCX conversion"
+        ));
     }
-
-    validate_choice(
-        "docling.ocr.ocr_engine",
-        request.ocr.ocr_engine.as_deref(),
-        VALID_OCR_ENGINES,
-    )?;
-    validate_choice(
-        "docling.conversion.image_export_mode",
-        request.conversion.image_export_mode.as_deref(),
-        VALID_IMAGE_EXPORT_MODES,
-    )?;
-    validate_choice(
-        "docling.conversion.pdf_backend",
-        request.conversion.pdf_backend.as_deref(),
-        VALID_PDF_BACKENDS,
-    )?;
-
-    let enrichment_enabled = request.enrichment.do_code_enrichment
-        || request.enrichment.do_formula_enrichment
-        || request.enrichment.do_picture_description;
-    if enrichment_enabled {
-        if normalize_optional_string(request.vlm.provider_account_key.clone()).is_none() {
-            return Err(anyhow!(
-                "docling.vlm.provider_account_key is required when enrichment is enabled"
-            ));
-        }
-        if normalize_optional_string(request.vlm.vlm_pipeline_model.clone()).is_none() {
-            return Err(anyhow!(
-                "docling.vlm.vlm_pipeline_model is required when enrichment is enabled"
-            ));
-        }
-        if request.enrichment.do_picture_description
-            && normalize_optional_string(request.vlm.picture_description_model.clone()).is_none()
-        {
-            return Err(anyhow!(
-                "docling.vlm.picture_description_model is required when picture description is enabled"
-            ));
-        }
-        if (request.enrichment.do_code_enrichment || request.enrichment.do_formula_enrichment)
-            && normalize_optional_string(request.vlm.code_formula_model.clone()).is_none()
-        {
-            return Err(anyhow!(
-                "docling.vlm.code_formula_model is required when code or formula enrichment is enabled"
-            ));
-        }
+    if normalize_optional_string(request.vlm.vlm_pipeline_model.clone()).is_none() {
+        return Err(anyhow!(
+            "docling.vlm.vlm_pipeline_model is required for PDF/DOCX conversion"
+        ));
+    }
+    if normalize_optional_string(request.vlm.picture_description_model.clone()).is_none() {
+        return Err(anyhow!(
+            "docling.vlm.picture_description_model is required for PDF/DOCX conversion"
+        ));
+    }
+    if normalize_optional_string(request.vlm.code_formula_model.clone()).is_none() {
+        return Err(anyhow!(
+            "docling.vlm.code_formula_model is required for PDF/DOCX conversion"
+        ));
     }
 
     Ok(())

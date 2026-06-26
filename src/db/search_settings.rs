@@ -66,7 +66,8 @@ impl Database {
         .bind(&settings.rerank_base_url)
         .bind(&settings.rerank_model)
         .bind(
-            i64::try_from(settings.candidate_limit).context("search candidate_limit is too large")?,
+            i64::try_from(settings.candidate_limit)
+                .context("search candidate_limit is too large")?,
         )
         .bind(i64::try_from(settings.timeout_secs).context("search timeout is too large")?)
         .bind(&settings.api_key)

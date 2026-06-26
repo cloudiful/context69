@@ -106,7 +106,10 @@ impl LibraryService {
             .list_files_in_project(project_id)
             .await?
             .into_iter()
-            .filter(|file| file.folder_id.is_some_and(|id| descendant_set.contains(&id)))
+            .filter(|file| {
+                file.folder_id
+                    .is_some_and(|id| descendant_set.contains(&id))
+            })
             .map(|file| file.id)
             .collect())
     }

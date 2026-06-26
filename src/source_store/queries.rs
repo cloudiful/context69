@@ -2,7 +2,10 @@ use anyhow::{Result, anyhow};
 use sqlx::{Row, types::Json};
 use uuid::Uuid;
 
-use super::{SourceConfig, SourceConfigRow, SourceStatus, SourceStatusRow, SourceStore, row_to_source_config, row_to_source_status};
+use super::{
+    SourceConfig, SourceConfigRow, SourceStatus, SourceStatusRow, SourceStore,
+    row_to_source_config, row_to_source_status,
+};
 
 impl SourceStore {
     pub async fn seed_sources_if_empty(&self, sources: &[SourceConfig]) -> Result<()> {
@@ -400,7 +403,8 @@ impl SourceStore {
     }
 
     pub async fn update_source(&self, source_key: &str, source: &SourceConfig) -> Result<()> {
-        self.update_source_in_project(None, source_key, source).await
+        self.update_source_in_project(None, source_key, source)
+            .await
     }
 
     pub async fn update_source_in_project(

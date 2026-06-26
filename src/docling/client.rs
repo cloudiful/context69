@@ -1,47 +1,40 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result, anyhow};
 use bytes::Bytes;
 use reqwest::{Client, multipart};
 use serde_json::Value;
 use tokio::time::sleep;
 
-use super::{
-    DoclingConfig, DoclingInputKind, DoclingOutput, bool_as_string, vlm::build_vlm_custom_configs,
-};
+use super::{DoclingConfig, api_base_url};
 
 #[derive(Debug, Clone)]
-pub struct DoclingParsedDocument {
-    pub text: Option<String>,
-    pub json: Option<Value>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DoclingRequest {
-    pub filename: String,
-    pub media_type: String,
-    pub bytes: Bytes,
-    pub from_format: &'static str,
-    pub outputs: Vec<DoclingOutput>,
-    pub page_range: Option<(u32, u32)>,
-    pub kind: DoclingInputKind,
-}
-
-#[derive(Debug, Clone)]
-pub struct DoclingClient {
+pub struct DoclingXlsxClient {
     http: Client,
-    config: DoclingConfig,
+    base_url: String,
+    poll_interval: Duration,
 }
 
-impl DoclingClient {
+impl DoclingXlsxClient {
     pub fn new(config: DoclingConfig) -> Result<Self> {
         let http = Client::builder()
             .timeout(config.connection.timeout)
             .build()
             .context("failed to build docling http client")?;
-        Ok(Self { http, config })
+        Ok(Self {
+            http,
+            base_url: api_base_url(&config.connection.base_url),
+            poll_interval: config.connection.poll_interval,
+        })
     }
 
-    pub async fn convert_async(&self, request: DoclingRequest) -> Result<DoclingParsedDocument> {
-        let task_id = self.submit_async(&request).await?;
+    pub async fn convert_xlsx(
+        &self,
+        filename: &str,
+        media_type: &str,
+        bytes: Bytes,
+    ) -> Result<Value> {
+        let task_id = self.submit_async(filename, media_type, bytes).await?;
 
         loop {
             let status = self.poll_status(&task_id).await?;
@@ -52,38 +45,32 @@ impl DoclingClient {
                         "docling task {task_id} failed with status {status}"
                     ));
                 }
-                _ => sleep(self.config.connection.poll_interval).await,
+                _ => sleep(self.poll_interval).await,
             }
         }
     }
 
-    pub(crate) fn build_form(&self, request: &DoclingRequest) -> Result<multipart::Form> {
-        let part = multipart::Part::stream(reqwest::Body::from(request.bytes.clone()))
-            .file_name(request.filename.clone())
-            .mime_str(&request.media_type)
+    fn build_form(
+        &self,
+        filename: &str,
+        media_type: &str,
+        bytes: Bytes,
+    ) -> Result<multipart::Form> {
+        let part = multipart::Part::stream(reqwest::Body::from(bytes))
+            .file_name(filename.to_string())
+            .mime_str(media_type)
             .context("failed to build multipart file part")?;
-        let mut form = multipart::Form::new()
+        Ok(multipart::Form::new()
             .part("files", part)
-            .text("from_formats", request.from_format.to_string());
-        for output in &request.outputs {
-            form = form.text("to_formats", output.as_str().to_string());
-        }
-        if let Some((start, end)) = request.page_range {
-            form = form.text("page_range", start.to_string());
-            form = form.text("page_range", end.to_string());
-        }
-
-        apply_docling_options(form, &self.config, request.kind)
+            .text("from_formats", "xlsx".to_string())
+            .text("to_formats", "json".to_string()))
     }
 
-    async fn submit_async(&self, request: &DoclingRequest) -> Result<String> {
-        let form = self.build_form(request)?;
+    async fn submit_async(&self, filename: &str, media_type: &str, bytes: Bytes) -> Result<String> {
+        let form = self.build_form(filename, media_type, bytes)?;
         let response = self
             .http
-            .post(format!(
-                "{}/v1/convert/file/async",
-                self.config.connection.base_url.trim_end_matches('/')
-            ))
+            .post(format!("{}/convert/file/async", self.base_url))
             .multipart(form)
             .send()
             .await
@@ -105,11 +92,7 @@ impl DoclingClient {
     async fn poll_status(&self, task_id: &str) -> Result<String> {
         let response = self
             .http
-            .get(format!(
-                "{}/v1/status/poll/{}",
-                self.config.connection.base_url.trim_end_matches('/'),
-                task_id
-            ))
+            .get(format!("{}/status/poll/{task_id}", self.base_url))
             .send()
             .await
             .context("failed to poll docling status")?;
@@ -126,14 +109,10 @@ impl DoclingClient {
             .context("docling status response missing task_status")
     }
 
-    async fn fetch_result(&self, task_id: &str) -> Result<DoclingParsedDocument> {
+    async fn fetch_result(&self, task_id: &str) -> Result<Value> {
         let response = self
             .http
-            .get(format!(
-                "{}/v1/result/{}",
-                self.config.connection.base_url.trim_end_matches('/'),
-                task_id
-            ))
+            .get(format!("{}/result/{task_id}", self.base_url))
             .send()
             .await
             .context("failed to fetch docling result")?;
@@ -144,108 +123,11 @@ impl DoclingClient {
             .json::<Value>()
             .await
             .context("failed to parse docling result")?;
-        let document = body.get("document").unwrap_or(&body);
-        Ok(DoclingParsedDocument {
-            text: document
-                .get("text_content")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-                .or_else(|| {
-                    document
-                        .get("md_content")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned)
-                }),
-            json: document.get("json_content").cloned(),
-        })
+        Ok(body
+            .get("document")
+            .and_then(|document| document.get("json_content"))
+            .cloned()
+            .or_else(|| body.get("json_content").cloned())
+            .unwrap_or(body))
     }
-}
-
-fn apply_docling_options(
-    mut form: multipart::Form,
-    config: &DoclingConfig,
-    kind: DoclingInputKind,
-) -> Result<multipart::Form> {
-    match kind {
-        DoclingInputKind::Pdf => {
-            form = apply_pdf_options(form, config);
-            form = apply_enrichment_options(form, config)?;
-        }
-        DoclingInputKind::Docx => {
-            form = apply_docx_options(form, config);
-            form = apply_enrichment_options(form, config)?;
-        }
-        DoclingInputKind::Xlsx => {}
-    }
-
-    Ok(form)
-}
-
-fn apply_pdf_options(mut form: multipart::Form, config: &DoclingConfig) -> multipart::Form {
-    form = form.text("do_ocr", bool_as_string(config.ocr.do_ocr));
-    form = form.text("force_ocr", bool_as_string(config.ocr.force_ocr));
-    if let Some(value) = &config.ocr.ocr_engine {
-        form = form.text("ocr_engine", value.clone());
-    }
-    for lang in &config.ocr.ocr_lang {
-        form = form.text("ocr_lang", lang.clone());
-    }
-    if let Some(value) = &config.conversion.pdf_backend {
-        form = form.text("pdf_backend", value.clone());
-    }
-    apply_shared_conversion_options(form, config)
-}
-
-fn apply_docx_options(form: multipart::Form, config: &DoclingConfig) -> multipart::Form {
-    apply_shared_conversion_options(form, config)
-}
-
-fn apply_shared_conversion_options(
-    mut form: multipart::Form,
-    config: &DoclingConfig,
-) -> multipart::Form {
-    if let Some(value) = config.conversion.images_scale {
-        form = form.text("images_scale", value.to_string());
-    }
-    if let Some(value) = &config.conversion.image_export_mode {
-        form = form.text("image_export_mode", value.clone());
-    }
-    form
-}
-
-fn apply_enrichment_options(
-    mut form: multipart::Form,
-    config: &DoclingConfig,
-) -> Result<multipart::Form> {
-    if !config.enrichment_enabled() {
-        return Ok(form);
-    }
-
-    let custom = build_vlm_custom_configs(config)?;
-    form = form.text(
-        "do_code_enrichment",
-        bool_as_string(config.enrichment.do_code_enrichment),
-    );
-    form = form.text(
-        "do_formula_enrichment",
-        bool_as_string(config.enrichment.do_formula_enrichment),
-    );
-    form = form.text(
-        "do_picture_description",
-        bool_as_string(config.enrichment.do_picture_description),
-    );
-    form = form.text(
-        "vlm_pipeline_custom_config",
-        custom.vlm_pipeline_custom_config,
-    );
-    form = form.text(
-        "picture_description_custom_config",
-        custom.picture_description_custom_config,
-    );
-    form = form.text(
-        "code_formula_custom_config",
-        custom.code_formula_custom_config,
-    );
-
-    Ok(form)
 }

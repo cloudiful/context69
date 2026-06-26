@@ -5,10 +5,12 @@ use uuid::Uuid;
 
 use super::{
     ChunkRow, Database, DocumentRow, ExistingDocumentRow, KeywordSearchHitRow, ReindexChunkRow,
-    SearchHitRow, UpsertedDocument, library_file_id, library_path, library_section_label,
-    search_hit_from_keyword_row, keyword_terms, is_library_file,
+    SearchHitRow, UpsertedDocument, is_library_file, keyword_terms, library_file_id, library_path,
+    library_section_label, search_hit_from_keyword_row,
 };
-use crate::contracts::{DocumentChunkResponse, DocumentResponse, SearchHit, SearchRequest, Visibility};
+use crate::contracts::{
+    DocumentChunkResponse, DocumentResponse, SearchHit, SearchRequest, Visibility,
+};
 use crate::domain::{AccessScope, ChunkPayload, DocumentChunk};
 use crate::normalize::is_meaningful_text;
 
@@ -156,7 +158,10 @@ impl Database {
         }
 
         tx.commit().await?;
-        Ok(UpsertedDocument { document_id, changed })
+        Ok(UpsertedDocument {
+            document_id,
+            changed,
+        })
     }
 
     pub async fn replace_document_chunks(
@@ -255,10 +260,7 @@ impl Database {
                         document_id: row.document_id,
                         group_key: row.group_key,
                         project_key: row.project_key,
-                        visibility: row
-                            .visibility
-                            .parse()
-                            .unwrap_or(Visibility::Private),
+                        visibility: row.visibility.parse().unwrap_or(Visibility::Private),
                         source_key: row.source_key,
                         external_id: row.external_id,
                         title: row.title,

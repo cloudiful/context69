@@ -19,7 +19,10 @@ fn serializes_and_deserializes_core_requests() {
     };
 
     let value = serde_json::to_value(&request).expect("serialize request");
-    assert_eq!(value.get("query"), Some(&Value::String("policy".to_string())));
+    assert_eq!(
+        value.get("query"),
+        Some(&Value::String("policy".to_string()))
+    );
 
     let login = AuthLoginRequest {
         login_name: "admin".to_string(),
@@ -71,7 +74,10 @@ fn serializes_core_responses() {
             .with_timezone(&chrono::Utc),
     };
     let group_json = serde_json::to_value(group).expect("serialize group");
-    assert_eq!(group_json.get("kind"), Some(&Value::String("shared".to_string())));
+    assert_eq!(
+        group_json.get("kind"),
+        Some(&Value::String("shared".to_string()))
+    );
 
     let sources = ListSourcesResponse {
         sources: vec![SourceStatus {
@@ -96,7 +102,10 @@ fn serializes_core_responses() {
         }],
     };
     let sources_json = serde_json::to_value(sources).expect("serialize sources");
-    assert_eq!(sources_json["sources"][0]["origin_status"], json!("connected"));
+    assert_eq!(
+        sources_json["sources"][0]["origin_status"],
+        json!("connected")
+    );
 
     let health = HealthResponse {
         status: HealthStatus::Degraded,

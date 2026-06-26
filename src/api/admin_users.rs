@@ -7,8 +7,8 @@ use axum::{
 
 use crate::{
     contracts::{
-        AdminUserResponse, ApiErrorResponse, CreateAdminUserRequest,
-        ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
+        AdminUserResponse, ApiErrorResponse, CreateAdminUserRequest, ResetAdminUserPasswordRequest,
+        UpdateAdminUserRequest,
     },
     domain::UserRecord,
 };
@@ -30,7 +30,12 @@ pub(crate) async fn list_admin_users(
     match state.app.auth.list_admin_users(&session.user).await {
         Ok(users) => (
             StatusCode::OK,
-            Json(users.into_iter().map(admin_user_response).collect::<Vec<_>>()),
+            Json(
+                users
+                    .into_iter()
+                    .map(admin_user_response)
+                    .collect::<Vec<_>>(),
+            ),
         )
             .into_response(),
         Err(error) => admin_user_error_response(error),

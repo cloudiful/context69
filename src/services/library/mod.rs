@@ -17,14 +17,13 @@ use crate::{
     chunking::ChunkingConfig,
     config::FileLibraryConfig,
     contracts::{
-        CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-        LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse,
-        LibraryIngestJobResponse, LibraryIngestStatus, LibraryTreeResponse,
-        LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
+        CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryFileSummary,
+        LibraryFolderNode, LibraryFolderResponse, LibraryIngestJobResponse, LibraryIngestStatus,
+        LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
         UpsertLibraryTextRequest,
     },
     db::Database,
-    docling::{DoclingClient, DoclingInputKind, DoclingOutput, DoclingRequest},
+    docling::DoclingXlsxClient,
     domain::{ChunkPayload, LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
     embedding::EmbeddingProvider,
     library_store::{LibraryStore, NewLibraryFile, file_to_summary, job_to_response},
@@ -175,15 +174,7 @@ fn merge_library_metadata(user_metadata: &Value, system_metadata: Value) -> Resu
 mod tests {
     use serde_json::json;
 
-    use super::{storage::build_pdf_ranges, xlsx::extract_xlsx_sections};
-
-    #[test]
-    fn pdf_ranges_cover_single_and_remainder_pages() {
-        assert_eq!(build_pdf_ranges(0, 5), Vec::<(u32, u32)>::new());
-        assert_eq!(build_pdf_ranges(1, 5), vec![(1, 1)]);
-        assert_eq!(build_pdf_ranges(10, 5), vec![(1, 5), (6, 10)]);
-        assert_eq!(build_pdf_ranges(12, 5), vec![(1, 5), (6, 10), (11, 12)]);
-    }
+    use super::xlsx::extract_xlsx_sections;
 
     #[test]
     fn xlsx_sections_are_split_by_sheet_groups() {

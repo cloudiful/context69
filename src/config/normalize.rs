@@ -37,11 +37,6 @@ pub(super) fn normalize_source_config(mut value: SourceConfig) -> Result<SourceC
 
 pub(super) fn normalize_docling_config(mut value: DoclingConfig) -> DoclingConfig {
     value.connection.base_url = value.connection.base_url.trim().to_string();
-    value.conversion.pdf_backend = normalize_optional_string(value.conversion.pdf_backend);
-    value.conversion.image_export_mode =
-        normalize_optional_string(value.conversion.image_export_mode);
-    value.ocr.ocr_engine = normalize_optional_string(value.ocr.ocr_engine);
-    value.ocr.ocr_lang = normalize_string_list(value.ocr.ocr_lang);
     value.vlm.openai_base_url = normalize_optional_string(value.vlm.openai_base_url);
     value.vlm.api_key = normalize_optional_string(value.vlm.api_key);
     value.vlm.vlm_pipeline_model = normalize_optional_string(value.vlm.vlm_pipeline_model);

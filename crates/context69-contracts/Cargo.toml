@@ -1,6 +1,6 @@
 [package]
 name = "context69-contracts"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Shared request and response types for the Context69 API."
@@ -13,14 +13,14 @@ categories = ["api-bindings", "data-structures"]
 publish = ["crates-io"]
 
 [dependencies]
-anyhow = "1.0.102"
-chrono = { version = "0.4.44", features = ["serde"] }
-rmcp = { version = "1.6.0", features = [ "schemars" ] }
-schemars = { version = "1.2.1", features = ["chrono04", "uuid1"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-utoipa = { version = "5.5.0", features = [ "chrono", "uuid" ] }
-uuid = { version = "1.23.1", features = [ "serde", "v4", "v5" ] }
+anyhow.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+rmcp = { workspace = true, features = [ "schemars" ] }
+schemars = { workspace = true, features = ["chrono04", "uuid1"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+utoipa = { workspace = true, features = [ "chrono", "uuid" ] }
+uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
 
 [dev-dependencies]
-serde_json = "1.0.149"
+serde_json.workspace = true

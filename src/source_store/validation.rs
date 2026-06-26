@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use anyhow::{Result, anyhow};
 
-use super::{MAX_SOURCE_EXAMPLE_QUERY_LEN, PostgresSqlConnectorConfig, SourceConfig, SourceConfigInput, SourceStore, parse_sync_strategy};
+use super::{
+    MAX_SOURCE_EXAMPLE_QUERY_LEN, PostgresSqlConnectorConfig, SourceConfig, SourceConfigInput,
+    SourceStore, parse_sync_strategy,
+};
 
 pub const MAX_SOURCE_EXAMPLE_QUERIES: usize = 6;
 

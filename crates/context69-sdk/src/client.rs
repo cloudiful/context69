@@ -1,17 +1,14 @@
-use std::{
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
+use context69_contracts::library::{
+    CreateTextRequest, LibraryUploadResponse, UpsertLibraryTextRequest,
+};
+use context69_contracts::sources::SyncOutcome;
 use context69_contracts::{
     ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse, DocumentResponse,
     GroupMemberResponse, GroupResponse, HealthResponse, ProjectMemberResponse, ProjectResponse,
     SearchRequest, SearchResponse,
 };
-use context69_contracts::library::{
-    CreateTextRequest, LibraryUploadResponse, UpsertLibraryTextRequest,
-};
-use context69_contracts::sources::SyncOutcome;
 use reqwest::{
     Method, RequestBuilder, Response, StatusCode, Url,
     header::{AUTHORIZATION, USER_AGENT},
@@ -111,7 +108,8 @@ impl Context69Client {
     }
 
     pub async fn me(&self) -> Result<AuthMeResponse, Error> {
-        self.send_json(Method::GET, "/v1/auth/me", None::<&()>).await
+        self.send_json(Method::GET, "/v1/auth/me", None::<&()>)
+            .await
     }
 
     pub async fn healthz(&self) -> Result<HealthResponse, Error> {
@@ -120,7 +118,8 @@ impl Context69Client {
     }
 
     pub async fn search(&self, request: SearchRequest) -> Result<SearchResponse, Error> {
-        self.send_json(Method::POST, "/v1/search", Some(&request)).await
+        self.send_json(Method::POST, "/v1/search", Some(&request))
+            .await
     }
 
     pub async fn get_document(&self, document_id: i64) -> Result<DocumentResponse, Error> {
@@ -169,8 +168,9 @@ impl Context69Client {
     }
 
     pub async fn list_sources(&self) -> Result<Vec<context69_contracts::SourceStatus>, Error> {
-        let response: Vec<context69_contracts::SourceStatus> =
-            self.send_json(Method::GET, "/v1/sources", None::<&()>).await?;
+        let response: Vec<context69_contracts::SourceStatus> = self
+            .send_json(Method::GET, "/v1/sources", None::<&()>)
+            .await?;
         Ok(response)
     }
 
@@ -416,14 +416,14 @@ mod tests {
         routing::{get, post},
     };
     use chrono::NaiveDate;
+    use context69_contracts::library::{
+        CreateTextRequest, LibraryFileSummary, LibraryIngestJobResponse, LibraryIngestStatus,
+        LibraryUploadResponse, UpsertLibraryTextRequest,
+    };
+    use context69_contracts::sources::SyncOutcome;
     use context69_contracts::{
         AuthUserResponse, GroupKind, HealthStatus, MembershipRole, SearchHit, Visibility,
     };
-    use context69_contracts::library::{
-        CreateTextRequest, LibraryFileSummary, LibraryIngestJobResponse,
-        LibraryIngestStatus, LibraryUploadResponse, UpsertLibraryTextRequest,
-    };
-    use context69_contracts::sources::SyncOutcome;
     use serde_json::json;
     use tokio::net::TcpListener;
 
@@ -446,13 +446,14 @@ mod tests {
             .route("/v1/groups", get(groups_handler))
             .route(
                 "/v1/groups/{group_key}/projects/{project_key}/library/texts",
-                post(create_project_library_text_handler)
-                    .put(upsert_project_library_text_handler),
+                post(create_project_library_text_handler).put(upsert_project_library_text_handler),
             )
             .route("/v1/sources/{source_key}/sync", post(sync_source_handler))
             .with_state(state.clone());
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(async move {
             axum::serve(listener, app).await.expect("serve app");
@@ -657,7 +658,10 @@ mod tests {
             );
         }
         assert_eq!(request.external_id, "ext-1");
-        assert_eq!(request.published_at, Some(NaiveDate::from_ymd_opt(2026, 6, 10).expect("date")));
+        assert_eq!(
+            request.published_at,
+            Some(NaiveDate::from_ymd_opt(2026, 6, 10).expect("date"))
+        );
         assert_eq!(request.metadata_json, json!({"topic":"gov"}));
         json_response(
             StatusCode::OK,
@@ -665,10 +669,7 @@ mod tests {
         )
     }
 
-    async fn sync_source_handler(
-        State(state): State<TestState>,
-        headers: HeaderMap,
-    ) -> Response {
+    async fn sync_source_handler(State(state): State<TestState>, headers: HeaderMap) -> Response {
         state.sync_calls.fetch_add(1, Ordering::SeqCst);
         if require_authorized(&headers).is_err() {
             return json_response(
@@ -750,7 +751,10 @@ mod tests {
             .build()
             .expect("client");
 
-        assert_eq!(client.url("/healthz").expect("url").as_str(), "http://localhost:8096/healthz");
+        assert_eq!(
+            client.url("/healthz").expect("url").as_str(),
+            "http://localhost:8096/healthz"
+        );
     }
 
     #[test]
@@ -831,9 +835,7 @@ mod tests {
 
         match error {
             Error::HttpStatus {
-                status,
-                api_error,
-                ..
+                status, api_error, ..
             } => {
                 assert_eq!(status, StatusCode::BAD_REQUEST);
                 assert_eq!(api_error.as_deref(), Some("invalid query"));
@@ -852,7 +854,10 @@ mod tests {
             .build()
             .expect("client");
 
-        let outcome = client.sync_source("gov_documents").await.expect("sync response");
+        let outcome = client
+            .sync_source("gov_documents")
+            .await
+            .expect("sync response");
         assert_eq!(outcome.records_changed, 4);
         assert_eq!(state.sync_calls.load(Ordering::SeqCst), 1);
     }
@@ -907,9 +912,7 @@ mod tests {
                     content: "world".to_string(),
                     source_uri: None,
                     summary: None,
-                    published_at: Some(
-                        NaiveDate::from_ymd_opt(2026, 6, 10).expect("published_at"),
-                    ),
+                    published_at: Some(NaiveDate::from_ymd_opt(2026, 6, 10).expect("published_at")),
                     metadata_json: json!({"topic":"gov"}),
                 },
             )

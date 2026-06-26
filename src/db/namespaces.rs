@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
-use sqlx::FromRow;
+use sqlx::{AssertSqlSafe, FromRow};
 
 use super::Database;
 use crate::{
@@ -8,7 +8,10 @@ use crate::{
         CreateGroupRequest, CreateProjectRequest, GroupKind, MembershipRole, MoveProjectRequest,
         UpdateGroupRequest, UpdateProjectRequest, UpsertMembershipRequest, Visibility,
     },
-    domain::{AccessScope, GroupRecord, NamespaceMemberRecord, PersonalGroupRecord, ProjectRecord, UserRecord},
+    domain::{
+        AccessScope, GroupRecord, NamespaceMemberRecord, PersonalGroupRecord, ProjectRecord,
+        UserRecord,
+    },
 };
 
 #[derive(Debug, Clone, FromRow)]
@@ -141,7 +144,7 @@ impl Database {
     }
 
     pub async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>> {
-        let rows = sqlx::query_as::<_, GroupRow>(&group_access_query(None))
+        let rows = sqlx::query_as::<_, GroupRow>(AssertSqlSafe(group_access_query(None)))
             .bind(user_id)
             .fetch_all(self.pool())
             .await?;
@@ -153,11 +156,13 @@ impl Database {
         user_id: i64,
         group_key: &str,
     ) -> Result<Option<GroupRecord>> {
-        let rows = sqlx::query_as::<_, GroupRow>(&group_access_query(Some("g.group_key = $2")))
-            .bind(user_id)
-            .bind(group_key)
-            .fetch_all(self.pool())
-            .await?;
+        let rows = sqlx::query_as::<_, GroupRow>(AssertSqlSafe(group_access_query(Some(
+            "g.group_key = $2",
+        ))))
+        .bind(user_id)
+        .bind(group_key)
+        .fetch_all(self.pool())
+        .await?;
         rows.into_iter().next().map(group_from_row).transpose()
     }
 
@@ -256,12 +261,19 @@ impl Database {
             return Err(anyhow!("personal groups cannot be updated"));
         }
 
-        let next_name = request.name.as_deref().map(str::trim).unwrap_or(&existing.name);
+        let next_name = request
+            .name
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or(&existing.name);
         if next_name.is_empty() {
             return Err(anyhow!("group name must not be empty"));
         }
         let next_visibility = request.visibility.unwrap_or(existing.visibility);
-        if existing.visibility == Visibility::Private && next_visibility == Visibility::Public && !actor.is_admin {
+        if existing.visibility == Visibility::Private
+            && next_visibility == Visibility::Public
+            && !actor.is_admin
+        {
             return Err(anyhow!("only admins can make a group public"));
         }
         if let Some(parent_group_key) = existing.parent_group_key.as_deref() {
@@ -408,11 +420,13 @@ impl Database {
         user_id: i64,
         group_key: &str,
     ) -> Result<Vec<ProjectRecord>> {
-        let rows = sqlx::query_as::<_, ProjectRow>(&project_access_query(Some("g.group_key = $2")))
-            .bind(user_id)
-            .bind(group_key)
-            .fetch_all(self.pool())
-            .await?;
+        let rows = sqlx::query_as::<_, ProjectRow>(AssertSqlSafe(project_access_query(Some(
+            "g.group_key = $2",
+        ))))
+        .bind(user_id)
+        .bind(group_key)
+        .fetch_all(self.pool())
+        .await?;
         rows.into_iter().map(project_from_row).collect()
     }
 
@@ -422,9 +436,9 @@ impl Database {
         group_key: &str,
         project_key: &str,
     ) -> Result<Option<ProjectRecord>> {
-        let rows = sqlx::query_as::<_, ProjectRow>(&project_access_query(Some(
+        let rows = sqlx::query_as::<_, ProjectRow>(AssertSqlSafe(project_access_query(Some(
             "g.group_key = $2 AND p.project_key = $3",
-        )))
+        ))))
         .bind(user_id)
         .bind(group_key)
         .bind(project_key)
@@ -508,7 +522,11 @@ impl Database {
             .await?
             .context("unknown project")?;
         ensure_role_at_least(existing.current_role, MembershipRole::Maintainer, "project")?;
-        let next_name = request.name.as_deref().map(str::trim).unwrap_or(&existing.name);
+        let next_name = request
+            .name
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or(&existing.name);
         if next_name.is_empty() {
             return Err(anyhow!("project name must not be empty"));
         }
@@ -688,10 +706,18 @@ impl Database {
             .get_group_for_user(actor.id, target_group_key)
             .await?
             .context("unknown group")?;
-        ensure_role_at_least(target_group.current_role, MembershipRole::Maintainer, "group")?;
+        ensure_role_at_least(
+            target_group.current_role,
+            MembershipRole::Maintainer,
+            "group",
+        )?;
 
-        if target_group.visibility == Visibility::Private && existing.visibility == Visibility::Public {
-            return Err(anyhow!("project visibility cannot be broader than group visibility"));
+        if target_group.visibility == Visibility::Private
+            && existing.visibility == Visibility::Public
+        {
+            return Err(anyhow!(
+                "project visibility cannot be broader than group visibility"
+            ));
         }
 
         let mut tx = self.pool().begin().await?;
@@ -735,10 +761,8 @@ impl Database {
             "library_ingest_jobs",
             "library_file_documents",
         ] {
-            let query = format!(
-                "UPDATE context69.{table} SET group_id = $2 WHERE project_id = $1"
-            );
-            sqlx::query(&query)
+            let query = format!("UPDATE context69.{table} SET group_id = $2 WHERE project_id = $1");
+            sqlx::query(AssertSqlSafe(query))
                 .bind(existing.id)
                 .bind(target_group.id)
                 .execute(&mut *tx)

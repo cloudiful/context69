@@ -62,29 +62,12 @@ export function buildRuntimePayload(
 
 export function buildDoclingPayload(
   draft: DraftDoclingSettings,
-  ocrLangText: string,
 ): UpdateDoclingSettingsRequest {
   return normalizeDoclingPayload({
     connection: {
       base_url: draft.connection.base_url,
       timeout_secs: draft.connection.timeout_secs,
       poll_interval_secs: draft.connection.poll_interval_secs,
-    },
-    conversion: {
-      pdf_backend: draft.conversion.pdf_backend,
-      images_scale: draft.conversion.images_scale,
-      image_export_mode: draft.conversion.image_export_mode,
-    },
-    ocr: {
-      do_ocr: draft.ocr.do_ocr,
-      force_ocr: draft.ocr.force_ocr,
-      ocr_engine: draft.ocr.ocr_engine,
-      ocr_lang_text: ocrLangText,
-    },
-    enrichment: {
-      do_code_enrichment: draft.enrichment.do_code_enrichment,
-      do_formula_enrichment: draft.enrichment.do_formula_enrichment,
-      do_picture_description: draft.enrichment.do_picture_description,
     },
     vlm: {
       provider_account_key: draft.vlm.provider_account_key,

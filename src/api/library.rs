@@ -6,18 +6,14 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::{
-    contracts::{
-        ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-        LibraryFolderResponse, LibraryIngestJobResponse, LibraryTreeResponse,
-        LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
-    },
+use crate::contracts::{
+    ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse,
+    MoveFileRequest, MoveFolderRequest,
 };
 
 use super::{
-    ApiState,
-    errors::library_management_error_response,
-    library_upload::read_library_uploads,
+    ApiState, errors::library_management_error_response, library_upload::read_library_uploads,
 };
 
 #[utoipa::path(

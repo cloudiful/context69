@@ -2,12 +2,17 @@ use super::*;
 
 impl SyncService {
     pub async fn list_sources(&self) -> Result<Vec<SourceStatus>> {
-        self.decorate_sources(self.source_store.list_sources().await?).await
+        self.decorate_sources(self.source_store.list_sources().await?)
+            .await
     }
 
     pub async fn list_sources_for_project(&self, project_id: i64) -> Result<Vec<SourceStatus>> {
-        self.decorate_sources(self.source_store.list_sources_for_project(project_id).await?)
-            .await
+        self.decorate_sources(
+            self.source_store
+                .list_sources_for_project(project_id)
+                .await?,
+        )
+        .await
     }
 
     pub async fn get_source_for_project(
@@ -33,7 +38,9 @@ impl SyncService {
     ) -> Result<SourceStatus> {
         self.upsert_source_connection_for_source(input).await?;
         let source = SourceStore::validate_source_input(input, &self.connection_names().await?)?;
-        self.source_store.insert_source_in_scope(&source, scope).await?;
+        self.source_store
+            .insert_source_in_scope(&source, scope)
+            .await?;
         self.reload_sources().await?;
         self.get_source_for_project(scope.project_id, &source.key)
             .await?
@@ -62,11 +69,7 @@ impl SyncService {
             .with_context(|| format!("missing source {source_key}"))
     }
 
-    pub async fn delete_source_in_project(
-        &self,
-        project_id: i64,
-        source_key: &str,
-    ) -> Result<()> {
+    pub async fn delete_source_in_project(&self, project_id: i64, source_key: &str) -> Result<()> {
         let _guard = self.acquire_lock(source_key).await?;
         let chunk_ids = self.source_store.list_source_chunk_ids(source_key).await?;
         self.index.delete_points(&chunk_ids).await?;

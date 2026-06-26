@@ -13,27 +13,25 @@ use crate::services::app::Context69App;
 
 use super::{
     ApiState, auth_middleware, create_admin_user, create_group, create_library_folder,
-    create_library_text,
-    create_project, create_project_library_folder, create_project_source,
-    create_project_library_text, upsert_project_library_text,
-    create_provider_account, create_source,
-    create_source_connection, delete_library_file, delete_library_folder,
-    delete_project_library_file, delete_project_library_folder, delete_provider_account,
-    delete_source, delete_source_connection, delete_group, delete_group_member,
-    delete_project, delete_project_member, delete_project_source, get_docling_settings,
-    get_document, get_group, get_library_file, get_library_job, get_library_tree,
-    get_project, get_project_library_file, get_project_library_job, get_project_library_tree,
-    get_runtime_settings, get_search_settings, healthz, list_group_members, list_groups,
-    list_project_members, list_project_sources, list_projects, list_provider_accounts,
-    list_source_connections, list_sources, list_admin_users, login, logout, me,
-    move_library_file, move_library_folder, move_project, move_project_library_file,
-    move_project_library_folder, openapi_json, refresh,
+    create_library_text, create_project, create_project_library_folder,
+    create_project_library_text, create_project_source, create_provider_account, create_source,
+    create_source_connection, delete_group, delete_group_member, delete_library_file,
+    delete_library_folder, delete_project, delete_project_library_file,
+    delete_project_library_folder, delete_project_member, delete_project_source,
+    delete_provider_account, delete_source, delete_source_connection, disable_admin_user,
+    enable_admin_user, get_docling_settings, get_document, get_group, get_library_file,
+    get_library_job, get_library_tree, get_project, get_project_library_file,
+    get_project_library_job, get_project_library_tree, get_runtime_settings, get_search_settings,
+    healthz, list_admin_users, list_group_members, list_groups, list_project_members,
+    list_project_sources, list_projects, list_provider_accounts, list_source_connections,
+    list_sources, login, logout, me, move_library_file, move_library_folder, move_project,
+    move_project_library_file, move_project_library_folder, openapi_json, refresh,
     reset_admin_user_password, search, search_user_directory, sync_project_source, sync_source,
     update_admin_user, update_docling_settings, update_group, update_project,
     update_project_source, update_provider_account, update_runtime_settings,
-    update_search_settings, update_source, update_source_connection,
-    upload_library_files, upload_project_library_files, upsert_group_member,
-    upsert_project_member, disable_admin_user, enable_admin_user,
+    update_search_settings, update_source, update_source_connection, upload_library_files,
+    upload_project_library_files, upsert_group_member, upsert_project_library_text,
+    upsert_project_member,
 };
 
 pub fn router(app: Arc<Context69App>) -> Router {
@@ -57,10 +55,22 @@ pub fn router(app: Arc<Context69App>) -> Router {
 fn base_protected_routes(upload_body_limit: usize) -> Router<ApiState> {
     Router::new()
         .route("/v1/auth/me", get(me))
-        .route("/v1/admin/users", get(list_admin_users).post(create_admin_user))
-        .route("/v1/admin/users/{login_name}", axum::routing::patch(update_admin_user))
-        .route("/v1/admin/users/{login_name}/disable", post(disable_admin_user))
-        .route("/v1/admin/users/{login_name}/enable", post(enable_admin_user))
+        .route(
+            "/v1/admin/users",
+            get(list_admin_users).post(create_admin_user),
+        )
+        .route(
+            "/v1/admin/users/{login_name}",
+            axum::routing::patch(update_admin_user),
+        )
+        .route(
+            "/v1/admin/users/{login_name}/disable",
+            post(disable_admin_user),
+        )
+        .route(
+            "/v1/admin/users/{login_name}/enable",
+            post(enable_admin_user),
+        )
         .route(
             "/v1/admin/users/{login_name}/reset-password",
             post(reset_admin_user_password),
@@ -104,7 +114,10 @@ fn base_protected_routes(upload_body_limit: usize) -> Router<ApiState> {
         .route("/v1/library/tree", get(get_library_tree))
         .route("/v1/library/folders", post(create_library_folder))
         .route("/v1/library/texts", post(create_library_text))
-        .route("/v1/library/folders/{folder_id}/move", post(move_library_folder))
+        .route(
+            "/v1/library/folders/{folder_id}/move",
+            post(move_library_folder),
+        )
         .route(
             "/v1/library/folders/{folder_id}",
             axum::routing::delete(delete_library_folder),
@@ -127,9 +140,7 @@ fn base_protected_routes(upload_body_limit: usize) -> Router<ApiState> {
         .route("/v1/groups", get(list_groups).post(create_group))
         .route(
             "/v1/groups/{group_key}",
-            get(get_group)
-                .patch(update_group)
-                .delete(delete_group),
+            get(get_group).patch(update_group).delete(delete_group),
         )
         .route(
             "/v1/groups/{group_key}/members",
@@ -199,8 +210,7 @@ fn project_scoped_routes(upload_body_limit: usize) -> Router<ApiState> {
         )
         .route(
             "/v1/groups/{group_key}/projects/{project_key}/library/files/upload",
-            post(upload_project_library_files)
-                .layer(DefaultBodyLimit::max(upload_body_limit)),
+            post(upload_project_library_files).layer(DefaultBodyLimit::max(upload_body_limit)),
         )
         .route(
             "/v1/groups/{group_key}/projects/{project_key}/library/files/{file_id}",

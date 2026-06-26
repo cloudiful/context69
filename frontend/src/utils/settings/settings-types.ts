@@ -41,37 +41,11 @@ export type DraftDoclingSettings = {
     timeout_secs: number;
     poll_interval_secs: number;
   };
-  conversion: {
-    pdf_backend: string;
-    images_scale: number | null;
-    image_export_mode: string;
-  };
-  ocr: {
-    do_ocr: boolean;
-    force_ocr: boolean;
-    ocr_engine: string;
-  };
-  enrichment: {
-    do_code_enrichment: boolean;
-    do_formula_enrichment: boolean;
-    do_picture_description: boolean;
-  };
   vlm: {
     provider_account_key: string;
     vlm_pipeline_model: string;
     picture_description_model: string;
     code_formula_model: string;
-  };
-};
-
-export type DraftDoclingSettingsEnvelope = {
-  draft: DraftDoclingSettings;
-  ocrLangText: string;
-};
-
-export type DoclingPayloadShape = Omit<UpdateDoclingSettingsRequest, "ocr"> & {
-  ocr: UpdateDoclingSettingsRequest["ocr"] & {
-    ocr_lang_text?: string;
   };
 };
 
@@ -101,3 +75,4 @@ export type ProviderAccountDraft = {
 };
 
 export type ProviderAccountComparablePayload = UpsertProviderAccountRequest;
+export type DoclingPayloadShape = UpdateDoclingSettingsRequest;

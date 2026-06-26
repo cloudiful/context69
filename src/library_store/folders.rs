@@ -1,8 +1,8 @@
 use anyhow::Result;
 use uuid::Uuid;
 
-use super::{FolderRow, LibraryFolderRecord, LibraryStore};
 use super::mappers::folder_from_row;
+use super::{FolderRow, LibraryFolderRecord, LibraryStore};
 
 impl LibraryStore {
     pub async fn list_folders(&self) -> Result<Vec<LibraryFolderRecord>> {

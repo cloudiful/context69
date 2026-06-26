@@ -6,7 +6,9 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use chrono::{Duration as ChronoDuration, Utc};
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, decode_header, encode};
+use jsonwebtoken::{
+    Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, decode_header, encode,
+};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -101,10 +103,7 @@ impl AuthService {
     pub async fn verify_access_token(&self, token: &str) -> Result<AuthSession> {
         let header = decode_header(token).context("invalid token header")?;
         let kid = header.kid.context("missing token kid")?;
-        let decoding_key = self
-            .decoding_keys
-            .get(&kid)
-            .context("unknown token kid")?;
+        let decoding_key = self.decoding_keys.get(&kid).context("unknown token kid")?;
         let mut validation = Validation::new(Algorithm::HS256);
         validation.set_issuer(&[self.config.issuer.as_str()]);
         let claims = decode::<AccessTokenClaims>(token, decoding_key, &validation)
@@ -205,7 +204,11 @@ impl AuthService {
             .context("user not found")
     }
 
-    pub async fn disable_admin_user(&self, actor: &UserRecord, login_name: &str) -> Result<UserRecord> {
+    pub async fn disable_admin_user(
+        &self,
+        actor: &UserRecord,
+        login_name: &str,
+    ) -> Result<UserRecord> {
         require_admin(actor)?;
         self.db
             .set_user_disabled_at(login_name, Some(Utc::now()))
@@ -213,7 +216,11 @@ impl AuthService {
             .context("user not found")
     }
 
-    pub async fn enable_admin_user(&self, actor: &UserRecord, login_name: &str) -> Result<UserRecord> {
+    pub async fn enable_admin_user(
+        &self,
+        actor: &UserRecord,
+        login_name: &str,
+    ) -> Result<UserRecord> {
         require_admin(actor)?;
         self.db
             .set_user_disabled_at(login_name, None)
@@ -221,13 +228,20 @@ impl AuthService {
             .context("user not found")
     }
 
-    pub async fn search_user_directory(&self, _actor: &UserRecord, query: &str, limit: usize) -> Result<Vec<UserRecord>> {
+    pub async fn search_user_directory(
+        &self,
+        _actor: &UserRecord,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<UserRecord>> {
         let trimmed_query = query.trim();
         let normalized_limit = limit.clamp(1, 20) as i64;
         if trimmed_query.is_empty() {
             return self.db.search_user_directory("", normalized_limit).await;
         }
-        self.db.search_user_directory(trimmed_query, normalized_limit).await
+        self.db
+            .search_user_directory(trimmed_query, normalized_limit)
+            .await
     }
 
     pub async fn refresh(&self, refresh_token: &str) -> Result<IssuedSession> {
@@ -283,10 +297,7 @@ impl AuthService {
             .await?
             .context("user not found")?;
         ensure_user_enabled(&user)?;
-        let personal_group = self
-            .db
-            .ensure_personal_group_for_user(&user)
-            .await?;
+        let personal_group = self.db.ensure_personal_group_for_user(&user).await?;
         Ok(AuthSession {
             user,
             personal_group,
@@ -299,7 +310,9 @@ impl AuthService {
         group_key: Option<String>,
         project_key: Option<String>,
     ) -> Result<AccessScope> {
-        self.db.resolve_access_scope(user_id, group_key, project_key).await
+        self.db
+            .resolve_access_scope(user_id, group_key, project_key)
+            .await
     }
 
     pub fn cookie_name(&self) -> &str {
@@ -335,7 +348,12 @@ impl AuthService {
             + ChronoDuration::from_std(self.config.refresh_token_ttl)
                 .context("invalid refresh token ttl")?;
         self.db
-            .insert_refresh_token(Uuid::new_v4(), user.id, &refresh_token_hash, refresh_expires_at)
+            .insert_refresh_token(
+                Uuid::new_v4(),
+                user.id,
+                &refresh_token_hash,
+                refresh_expires_at,
+            )
             .await?;
         let session = self.session_for_user_id(user.id).await?;
         Ok(IssuedSession {

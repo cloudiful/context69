@@ -243,7 +243,10 @@ pub(super) fn search_hit_from_keyword_row(row: KeywordSearchHitRow) -> SearchHit
         document_id: row.document_id,
         group_key: row.group_key,
         project_key: row.project_key,
-        visibility: row.visibility.parse().unwrap_or(crate::contracts::Visibility::Private),
+        visibility: row
+            .visibility
+            .parse()
+            .unwrap_or(crate::contracts::Visibility::Private),
         source_key: row.source_key,
         external_id: row.external_id,
         title: row.title,

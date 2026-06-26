@@ -1,4 +1,4 @@
-use lopdf::Document as LoDocument;
+use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
 
 use super::*;
 
@@ -36,11 +36,10 @@ impl LibraryService {
         };
 
         let result = async {
-            let docling = self.load_docling_client().await?;
             let sections = match kind {
-                LibraryFileKind::Pdf => self.ingest_pdf(&docling, &file, &bytes, job_id).await?,
-                LibraryFileKind::Docx => self.ingest_docx(&docling, &file, &bytes, job_id).await?,
-                LibraryFileKind::Xlsx => self.ingest_xlsx(&docling, &file, &bytes, job_id).await?,
+                LibraryFileKind::Pdf => self.ingest_pdf(&file, &bytes, job_id).await?,
+                LibraryFileKind::Docx => self.ingest_docx(&file, &bytes).await?,
+                LibraryFileKind::Xlsx => self.ingest_xlsx(&file, &bytes).await?,
                 LibraryFileKind::PlainText => self.ingest_text(&file, &bytes).await?,
             };
             self.persist_sections(&file, sections).await
@@ -85,46 +84,49 @@ impl LibraryService {
         }
     }
 
-    pub(super) async fn load_docling_client(&self) -> Result<DoclingClient> {
+    pub(super) async fn load_docling_pdf_converter(&self) -> Result<PdfConvert> {
         let config = self
             .settings
             .resolve_docling_config()
             .await?
             .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
-        DoclingClient::new(config)
+        let runtime = crate::docling::build_runtime_config(&config)?;
+        PdfConvert::builder(runtime)
+            .behavior(ConversionBehavior {
+                pages_per_file: self.pdf_pages_per_task(),
+                ..ConversionBehavior::default()
+            })
+            .output_formats(vec![
+                OutputFormat::Md,
+                OutputFormat::Text,
+                OutputFormat::Json,
+            ])
+            .build()
+            .map_err(anyhow::Error::from)
+    }
+
+    pub(super) async fn load_docling_xlsx_client(&self) -> Result<DoclingXlsxClient> {
+        let config = self
+            .settings
+            .resolve_docling_config()
+            .await?
+            .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
+        DoclingXlsxClient::new(config)
     }
 
     async fn ingest_pdf(
         &self,
-        docling: &DoclingClient,
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
         job_id: Uuid,
     ) -> Result<Vec<IngestSection>> {
-        let document = LoDocument::load_mem(bytes)
-            .with_context(|| format!("failed to parse pdf {}", file.filename))?;
-        let total_pages = document.get_pages().len() as u32;
-        let ranges = storage::build_pdf_ranges(total_pages, self.pdf_pages_per_task());
-        let ranges = if ranges.is_empty() {
-            vec![(1, 1)]
-        } else {
-            ranges
-        };
+        let converter = self.load_docling_pdf_converter().await?;
+        let input = InputDocument::new(&file.filename, &file.media_type, bytes.clone());
+        let converted = converter.convert_input(input).await?;
 
-        let mut parts = Vec::new();
-        for (start_page, end_page) in ranges {
-            let parsed = docling
-                .convert_async(DoclingRequest {
-                    filename: file.filename.clone(),
-                    media_type: file.media_type.clone(),
-                    bytes: bytes.clone(),
-                    from_format: storage::file_kind_to_format(LibraryFileKind::Pdf),
-                    outputs: vec![DoclingOutput::Text],
-                    page_range: Some((start_page, end_page)),
-                    kind: DoclingInputKind::Pdf,
-                })
-                .await?;
-            let status_id = format!("{start_page}-{end_page}");
+        let total = converted.chunks.len().max(1);
+        for index in 0..total {
+            let status_id = format!("{}/{}", index + 1, total);
             self.store
                 .update_job_status(
                     job_id,
@@ -135,19 +137,20 @@ impl LibraryService {
                     false,
                 )
                 .await?;
-            let text = parsed
-                .text
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_default();
-            parts.push(text);
         }
+
+        let body_text = converted
+            .markdown
+            .or(converted.text)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_default();
 
         Ok(vec![IngestSection {
             section_key: "document".to_string(),
             section_label: file.filename.clone(),
             title: file.filename.clone(),
             summary: None,
-            body_text: normalize_body(&parts.join("\n\n")),
+            body_text: normalize_body(&body_text),
             source_uri: None,
             external_id: None,
             published_at: None,
@@ -157,25 +160,16 @@ impl LibraryService {
 
     async fn ingest_docx(
         &self,
-        docling: &DoclingClient,
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
-        _job_id: Uuid,
     ) -> Result<Vec<IngestSection>> {
-        let parsed = docling
-            .convert_async(DoclingRequest {
-                filename: file.filename.clone(),
-                media_type: file.media_type.clone(),
-                bytes: bytes.clone(),
-                from_format: storage::file_kind_to_format(LibraryFileKind::Docx),
-                outputs: vec![DoclingOutput::Text, DoclingOutput::Json],
-                page_range: None,
-                kind: DoclingInputKind::Docx,
-            })
-            .await?;
-        let text = parsed
-            .text
-            .or_else(|| parsed.json.as_ref().and_then(xlsx::extract_json_text))
+        let converter = self.load_docling_pdf_converter().await?;
+        let input = InputDocument::new(&file.filename, &file.media_type, bytes.clone());
+        let converted = converter.convert_input(input).await?;
+        let text = converted
+            .markdown
+            .or(converted.text)
+            .or_else(|| converted.json.as_ref().and_then(xlsx::extract_json_text))
             .unwrap_or_default();
         Ok(vec![IngestSection {
             section_key: "document".to_string(),
@@ -192,24 +186,13 @@ impl LibraryService {
 
     async fn ingest_xlsx(
         &self,
-        docling: &DoclingClient,
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
-        _job_id: Uuid,
     ) -> Result<Vec<IngestSection>> {
-        let parsed = docling
-            .convert_async(DoclingRequest {
-                filename: file.filename.clone(),
-                media_type: file.media_type.clone(),
-                bytes: bytes.clone(),
-                from_format: storage::file_kind_to_format(LibraryFileKind::Xlsx),
-                outputs: vec![DoclingOutput::Json],
-                page_range: None,
-                kind: DoclingInputKind::Xlsx,
-            })
-            .await?;
-        let json = parsed
-            .json
+        let docling = self.load_docling_xlsx_client().await?;
+        let json = docling
+            .convert_xlsx(&file.filename, &file.media_type, bytes.clone())
+            .await
             .context("docling did not return json_content for xlsx")?;
         let sections = xlsx::extract_xlsx_sections(&file.filename, &json)?;
         if sections.is_empty() {

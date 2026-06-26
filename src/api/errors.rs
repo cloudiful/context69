@@ -33,9 +33,7 @@ pub(crate) fn source_management_error_response(error: anyhow::Error) -> axum::re
     (status, Json(ApiErrorResponse { error: message })).into_response()
 }
 
-pub(crate) fn library_management_error_response(
-    error: anyhow::Error,
-) -> axum::response::Response {
+pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
     let status = if message.contains("unknown folder")
         || message.contains("unknown file")
@@ -60,9 +58,7 @@ pub(crate) fn library_management_error_response(
     (status, Json(ApiErrorResponse { error: message })).into_response()
 }
 
-pub(crate) fn settings_management_error_response(
-    error: anyhow::Error,
-) -> axum::response::Response {
+pub(crate) fn settings_management_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
     let status = if message.contains("must not be empty")
         || message.contains("must be greater than 0")
@@ -88,9 +84,7 @@ pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response:
         || message.contains("user account is disabled")
     {
         StatusCode::BAD_REQUEST
-    } else if message.contains("duplicate key value")
-        || message.contains("already exists")
-    {
+    } else if message.contains("duplicate key value") || message.contains("already exists") {
         StatusCode::CONFLICT
     } else {
         StatusCode::INTERNAL_SERVER_ERROR

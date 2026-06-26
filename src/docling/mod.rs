@@ -1,30 +1,15 @@
 use std::time::Duration;
 
-mod client;
-mod vlm;
-
-pub use client::{DoclingClient, DoclingParsedDocument, DoclingRequest};
+use anyhow::{Context, Result};
+use docling_convert::DoclingRuntimeConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::serde_helpers;
 
-pub const VALID_OCR_ENGINES: &[&str] = &[
-    "auto",
-    "easyocr",
-    "kserve_v2_ocr",
-    "ocrmac",
-    "rapidocr",
-    "tesserocr",
-    "tesseract",
-];
-pub const VALID_IMAGE_EXPORT_MODES: &[&str] = &["placeholder", "embedded", "referenced"];
-pub const VALID_PDF_BACKENDS: &[&str] = &[
-    "pypdfium2",
-    "docling_parse",
-    "dlparse_v1",
-    "dlparse_v2",
-    "dlparse_v4",
-];
+mod client;
+
+pub use client::DoclingXlsxClient;
+
 pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
@@ -51,42 +36,6 @@ impl Default for DoclingConnectionConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct DoclingConversionConfig {
-    pub pdf_backend: Option<String>,
-    pub images_scale: Option<f64>,
-    pub image_export_mode: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DoclingOcrConfig {
-    pub do_ocr: bool,
-    pub force_ocr: bool,
-    pub ocr_engine: Option<String>,
-    pub ocr_lang: Vec<String>,
-}
-
-impl Default for DoclingOcrConfig {
-    fn default() -> Self {
-        Self {
-            do_ocr: true,
-            force_ocr: false,
-            ocr_engine: None,
-            ocr_lang: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DoclingEnrichmentConfig {
-    pub do_code_enrichment: bool,
-    pub do_formula_enrichment: bool,
-    pub do_picture_description: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
 pub struct DoclingVlmConfig {
     pub openai_base_url: Option<String>,
     pub api_key: Option<String>,
@@ -95,64 +44,43 @@ pub struct DoclingVlmConfig {
     pub code_formula_model: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DoclingConfig {
     #[serde(flatten)]
     pub connection: DoclingConnectionConfig,
-    pub conversion: DoclingConversionConfig,
-    pub ocr: DoclingOcrConfig,
-    pub enrichment: DoclingEnrichmentConfig,
     pub vlm: DoclingVlmConfig,
 }
 
-impl Default for DoclingConfig {
-    fn default() -> Self {
-        Self {
-            connection: DoclingConnectionConfig::default(),
-            conversion: DoclingConversionConfig::default(),
-            ocr: DoclingOcrConfig::default(),
-            enrichment: DoclingEnrichmentConfig::default(),
-            vlm: DoclingVlmConfig::default(),
-        }
-    }
+pub fn build_runtime_config(config: &DoclingConfig) -> Result<DoclingRuntimeConfig> {
+    Ok(DoclingRuntimeConfig {
+        docling_base_url: api_base_url(&config.connection.base_url),
+        openai_base_url: config.vlm.openai_base_url.clone().context(
+            "docling.vlm.provider_account_key must be configured for PDF/DOCX conversion",
+        )?,
+        vlm_pipeline_model: config
+            .vlm
+            .vlm_pipeline_model
+            .clone()
+            .context("docling.vlm.vlm_pipeline_model must be configured for PDF/DOCX conversion")?,
+        picture_description_model: config.vlm.picture_description_model.clone().context(
+            "docling.vlm.picture_description_model must be configured for PDF/DOCX conversion",
+        )?,
+        code_formula_model: config
+            .vlm
+            .code_formula_model
+            .clone()
+            .context("docling.vlm.code_formula_model must be configured for PDF/DOCX conversion")?,
+        api_key: config.vlm.api_key.clone(),
+    })
 }
 
-impl DoclingConfig {
-    pub fn enrichment_enabled(&self) -> bool {
-        self.enrichment.do_code_enrichment
-            || self.enrichment.do_formula_enrichment
-            || self.enrichment.do_picture_description
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DoclingInputKind {
-    Pdf,
-    Docx,
-    Xlsx,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DoclingOutput {
-    Text,
-    Json,
-}
-
-impl DoclingOutput {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Text => "text",
-            Self::Json => "json",
-        }
-    }
-}
-
-fn bool_as_string(value: bool) -> String {
-    if value {
-        "true".to_string()
+pub fn api_base_url(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        trimmed.to_string()
     } else {
-        "false".to_string()
+        format!("{trimmed}/v1")
     }
 }
 
@@ -160,12 +88,9 @@ fn bool_as_string(value: bool) -> String {
 mod tests {
     use std::time::Duration;
 
-    use bytes::Bytes;
-
     use super::{
-        DoclingClient, DoclingConfig, DoclingConnectionConfig, DoclingConversionConfig,
-        DoclingEnrichmentConfig, DoclingInputKind, DoclingOcrConfig, DoclingOutput, DoclingRequest,
-        DoclingVlmConfig,
+        DoclingConfig, DoclingConnectionConfig, DoclingVlmConfig, api_base_url,
+        build_runtime_config,
     };
 
     fn sample_config() -> DoclingConfig {
@@ -174,22 +99,6 @@ mod tests {
                 base_url: "http://localhost:5001".to_string(),
                 timeout: Duration::from_secs(120),
                 poll_interval: Duration::from_secs(2),
-            },
-            conversion: DoclingConversionConfig {
-                pdf_backend: Some("dlparse_v2".to_string()),
-                images_scale: Some(2.0),
-                image_export_mode: Some("placeholder".to_string()),
-            },
-            ocr: DoclingOcrConfig {
-                do_ocr: true,
-                force_ocr: false,
-                ocr_engine: Some("rapidocr".to_string()),
-                ocr_lang: vec!["en".to_string(), "zh".to_string()],
-            },
-            enrichment: DoclingEnrichmentConfig {
-                do_code_enrichment: true,
-                do_formula_enrichment: true,
-                do_picture_description: true,
             },
             vlm: DoclingVlmConfig {
                 openai_base_url: Some("https://example.com/v1".to_string()),
@@ -202,77 +111,24 @@ mod tests {
     }
 
     #[test]
-    fn pdf_form_includes_ocr_conversion_and_vlm_fields() {
-        let client = DoclingClient::new(sample_config()).expect("client");
-        let form = client
-            .build_form(&DoclingRequest {
-                filename: "sample.pdf".to_string(),
-                media_type: "application/pdf".to_string(),
-                bytes: Bytes::from_static(b"pdf"),
-                from_format: "pdf",
-                outputs: vec![DoclingOutput::Text],
-                page_range: Some((1, 2)),
-                kind: DoclingInputKind::Pdf,
-            })
-            .expect("form");
-        let debug = format!("{form:?}");
-
-        assert!(debug.contains("ocr_engine"));
-        assert!(debug.contains("ocr_lang"));
-        assert!(debug.contains("pdf_backend"));
-        assert!(debug.contains("images_scale"));
-        assert!(debug.contains("image_export_mode"));
-        assert!(debug.contains("vlm_pipeline_custom_config"));
-        assert!(debug.contains("picture_description_custom_config"));
-        assert!(debug.contains("code_formula_custom_config"));
-        assert!(debug.contains("page_range"));
+    fn runtime_config_normalizes_v1_base_url() {
+        let runtime = build_runtime_config(&sample_config()).expect("runtime");
+        assert_eq!(runtime.docling_base_url, "http://localhost:5001/v1");
     }
 
     #[test]
-    fn docx_form_skips_pdf_only_fields() {
-        let client = DoclingClient::new(sample_config()).expect("client");
-        let form = client
-            .build_form(&DoclingRequest {
-                filename: "sample.docx".to_string(),
-                media_type:
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        .to_string(),
-                bytes: Bytes::from_static(b"docx"),
-                from_format: "docx",
-                outputs: vec![DoclingOutput::Text, DoclingOutput::Json],
-                page_range: None,
-                kind: DoclingInputKind::Docx,
-            })
-            .expect("form");
-        let debug = format!("{form:?}");
-
-        assert!(!debug.contains("pdf_backend"));
-        assert!(!debug.contains("ocr_engine"));
-        assert!(!debug.contains("ocr_lang"));
-        assert!(debug.contains("images_scale"));
-        assert!(debug.contains("image_export_mode"));
-        assert!(debug.contains("vlm_pipeline_custom_config"));
+    fn api_base_url_preserves_existing_v1_suffix() {
+        assert_eq!(
+            api_base_url("http://localhost:5001/v1"),
+            "http://localhost:5001/v1"
+        );
     }
 
     #[test]
-    fn xlsx_form_remains_minimal() {
-        let client = DoclingClient::new(sample_config()).expect("client");
-        let form = client
-            .build_form(&DoclingRequest {
-                filename: "sample.xlsx".to_string(),
-                media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    .to_string(),
-                bytes: Bytes::from_static(b"xlsx"),
-                from_format: "xlsx",
-                outputs: vec![DoclingOutput::Json],
-                page_range: None,
-                kind: DoclingInputKind::Xlsx,
-            })
-            .expect("form");
-        let debug = format!("{form:?}");
-
-        assert!(!debug.contains("ocr_engine"));
-        assert!(!debug.contains("vlm_pipeline_custom_config"));
-        assert!(!debug.contains("images_scale"));
+    fn runtime_config_requires_vlm_models() {
+        let mut config = sample_config();
+        config.vlm.code_formula_model = None;
+        let error = build_runtime_config(&config).expect_err("missing model");
+        assert!(error.to_string().contains("code_formula_model"));
     }
 }

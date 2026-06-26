@@ -7,9 +7,9 @@ use axum::{
 use uuid::Uuid;
 
 use crate::contracts::{
-    CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-    LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse,
-    MembershipRole, MoveFileRequest, MoveFolderRequest, UpsertLibraryTextRequest,
+    CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryIngestJobResponse,
+    LibraryTreeResponse, LibraryUploadResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
+    UpsertLibraryTextRequest,
 };
 
 use super::{
@@ -301,7 +301,12 @@ pub(crate) async fn get_project_library_file(
         Ok(project) => project,
         Err(error) => return project_access_error_response(error),
     };
-    match state.app.library.get_file_in_project(&project, file_id).await {
+    match state
+        .app
+        .library
+        .get_file_in_project(&project, file_id)
+        .await
+    {
         Ok(file) => (StatusCode::OK, Json(file)).into_response(),
         Err(error) => library_management_error_response(error),
     }

@@ -17,9 +17,7 @@ mod folders;
 mod jobs;
 mod mappers;
 
-pub(crate) use mappers::{
-    file_to_summary, infer_preview_content_format, job_to_response,
-};
+pub(crate) use mappers::{file_to_summary, infer_preview_content_format, job_to_response};
 
 #[derive(Clone)]
 pub struct LibraryStore {
@@ -162,6 +160,7 @@ struct SectionPreviewRow {
     section_label: String,
     sort_order: i32,
     title: String,
+    media_type: String,
     chunk_text: Option<String>,
 }
 

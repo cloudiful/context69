@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::Value;
-use sqlx::{PgPool, Row};
+use sqlx::{AssertSqlSafe, PgPool, Row};
 
 use crate::{
     config::{PostgresSqlConnectorConfig, SyncStrategy},
@@ -60,7 +60,9 @@ impl SourceConnector for PostgresSqlSourceConnector {
             "SELECT * FROM ({}) AS context69_source LIMIT 1",
             self.config.base_query
         );
-        let maybe_row = sqlx::query(&query).fetch_optional(&self.pool).await?;
+        let maybe_row = sqlx::query(AssertSqlSafe(query))
+            .fetch_optional(&self.pool)
+            .await?;
 
         if let Some(row) = maybe_row {
             let _: String = row.try_get("external_id")?;
@@ -77,7 +79,7 @@ impl SourceConnector for PostgresSqlSourceConnector {
     async fn fetch_batch(&self, checkpoint: &SyncCheckpoint) -> Result<Vec<SourceRecord>> {
         let query = self.wrapped_query(checkpoint);
         let rows = if let Some(updated_at) = checkpoint.updated_at {
-            sqlx::query(&query)
+            sqlx::query(AssertSqlSafe(query))
                 .bind(updated_at)
                 .bind(checkpoint.external_id.as_deref().unwrap_or_default())
                 .bind(self.config.batch_size)
@@ -85,7 +87,7 @@ impl SourceConnector for PostgresSqlSourceConnector {
                 .await
                 .with_context(|| format!("failed to fetch batch for source {}", self.source_key))?
         } else {
-            sqlx::query(&query)
+            sqlx::query(AssertSqlSafe(query))
                 .bind(self.config.batch_size)
                 .fetch_all(&self.pool)
                 .await

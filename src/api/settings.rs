@@ -59,9 +59,7 @@ pub(crate) async fn update_runtime_settings(
         (status = 500, description = "Internal error", body = crate::contracts::ApiErrorResponse)
     )
 )]
-pub(crate) async fn list_provider_accounts(
-    State(state): State<ApiState>,
-) -> impl IntoResponse {
+pub(crate) async fn list_provider_accounts(State(state): State<ApiState>) -> impl IntoResponse {
     match state.app.settings.list_provider_accounts().await {
         Ok(accounts) => (StatusCode::OK, Json(accounts)).into_response(),
         Err(error) => settings_management_error_response(error),
@@ -126,7 +124,12 @@ pub(crate) async fn delete_provider_account(
     State(state): State<ApiState>,
     Path(account_key): Path<String>,
 ) -> impl IntoResponse {
-    match state.app.settings.delete_provider_account(&account_key).await {
+    match state
+        .app
+        .settings
+        .delete_provider_account(&account_key)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => settings_management_error_response(error),
     }

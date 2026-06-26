@@ -125,21 +125,12 @@ pub struct DoclingSettingsResponse {
     pub configured: bool,
     pub source: DoclingSettingsSource,
     pub connection: DoclingConnectionSettingsResponse,
-    pub conversion: DoclingConversionSettings,
-    pub ocr: DoclingOcrSettings,
-    pub enrichment: DoclingEnrichmentSettings,
     pub vlm: DoclingVlmSettingsResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateDoclingSettingsRequest {
     pub connection: UpdateDoclingConnectionSettings,
-    #[serde(default)]
-    pub conversion: DoclingConversionSettings,
-    #[serde(default)]
-    pub ocr: DoclingOcrSettings,
-    #[serde(default)]
-    pub enrichment: DoclingEnrichmentSettings,
     #[serde(default)]
     pub vlm: UpdateDoclingVlmSettings,
 }
@@ -157,47 +148,6 @@ pub struct UpdateDoclingConnectionSettings {
     pub base_url: String,
     pub timeout_secs: u64,
     pub poll_interval_secs: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
-pub struct DoclingConversionSettings {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pdf_backend: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub images_scale: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_export_mode: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct DoclingOcrSettings {
-    pub do_ocr: bool,
-    pub force_ocr: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ocr_engine: Option<String>,
-    #[serde(default)]
-    pub ocr_lang: Vec<String>,
-}
-
-impl Default for DoclingOcrSettings {
-    fn default() -> Self {
-        Self {
-            do_ocr: true,
-            force_ocr: false,
-            ocr_engine: None,
-            ocr_lang: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
-pub struct DoclingEnrichmentSettings {
-    #[serde(default)]
-    pub do_code_enrichment: bool,
-    #[serde(default)]
-    pub do_formula_enrichment: bool,
-    #[serde(default)]
-    pub do_picture_description: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

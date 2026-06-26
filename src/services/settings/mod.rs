@@ -75,9 +75,7 @@ impl SettingsService {
         &self,
         request: &UpsertProviderAccountRequest,
     ) -> Result<ProviderAccountResponse> {
-        let normalized = self
-            .normalize_provider_account_request(request)
-            .await?;
+        let normalized = self.normalize_provider_account_request(request).await?;
 
         let saved = self
             .db
@@ -242,17 +240,10 @@ impl SettingsService {
         &self,
         settings: &StoredDoclingSettings,
     ) -> Result<()> {
-        let enrichment_enabled = settings.do_code_enrichment
-            || settings.do_formula_enrichment
-            || settings.do_picture_description;
-        if !enrichment_enabled {
-            return Ok(());
-        }
-
         let account_key = settings
             .provider_account_key
             .as_deref()
-            .context("docling.vlm.provider_account_key is required when enrichment is enabled")?;
+            .context("docling.vlm.provider_account_key is required for PDF/DOCX conversion")?;
         self.ensure_provider_account_active(account_key, true)
             .await?;
 
@@ -262,27 +253,25 @@ impl SettingsService {
             .is_none_or(|value| value.trim().is_empty())
         {
             return Err(anyhow!(
-                "docling.vlm.vlm_pipeline_model is required when enrichment is enabled"
+                "docling.vlm.vlm_pipeline_model is required for PDF/DOCX conversion"
             ));
         }
-        if settings.do_picture_description
-            && settings
-                .picture_description_model
-                .as_deref()
-                .is_none_or(|value| value.trim().is_empty())
+        if settings
+            .picture_description_model
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
         {
             return Err(anyhow!(
-                "docling.vlm.picture_description_model is required when picture description is enabled"
+                "docling.vlm.picture_description_model is required for PDF/DOCX conversion"
             ));
         }
-        if (settings.do_code_enrichment || settings.do_formula_enrichment)
-            && settings
-                .code_formula_model
-                .as_deref()
-                .is_none_or(|value| value.trim().is_empty())
+        if settings
+            .code_formula_model
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
         {
             return Err(anyhow!(
-                "docling.vlm.code_formula_model is required when code or formula enrichment is enabled"
+                "docling.vlm.code_formula_model is required for PDF/DOCX conversion"
             ));
         }
 
@@ -346,7 +335,6 @@ mod tests {
     };
     use crate::{
         contracts::{
-            DoclingConversionSettings, DoclingEnrichmentSettings, DoclingOcrSettings,
             DoclingSettingsSource, RuntimeChunkingSettings, RuntimeEmbeddingSettings,
             RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
             UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
@@ -362,9 +350,6 @@ mod tests {
                 timeout_secs: 120,
                 poll_interval_secs: 2,
             },
-            conversion: DoclingConversionSettings::default(),
-            ocr: DoclingOcrSettings::default(),
-            enrichment: DoclingEnrichmentSettings::default(),
             vlm: UpdateDoclingVlmSettings::default(),
         }
     }
@@ -438,23 +423,25 @@ mod tests {
     }
 
     #[test]
-    fn request_rejects_invalid_ocr_engine() {
+    fn request_requires_provider_account() {
         let mut request = sample_request();
-        request.ocr.ocr_engine = Some("bad".to_string());
-
-        let error = validate_docling_request(&request).expect_err("request should be invalid");
-        assert!(error.to_string().contains("ocr_engine"));
-    }
-
-    #[test]
-    fn request_requires_provider_for_enrichment() {
-        let mut request = sample_request();
-        request.enrichment.do_picture_description = true;
         request.vlm.vlm_pipeline_model = Some("gemini".to_string());
         request.vlm.picture_description_model = Some("gpt-4o-mini".to_string());
+        request.vlm.code_formula_model = Some("gpt-4o-mini".to_string());
 
         let error = validate_docling_request(&request).expect_err("request should be invalid");
         assert!(error.to_string().contains("provider_account_key"));
+    }
+
+    #[test]
+    fn request_requires_picture_model() {
+        let mut request = sample_request();
+        request.vlm.provider_account_key = Some("openrouter-default".to_string());
+        request.vlm.vlm_pipeline_model = Some("gemini".to_string());
+        request.vlm.code_formula_model = Some("gpt-4o-mini".to_string());
+
+        let error = validate_docling_request(&request).expect_err("request should be invalid");
+        assert!(error.to_string().contains("picture_description_model"));
     }
 
     #[test]

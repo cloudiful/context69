@@ -3686,80 +3686,12 @@
           }
         }
       },
-      "DoclingConversionSettings": {
-        "type": "object",
-        "properties": {
-          "image_export_mode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "images_scale": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
-          },
-          "pdf_backend": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "DoclingEnrichmentSettings": {
-        "type": "object",
-        "properties": {
-          "do_code_enrichment": {
-            "type": "boolean"
-          },
-          "do_formula_enrichment": {
-            "type": "boolean"
-          },
-          "do_picture_description": {
-            "type": "boolean"
-          }
-        }
-      },
-      "DoclingOcrSettings": {
-        "type": "object",
-        "required": [
-          "do_ocr",
-          "force_ocr"
-        ],
-        "properties": {
-          "do_ocr": {
-            "type": "boolean"
-          },
-          "force_ocr": {
-            "type": "boolean"
-          },
-          "ocr_engine": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "ocr_lang": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
       "DoclingSettingsResponse": {
         "type": "object",
         "required": [
           "configured",
           "source",
           "connection",
-          "conversion",
-          "ocr",
-          "enrichment",
           "vlm"
         ],
         "properties": {
@@ -3768,15 +3700,6 @@
           },
           "connection": {
             "$ref": "#/components/schemas/DoclingConnectionSettingsResponse"
-          },
-          "conversion": {
-            "$ref": "#/components/schemas/DoclingConversionSettings"
-          },
-          "enrichment": {
-            "$ref": "#/components/schemas/DoclingEnrichmentSettings"
-          },
-          "ocr": {
-            "$ref": "#/components/schemas/DoclingOcrSettings"
           },
           "source": {
             "$ref": "#/components/schemas/DoclingSettingsSource"
@@ -5298,15 +5221,6 @@
         "properties": {
           "connection": {
             "$ref": "#/components/schemas/UpdateDoclingConnectionSettings"
-          },
-          "conversion": {
-            "$ref": "#/components/schemas/DoclingConversionSettings"
-          },
-          "enrichment": {
-            "$ref": "#/components/schemas/DoclingEnrichmentSettings"
-          },
-          "ocr": {
-            "$ref": "#/components/schemas/DoclingOcrSettings"
           },
           "vlm": {
             "$ref": "#/components/schemas/UpdateDoclingVlmSettings"

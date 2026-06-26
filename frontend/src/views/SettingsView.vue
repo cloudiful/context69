@@ -26,15 +26,9 @@ const {
   disableAdminUser,
   doclingProviderOptions,
   enableAdminUser,
-  enrichmentToggleModel,
   hasChanges,
-  imageExportModeOptions,
   loading,
-  ocrEngineOptions,
-  ocrLangText,
-  ocrToggleModel,
   pageError,
-  pdfBackendOptions,
   pollPresetOptions,
   providerAccountOptions,
   providerDraft,
@@ -157,19 +151,10 @@ const {
             <SettingsDoclingSection
               :docling-draft="doclingDraft"
               :docling-provider-options="doclingProviderOptions"
-              :enrichment-toggle-model="enrichmentToggleModel"
-              :image-export-mode-options="imageExportModeOptions"
-              :ocr-engine-options="ocrEngineOptions"
-              :ocr-lang-text="ocrLangText"
-              :ocr-toggle-model="ocrToggleModel"
-              :pdf-backend-options="pdfBackendOptions"
               :poll-preset-options="pollPresetOptions"
               :selected-poll-preset="selectedPollPreset"
               :selected-timeout-preset="selectedTimeoutPreset"
               :timeout-preset-options="timeoutPresetOptions"
-              @update:enrichment-toggle-model="enrichmentToggleModel = $event"
-              @update:ocr-lang-text="ocrLangText = $event"
-              @update:ocr-toggle-model="ocrToggleModel = $event"
               @update:selected-poll-preset="selectedPollPreset = $event"
               @update:selected-timeout-preset="selectedTimeoutPreset = $event"
             />

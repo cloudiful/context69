@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
+use sqlx::AssertSqlSafe;
 use uuid::Uuid;
 
 use super::mappers::file_from_row;
@@ -39,7 +40,7 @@ impl LibraryStore {
             ORDER BY filename, id
             "#
         );
-        let rows = sqlx::query_as::<_, FileRow>(&query)
+        let rows = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .fetch_all(self.db.pool())
             .await?;
 
@@ -60,7 +61,7 @@ impl LibraryStore {
             ORDER BY filename, id
             "#
         );
-        let rows = sqlx::query_as::<_, FileRow>(&query)
+        let rows = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(file_ids)
             .fetch_all(self.db.pool())
             .await?;
@@ -78,7 +79,7 @@ impl LibraryStore {
             ORDER BY filename, id
             "#
         );
-        let rows = sqlx::query_as::<_, FileRow>(&query)
+        let rows = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(project_id)
             .fetch_all(self.db.pool())
             .await?;
@@ -95,7 +96,7 @@ impl LibraryStore {
             WHERE id = $1
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(file_id)
             .fetch_optional(self.db.pool())
             .await?;
@@ -117,7 +118,7 @@ impl LibraryStore {
               AND id = $2
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(project_id)
             .bind(file_id)
             .fetch_optional(self.db.pool())
@@ -140,7 +141,7 @@ impl LibraryStore {
               AND external_id = $2
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(project_id)
             .bind(external_id)
             .fetch_optional(self.db.pool())
@@ -202,7 +203,7 @@ impl LibraryStore {
                 {FILE_COLUMNS}
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(file.id)
             .bind(file.folder_id)
             .bind(&file.external_id)
@@ -273,7 +274,7 @@ impl LibraryStore {
                 {FILE_COLUMNS}
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(file.id)
             .bind(file.folder_id)
             .bind(&file.external_id)
@@ -316,7 +317,7 @@ impl LibraryStore {
                 {FILE_COLUMNS}
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(project_id)
             .bind(file_id)
             .bind(update.folder_id)
@@ -346,7 +347,7 @@ impl LibraryStore {
                 {FILE_COLUMNS}
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(file_id)
             .bind(target_folder_id)
             .fetch_optional(self.db.pool())
@@ -371,7 +372,7 @@ impl LibraryStore {
                 {FILE_COLUMNS}
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(project_id)
             .bind(file_id)
             .bind(target_folder_id)
@@ -402,7 +403,7 @@ impl LibraryStore {
                 {FILE_COLUMNS}
             "#
         );
-        let row = sqlx::query_as::<_, FileRow>(&query)
+        let row = sqlx::query_as::<_, FileRow>(AssertSqlSafe(query))
             .bind(file_id)
             .bind(status.as_str())
             .bind(error_message)
@@ -426,13 +427,12 @@ impl LibraryStore {
         project_id: i64,
         file_id: Uuid,
     ) -> Result<bool> {
-        let result = sqlx::query(
-            "DELETE FROM context69.library_files WHERE project_id = $1 AND id = $2",
-        )
-        .bind(project_id)
-        .bind(file_id)
-        .execute(self.db.pool())
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM context69.library_files WHERE project_id = $1 AND id = $2")
+                .bind(project_id)
+                .bind(file_id)
+                .execute(self.db.pool())
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 }

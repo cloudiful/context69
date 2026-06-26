@@ -6,24 +6,6 @@ use axum::{
 };
 use utoipa::OpenApi;
 
-use crate::contracts::{
-    AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse,
-    AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest, CreateGroupRequest,
-    CreateProjectRequest, CreateTextRequest, DoclingSettingsResponse, DocumentResponse,
-    GroupKind,
-    GroupMemberResponse, GroupResponse, HealthResponse, HealthStatus,
-    LibraryFileDetailResponse, LibraryFolderResponse, LibraryIngestJobResponse,
-    LibraryTreeResponse, LibraryUploadResponse, MembershipRole, MoveFileRequest,
-    MoveFolderRequest, MoveProjectRequest, ProjectMemberResponse, ProjectResponse,
-    ProviderAccountResponse, ResetAdminUserPasswordRequest, RuntimeSettingsResponse,
-    SearchMode, SearchRequest, SearchResponse, SearchSettingsResponse,
-    SourceConfigInput, SourceConnectionResponse, SourceStatus, SyncOutcome,
-    UpdateAdminUserRequest, UpdateDoclingSettingsRequest, UpdateGroupRequest,
-    UpdateProjectRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
-    UpsertLibraryTextRequest,
-    UpsertMembershipRequest, UpsertProviderAccountRequest, UpsertSourceConnectionRequest,
-    UserDirectoryEntryResponse, Visibility,
-};
 use crate::api::{
     ApiState,
     admin_users::{
@@ -35,10 +17,9 @@ use crate::api::{
     errors::internal_error_response,
     health::__path_healthz,
     library::{
-        __path_create_library_folder, __path_delete_library_file,
+        __path_create_library_folder, __path_create_library_text, __path_delete_library_file,
         __path_delete_library_folder, __path_get_library_file, __path_get_library_job,
         __path_get_library_tree, __path_move_library_file, __path_move_library_folder,
-        __path_create_library_text,
         __path_upload_library_files,
     },
     namespaces::{
@@ -50,17 +31,16 @@ use crate::api::{
         __path_upsert_project_member,
     },
     project_library::{
-        __path_create_project_library_folder, __path_delete_project_library_file,
-        __path_delete_project_library_folder, __path_get_project_library_file,
-        __path_get_project_library_job, __path_get_project_library_tree,
-        __path_move_project_library_file, __path_move_project_library_folder,
-        __path_create_project_library_text, __path_upsert_project_library_text,
-        __path_upload_project_library_files,
+        __path_create_project_library_folder, __path_create_project_library_text,
+        __path_delete_project_library_file, __path_delete_project_library_folder,
+        __path_get_project_library_file, __path_get_project_library_job,
+        __path_get_project_library_tree, __path_move_project_library_file,
+        __path_move_project_library_folder, __path_upload_project_library_files,
+        __path_upsert_project_library_text,
     },
     project_sources::{
-        __path_create_project_source, __path_delete_project_source,
-        __path_list_project_sources, __path_sync_project_source,
-        __path_update_project_source,
+        __path_create_project_source, __path_delete_project_source, __path_list_project_sources,
+        __path_sync_project_source, __path_update_project_source,
     },
     settings::{
         __path_create_provider_account, __path_delete_provider_account,
@@ -75,6 +55,21 @@ use crate::api::{
         __path_sync_source, __path_update_source, __path_update_source_connection,
     },
     user_directory::__path_search_user_directory,
+};
+use crate::contracts::{
+    AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse,
+    AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest, CreateGroupRequest,
+    CreateProjectRequest, CreateTextRequest, DoclingSettingsResponse, DocumentResponse, GroupKind,
+    GroupMemberResponse, GroupResponse, HealthResponse, HealthStatus, LibraryFileDetailResponse,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse,
+    MembershipRole, MoveFileRequest, MoveFolderRequest, MoveProjectRequest, ProjectMemberResponse,
+    ProjectResponse, ProviderAccountResponse, ResetAdminUserPasswordRequest,
+    RuntimeSettingsResponse, SearchMode, SearchRequest, SearchResponse, SearchSettingsResponse,
+    SourceConfigInput, SourceConnectionResponse, SourceStatus, SyncOutcome, UpdateAdminUserRequest,
+    UpdateDoclingSettingsRequest, UpdateGroupRequest, UpdateProjectRequest,
+    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, UpsertLibraryTextRequest,
+    UpsertMembershipRequest, UpsertProviderAccountRequest, UpsertSourceConnectionRequest,
+    UserDirectoryEntryResponse, Visibility,
 };
 
 #[derive(OpenApi)]

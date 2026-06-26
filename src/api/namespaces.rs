@@ -29,7 +29,11 @@ pub(crate) async fn list_groups(
     CurrentUser(session): CurrentUser,
 ) -> impl IntoResponse {
     match state.app.db.list_groups_for_user(session.user.id).await {
-        Ok(groups) => (StatusCode::OK, Json(groups.into_iter().map(group_response).collect::<Vec<_>>())).into_response(),
+        Ok(groups) => (
+            StatusCode::OK,
+            Json(groups.into_iter().map(group_response).collect::<Vec<_>>()),
+        )
+            .into_response(),
         Err(error) => internal_error_response(error),
     }
 }
@@ -69,7 +73,12 @@ pub(crate) async fn get_group(
     CurrentUser(session): CurrentUser,
     Path(group_key): Path<String>,
 ) -> impl IntoResponse {
-    match state.app.db.get_group_for_user(session.user.id, &group_key).await {
+    match state
+        .app
+        .db
+        .get_group_for_user(session.user.id, &group_key)
+        .await
+    {
         Ok(Some(group)) => (StatusCode::OK, Json(group_response(group))).into_response(),
         Ok(None) => not_found("group"),
         Err(error) => internal_error_response(error),
@@ -92,7 +101,12 @@ pub(crate) async fn update_group(
     Path(group_key): Path<String>,
     Json(request): Json<UpdateGroupRequest>,
 ) -> impl IntoResponse {
-    match state.app.db.update_group(&session.user, &group_key, &request).await {
+    match state
+        .app
+        .db
+        .update_group(&session.user, &group_key, &request)
+        .await
+    {
         Ok(group) => (StatusCode::OK, Json(group_response(group))).into_response(),
         Err(error) => namespace_error_response(error),
     }
@@ -126,10 +140,20 @@ pub(crate) async fn list_group_members(
     CurrentUser(session): CurrentUser,
     Path(group_key): Path<String>,
 ) -> impl IntoResponse {
-    match state.app.db.list_group_members(&session.user, &group_key).await {
+    match state
+        .app
+        .db
+        .list_group_members(&session.user, &group_key)
+        .await
+    {
         Ok(members) => (
             StatusCode::OK,
-            Json(members.into_iter().map(group_member_response).collect::<Vec<_>>()),
+            Json(
+                members
+                    .into_iter()
+                    .map(group_member_response)
+                    .collect::<Vec<_>>(),
+            ),
         )
             .into_response(),
         Err(error) => namespace_error_response(error),
@@ -204,7 +228,12 @@ pub(crate) async fn list_projects(
     {
         Ok(projects) => (
             StatusCode::OK,
-            Json(projects.into_iter().map(project_response).collect::<Vec<_>>()),
+            Json(
+                projects
+                    .into_iter()
+                    .map(project_response)
+                    .collect::<Vec<_>>(),
+            ),
         )
             .into_response(),
         Err(error) => namespace_error_response(error),
@@ -515,7 +544,8 @@ mod tests {
 
     #[tokio::test]
     async fn insufficient_permissions_maps_to_forbidden() {
-        let response = namespace_error_response(anyhow::anyhow!("insufficient permissions for project"));
+        let response =
+            namespace_error_response(anyhow::anyhow!("insufficient permissions for project"));
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
         let bytes = body::to_bytes(response.into_body(), usize::MAX)

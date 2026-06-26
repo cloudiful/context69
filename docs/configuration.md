@@ -32,6 +32,26 @@ The renew interval must be lower than the TTL.
 
 - `recreate_on_dimension_mismatch`: when enabled, Context69 recreates the collection if the configured embedding dimension no longer matches the existing collection schema
 
+## Docling Options
+
+When `docling` is configured, Context69 uses:
+
+- `cloudiful-docling-convert` for PDF and DOCX ingest
+- Docling async JSON conversion for XLSX ingest
+
+The supported config shape is:
+
+- `docling.connection.base_url`
+- `docling.connection.timeout_secs`
+- `docling.connection.poll_interval_secs`
+- `docling.vlm.openai_base_url`
+- `docling.vlm.api_key`
+- `docling.vlm.vlm_pipeline_model`
+- `docling.vlm.picture_description_model`
+- `docling.vlm.code_formula_model`
+
+Legacy OCR, PDF backend, image export, and enrichment toggle fields are no longer used.
+
 ## Secrets and Environment Overrides
 
 Do not store production secrets in config files committed to source control.
@@ -52,4 +72,17 @@ Example:
 export CONTEXT69_APP_DB__URL='postgres://user:pass@db/context69'
 export CONTEXT69_EMBEDDING__API_KEY='sk-xxx'
 cargo run
+```
+
+## SQLx CLI
+
+`cargo sqlx prepare` does not read `CONTEXT69_APP_DB__URL`. It reads `DATABASE_URL`.
+
+For local development, keep both values aligned:
+
+```bash
+export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/context69'
+export CONTEXT69_APP_DB__URL="$DATABASE_URL"
+cargo run --bin db_init
+cargo sqlx prepare --workspace -- --all-targets
 ```

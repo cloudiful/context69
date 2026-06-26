@@ -85,16 +85,11 @@ const doclingResponse = {
     timeout_secs: 120,
     poll_interval_secs: 2,
   },
-  conversion: {},
-  ocr: {
-    do_ocr: true,
-    force_ocr: false,
-    ocr_lang: [],
-  },
-  enrichment: {},
   vlm: {
     provider_account_key: "openrouter-default",
     vlm_pipeline_model: "gemini-3-flash",
+    picture_description_model: "gpt-4o-mini",
+    code_formula_model: "gpt-4o-mini",
   },
 };
 

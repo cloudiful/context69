@@ -73,11 +73,7 @@ pub(crate) async fn auth_middleware(
             }),
         )
             .into_response(),
-        Err(error) => (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse { error }),
-        )
-            .into_response(),
+        Err(error) => (StatusCode::UNAUTHORIZED, Json(ApiErrorResponse { error })).into_response(),
     }
 }
 
@@ -104,11 +100,7 @@ pub(crate) async fn optional_auth_middleware(
             request.extensions_mut().insert(RequestAuth(None));
             next.run(request).await
         }
-        Err(error) => (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse { error }),
-        )
-            .into_response(),
+        Err(error) => (StatusCode::UNAUTHORIZED, Json(ApiErrorResponse { error })).into_response(),
     }
 }
 
@@ -161,7 +153,10 @@ pub(crate) async fn login(
     )
 )]
 pub(crate) async fn refresh(State(state): State<ApiState>, jar: CookieJar) -> impl IntoResponse {
-    let Some(refresh_token) = jar.get(state.app.auth.cookie_name()).map(|cookie| cookie.value().to_string()) else {
+    let Some(refresh_token) = jar
+        .get(state.app.auth.cookie_name())
+        .map(|cookie| cookie.value().to_string())
+    else {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ApiErrorResponse {
@@ -201,13 +196,19 @@ pub(crate) async fn refresh(State(state): State<ApiState>, jar: CookieJar) -> im
     )
 )]
 pub(crate) async fn logout(State(state): State<ApiState>, jar: CookieJar) -> impl IntoResponse {
-    if let Some(refresh_token) = jar.get(state.app.auth.cookie_name()).map(|cookie| cookie.value().to_string())
+    if let Some(refresh_token) = jar
+        .get(state.app.auth.cookie_name())
+        .map(|cookie| cookie.value().to_string())
         && let Err(error) = state.app.auth.logout(&refresh_token).await
     {
         return internal_error_response(error);
     }
 
-    (jar.remove(clear_refresh_cookie(&state)), StatusCode::NO_CONTENT).into_response()
+    (
+        jar.remove(clear_refresh_cookie(&state)),
+        StatusCode::NO_CONTENT,
+    )
+        .into_response()
 }
 
 #[utoipa::path(
@@ -228,7 +229,9 @@ pub(crate) async fn me(CurrentUser(session): CurrentUser) -> impl IntoResponse {
         .into_response()
 }
 
-pub(crate) fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Result<Option<&str>, String> {
+pub(crate) fn extract_bearer_token(
+    headers: &axum::http::HeaderMap,
+) -> Result<Option<&str>, String> {
     let Some(value) = headers.get(header::AUTHORIZATION) else {
         return Ok(None);
     };

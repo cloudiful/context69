@@ -193,11 +193,7 @@ impl Database {
         Ok(row.map(user_from_row))
     }
 
-    pub async fn search_user_directory(
-        &self,
-        query: &str,
-        limit: i64,
-    ) -> Result<Vec<UserRecord>> {
+    pub async fn search_user_directory(&self, query: &str, limit: i64) -> Result<Vec<UserRecord>> {
         let normalized_query = format!("%{}%", query.trim().to_lowercase());
         let rows = sqlx::query_as::<_, UserRow>(
             r#"

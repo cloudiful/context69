@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use super::{
-    CheckpointRow, CheckpointWithKeyRow, Database, RunHandle, SourceOriginStatusKind,
-    SourceStatus, SyncCheckpoint, SyncOutcome,
+    CheckpointRow, CheckpointWithKeyRow, Database, RunHandle, SourceOriginStatusKind, SourceStatus,
+    SyncCheckpoint, SyncOutcome,
 };
 
 impl Database {
@@ -189,7 +189,8 @@ impl Database {
                     base_query: String::new(),
                     batch_size: 0,
                     last_cursor_updated_at: checkpoint.and_then(|row| row.cursor_updated_at),
-                    last_cursor_external_id: checkpoint.and_then(|row| row.cursor_external_id.clone()),
+                    last_cursor_external_id: checkpoint
+                        .and_then(|row| row.cursor_external_id.clone()),
                     last_success_at: checkpoint.and_then(|row| row.last_success_at),
                 }
             })
