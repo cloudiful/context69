@@ -16,25 +16,7 @@ FROM rust:1-bookworm AS build
 WORKDIR /app
 ARG TARGETARCH
 
-COPY Cargo.toml ./
-COPY crates/context69-contracts/Cargo.toml crates/context69-contracts/Cargo.toml
-COPY crates/context69-sdk/Cargo.toml crates/context69-sdk/Cargo.toml
-
-RUN mkdir -p src crates/context69-contracts/src crates/context69-sdk/src \
-    && printf 'fn main() {}\n' > src/main.rs \
-    && printf '\n' > src/lib.rs \
-    && printf '\n' > crates/context69-contracts/src/lib.rs \
-    && printf '\n' > crates/context69-sdk/src/lib.rs
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build --release --bin context69
-
-COPY Cargo.toml ./
-COPY crates crates
-COPY src src
-COPY migrations migrations
+COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
