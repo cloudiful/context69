@@ -85,10 +85,12 @@ impl LibraryService {
             .get_folder(folder_id)
             .await?
             .with_context(|| format!("unknown folder {folder_id}"))?;
+        if let Some(target_id) = request.target_folder_id
+            && target_id == folder_id
+        {
+            return Err(anyhow!("folder cannot be moved into itself"));
+        }
         if let Some(target_id) = request.target_folder_id {
-            if target_id == folder_id {
-                return Err(anyhow!("folder cannot be moved into itself"));
-            }
             self.store
                 .get_folder(target_id)
                 .await?
@@ -131,10 +133,12 @@ impl LibraryService {
             .get_folder_in_project(project.id, folder_id)
             .await?
             .with_context(|| format!("unknown folder {folder_id}"))?;
+        if let Some(target_id) = request.target_folder_id
+            && target_id == folder_id
+        {
+            return Err(anyhow!("folder cannot be moved into itself"));
+        }
         if let Some(target_id) = request.target_folder_id {
-            if target_id == folder_id {
-                return Err(anyhow!("folder cannot be moved into itself"));
-            }
             self.store
                 .get_folder_in_project(project.id, target_id)
                 .await?

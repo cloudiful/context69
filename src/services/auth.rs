@@ -174,7 +174,7 @@ impl AuthService {
         require_admin(actor)?;
 
         let trimmed_display_name = display_name.map(str::trim);
-        if matches!(trimmed_display_name, Some("")) {
+        if let Some("") = trimmed_display_name {
             return Err(anyhow!("display_name must not be empty"));
         }
 

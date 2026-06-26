@@ -203,20 +203,24 @@ pub(super) fn validate_auth_config(config: &AuthConfig) -> Result<()> {
             "auth.active_kid must match one of auth.signing_keys[].kid"
         ));
     }
-    if let Some(admin) = &config.bootstrap_admin {
-        if admin.login_name.trim().is_empty() {
-            return Err(anyhow!("auth.bootstrap_admin.login_name must not be empty"));
-        }
-        if admin.display_name.trim().is_empty() {
-            return Err(anyhow!(
-                "auth.bootstrap_admin.display_name must not be empty"
-            ));
-        }
-        if admin.password.trim().len() < 8 {
-            return Err(anyhow!(
-                "auth.bootstrap_admin.password must be at least 8 characters"
-            ));
-        }
+    if let Some(admin) = &config.bootstrap_admin
+        && admin.login_name.trim().is_empty()
+    {
+        return Err(anyhow!("auth.bootstrap_admin.login_name must not be empty"));
+    }
+    if let Some(admin) = &config.bootstrap_admin
+        && admin.display_name.trim().is_empty()
+    {
+        return Err(anyhow!(
+            "auth.bootstrap_admin.display_name must not be empty"
+        ));
+    }
+    if let Some(admin) = &config.bootstrap_admin
+        && admin.password.trim().len() < 8
+    {
+        return Err(anyhow!(
+            "auth.bootstrap_admin.password must be at least 8 characters"
+        ));
     }
     Ok(())
 }

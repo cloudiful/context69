@@ -402,6 +402,7 @@ fn parse_api_error_message(body: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -779,7 +780,7 @@ mod tests {
             .list_groups()
             .await
             .expect_err("should require authentication");
-        assert!(matches!(error, Error::AuthenticationRequired));
+        assert_matches!(error, Error::AuthenticationRequired);
     }
 
     #[tokio::test]

@@ -191,11 +191,18 @@ pub(crate) async fn sync_source(
     State(state): State<ApiState>,
     Path(source_key): Path<String>,
 ) -> impl IntoResponse {
-    match run_manual_sync_guarded(state.app.clone(), format!("source:{source_key}"), || {
-        let app = state.app.clone();
-        let source_key = source_key.clone();
-        async move { app.sync.sync_source(&source_key, "api").await }
-    })
+    let source_key_for_sync = source_key.clone();
+    match run_manual_sync_guarded(
+        state.app.clone(),
+        format!("source:{source_key}"),
+        async move || {
+            state
+                .app
+                .sync
+                .sync_source(&source_key_for_sync, "api")
+                .await
+        },
+    )
     .await
     {
         Ok(ManualRunResult::Completed(outcome)) => {

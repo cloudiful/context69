@@ -44,9 +44,8 @@ async fn main() -> Result<()> {
             mcp::run_stdio(app).await?;
         }
         "sync-once" => {
-            match run_manual_sync_guarded(app.clone(), "sync-all", || {
-                let app = app.clone();
-                async move { app.sync.sync_all("cli").await }
+            match run_manual_sync_guarded(app.clone(), "sync-all", async move || {
+                app.sync.sync_all("cli").await
             })
             .await?
             {
@@ -144,10 +143,7 @@ async fn run_startup_sync(app: Arc<Context69App>) -> Result<()> {
                 app.config.scheduler.job_id.clone(),
                 startup_execution_slot_at(),
             ),
-            || {
-                let app = app.clone();
-                async move { app.sync.sync_all("startup").await }
-            },
+            async move || app.sync.sync_all("startup").await,
         )
         .await?;
 
@@ -171,7 +167,7 @@ async fn run_scheduler(app: Arc<Context69App>) -> Result<()> {
         app.config.scheduler.job_id.clone(),
         Schedule::Interval(app.config.scheduler.interval),
         app,
-        Task::from_async(|context: TaskContext<Arc<Context69App>>| async move {
+        Task::from_async(async |context: TaskContext<Arc<Context69App>>| {
             context
                 .deps
                 .sync

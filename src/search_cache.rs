@@ -47,20 +47,24 @@ impl SearchCache {
             return Self { connection: None };
         };
 
-        match Client::open(url) {
-            Ok(client) => match client.get_connection_manager().await {
-                Ok(connection) => Self {
-                    connection: Some(Arc::new(connection)),
-                },
-                Err(error) => {
-                    warn!(error = %error, "search cache valkey unavailable; continuing without online search cache");
-                    Self { connection: None }
-                }
-            },
+        let client = match Client::open(url) {
+            Ok(client) => client,
             Err(error) => {
                 warn!(error = %error, "search cache valkey configuration invalid; continuing without online search cache");
-                Self { connection: None }
+                return Self { connection: None };
             }
+        };
+
+        let connection = match client.get_connection_manager().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                warn!(error = %error, "search cache valkey unavailable; continuing without online search cache");
+                return Self { connection: None };
+            }
+        };
+
+        Self {
+            connection: Some(Arc::new(connection)),
         }
     }
 
@@ -276,13 +280,16 @@ impl SearchCache {
         };
         let mut connection = (**connection).clone();
         match connection.get::<_, Option<String>>(key).await {
-            Ok(Some(payload)) => match serde_json::from_str::<T>(&payload) {
-                Ok(value) => Some(value),
-                Err(error) => {
-                    warn!(error = %error, key, "search cache decode failed; ignoring cached value");
-                    None
+            Ok(Some(payload)) => {
+                let parsed = serde_json::from_str::<T>(&payload);
+                match parsed {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        warn!(error = %error, key, "search cache decode failed; ignoring cached value");
+                        None
+                    }
                 }
-            },
+            }
             Ok(None) => None,
             Err(error) => {
                 warn!(error = %error, key, "search cache read failed; falling back");

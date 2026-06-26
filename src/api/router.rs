@@ -282,7 +282,7 @@ mod tests {
     #[tokio::test]
     async fn cors_layer_allows_mcp_preflight_headers() {
         let response = Router::new()
-            .route("/mcp", post(|| async { StatusCode::OK }))
+            .route("/mcp", post(async || StatusCode::OK))
             .layer(cors_layer())
             .oneshot(
                 Request::builder()
