@@ -7,10 +7,14 @@ This repository includes workflows for publishing:
 - `context69-contracts`
 - `context69-sdk`
 
-Tag conventions:
+Tag convention:
 
-- `contracts-v*`
-- `sdk-v*`
+- `v*`
+
+Behavior:
+
+- pushing `v1.2.3` publishes both crates
+- both crate versions must match `1.2.3`, or the workflow fails before publish
 
 ## GHCR
 
@@ -26,5 +30,6 @@ Behavior:
 
 - push to `main` publishes the `main` tag
 - push of `v*` publishes the matching release tag
+- push of `v*` also publishes both crates, so Docker and crates share one release tag
 - default branch also publishes `latest`
 - separate native `amd64` and `arm64` builds are merged into a multi-arch manifest

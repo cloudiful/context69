@@ -1,0 +1,49 @@
+name: Publish Crates
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-crates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Extract release version from tag
+        id: version
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME}"
+          version="${ref#v}"
+          if [ -z "$version" ] || [ "$version" = "$ref" ]; then
+            echo "expected a v* tag, got $ref" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+  publish-contracts:
+    needs: prepare
+    uses: ./.github/workflows/_publish-crate.yml
+    with:
+      package: context69-contracts
+      crate_url: https://crates.io/crates/context69-contracts
+      expected_version: ${{ needs.prepare.outputs.version }}
+
+  publish-sdk:
+    needs: prepare
+    uses: ./.github/workflows/_publish-crate.yml
+    with:
+      package: context69-sdk
+      crate_url: https://crates.io/crates/context69-sdk
+      expected_version: ${{ needs.prepare.outputs.version }}

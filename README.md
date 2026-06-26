@@ -126,6 +126,7 @@ This repository includes GitHub Actions workflows for:
 - building and publishing Docker images to `ghcr.io`
 
 The Docker workflow uses native GitHub-hosted runners for both `amd64` and `arm64`, then publishes a multi-architecture image manifest.
+Release tags use `v*`; the same tag publishes Docker and both crates.
 
 Release details:
 
