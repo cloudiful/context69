@@ -14,6 +14,7 @@ pub(super) const DEFAULT_COLLECTION_NAME: &str = "context69_chunks";
 pub(super) const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8096";
 pub(super) const APP_NAME: &str = "context69";
 pub(super) const CONFIG_ENV_PREFIX: &str = "CONTEXT69_";
+pub const APP_DB_URL_ENV_VAR: &str = "CONTEXT69_APP_DB__URL";
 pub(super) const DEFAULT_MCP_BIND_ADDR: &str = "0.0.0.0:8097";
 pub const DEFAULT_ACCESS_TOKEN_TTL_SECS: u64 = 900;
 pub const DEFAULT_REFRESH_TOKEN_TTL_SECS: u64 = 60 * 60 * 24 * 30;

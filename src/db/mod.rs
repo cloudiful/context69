@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use db_init::{DbInitOptions, connect_pool, run_migrations};
-use sqlx::{PgPool, migrate::Migrator};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::contracts::{SearchMode, SourceOriginStatusKind, SourceStatus, SyncOutcome};
@@ -10,6 +10,7 @@ use crate::domain::SyncCheckpoint;
 mod auth;
 mod docling_settings;
 mod documents;
+mod migrations;
 mod namespaces;
 mod provider_accounts;
 mod rows;
@@ -20,9 +21,8 @@ mod source_connections;
 mod sync_runs;
 
 pub use auth::RefreshTokenRecord;
+pub use migrations::MIGRATOR;
 use rows::*;
-
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone)]
 pub struct Database {

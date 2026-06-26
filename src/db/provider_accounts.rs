@@ -74,9 +74,12 @@ impl Database {
     }
 
     pub async fn delete_provider_account(&self, account_key: &str) -> Result<bool> {
-        let result = sqlx::query_file!("src/sql/db/provider_accounts/delete_provider_account.sql", account_key)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query_file!(
+            "src/sql/db/provider_accounts/delete_provider_account.sql",
+            account_key
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(result.rows_affected() > 0)
     }
 }

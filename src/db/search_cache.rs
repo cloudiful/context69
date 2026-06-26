@@ -7,20 +7,18 @@ use super::{Database, RerankItemScoreRow, StoredRerankItemScore};
 
 impl Database {
     pub async fn get_search_generation(&self) -> Result<i64> {
-        let generation = sqlx::query_file_scalar!(
-            "src/sql/db/search_cache/get_search_generation.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let generation =
+            sqlx::query_file_scalar!("src/sql/db/search_cache/get_search_generation.sql")
+                .fetch_one(&self.pool)
+                .await?;
         Ok(generation)
     }
 
     pub async fn bump_search_generation(&self) -> Result<i64> {
-        let generation = sqlx::query_file_scalar!(
-            "src/sql/db/search_cache/bump_search_generation.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let generation =
+            sqlx::query_file_scalar!("src/sql/db/search_cache/bump_search_generation.sql")
+                .fetch_one(&self.pool)
+                .await?;
         Ok(generation)
     }
 
@@ -99,7 +97,8 @@ impl Database {
     }
 
     pub async fn delete_expired_rerank_item_scores(&self, retention_days: i64) -> Result<u64> {
-        let retention_days = i32::try_from(retention_days).context("retention_days out of range")?;
+        let retention_days =
+            i32::try_from(retention_days).context("retention_days out of range")?;
         let deleted = sqlx::query_file!(
             "src/sql/db/search_cache/delete_expired_rerank_item_scores.sql",
             retention_days

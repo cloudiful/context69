@@ -115,9 +115,12 @@ impl Database {
         chunks: &[DocumentChunk],
     ) -> Result<Vec<Uuid>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query_file!("src/sql/db/documents/delete_document_chunks.sql", document_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query_file!(
+            "src/sql/db/documents/delete_document_chunks.sql",
+            document_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
         for chunk in chunks {
             sqlx::query_file!(
@@ -137,14 +140,12 @@ impl Database {
     }
 
     pub async fn list_chunk_ids_for_document(&self, document_id: i64) -> Result<Vec<Uuid>> {
-        Ok(
-            sqlx::query_file_scalar!(
-                "src/sql/db/documents/list_chunk_ids_for_document.sql",
-                document_id
-            )
-            .fetch_all(&self.pool)
-            .await?,
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/documents/list_chunk_ids_for_document.sql",
+            document_id
         )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     pub async fn fetch_search_hits_by_chunk_ids(

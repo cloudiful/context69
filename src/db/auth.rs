@@ -271,9 +271,12 @@ impl Database {
     }
 
     pub async fn revoke_refresh_token_by_hash(&self, token_hash: &str) -> Result<()> {
-        sqlx::query_file!("src/sql/db/auth/revoke_refresh_token_by_hash.sql", token_hash)
-            .execute(self.pool())
-            .await?;
+        sqlx::query_file!(
+            "src/sql/db/auth/revoke_refresh_token_by_hash.sql",
+            token_hash
+        )
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 }

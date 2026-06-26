@@ -58,9 +58,12 @@ impl Database {
     }
 
     pub async fn delete_source_connection(&self, name: &str) -> Result<bool> {
-        let result = sqlx::query_file!("src/sql/db/source_connections/delete_source_connection.sql", name)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query_file!(
+            "src/sql/db/source_connections/delete_source_connection.sql",
+            name
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(result.rows_affected() > 0)
     }
 }

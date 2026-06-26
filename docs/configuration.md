@@ -76,15 +76,18 @@ cargo run
 
 ## SQLx CLI
 
-`cargo sqlx prepare` does not read `CONTEXT69_APP_DB__URL`. It reads `DATABASE_URL`.
-`cargo run --bin db_init` loads root `.env` if present, then resolves
-`DATABASE_URL`, `CONTEXT69_APP_DB__URL`, and finally `app_db.url`.
+Root `sqlx.toml` makes SQLx macros and `cargo sqlx prepare` read
+`CONTEXT69_APP_DB__URL` by default.
+`cargo run --bin db_init -- --database-url ...` has highest priority.
+Without that flag, `db_init` loads root `.env` if present, then resolves
+`CONTEXT69_APP_DB__URL`, `DATABASE_URL`, and finally `app_db.url`.
 
-For local development, keep both values aligned:
+For local development, set `CONTEXT69_APP_DB__URL` as the canonical value.
+Keep `DATABASE_URL` aligned only if you still use tools that expect it:
 
 ```bash
-export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/context69'
-export CONTEXT69_APP_DB__URL="$DATABASE_URL"
+export CONTEXT69_APP_DB__URL='postgres://postgres:postgres@127.0.0.1:5432/context69'
+export DATABASE_URL="$CONTEXT69_APP_DB__URL"
 cargo run --bin db_init
 cargo sqlx prepare --workspace -- --all-targets
 ```

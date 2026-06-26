@@ -1,9 +1,10 @@
 use ::config::{ReadOptions, read};
 use anyhow::{Context, Result, anyhow};
+use serde::{Deserialize, Serialize};
 
 use super::{
     defaults::{APP_NAME, CONFIG_ENV_PREFIX},
-    types::{Config, FileConfig},
+    types::{AppDbConfig, Config, FileConfig},
     validate::{
         validate_auth_config, validate_docling_config, validate_scheduler_config,
         validate_sources_config, validate_storage_config,
@@ -17,6 +18,24 @@ pub(super) fn load_config() -> Result<Config> {
     )
     .context("failed to load config")?;
     file_config.try_into()
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+struct AppDbOnlyConfig {
+    app_db: Option<AppDbConfig>,
+}
+
+pub fn load_app_db_url() -> Result<Option<String>> {
+    let config: AppDbOnlyConfig = read(
+        APP_NAME,
+        Some(ReadOptions::with_env_prefix(CONFIG_ENV_PREFIX)),
+    )
+    .context("failed to load config")?;
+
+    Ok(config
+        .app_db
+        .and_then(|app_db| sanitize_optional_string(Some(app_db.url))))
 }
 
 pub(super) fn validate_loaded_config(config: &FileConfig) -> Result<()> {
@@ -41,4 +60,10 @@ pub fn validate_legacy_runtime_import_config(config: &Config) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn sanitize_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }

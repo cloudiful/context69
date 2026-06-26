@@ -18,8 +18,8 @@ impl Database {
         &self,
         settings: &StoredSearchSettings,
     ) -> Result<StoredSearchSettings> {
-        let candidate_limit =
-            i64::try_from(settings.candidate_limit).context("search candidate_limit is too large")?;
+        let candidate_limit = i64::try_from(settings.candidate_limit)
+            .context("search candidate_limit is too large")?;
         let timeout_secs =
             i64::try_from(settings.timeout_secs).context("search timeout is too large")?;
 

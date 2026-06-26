@@ -27,8 +27,8 @@ impl LibraryStore {
             "src/sql/library_store/files/list_files_by_ids.sql",
             file_ids
         )
-            .fetch_all(self.db.pool())
-            .await?;
+        .fetch_all(self.db.pool())
+        .await?;
 
         rows.into_iter().map(file_from_row).collect()
     }
@@ -39,16 +39,17 @@ impl LibraryStore {
             "src/sql/library_store/files/list_files_in_project.sql",
             project_id
         )
-            .fetch_all(self.db.pool())
-            .await?;
+        .fetch_all(self.db.pool())
+        .await?;
 
         rows.into_iter().map(file_from_row).collect()
     }
 
     pub async fn get_file(&self, file_id: Uuid) -> Result<Option<LibraryFileRecord>> {
-        let row = sqlx::query_file_as!(FileRow, "src/sql/library_store/files/get_file.sql", file_id)
-            .fetch_optional(self.db.pool())
-            .await?;
+        let row =
+            sqlx::query_file_as!(FileRow, "src/sql/library_store/files/get_file.sql", file_id)
+                .fetch_optional(self.db.pool())
+                .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -64,8 +65,8 @@ impl LibraryStore {
             project_id,
             file_id
         )
-            .fetch_optional(self.db.pool())
-            .await?;
+        .fetch_optional(self.db.pool())
+        .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -81,8 +82,8 @@ impl LibraryStore {
             project_id,
             external_id
         )
-            .fetch_optional(self.db.pool())
-            .await?;
+        .fetch_optional(self.db.pool())
+        .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -100,8 +101,8 @@ impl LibraryStore {
             file.sha256,
             file.storage_rel_path
         )
-            .fetch_one(self.db.pool())
-            .await?;
+        .fetch_one(self.db.pool())
+        .await?;
 
         file_from_row(row)
     }
@@ -124,8 +125,8 @@ impl LibraryStore {
             file.storage_rel_path,
             project_id
         )
-            .fetch_one(self.db.pool())
-            .await?;
+        .fetch_one(self.db.pool())
+        .await?;
 
         file_from_row(row)
     }
@@ -149,8 +150,8 @@ impl LibraryStore {
             update.sha256,
             update.storage_rel_path
         )
-            .fetch_optional(self.db.pool())
-            .await?;
+        .fetch_optional(self.db.pool())
+        .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -166,8 +167,8 @@ impl LibraryStore {
             file_id,
             target_folder_id
         )
-            .fetch_optional(self.db.pool())
-            .await?;
+        .fetch_optional(self.db.pool())
+        .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -185,8 +186,8 @@ impl LibraryStore {
             file_id,
             target_folder_id
         )
-            .fetch_optional(self.db.pool())
-            .await?;
+        .fetch_optional(self.db.pool())
+        .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -211,8 +212,8 @@ impl LibraryStore {
             error_message,
             ingested_at
         )
-            .fetch_optional(self.db.pool())
-            .await?;
+        .fetch_optional(self.db.pool())
+        .await?;
 
         row.map(file_from_row).transpose()
     }
@@ -222,8 +223,8 @@ impl LibraryStore {
             "src/sql/library_store/files/delete_file_record.sql",
             file_id
         )
-            .execute(self.db.pool())
-            .await?;
+        .execute(self.db.pool())
+        .await?;
         Ok(result.rows_affected() > 0)
     }
 

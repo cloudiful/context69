@@ -11,9 +11,11 @@ use super::{
 impl Database {
     pub async fn runtime_settings_initialized(&self) -> Result<bool> {
         Ok(
-            sqlx::query_file_scalar!("src/sql/db/runtime_settings/runtime_settings_initialized.sql")
-                .fetch_one(&self.pool)
-                .await?,
+            sqlx::query_file_scalar!(
+                "src/sql/db/runtime_settings/runtime_settings_initialized.sql"
+            )
+            .fetch_one(&self.pool)
+            .await?,
         )
     }
 
@@ -103,8 +105,8 @@ impl Database {
         settings: &StoredRuntimeSettings,
     ) -> Result<StoredRuntimeSettings> {
         let mut tx = self.pool.begin().await?;
-        let embedding_dimensions =
-            i64::try_from(settings.embedding.dimensions).context("embedding dimensions too large")?;
+        let embedding_dimensions = i64::try_from(settings.embedding.dimensions)
+            .context("embedding dimensions too large")?;
         let embedding_timeout_secs = i64::try_from(settings.embedding.timeout_secs)
             .context("embedding timeout too large")?;
         let scheduler_interval_secs = i64::try_from(settings.scheduler.interval_secs)
@@ -115,8 +117,9 @@ impl Database {
             i64::try_from(settings.chunking.max_chars).context("chunking max_chars too large")?;
         let chunking_overlap_chars = i64::try_from(settings.chunking.overlap_chars)
             .context("chunking overlap_chars too large")?;
-        let file_library_max_upload_size_mb = i64::try_from(settings.file_library.max_upload_size_mb)
-            .context("file_library max_upload_size_mb too large")?;
+        let file_library_max_upload_size_mb =
+            i64::try_from(settings.file_library.max_upload_size_mb)
+                .context("file_library max_upload_size_mb too large")?;
         let file_library_max_upload_request_size_mb =
             i64::try_from(settings.file_library.max_upload_request_size_mb)
                 .context("file_library max_upload_request_size_mb too large")?;

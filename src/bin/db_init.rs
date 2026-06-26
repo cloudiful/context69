@@ -1,20 +1,11 @@
-use anyhow::{Result, anyhow};
-use config::{ReadOptions, read};
-use db_init::{DbInitOptions, init_database, load_dotenv_if_exists, resolve_database_url};
-use serde::{Deserialize, Serialize};
-use sqlx::migrate::Migrator;
-
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-struct DbInitConfig {
-    app_db: Option<DbInitAppDbConfig>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-struct DbInitAppDbConfig {
-    url: Option<String>,
-}
+use anyhow::Result;
+use context69::{
+    config::{APP_DB_URL_ENV_VAR, load_app_db_url},
+    db::MIGRATOR,
+};
+use db_init::{
+    DatabaseUrlSource, DbInitOptions, init_database, load_dotenv_if_exists, resolve_database_url,
+};
 
 #[tokio::main]
 async fn main() {
@@ -25,12 +16,17 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
+    let cli_database_url = parse_database_url_arg()?;
     load_dotenv_if_exists(".env")?;
     let resolution = resolve_database_url(
-        None,
-        &["DATABASE_URL", "CONTEXT69_APP_DB__URL"],
-        load_config_database_url,
+        cli_database_url,
+        &[APP_DB_URL_ENV_VAR, "DATABASE_URL"],
+        load_app_db_url,
     )?;
+    println!(
+        "initializing database using {}",
+        describe_database_url_source(&resolution.source)
+    );
     let _pool = init_database(
         &resolution.database_url,
         &MIGRATOR,
@@ -41,16 +37,49 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-fn load_config_database_url() -> Result<Option<String>> {
-    let config: DbInitConfig = read(
-        "context69",
-        Some(ReadOptions::with_env_prefix("CONTEXT69_")),
-    )
-    .map_err(|error| anyhow!(error).context("failed to load application config"))?;
+fn parse_database_url_arg() -> Result<Option<String>> {
+    let mut args = std::env::args().skip(1);
+    let mut database_url = None;
 
-    Ok(config
-        .app_db
-        .and_then(|app_db| app_db.url)
-        .map(|url| url.trim().to_string())
-        .filter(|url| !url.is_empty()))
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--database-url" | "-d" => {
+                let value = args.next().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "missing value for {arg}; expected --database-url <postgres-url>"
+                    )
+                })?;
+                database_url = Some(value);
+            }
+            "--help" | "-h" => {
+                print_help();
+                std::process::exit(0);
+            }
+            other => {
+                anyhow::bail!(
+                    "unsupported argument: {other}; run `cargo run --bin db_init -- --help`"
+                )
+            }
+        }
+    }
+
+    Ok(database_url)
+}
+
+fn describe_database_url_source(source: &DatabaseUrlSource) -> String {
+    match source {
+        DatabaseUrlSource::CliArgument => "--database-url".to_string(),
+        DatabaseUrlSource::EnvVar(name) => format!("environment variable {name}"),
+        DatabaseUrlSource::ConfigValue => "application config app_db.url".to_string(),
+    }
+}
+
+fn print_help() {
+    println!("Usage: db_init [--database-url <postgres-url>]");
+    println!();
+    println!("Resolution order:");
+    println!("  1. --database-url");
+    println!("  2. {APP_DB_URL_ENV_VAR}");
+    println!("  3. DATABASE_URL");
+    println!("  4. app_db.url from config");
 }

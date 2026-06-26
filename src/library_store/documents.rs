@@ -18,9 +18,12 @@ impl LibraryStore {
         documents: &[LibraryFileDocumentRecord],
     ) -> Result<()> {
         let mut tx = self.db.pool().begin().await?;
-        sqlx::query_file!("src/sql/library_store/documents/delete_file_documents.sql", file_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query_file!(
+            "src/sql/library_store/documents/delete_file_documents.sql",
+            file_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
         for document in documents {
             sqlx::query_file!(
@@ -77,14 +80,12 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        Ok(
-            sqlx::query_file_scalar!(
-                "src/sql/library_store/documents/list_document_ids_for_files.sql",
-                file_ids
-            )
-            .fetch_all(self.db.pool())
-            .await?,
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/documents/list_document_ids_for_files.sql",
+            file_ids
         )
+        .fetch_all(self.db.pool())
+        .await?)
     }
 
     pub async fn list_chunk_ids_for_files(&self, file_ids: &[Uuid]) -> Result<Vec<Uuid>> {
@@ -92,14 +93,12 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        Ok(
-            sqlx::query_file_scalar!(
-                "src/sql/library_store/documents/list_chunk_ids_for_files.sql",
-                file_ids
-            )
-            .fetch_all(self.db.pool())
-            .await?,
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/documents/list_chunk_ids_for_files.sql",
+            file_ids
         )
+        .fetch_all(self.db.pool())
+        .await?)
     }
 
     pub async fn list_chunk_payloads_for_files(

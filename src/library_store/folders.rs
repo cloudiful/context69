@@ -139,8 +139,8 @@ impl LibraryStore {
             "src/sql/library_store/folders/delete_folder_record.sql",
             folder_id
         )
-            .execute(self.db.pool())
-            .await?;
+        .execute(self.db.pool())
+        .await?;
         Ok(result.rows_affected() > 0)
     }
 
