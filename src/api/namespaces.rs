@@ -28,7 +28,12 @@ pub(crate) async fn list_groups(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
 ) -> impl IntoResponse {
-    match state.app.db.list_groups_for_user(session.user.id).await {
+    match state
+        .app
+        .namespace
+        .list_groups_for_user(session.user.id)
+        .await
+    {
         Ok(groups) => (
             StatusCode::OK,
             Json(groups.into_iter().map(group_response).collect::<Vec<_>>()),
@@ -53,7 +58,12 @@ pub(crate) async fn create_group(
     CurrentUser(session): CurrentUser,
     Json(request): Json<CreateGroupRequest>,
 ) -> impl IntoResponse {
-    match state.app.db.create_group(&session.user, &request).await {
+    match state
+        .app
+        .namespace
+        .create_group(&session.user, &request)
+        .await
+    {
         Ok(group) => (StatusCode::CREATED, Json(group_response(group))).into_response(),
         Err(error) => namespace_error_response(error),
     }
@@ -75,7 +85,7 @@ pub(crate) async fn get_group(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .get_group_for_user(session.user.id, &group_key)
         .await
     {
@@ -103,7 +113,7 @@ pub(crate) async fn update_group(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .update_group(&session.user, &group_key, &request)
         .await
     {
@@ -123,7 +133,12 @@ pub(crate) async fn delete_group(
     CurrentUser(session): CurrentUser,
     Path(group_key): Path<String>,
 ) -> impl IntoResponse {
-    match state.app.db.delete_group(&session.user, &group_key).await {
+    match state
+        .app
+        .namespace
+        .delete_group(&session.user, &group_key)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => namespace_error_response(error),
     }
@@ -142,7 +157,7 @@ pub(crate) async fn list_group_members(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .list_group_members(&session.user, &group_key)
         .await
     {
@@ -175,7 +190,7 @@ pub(crate) async fn upsert_group_member(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .upsert_group_member(&session.user, &group_key, &request)
         .await
     {
@@ -200,7 +215,7 @@ pub(crate) async fn delete_group_member(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .delete_group_member(&session.user, &group_key, &login_name)
         .await
     {
@@ -222,7 +237,7 @@ pub(crate) async fn list_projects(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .list_projects_for_user_in_group(session.user.id, &group_key)
         .await
     {
@@ -255,7 +270,7 @@ pub(crate) async fn create_project(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .create_project(&session.user, &group_key, &request)
         .await
     {
@@ -280,7 +295,7 @@ pub(crate) async fn get_project(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .get_project_for_user(session.user.id, &group_key, &project_key)
         .await
     {
@@ -308,7 +323,7 @@ pub(crate) async fn update_project(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .update_project(&session.user, &group_key, &project_key, &request)
         .await
     {
@@ -333,7 +348,7 @@ pub(crate) async fn delete_project(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .delete_project(&session.user, &group_key, &project_key)
         .await
     {
@@ -360,7 +375,7 @@ pub(crate) async fn move_project(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .move_project(&session.user, &group_key, &project_key, &request)
         .await
     {
@@ -385,7 +400,7 @@ pub(crate) async fn list_project_members(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .list_project_members(&session.user, &group_key, &project_key)
         .await
     {
@@ -421,7 +436,7 @@ pub(crate) async fn upsert_project_member(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .upsert_project_member(&session.user, &group_key, &project_key, &request)
         .await
     {
@@ -447,7 +462,7 @@ pub(crate) async fn delete_project_member(
 ) -> impl IntoResponse {
     match state
         .app
-        .db
+        .namespace
         .delete_project_member(&session.user, &group_key, &project_key, &login_name)
         .await
     {

@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    u.id AS \"user_id!\",\n    u.login_name,\n    u.display_name,\n    pm.role\nFROM context69.project_memberships pm\nJOIN context69.projects p ON p.id = pm.project_id\nJOIN context69.groups g ON g.id = p.group_id\nJOIN context69.users u ON u.id = pm.user_id\nWHERE g.group_key = $1\n  AND p.project_key = $2\nORDER BY u.login_name\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "login_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.users",
+            "name": "login_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.project_memberships",
+            "name": "role"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8f7fd6f68adc42d7f6a709b94b78a0d69e125b82eb40297cb1f795d3bcec2ef7"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.project_memberships (project_id, user_id, role)\nVALUES ($1, $2, 'owner')\nON CONFLICT (project_id, user_id) DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dd89b2121d8f2aef842b457945c0ecf5d5fcb3500c694722053ea5720cede273"
+}

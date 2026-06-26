@@ -1,17 +1,16 @@
 use std::collections::HashMap;
 
+use context69_contracts::SearchHit;
 use uuid::Uuid;
 
-use crate::contracts::SearchHit;
-use crate::rerank::RerankHit;
-use crate::search_cache::CachedRerankItemScore;
+use crate::{CachedRerankItemScore, RerankHit};
 
 #[derive(Debug)]
 struct Candidate {
     hit: SearchHit,
 }
 
-pub(super) fn merge_candidates(
+pub(crate) fn merge_candidates(
     vector_results: Vec<SearchHit>,
     keyword_results: Vec<SearchHit>,
     query: &str,
@@ -41,7 +40,7 @@ pub(super) fn merge_candidates(
         .collect()
 }
 
-pub(super) fn local_score(hit: &SearchHit, query: &str) -> f32 {
+pub(crate) fn local_score(hit: &SearchHit, query: &str) -> f32 {
     let vector_score = hit.vector_score.unwrap_or(0.0).clamp(0.0, 1.0);
     let keyword_score = hit.keyword_score.unwrap_or(0.0).min(2.37) / 2.37;
     let query_lc = query.trim().to_lowercase();
@@ -60,7 +59,7 @@ pub(super) fn local_score(hit: &SearchHit, query: &str) -> f32 {
     (vector_score * 0.55 + keyword_score * 0.35 + boost).min(1.0)
 }
 
-pub(super) fn compare_hits(left: &SearchHit, right: &SearchHit) -> std::cmp::Ordering {
+pub(crate) fn compare_hits(left: &SearchHit, right: &SearchHit) -> std::cmp::Ordering {
     right
         .score
         .total_cmp(&left.score)
@@ -69,7 +68,7 @@ pub(super) fn compare_hits(left: &SearchHit, right: &SearchHit) -> std::cmp::Ord
         .then_with(|| left.chunk_index.cmp(&right.chunk_index))
 }
 
-pub(super) fn rerank_document_text(hit: &SearchHit) -> String {
+pub(crate) fn rerank_document_text(hit: &SearchHit) -> String {
     format!(
         "标题: {}\n来源: {}\n日期: {}\n正文: {}",
         hit.title,
@@ -81,7 +80,7 @@ pub(super) fn rerank_document_text(hit: &SearchHit) -> String {
     )
 }
 
-pub(super) fn apply_rerank(
+pub(crate) fn apply_rerank(
     mut candidates: Vec<SearchHit>,
     reranked: Vec<RerankHit>,
     requested_limit: usize,
@@ -114,7 +113,7 @@ pub(super) fn apply_rerank(
     output
 }
 
-pub(super) fn merge_cached_item_scores(
+pub(crate) fn merge_cached_item_scores(
     mut hot_scores: Vec<CachedRerankItemScore>,
     persisted_scores: Vec<CachedRerankItemScore>,
 ) -> Vec<CachedRerankItemScore> {
@@ -131,16 +130,13 @@ pub(super) fn merge_cached_item_scores(
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use context69_contracts::{SearchHit, Visibility};
     use serde_json::json;
     use uuid::Uuid;
 
+    use crate::{CachedRerankItemScore, RerankHit};
+
     use super::{apply_rerank, local_score, merge_cached_item_scores, merge_candidates};
-    use crate::{
-        contracts::{SearchHit, Visibility},
-        rerank::RerankHit,
-        search_cache::CachedRerankItemScore,
-    };
 
     fn hit(chunk_id: Uuid, title: &str, chunk_text: &str) -> SearchHit {
         SearchHit {
@@ -154,7 +150,7 @@ mod tests {
             title: title.to_string(),
             summary: None,
             source_uri: "https://example.com".to_string(),
-            published_at: NaiveDate::from_ymd_opt(2025, 1, 1),
+            published_at: chrono::NaiveDate::from_ymd_opt(2025, 1, 1),
             chunk_index: 0,
             chunk_text: chunk_text.to_string(),
             score: 0.0,

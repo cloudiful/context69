@@ -1,17 +1,16 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
+use context69_namespace::{
+    AccessScope, CreateGroupInput, CreateProjectInput, GroupRecord, MoveProjectInput,
+    NamespaceActor, NamespaceMemberRecord, PersonalGroupRecord, ProjectRecord, UpdateGroupInput,
+    UpdateProjectInput, UpsertMembershipInput,
+};
 use sqlx::{AssertSqlSafe, FromRow};
 
 use super::Database;
 use crate::{
-    contracts::{
-        CreateGroupRequest, CreateProjectRequest, GroupKind, MembershipRole, MoveProjectRequest,
-        UpdateGroupRequest, UpdateProjectRequest, UpsertMembershipRequest, Visibility,
-    },
-    domain::{
-        AccessScope, GroupRecord, NamespaceMemberRecord, PersonalGroupRecord, ProjectRecord,
-        UserRecord,
-    },
+    contracts::{GroupKind, MembershipRole, Visibility},
+    domain::UserRecord,
 };
 
 #[derive(Debug, Clone, FromRow)]
@@ -73,36 +72,19 @@ impl Database {
 
         let group_key = format!("personal-{}", user.login_name);
         let mut tx = self.pool().begin().await?;
-        let group_id = sqlx::query_scalar::<_, i64>(
-            r#"
-            INSERT INTO context69.groups (
-                group_key,
-                name,
-                visibility,
-                kind,
-                owner_user_id,
-                created_by_user_id
-            )
-            VALUES ($1, $2, 'private', 'personal', $3, $3)
-            RETURNING id
-            "#,
+        let group_id = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/create_personal_group.sql",
+            &group_key,
+            &user.display_name,
+            user.id
         )
-        .bind(&group_key)
-        .bind(&user.display_name)
-        .bind(user.id)
         .fetch_one(&mut *tx)
         .await?;
-        sqlx::query(
-            r#"
-            INSERT INTO context69.group_memberships (group_id, user_id, role)
-            VALUES ($1, $2, 'owner')
-            ON CONFLICT (group_id, user_id) DO UPDATE
-            SET role = EXCLUDED.role,
-                updated_at = now()
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/upsert_personal_group_owner_membership.sql",
+            group_id,
+            user.id
         )
-        .bind(group_id)
-        .bind(user.id)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -118,22 +100,11 @@ impl Database {
         &self,
         user_id: i64,
     ) -> Result<Option<PersonalGroupRecord>> {
-        let row = sqlx::query_as::<_, PersonalGroupRow>(
-            r#"
-            SELECT
-                g.id AS group_id,
-                g.group_key,
-                gm.role
-            FROM context69.groups g
-            JOIN context69.group_memberships gm
-                ON gm.group_id = g.id AND gm.user_id = $1
-            WHERE g.kind = 'personal'
-              AND g.owner_user_id = $1
-            ORDER BY g.id
-            LIMIT 1
-            "#,
+        let row = sqlx::query_file_as!(
+            PersonalGroupRow,
+            "src/sql/db/namespaces/get_personal_group_for_user.sql",
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(self.pool())
         .await?;
         Ok(row.map(|row| PersonalGroupRecord {
@@ -144,10 +115,13 @@ impl Database {
     }
 
     pub async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>> {
-        let rows = sqlx::query_as::<_, GroupRow>(AssertSqlSafe(group_access_query(None)))
-            .bind(user_id)
-            .fetch_all(self.pool())
-            .await?;
+        let rows = sqlx::query_file_as!(
+            GroupRow,
+            "src/sql/db/namespaces/list_groups_for_user.sql",
+            user_id
+        )
+        .fetch_all(self.pool())
+        .await?;
         rows.into_iter().map(group_from_row).collect()
     }
 
@@ -156,11 +130,12 @@ impl Database {
         user_id: i64,
         group_key: &str,
     ) -> Result<Option<GroupRecord>> {
-        let rows = sqlx::query_as::<_, GroupRow>(AssertSqlSafe(group_access_query(Some(
-            "g.group_key = $2",
-        ))))
-        .bind(user_id)
-        .bind(group_key)
+        let rows = sqlx::query_file_as!(
+            GroupRow,
+            "src/sql/db/namespaces/get_group_for_user.sql",
+            user_id,
+            group_key
+        )
         .fetch_all(self.pool())
         .await?;
         rows.into_iter().next().map(group_from_row).transpose()
@@ -168,8 +143,8 @@ impl Database {
 
     pub async fn create_group(
         &self,
-        actor: &UserRecord,
-        request: &CreateGroupRequest,
+        actor: &NamespaceActor,
+        request: &CreateGroupInput,
     ) -> Result<GroupRecord> {
         let group_key = request.group_key.trim();
         let name = request.name.trim();
@@ -190,7 +165,7 @@ impl Database {
 
         let parent_group = if let Some(parent_group_key) = request.parent_group_key.as_deref() {
             let group = self
-                .get_group_for_user(actor.id, parent_group_key)
+                .get_group_for_user(actor.user_id, parent_group_key)
                 .await?
                 .context("unknown group")?;
             ensure_role_at_least(group.current_role, MembershipRole::Maintainer, "group")?;
@@ -205,54 +180,39 @@ impl Database {
         };
 
         let mut tx = self.pool().begin().await?;
-        let group_id = sqlx::query_scalar::<_, i64>(
-            r#"
-            INSERT INTO context69.groups (
-                parent_group_id,
-                group_key,
-                name,
-                visibility,
-                kind,
-                owner_user_id,
-                created_by_user_id
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $6)
-            RETURNING id
-            "#,
+        let group_id = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/create_group.sql",
+            parent_group.as_ref().map(|group| group.id),
+            group_key,
+            name,
+            request.visibility.as_str(),
+            kind.as_str(),
+            actor.user_id
         )
-        .bind(parent_group.as_ref().map(|group| group.id))
-        .bind(group_key)
-        .bind(name)
-        .bind(request.visibility.as_str())
-        .bind(kind.as_str())
-        .bind(actor.id)
         .fetch_one(&mut *tx)
         .await?;
-        sqlx::query(
-            r#"
-            INSERT INTO context69.group_memberships (group_id, user_id, role)
-            VALUES ($1, $2, 'owner')
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/insert_group_owner_membership.sql",
+            group_id,
+            actor.user_id
         )
-        .bind(group_id)
-        .bind(actor.id)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
 
-        self.get_group_for_user(actor.id, group_key)
+        self.get_group_for_user(actor.user_id, group_key)
             .await?
             .context("created group not found")
     }
 
     pub async fn update_group(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
-        request: &UpdateGroupRequest,
+        request: &UpdateGroupInput,
     ) -> Result<GroupRecord> {
         let existing = self
-            .get_group_for_user(actor.id, group_key)
+            .get_group_for_user(actor.user_id, group_key)
             .await?
             .context("unknown group")?;
         ensure_role_at_least(existing.current_role, MembershipRole::Maintainer, "group")?;
@@ -278,7 +238,7 @@ impl Database {
         }
         if let Some(parent_group_key) = existing.parent_group_key.as_deref() {
             let parent = self
-                .get_group_for_user(actor.id, parent_group_key)
+                .get_group_for_user(actor.user_id, parent_group_key)
                 .await?
                 .context("unknown group")?;
             if parent.visibility == Visibility::Private && next_visibility == Visibility::Public {
@@ -288,37 +248,30 @@ impl Database {
             }
         }
 
-        sqlx::query(
-            r#"
-            UPDATE context69.groups
-            SET name = $2,
-                visibility = $3,
-                updated_at = now()
-            WHERE group_key = $1
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/update_group.sql",
+            group_key,
+            next_name,
+            next_visibility.as_str()
         )
-        .bind(group_key)
-        .bind(next_name)
-        .bind(next_visibility.as_str())
         .execute(self.pool())
         .await?;
 
-        self.get_group_for_user(actor.id, group_key)
+        self.get_group_for_user(actor.user_id, group_key)
             .await?
             .context("updated group not found")
     }
 
-    pub async fn delete_group(&self, actor: &UserRecord, group_key: &str) -> Result<()> {
+    pub async fn delete_group(&self, actor: &NamespaceActor, group_key: &str) -> Result<()> {
         let existing = self
-            .get_group_for_user(actor.id, group_key)
+            .get_group_for_user(actor.user_id, group_key)
             .await?
             .context("unknown group")?;
         ensure_role_at_least(existing.current_role, MembershipRole::Owner, "group")?;
         if existing.kind == GroupKind::Personal {
             return Err(anyhow!("personal groups cannot be deleted"));
         }
-        sqlx::query("DELETE FROM context69.groups WHERE group_key = $1")
-            .bind(group_key)
+        sqlx::query_file!("src/sql/db/namespaces/delete_group.sql", group_key)
             .execute(self.pool())
             .await?;
         Ok(())
@@ -326,27 +279,21 @@ impl Database {
 
     pub async fn list_group_members(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
     ) -> Result<Vec<NamespaceMemberRecord>> {
         let group = self
-            .get_group_for_user(actor.id, group_key)
+            .get_group_for_user(actor.user_id, group_key)
             .await?
             .context("unknown group")?;
         if group.visibility == Visibility::Private && group.current_role.is_none() {
             return Err(anyhow!("unknown group"));
         }
-        let rows = sqlx::query_as::<_, MemberRow>(
-            r#"
-            SELECT u.id AS user_id, u.login_name, u.display_name, gm.role
-            FROM context69.group_memberships gm
-            JOIN context69.users u ON u.id = gm.user_id
-            JOIN context69.groups g ON g.id = gm.group_id
-            WHERE g.group_key = $1
-            ORDER BY u.login_name
-            "#,
+        let rows = sqlx::query_file_as!(
+            MemberRow,
+            "src/sql/db/namespaces/list_group_members.sql",
+            group_key
         )
-        .bind(group_key)
         .fetch_all(self.pool())
         .await?;
         rows.into_iter().map(member_from_row).collect()
@@ -354,12 +301,12 @@ impl Database {
 
     pub async fn upsert_group_member(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
-        request: &UpsertMembershipRequest,
+        request: &UpsertMembershipInput,
     ) -> Result<()> {
         let group = self
-            .get_group_for_user(actor.id, group_key)
+            .get_group_for_user(actor.user_id, group_key)
             .await?
             .context("unknown group")?;
         ensure_role_at_least(group.current_role, MembershipRole::Maintainer, "group")?;
@@ -370,18 +317,12 @@ impl Database {
         if user.disabled_at.is_some() {
             return Err(anyhow!("user account is disabled"));
         }
-        sqlx::query(
-            r#"
-            INSERT INTO context69.group_memberships (group_id, user_id, role)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (group_id, user_id) DO UPDATE
-            SET role = EXCLUDED.role,
-                updated_at = now()
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/upsert_group_member.sql",
+            group.id,
+            user.id,
+            request.role.as_str()
         )
-        .bind(group.id)
-        .bind(user.id)
-        .bind(request.role.as_str())
         .execute(self.pool())
         .await?;
         Ok(())
@@ -389,12 +330,12 @@ impl Database {
 
     pub async fn delete_group_member(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
         login_name: &str,
     ) -> Result<()> {
         let group = self
-            .get_group_for_user(actor.id, group_key)
+            .get_group_for_user(actor.user_id, group_key)
             .await?
             .context("unknown group")?;
         ensure_role_at_least(group.current_role, MembershipRole::Maintainer, "group")?;
@@ -402,14 +343,11 @@ impl Database {
             .get_user_by_login_name(login_name)
             .await?
             .context("unknown user")?;
-        sqlx::query(
-            r#"
-            DELETE FROM context69.group_memberships
-            WHERE group_id = $1 AND user_id = $2
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/delete_group_member.sql",
+            group.id,
+            user.id
         )
-        .bind(group.id)
-        .bind(user.id)
         .execute(self.pool())
         .await?;
         Ok(())
@@ -420,11 +358,12 @@ impl Database {
         user_id: i64,
         group_key: &str,
     ) -> Result<Vec<ProjectRecord>> {
-        let rows = sqlx::query_as::<_, ProjectRow>(AssertSqlSafe(project_access_query(Some(
-            "g.group_key = $2",
-        ))))
-        .bind(user_id)
-        .bind(group_key)
+        let rows = sqlx::query_file_as!(
+            ProjectRow,
+            "src/sql/db/namespaces/list_projects_for_user_in_group.sql",
+            user_id,
+            group_key
+        )
         .fetch_all(self.pool())
         .await?;
         rows.into_iter().map(project_from_row).collect()
@@ -436,12 +375,13 @@ impl Database {
         group_key: &str,
         project_key: &str,
     ) -> Result<Option<ProjectRecord>> {
-        let rows = sqlx::query_as::<_, ProjectRow>(AssertSqlSafe(project_access_query(Some(
-            "g.group_key = $2 AND p.project_key = $3",
-        ))))
-        .bind(user_id)
-        .bind(group_key)
-        .bind(project_key)
+        let rows = sqlx::query_file_as!(
+            ProjectRow,
+            "src/sql/db/namespaces/get_project_for_user.sql",
+            user_id,
+            group_key,
+            project_key
+        )
         .fetch_all(self.pool())
         .await?;
         rows.into_iter().next().map(project_from_row).transpose()
@@ -449,12 +389,12 @@ impl Database {
 
     pub async fn create_project(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
-        request: &CreateProjectRequest,
+        request: &CreateProjectInput,
     ) -> Result<ProjectRecord> {
         let group = self
-            .get_group_for_user(actor.id, group_key)
+            .get_group_for_user(actor.user_id, group_key)
             .await?
             .context("unknown group")?;
         ensure_role_at_least(group.current_role, MembershipRole::Maintainer, "group")?;
@@ -474,51 +414,37 @@ impl Database {
         if name.is_empty() {
             return Err(anyhow!("project name must not be empty"));
         }
-        let project_id = sqlx::query_scalar::<_, i64>(
-            r#"
-            INSERT INTO context69.projects (
-                group_id,
-                project_key,
-                name,
-                visibility,
-                created_by_user_id
-            )
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id
-            "#,
+        let project_id = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/create_project.sql",
+            group.id,
+            project_key,
+            name,
+            request.visibility.as_str(),
+            actor.user_id
         )
-        .bind(group.id)
-        .bind(project_key)
-        .bind(name)
-        .bind(request.visibility.as_str())
-        .bind(actor.id)
         .fetch_one(self.pool())
         .await?;
-        sqlx::query(
-            r#"
-            INSERT INTO context69.project_memberships (project_id, user_id, role)
-            VALUES ($1, $2, 'owner')
-            ON CONFLICT (project_id, user_id) DO NOTHING
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/insert_project_owner_membership.sql",
+            project_id,
+            actor.user_id
         )
-        .bind(project_id)
-        .bind(actor.id)
         .execute(self.pool())
         .await?;
-        self.get_project_for_user(actor.id, group_key, project_key)
+        self.get_project_for_user(actor.user_id, group_key, project_key)
             .await?
             .context("created project not found")
     }
 
     pub async fn update_project(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
         project_key: &str,
-        request: &UpdateProjectRequest,
+        request: &UpdateProjectInput,
     ) -> Result<ProjectRecord> {
         let existing = self
-            .get_project_for_user(actor.id, group_key, project_key)
+            .get_project_for_user(actor.user_id, group_key, project_key)
             .await?
             .context("unknown project")?;
         ensure_role_at_least(existing.current_role, MembershipRole::Maintainer, "project")?;
@@ -535,7 +461,7 @@ impl Database {
             return Err(anyhow!("only admins can make a project public"));
         }
         let group = self
-            .get_group_for_user(actor.id, group_key)
+            .get_group_for_user(actor.user_id, group_key)
             .await?
             .context("unknown group")?;
         if group.visibility == Visibility::Private && next_visibility == Visibility::Public {
@@ -543,45 +469,36 @@ impl Database {
                 "project visibility cannot be broader than group visibility"
             ));
         }
-        sqlx::query(
-            r#"
-            UPDATE context69.projects
-            SET name = $3,
-                visibility = $4,
-                updated_at = now()
-            WHERE group_id = $1 AND project_key = $2
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/update_project.sql",
+            existing.group_id,
+            project_key,
+            next_name,
+            next_visibility.as_str()
         )
-        .bind(existing.group_id)
-        .bind(project_key)
-        .bind(next_name)
-        .bind(next_visibility.as_str())
         .execute(self.pool())
         .await?;
-        self.get_project_for_user(actor.id, group_key, project_key)
+        self.get_project_for_user(actor.user_id, group_key, project_key)
             .await?
             .context("updated project not found")
     }
 
     pub async fn delete_project(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
         project_key: &str,
     ) -> Result<()> {
         let existing = self
-            .get_project_for_user(actor.id, group_key, project_key)
+            .get_project_for_user(actor.user_id, group_key, project_key)
             .await?
             .context("unknown project")?;
         ensure_role_at_least(existing.current_role, MembershipRole::Owner, "project")?;
-        sqlx::query(
-            r#"
-            DELETE FROM context69.projects
-            WHERE group_id = $1 AND project_key = $2
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/delete_project.sql",
+            existing.group_id,
+            project_key
         )
-        .bind(existing.group_id)
-        .bind(project_key)
         .execute(self.pool())
         .await?;
         Ok(())
@@ -589,31 +506,23 @@ impl Database {
 
     pub async fn list_project_members(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
         project_key: &str,
     ) -> Result<Vec<NamespaceMemberRecord>> {
         let project = self
-            .get_project_for_user(actor.id, group_key, project_key)
+            .get_project_for_user(actor.user_id, group_key, project_key)
             .await?
             .context("unknown project")?;
         if project.visibility == Visibility::Private && project.current_role.is_none() {
             return Err(anyhow!("unknown project"));
         }
-        let rows = sqlx::query_as::<_, MemberRow>(
-            r#"
-            SELECT u.id AS user_id, u.login_name, u.display_name, pm.role
-            FROM context69.project_memberships pm
-            JOIN context69.projects p ON p.id = pm.project_id
-            JOIN context69.groups g ON g.id = p.group_id
-            JOIN context69.users u ON u.id = pm.user_id
-            WHERE g.group_key = $1
-              AND p.project_key = $2
-            ORDER BY u.login_name
-            "#,
+        let rows = sqlx::query_file_as!(
+            MemberRow,
+            "src/sql/db/namespaces/list_project_members.sql",
+            group_key,
+            project_key
         )
-        .bind(group_key)
-        .bind(project_key)
         .fetch_all(self.pool())
         .await?;
         rows.into_iter().map(member_from_row).collect()
@@ -621,13 +530,13 @@ impl Database {
 
     pub async fn upsert_project_member(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
         project_key: &str,
-        request: &UpsertMembershipRequest,
+        request: &UpsertMembershipInput,
     ) -> Result<()> {
         let project = self
-            .get_project_for_user(actor.id, group_key, project_key)
+            .get_project_for_user(actor.user_id, group_key, project_key)
             .await?
             .context("unknown project")?;
         ensure_role_at_least(project.current_role, MembershipRole::Maintainer, "project")?;
@@ -638,18 +547,12 @@ impl Database {
         if user.disabled_at.is_some() {
             return Err(anyhow!("user account is disabled"));
         }
-        sqlx::query(
-            r#"
-            INSERT INTO context69.project_memberships (project_id, user_id, role)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (project_id, user_id) DO UPDATE
-            SET role = EXCLUDED.role,
-                updated_at = now()
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/upsert_project_member.sql",
+            project.id,
+            user.id,
+            request.role.as_str()
         )
-        .bind(project.id)
-        .bind(user.id)
-        .bind(request.role.as_str())
         .execute(self.pool())
         .await?;
         Ok(())
@@ -657,13 +560,13 @@ impl Database {
 
     pub async fn delete_project_member(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         group_key: &str,
         project_key: &str,
         login_name: &str,
     ) -> Result<()> {
         let project = self
-            .get_project_for_user(actor.id, group_key, project_key)
+            .get_project_for_user(actor.user_id, group_key, project_key)
             .await?
             .context("unknown project")?;
         ensure_role_at_least(project.current_role, MembershipRole::Maintainer, "project")?;
@@ -671,14 +574,11 @@ impl Database {
             .get_user_by_login_name(login_name)
             .await?
             .context("unknown user")?;
-        sqlx::query(
-            r#"
-            DELETE FROM context69.project_memberships
-            WHERE project_id = $1 AND user_id = $2
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/delete_project_member.sql",
+            project.id,
+            user.id
         )
-        .bind(project.id)
-        .bind(user.id)
         .execute(self.pool())
         .await?;
         Ok(())
@@ -686,13 +586,13 @@ impl Database {
 
     pub async fn move_project(
         &self,
-        actor: &UserRecord,
+        actor: &NamespaceActor,
         source_group_key: &str,
         project_key: &str,
-        request: &MoveProjectRequest,
+        request: &MoveProjectInput,
     ) -> Result<ProjectRecord> {
         let existing = self
-            .get_project_for_user(actor.id, source_group_key, project_key)
+            .get_project_for_user(actor.user_id, source_group_key, project_key)
             .await?
             .context("unknown project")?;
         ensure_role_at_least(existing.current_role, MembershipRole::Owner, "project")?;
@@ -703,7 +603,7 @@ impl Database {
         }
 
         let target_group = self
-            .get_group_for_user(actor.id, target_group_key)
+            .get_group_for_user(actor.user_id, target_group_key)
             .await?
             .context("unknown group")?;
         ensure_role_at_least(
@@ -721,16 +621,11 @@ impl Database {
         }
 
         let mut tx = self.pool().begin().await?;
-        let conflict = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT id
-            FROM context69.projects
-            WHERE group_id = $1
-              AND project_key = $2
-            "#,
+        let conflict = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/move_project_conflict.sql",
+            target_group.id,
+            project_key
         )
-        .bind(target_group.id)
-        .bind(project_key)
         .fetch_optional(&mut *tx)
         .await?;
         if conflict.is_some() {
@@ -738,16 +633,11 @@ impl Database {
             return Err(anyhow!("project already exists in target group"));
         }
 
-        sqlx::query(
-            r#"
-            UPDATE context69.projects
-            SET group_id = $2,
-                updated_at = now()
-            WHERE id = $1
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/namespaces/move_project_update_project_group.sql",
+            existing.id,
+            target_group.id
         )
-        .bind(existing.id)
-        .bind(target_group.id)
         .execute(&mut *tx)
         .await?;
 
@@ -771,7 +661,7 @@ impl Database {
 
         tx.commit().await?;
 
-        self.get_project_for_user(actor.id, target_group_key, project_key)
+        self.get_project_for_user(actor.user_id, target_group_key, project_key)
             .await?
             .context("moved project not found")
     }
@@ -792,62 +682,13 @@ impl Database {
             });
         };
 
-        let rows = sqlx::query_as::<_, PrivateProjectIdRow>(
-            r#"
-            WITH RECURSIVE inherited_groups AS (
-                SELECT
-                    g.id,
-                    CASE gm.role
-                        WHEN 'owner' THEN 3
-                        WHEN 'maintainer' THEN 2
-                        ELSE 1
-                    END::smallint AS role_rank
-                FROM context69.group_memberships gm
-                JOIN context69.groups g ON g.id = gm.group_id
-                WHERE gm.user_id = $1
-
-                UNION ALL
-
-                SELECT
-                    child.id,
-                    inherited_groups.role_rank
-                FROM context69.groups child
-                JOIN inherited_groups ON child.parent_group_id = inherited_groups.id
-            ),
-            group_roles AS (
-                SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank
-                FROM inherited_groups
-                GROUP BY id
-            ),
-            project_roles AS (
-                SELECT
-                    project_id,
-                    MAX(
-                        CASE role
-                            WHEN 'owner' THEN 3
-                            WHEN 'maintainer' THEN 2
-                            ELSE 1
-                        END
-                    )::smallint AS role_rank
-                FROM context69.project_memberships
-                WHERE user_id = $1
-                GROUP BY project_id
-            )
-            SELECT p.id AS project_id
-            FROM context69.projects p
-            JOIN context69.groups g ON g.id = p.group_id
-            LEFT JOIN group_roles gr ON gr.group_id = p.group_id
-            LEFT JOIN project_roles pr ON pr.project_id = p.id
-            WHERE p.visibility = 'private'
-              AND (gr.role_rank IS NOT NULL OR pr.role_rank IS NOT NULL)
-              AND ($2::text IS NULL OR g.group_key = $2)
-              AND ($3::text IS NULL OR p.project_key = $3)
-            ORDER BY p.id
-            "#,
+        let rows = sqlx::query_file_as!(
+            PrivateProjectIdRow,
+            "src/sql/db/namespaces/resolve_access_scope.sql",
+            user_id,
+            group_key.as_deref(),
+            project_key.as_deref()
         )
-        .bind(user_id)
-        .bind(group_key.as_deref())
-        .bind(project_key.as_deref())
         .fetch_all(self.pool())
         .await?;
 
@@ -859,128 +700,6 @@ impl Database {
             project_key,
         })
     }
-}
-
-fn group_access_query(extra_filter: Option<&str>) -> String {
-    let extra_filter = extra_filter
-        .map(|filter| format!(" AND {filter}"))
-        .unwrap_or_default();
-    format!(
-        r#"
-        WITH RECURSIVE inherited_groups AS (
-            SELECT
-                g.id,
-                CASE gm.role
-                    WHEN 'owner' THEN 3
-                    WHEN 'maintainer' THEN 2
-                    ELSE 1
-                END::smallint AS role_rank
-            FROM context69.group_memberships gm
-            JOIN context69.groups g ON g.id = gm.group_id
-            WHERE gm.user_id = $1
-
-            UNION ALL
-
-            SELECT
-                child.id,
-                inherited_groups.role_rank
-            FROM context69.groups child
-            JOIN inherited_groups ON child.parent_group_id = inherited_groups.id
-        ),
-        group_roles AS (
-            SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank
-            FROM inherited_groups
-            GROUP BY id
-        )
-        SELECT
-            g.id,
-            g.parent_group_id,
-            parent.group_key AS parent_group_key,
-            g.group_key,
-            g.name,
-            g.visibility,
-            g.kind,
-            g.owner_user_id,
-            g.created_at,
-            g.updated_at,
-            gr.role_rank AS current_role_rank
-        FROM context69.groups g
-        LEFT JOIN context69.groups parent ON parent.id = g.parent_group_id
-        LEFT JOIN group_roles gr ON gr.group_id = g.id
-        WHERE (g.visibility = 'public' OR gr.role_rank IS NOT NULL){extra_filter}
-        ORDER BY g.group_key
-        "#
-    )
-}
-
-fn project_access_query(extra_filter: Option<&str>) -> String {
-    let extra_filter = extra_filter
-        .map(|filter| format!(" AND {filter}"))
-        .unwrap_or_default();
-    format!(
-        r#"
-        WITH RECURSIVE inherited_groups AS (
-            SELECT
-                g.id,
-                CASE gm.role
-                    WHEN 'owner' THEN 3
-                    WHEN 'maintainer' THEN 2
-                    ELSE 1
-                END::smallint AS role_rank
-            FROM context69.group_memberships gm
-            JOIN context69.groups g ON g.id = gm.group_id
-            WHERE gm.user_id = $1
-
-            UNION ALL
-
-            SELECT
-                child.id,
-                inherited_groups.role_rank
-            FROM context69.groups child
-            JOIN inherited_groups ON child.parent_group_id = inherited_groups.id
-        ),
-        group_roles AS (
-            SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank
-            FROM inherited_groups
-            GROUP BY id
-        ),
-        project_roles AS (
-            SELECT
-                project_id,
-                MAX(
-                    CASE role
-                        WHEN 'owner' THEN 3
-                        WHEN 'maintainer' THEN 2
-                        ELSE 1
-                    END
-                )::smallint AS role_rank
-            FROM context69.project_memberships
-            WHERE user_id = $1
-            GROUP BY project_id
-        )
-        SELECT
-            p.id,
-            p.group_id,
-            g.group_key,
-            p.project_key,
-            p.name,
-            p.visibility,
-            p.created_at,
-            p.updated_at,
-            GREATEST(COALESCE(gr.role_rank, 0), COALESCE(pr.role_rank, 0))::smallint
-                AS current_role_rank
-        FROM context69.projects p
-        JOIN context69.groups g ON g.id = p.group_id
-        LEFT JOIN group_roles gr ON gr.group_id = p.group_id
-        LEFT JOIN project_roles pr ON pr.project_id = p.id
-        WHERE (
-            p.visibility = 'public'
-            OR gr.role_rank IS NOT NULL
-            OR pr.role_rank IS NOT NULL
-        ){extra_filter}
-        ORDER BY g.group_key, p.project_key
-        "#
-    )
 }
 
 fn ensure_role_at_least(

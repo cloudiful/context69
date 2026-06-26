@@ -15,10 +15,9 @@ use crate::{
     },
     embedding::{EmbeddingProvider, OpenAiCompatibleEmbeddingProvider},
     qdrant_index::QdrantIndex,
-    search_cache::SearchCache,
     services::{
-        auth::AuthService, library::LibraryService, query::QueryService, settings::SettingsService,
-        sync::SyncService,
+        auth::AuthService, library::LibraryService, namespace::NamespaceService,
+        query::QueryService, settings::SettingsService, sync::SyncService,
     },
     source_store::SourceStore,
 };
@@ -28,6 +27,7 @@ pub struct Context69App {
     pub config: Config,
     pub db: Database,
     pub auth: AuthService,
+    pub namespace: NamespaceService,
     pub query: QueryService,
     pub sync: SyncService,
     pub settings: SettingsService,
@@ -37,6 +37,7 @@ pub struct Context69App {
 impl Context69App {
     pub async fn new(mut config: Config) -> Result<Self> {
         let db = Database::connect(&config.app_db.url).await?;
+        let namespace = NamespaceService::new(db.clone());
         let auth = AuthService::new(db.clone(), config.auth.clone())?;
         auth.ensure_bootstrap_admin().await?;
         import_legacy_runtime_if_needed(&db, &config).await?;
@@ -112,15 +113,15 @@ impl Context69App {
         if recreated_collection {
             sync.rebuild_index_from_db().await?;
         }
-        let search_cache = SearchCache::new(config.scheduler.valkey_url.as_deref()).await;
         let query = QueryService::new(
             db.clone(),
             embedding.clone(),
             index.clone(),
-            search_cache,
+            config.scheduler.valkey_url.as_deref(),
             config.embedding.model.clone(),
             auth.clone(),
-        )?;
+        )
+        .await?;
         let library = LibraryService::new(
             db.clone(),
             embedding.clone(),
@@ -140,6 +141,7 @@ impl Context69App {
             config,
             db,
             auth,
+            namespace,
             query,
             sync,
             settings,

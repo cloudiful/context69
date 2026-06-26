@@ -1,0 +1,18 @@
+[package]
+name = "context69-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+context69-contracts.workspace = true
+redis = { workspace = true, features = ["tokio-comp", "connection-manager"] }
+reqwest = { workspace = true, features = ["charset", "gzip", "http2", "json", "rustls", "system-proxy"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tracing.workspace = true
+uuid.workspace = true

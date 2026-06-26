@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::contracts::{GroupKind, LibraryIngestStatus, MembershipRole, Visibility};
+use crate::contracts::{LibraryIngestStatus, Visibility};
+
+pub use context69_namespace::{
+    AccessScope, GroupRecord, NamespaceMemberRecord, PersonalGroupRecord, ProjectRecord,
+};
 
 #[derive(Debug, Clone)]
 pub struct SourceRecord {
@@ -151,56 +155,4 @@ pub struct UserRecord {
     pub disabled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone)]
-pub struct GroupRecord {
-    pub id: i64,
-    pub parent_group_id: Option<i64>,
-    pub parent_group_key: Option<String>,
-    pub group_key: String,
-    pub name: String,
-    pub visibility: Visibility,
-    pub kind: GroupKind,
-    pub owner_user_id: Option<i64>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub current_role: Option<MembershipRole>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProjectRecord {
-    pub id: i64,
-    pub group_id: i64,
-    pub group_key: String,
-    pub project_key: String,
-    pub name: String,
-    pub visibility: Visibility,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub current_role: Option<MembershipRole>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NamespaceMemberRecord {
-    pub user_id: i64,
-    pub login_name: String,
-    pub display_name: String,
-    pub role: MembershipRole,
-}
-
-#[derive(Debug, Clone)]
-pub struct PersonalGroupRecord {
-    pub group_id: i64,
-    pub group_key: String,
-    pub role: MembershipRole,
-}
-
-#[derive(Debug, Clone)]
-pub struct AccessScope {
-    pub user_id: Option<i64>,
-    pub include_public: bool,
-    pub private_project_ids: Vec<i64>,
-    pub group_key: Option<String>,
-    pub project_key: Option<String>,
 }

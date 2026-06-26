@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.projects (\n    group_id,\n    project_key,\n    name,\n    visibility,\n    created_by_user_id\n)\nVALUES ($1, $2, $3, $4, $5)\nRETURNING id AS \"id!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.projects",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7cd64d6a87a972ca0207e95eff04ce58d6df1e31643e47e62ef4d3f3738c489c"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.projects\nWHERE group_id = $1 AND project_key = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a341236f4914e8f63f48f33a4d2406a882ef5622aec48513169ecb22ec0e078"
+}

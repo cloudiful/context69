@@ -1,17 +1,14 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
+use context69_contracts::{SearchRequest, SearchResponse};
 use redis::{AsyncCommands, Client, RedisError, aio::ConnectionManager, cmd};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::{
-    contracts::{SearchRequest, SearchResponse},
-    db::StoredSearchSettings,
-    rerank::RerankHit,
-};
+use crate::{RerankHit, SearchSettings};
 
 const SEARCH_KEY_PREFIX: &str = "context69:search:v1:";
 const EMBED_TTL_SECS: u64 = 24 * 60 * 60;
@@ -89,7 +86,7 @@ impl SearchCache {
         ))
     }
 
-    pub fn settings_hash(settings: &StoredSearchSettings) -> String {
+    pub fn settings_hash(settings: &SearchSettings) -> String {
         hash_string(&format!(
             "mode={}\nrerank_enabled={}\nrerank_model={}\ncandidate_limit={}",
             settings.mode.as_str(),

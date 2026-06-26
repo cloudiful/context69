@@ -1,49 +1,54 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use context69_search::SearchService;
 
-use crate::contracts::DocumentResponse;
+use crate::contracts::{DocumentResponse, SearchRequest, SearchResponse};
 use crate::db::Database;
 use crate::domain::AccessScope;
 use crate::embedding::EmbeddingProvider;
 use crate::qdrant_index::QdrantIndex;
-use crate::rerank::OpenRouterRerankClient;
-use crate::search_cache::SearchCache;
 use crate::services::auth::AuthService;
 
-mod cache_merge;
-mod ranking;
-mod search;
+mod adapters;
+
+use self::adapters::{
+    AuthScopeResolver, DbSearchRepository, EmbeddingAdapter, QdrantSearchIndex, to_search_scope,
+};
 
 #[derive(Clone)]
 pub struct QueryService {
-    db: Database,
-    embedding: Arc<dyn EmbeddingProvider>,
-    index: QdrantIndex,
-    rerank: OpenRouterRerankClient,
-    cache: SearchCache,
-    embedding_model: String,
-    auth: AuthService,
+    inner: SearchService,
 }
 
 impl QueryService {
-    pub fn new(
+    pub async fn new(
         db: Database,
         embedding: Arc<dyn EmbeddingProvider>,
         index: QdrantIndex,
-        cache: SearchCache,
+        valkey_url: Option<&str>,
         embedding_model: String,
         auth: AuthService,
     ) -> Result<Self> {
         Ok(Self {
-            db,
-            embedding,
-            index,
-            rerank: OpenRouterRerankClient::new()?,
-            cache,
-            embedding_model,
-            auth,
+            inner: SearchService::new(
+                Arc::new(DbSearchRepository::new(db)),
+                Arc::new(AuthScopeResolver::new(auth)),
+                Arc::new(EmbeddingAdapter::new(embedding)),
+                Arc::new(QdrantSearchIndex::new(index)),
+                valkey_url,
+                embedding_model,
+            )
+            .await?,
         })
+    }
+
+    pub async fn search(
+        &self,
+        user_id: Option<i64>,
+        request: SearchRequest,
+    ) -> Result<SearchResponse> {
+        self.inner.search(user_id, request).await
     }
 
     pub async fn get_document(
@@ -51,9 +56,8 @@ impl QueryService {
         document_id: i64,
         scope: &AccessScope,
     ) -> Result<DocumentResponse> {
-        self.db
-            .get_document(document_id, scope)
-            .await?
-            .context("document not found")
+        self.inner
+            .get_document(document_id, &to_search_scope(scope))
+            .await
     }
 }

@@ -1,21 +1,50 @@
-use anyhow::Result;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use context69_contracts::{DocumentResponse, SearchMode, SearchRequest, SearchResponse};
 use tracing::warn;
 
-use super::QueryService;
-use super::cache_merge::{
-    CachedRerankItemScore, rerank_hits_from_item_scores, rerank_item_scores_complete,
-    rerank_item_scores_from_hits, sort_cached_item_scores,
-};
-use super::ranking::{
+use crate::ranking::{
     apply_rerank, compare_hits, merge_cached_item_scores, merge_candidates, rerank_document_text,
 };
-use crate::contracts::{SearchMode, SearchRequest, SearchResponse};
-use crate::db::{StoredRerankItemScore, default_search_settings};
-use crate::normalize::is_meaningful_text;
-use crate::rerank::RerankDocument;
-use crate::search_cache::SearchCache;
+use crate::{
+    AccessScope, CachedRerankItemScore, OpenRouterRerankClient, RerankDocument, SearchCache,
+    SearchEmbeddingProvider, SearchIndex, SearchRepository, SearchScopeResolver, SearchSettings,
+    StoredRerankItemScore, rerank_hits_from_item_scores, rerank_item_scores_complete,
+    rerank_item_scores_from_hits, sort_cached_item_scores,
+};
 
-impl QueryService {
+#[derive(Clone)]
+pub struct SearchService {
+    repository: Arc<dyn SearchRepository>,
+    scope_resolver: Arc<dyn SearchScopeResolver>,
+    embedding: Arc<dyn SearchEmbeddingProvider>,
+    index: Arc<dyn SearchIndex>,
+    rerank: OpenRouterRerankClient,
+    cache: SearchCache,
+    embedding_model: String,
+}
+
+impl SearchService {
+    pub async fn new(
+        repository: Arc<dyn SearchRepository>,
+        scope_resolver: Arc<dyn SearchScopeResolver>,
+        embedding: Arc<dyn SearchEmbeddingProvider>,
+        index: Arc<dyn SearchIndex>,
+        valkey_url: Option<&str>,
+        embedding_model: String,
+    ) -> Result<Self> {
+        Ok(Self {
+            repository,
+            scope_resolver,
+            embedding,
+            index,
+            rerank: OpenRouterRerankClient::new()?,
+            cache: SearchCache::new(valkey_url).await,
+            embedding_model,
+        })
+    }
+
     pub async fn search(
         &self,
         user_id: Option<i64>,
@@ -23,7 +52,7 @@ impl QueryService {
     ) -> Result<SearchResponse> {
         let requested_limit = request.limit;
         let scope = self
-            .auth
+            .scope_resolver
             .access_scope(
                 user_id,
                 request.group_key.clone(),
@@ -31,11 +60,11 @@ impl QueryService {
             )
             .await?;
         let settings = self
-            .db
+            .repository
             .get_search_settings()
             .await?
-            .unwrap_or_else(default_search_settings);
-        let generation = self.db.get_search_generation().await?;
+            .unwrap_or_else(SearchSettings::default);
+        let generation = self.repository.get_search_generation().await?;
         let request_hash = SearchCache::request_hash(&request);
         let settings_hash = SearchCache::settings_hash(&settings);
         if let Some(response) = self
@@ -67,7 +96,7 @@ impl QueryService {
         let hits = self.index.search(vector, &vector_request, &scope).await?;
         let chunk_ids = hits.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>();
         let hydrated = self
-            .db
+            .repository
             .fetch_search_hits_by_chunk_ids(&chunk_ids, &scope)
             .await?;
 
@@ -87,7 +116,7 @@ impl QueryService {
             .collect::<Vec<_>>();
 
         let mut results = if settings.mode == SearchMode::Hybrid {
-            let keyword_results = self.db.keyword_search(&request, &scope, 80).await?;
+            let keyword_results = self.repository.keyword_search(&request, &scope, 80).await?;
             let mut candidates = merge_candidates(vector_results, keyword_results, &request.query);
             candidates.sort_by(compare_hits);
             let rerank_limit = settings.candidate_limit.min(candidates.len());
@@ -126,7 +155,7 @@ impl QueryService {
                         .await;
                     if !rerank_item_scores_complete(&rerank_chunk_ids, &cached_item_scores) {
                         let persisted_scores = self
-                            .db
+                            .repository
                             .list_rerank_item_scores(
                                 &settings.rerank_model,
                                 &query_hash,
@@ -201,7 +230,7 @@ impl QueryService {
                                     })
                                     .collect::<Vec<_>>();
                                 if let Err(error) =
-                                    self.db.upsert_rerank_item_scores(&persisted).await
+                                    self.repository.upsert_rerank_item_scores(&persisted).await
                                 {
                                     warn!(error = %error, "failed to persist rerank item scores");
                                 }
@@ -232,4 +261,26 @@ impl QueryService {
             .await;
         Ok(response)
     }
+
+    pub async fn get_document(
+        &self,
+        document_id: i64,
+        scope: &AccessScope,
+    ) -> Result<DocumentResponse> {
+        self.repository
+            .get_document(document_id, scope)
+            .await?
+            .context("document not found")
+    }
+}
+
+fn is_meaningful_text(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let meaningful = trimmed.chars().filter(|ch| ch.is_alphanumeric()).count();
+
+    meaningful >= 2
 }

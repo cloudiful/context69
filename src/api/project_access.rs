@@ -16,7 +16,7 @@ pub(crate) async fn project_for_user(
 ) -> Result<ProjectRecord> {
     state
         .app
-        .db
+        .namespace
         .get_project_for_user(user_id, group_key, project_key)
         .await?
         .context("unknown project")

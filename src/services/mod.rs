@@ -1,6 +1,7 @@
 pub mod app;
 pub mod auth;
 pub mod library;
+pub mod namespace;
 pub mod query;
 pub mod scheduler;
 pub mod settings;

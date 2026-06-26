@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.groups (\n    group_key,\n    name,\n    visibility,\n    kind,\n    owner_user_id,\n    created_by_user_id\n)\nVALUES ($1, $2, 'private', 'personal', $3, $3)\nRETURNING id AS \"id!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b3cc3beed889f34d1dc87fff9167212806b4e0184bf2763be5fe9a855498d0a4"
+}

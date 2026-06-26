@@ -1,0 +1,10 @@
+[package]
+name = "context69-namespace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+context69-contracts.workspace = true

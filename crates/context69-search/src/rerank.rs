@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use reqwest::{Client, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 
-use crate::db::StoredSearchSettings;
+use crate::SearchSettings;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RerankDocument {
@@ -34,7 +34,7 @@ impl OpenRouterRerankClient {
         query: &str,
         documents: &[RerankDocument],
         top_n: usize,
-        settings: &StoredSearchSettings,
+        settings: &SearchSettings,
     ) -> Result<Vec<RerankHit>> {
         let api_key = settings
             .api_key
