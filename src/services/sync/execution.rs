@@ -3,10 +3,18 @@ use super::*;
 impl SyncService {
     pub async fn sync_all(&self, trigger: &str) -> Result<()> {
         let source_keys = self.registry.read().await.source_keys();
+        if source_keys.is_empty() {
+            return Ok(());
+        }
+        let runtime = self.runtime()?.clone();
         let results = stream::iter(source_keys.into_iter().map(|source_key| {
             let service = self.clone();
             let trigger = trigger.to_string();
-            async move { service.sync_source(&source_key, &trigger).await }
+            let runtime = runtime.clone();
+            async move {
+                let _ = runtime;
+                service.sync_source(&source_key, &trigger).await
+            }
         }))
         .buffer_unordered(self.max_concurrency)
         .collect::<Vec<_>>()
@@ -75,6 +83,7 @@ impl SyncService {
         source: &SourceConfig,
         connector: Arc<dyn SourceConnector>,
     ) -> Result<SyncOutcome> {
+        let runtime = self.runtime()?.clone();
         let persisted_checkpoint = if source.sync_strategy == SyncStrategy::Cursor {
             self.db.get_checkpoint(&source.key).await?
         } else {
@@ -142,7 +151,7 @@ impl SyncService {
                         .iter()
                         .map(|chunk| chunk.text.clone())
                         .collect::<Vec<_>>();
-                    let embeddings = self.embedding.embed_texts(&texts).await?;
+                    let embeddings = runtime.embedding.embed_texts(&texts).await?;
                     let payloads = chunks
                         .iter()
                         .map(|chunk| ChunkPayload {
@@ -173,7 +182,8 @@ impl SyncService {
                             &chunks,
                         )
                         .await?;
-                    self.index
+                    runtime
+                        .index
                         .replace_document_chunks(&existing_chunk_ids, &payloads, &embeddings)
                         .await?;
                     outcome.records_changed += 1;
@@ -195,6 +205,7 @@ impl SyncService {
     }
 
     pub async fn rebuild_index_from_db(&self) -> Result<usize> {
+        let runtime = self.runtime()?.clone();
         let payloads = self.db.list_chunk_payloads_for_reindex().await?;
         if payloads.is_empty() {
             return Ok(0);
@@ -207,8 +218,9 @@ impl SyncService {
                 .iter()
                 .map(|payload| payload.chunk_text.clone())
                 .collect::<Vec<_>>();
-            let embeddings = self.embedding.embed_texts(&texts).await?;
-            self.index
+            let embeddings = runtime.embedding.embed_texts(&texts).await?;
+            runtime
+                .index
                 .replace_document_chunks(&[], batch, &embeddings)
                 .await?;
             rebuilt += batch.len();

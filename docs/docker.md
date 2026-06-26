@@ -20,9 +20,13 @@ Run:
 docker run --rm \
   -p 80:80 \
   -e CONTEXT69_APP_DB__URL='postgres://user:pass@db/context69' \
-  -e CONTEXT69_EMBEDDING__API_KEY='sk-xxx' \
   context69:latest
 ```
+
+This is enough to boot the stack. If runtime settings have not been saved into the app
+database yet, the backend starts in degraded mode so you can open the frontend and configure
+Qdrant, embedding, Docling, scheduler, and sources there. After saving those settings,
+restart the container to activate search and ingest.
 
 ## Exposed Services
 

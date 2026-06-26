@@ -53,15 +53,6 @@ pub(super) fn validate_loaded_config(config: &FileConfig) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_legacy_runtime_import_config(config: &Config) -> Result<()> {
-    if config.connections.is_empty() {
-        return Err(anyhow!(
-            "runtime settings are not initialized in database; define at least one source connection in config before first startup"
-        ));
-    }
-    Ok(())
-}
-
 fn sanitize_optional_string(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())

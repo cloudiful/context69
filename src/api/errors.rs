@@ -3,18 +3,19 @@ use axum::{Json, http::StatusCode, response::IntoResponse};
 use crate::contracts::ApiErrorResponse;
 
 pub(crate) fn internal_error_response(error: anyhow::Error) -> axum::response::Response {
+    let message = error.to_string();
     (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiErrorResponse {
-            error: error.to_string(),
-        }),
+        runtime_aware_status(&message).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        Json(ApiErrorResponse { error: message }),
     )
         .into_response()
 }
 
 pub(crate) fn source_management_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
-    let status = if message.contains("already exists") {
+    let status = if let Some(status) = runtime_aware_status(&message) {
+        status
+    } else if message.contains("already exists") {
         StatusCode::CONFLICT
     } else if message.contains("unknown source") {
         StatusCode::NOT_FOUND
@@ -35,7 +36,9 @@ pub(crate) fn source_management_error_response(error: anyhow::Error) -> axum::re
 
 pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
-    let status = if message.contains("unknown folder")
+    let status = if let Some(status) = runtime_aware_status(&message) {
+        status
+    } else if message.contains("unknown folder")
         || message.contains("unknown file")
         || message.contains("unknown job")
         || message.contains("unknown target folder")
@@ -60,7 +63,9 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
 
 pub(crate) fn settings_management_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
-    let status = if message.contains("must not be empty")
+    let status = if let Some(status) = runtime_aware_status(&message) {
+        status
+    } else if message.contains("must not be empty")
         || message.contains("must be greater than 0")
         || message.contains("must be one of")
         || message.contains("is required when")
@@ -75,7 +80,9 @@ pub(crate) fn settings_management_error_response(error: anyhow::Error) -> axum::
 
 pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
-    let status = if message.contains("admin access required") {
+    let status = if let Some(status) = runtime_aware_status(&message) {
+        status
+    } else if message.contains("admin access required") {
         StatusCode::FORBIDDEN
     } else if message.contains("user not found") {
         StatusCode::NOT_FOUND
@@ -91,4 +98,14 @@ pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response:
     };
 
     (status, Json(ApiErrorResponse { error: message })).into_response()
+}
+
+fn runtime_aware_status(message: &str) -> Option<StatusCode> {
+    if message.contains("runtime is not configured")
+        || message.contains("save runtime/provider settings and restart the service")
+    {
+        Some(StatusCode::SERVICE_UNAVAILABLE)
+    } else {
+        None
+    }
 }

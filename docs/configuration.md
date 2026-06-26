@@ -10,15 +10,27 @@
 
 ## Main Sections
 
-- `connections[]`: external source database connections
-- `sources[]`: source definitions used as import templates before source records exist in the app database
 - `app_db`: Context69 metadata database
-- `qdrant`: vector store connection
-- `embedding`: embedding provider configuration
-- `docling`: optional file parsing service configuration
-- `scheduler`: sync scheduling configuration
+- `qdrant`: runtime vector store defaults or bootstrap values
+- `embedding`: runtime embedding defaults or bootstrap values
+- `docling`: optional bootstrap values for file parsing
+- `scheduler`: sync scheduling defaults
 - `mcp`: MCP server configuration
 - `api`: HTTP API server configuration
+- `connections[]`: bootstrap source connections imported into the app database on first startup
+- `sources[]`: bootstrap source definitions imported into the app database on first startup
+
+At runtime, the database is the source of truth for:
+
+- runtime settings
+- provider accounts
+- docling settings
+- source connections
+- source definitions
+
+That means the backend can start with only `app_db.url`. When runtime settings are still
+empty or invalid, Context69 boots in degraded mode so the frontend settings page can be used
+to finish configuration. Search and library ingest require a restart after those settings are saved.
 
 ## Scheduler Options
 
@@ -59,9 +71,6 @@ Do not store production secrets in config files committed to source control.
 Useful environment overrides:
 
 - `CONTEXT69_APP_DB__URL`
-- `CONTEXT69_QDRANT__URL`
-- `CONTEXT69_EMBEDDING__API_KEY`
-- `CONTEXT69_DOCLING__VLM__API_KEY`
 - `CONTEXT69_SCHEDULER__VALKEY_URL`
 
 Any nested config field can be overridden with `__` separators.
@@ -70,9 +79,12 @@ Example:
 
 ```bash
 export CONTEXT69_APP_DB__URL='postgres://user:pass@db/context69'
-export CONTEXT69_EMBEDDING__API_KEY='sk-xxx'
 cargo run
 ```
+
+If you prefer bootstrap-by-config instead of using the frontend, runtime-related overrides
+such as `CONTEXT69_QDRANT__URL`, `CONTEXT69_EMBEDDING__API_KEY`, or Docling fields still work
+and will be imported into the database on first startup.
 
 ## SQLx CLI
 

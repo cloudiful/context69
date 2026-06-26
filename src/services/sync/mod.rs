@@ -30,10 +30,15 @@ mod runtime;
 mod sources;
 
 #[derive(Clone)]
-pub struct SyncService {
-    db: Database,
+struct SyncRuntime {
     embedding: Arc<dyn EmbeddingProvider>,
     index: QdrantIndex,
+}
+
+#[derive(Clone)]
+pub struct SyncService {
+    db: Database,
+    runtime: Option<SyncRuntime>,
     chunking: ChunkingConfig,
     max_concurrency: usize,
     source_pools: Arc<RwLock<HashMap<String, PgPool>>>,
@@ -54,15 +59,17 @@ impl SyncService {
 
     pub fn new(
         db: Database,
-        embedding: Arc<dyn EmbeddingProvider>,
-        index: QdrantIndex,
+        embedding: Option<Arc<dyn EmbeddingProvider>>,
+        index: Option<QdrantIndex>,
         chunking: ChunkingConfig,
         max_concurrency: usize,
     ) -> Self {
+        let runtime = embedding
+            .zip(index)
+            .map(|(embedding, index)| SyncRuntime { embedding, index });
         Self {
             db: db.clone(),
-            embedding,
-            index,
+            runtime,
             chunking,
             max_concurrency,
             source_pools: Arc::new(RwLock::new(HashMap::new())),
@@ -73,6 +80,14 @@ impl SyncService {
             source_store: SourceStore::new(db),
             source_connection_statuses: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    fn runtime(&self) -> Result<&SyncRuntime> {
+        self.runtime.as_ref().ok_or_else(sync_runtime_unavailable)
+    }
+
+    pub fn runtime_configured(&self) -> bool {
+        self.runtime.is_some()
     }
 
     pub async fn seed_sources_if_empty(&self, sources: &[SourceConfig]) -> Result<()> {
@@ -154,6 +169,12 @@ impl SyncService {
             database_url,
         })
     }
+}
+
+fn sync_runtime_unavailable() -> anyhow::Error {
+    anyhow!(
+        "sync runtime is not configured; save runtime/provider settings and restart the service"
+    )
 }
 
 async fn build_source_pools(

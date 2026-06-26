@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use context69_search::SearchService;
 
 use crate::contracts::{DocumentResponse, SearchRequest, SearchResponse};
@@ -12,16 +12,19 @@ use crate::services::auth::AuthService;
 
 mod adapters;
 
-use self::adapters::{
-    AuthScopeResolver, DbSearchRepository, EmbeddingAdapter, QdrantSearchIndex, to_search_scope,
-};
+use self::adapters::{AuthScopeResolver, DbSearchRepository, EmbeddingAdapter, QdrantSearchIndex};
 
 #[derive(Clone)]
 pub struct QueryService {
-    inner: SearchService,
+    db: Database,
+    inner: Option<SearchService>,
 }
 
 impl QueryService {
+    pub fn disabled(db: Database) -> Self {
+        Self { db, inner: None }
+    }
+
     pub async fn new(
         db: Database,
         embedding: Arc<dyn EmbeddingProvider>,
@@ -31,15 +34,18 @@ impl QueryService {
         auth: AuthService,
     ) -> Result<Self> {
         Ok(Self {
-            inner: SearchService::new(
-                Arc::new(DbSearchRepository::new(db)),
-                Arc::new(AuthScopeResolver::new(auth)),
-                Arc::new(EmbeddingAdapter::new(embedding)),
-                Arc::new(QdrantSearchIndex::new(index)),
-                valkey_url,
-                embedding_model,
-            )
-            .await?,
+            db: db.clone(),
+            inner: Some(
+                SearchService::new(
+                    Arc::new(DbSearchRepository::new(db)),
+                    Arc::new(AuthScopeResolver::new(auth)),
+                    Arc::new(EmbeddingAdapter::new(embedding)),
+                    Arc::new(QdrantSearchIndex::new(index)),
+                    valkey_url,
+                    embedding_model,
+                )
+                .await?,
+            ),
         })
     }
 
@@ -48,7 +54,8 @@ impl QueryService {
         user_id: Option<i64>,
         request: SearchRequest,
     ) -> Result<SearchResponse> {
-        self.inner.search(user_id, request).await
+        let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
+        inner.search(user_id, request).await
     }
 
     pub async fn get_document(
@@ -56,8 +63,15 @@ impl QueryService {
         document_id: i64,
         scope: &AccessScope,
     ) -> Result<DocumentResponse> {
-        self.inner
-            .get_document(document_id, &to_search_scope(scope))
+        self.db
+            .get_document(document_id, scope)
             .await
+            .map(|document| document.ok_or_else(|| anyhow!("document not found")))?
     }
+}
+
+fn search_runtime_unavailable() -> anyhow::Error {
+    anyhow!(
+        "search runtime is not configured; save runtime/provider settings and restart the service"
+    )
 }

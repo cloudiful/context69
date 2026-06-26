@@ -8,7 +8,7 @@ pub use defaults::{
     APP_DB_URL_ENV_VAR, DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
     DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS,
 };
-pub use load::{load_app_db_url, validate_legacy_runtime_import_config};
+pub use load::load_app_db_url;
 pub use types::{
     ApiConfig, AppDbConfig, AuthConfig, AuthSigningKeyConfig, BootstrapAdminConfig, Config,
     ConnectionConfig, EmbeddingConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig,

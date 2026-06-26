@@ -24,8 +24,7 @@
 
 - Rust toolchain
 - PostgreSQL for application metadata
-- Qdrant
-- An OpenAI-compatible embedding API
+- Qdrant and an embedding provider only after you want search/ingest to become active
 
 ### Run the service
 
@@ -33,10 +32,15 @@
 cargo run
 ```
 
+With the current startup path, only `app_db.url` is required for the backend to boot.
+If runtime settings are still empty, the service starts in degraded mode so you can open
+the frontend and save Qdrant, embedding, Docling, scheduler, and source settings there.
+Search and library ingest become available after those settings are saved and the service restarts.
+
 By default this starts:
 
 - HTTP API
-- Scheduler
+- Scheduler when sync runtime is configured
 - MCP HTTP server when enabled in config
 
 ### One-off commands
@@ -80,14 +84,6 @@ For local setup, start from:
 Common environment overrides:
 
 - `CONTEXT69_APP_DB__URL`
-- `CONTEXT69_QDRANT__URL`
-- `CONTEXT69_EMBEDDING__API_KEY`
-- `CONTEXT69_DOCLING__CONNECTION__BASE_URL`
-- `CONTEXT69_DOCLING__VLM__OPENAI_BASE_URL`
-- `CONTEXT69_DOCLING__VLM__API_KEY`
-- `CONTEXT69_DOCLING__VLM__VLM_PIPELINE_MODEL`
-- `CONTEXT69_DOCLING__VLM__PICTURE_DESCRIPTION_MODEL`
-- `CONTEXT69_DOCLING__VLM__CODE_FORMULA_MODEL`
 - `CONTEXT69_SCHEDULER__VALKEY_URL`
 
 Detailed configuration docs:
@@ -110,9 +106,11 @@ Run it:
 docker run --rm \
   -p 80:80 \
   -e CONTEXT69_APP_DB__URL='postgres://user:pass@db/context69' \
-  -e CONTEXT69_EMBEDDING__API_KEY='sk-xxx' \
   context69:latest
 ```
+
+Then open the frontend settings page and save runtime/provider/docling settings.
+Until that happens, `/healthz` is expected to report a degraded state.
 
 More details:
 

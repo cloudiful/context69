@@ -36,6 +36,7 @@ impl LibraryService {
         };
 
         let result = async {
+            let _runtime = self.runtime()?;
             let sections = match kind {
                 LibraryFileKind::Pdf => self.ingest_pdf(&file, &bytes, job_id).await?,
                 LibraryFileKind::Docx => self.ingest_docx(&file, &bytes).await?,
@@ -237,12 +238,13 @@ impl LibraryService {
         file: &crate::domain::LibraryFileRecord,
         sections: Vec<IngestSection>,
     ) -> Result<()> {
+        let runtime = self.runtime()?.clone();
         let existing_file_ids = [file.id];
         let existing_chunk_ids = self
             .store
             .list_chunk_ids_for_files(&existing_file_ids)
             .await?;
-        self.index.delete_points(&existing_chunk_ids).await?;
+        runtime.index.delete_points(&existing_chunk_ids).await?;
         self.store
             .delete_documents_for_files(&existing_file_ids)
             .await?;
@@ -303,7 +305,7 @@ impl LibraryService {
                 .iter()
                 .map(|chunk| chunk.text.clone())
                 .collect::<Vec<_>>();
-            let embeddings = self.embedding.embed_texts(&texts).await?;
+            let embeddings = runtime.embedding.embed_texts(&texts).await?;
             let payloads = chunks
                 .iter()
                 .map(|chunk| ChunkPayload {
@@ -330,7 +332,8 @@ impl LibraryService {
             self.db
                 .replace_document_chunks(upserted.document_id, &normalized.record_hash, &chunks)
                 .await?;
-            self.index
+            runtime
+                .index
                 .replace_document_chunks(&[], &payloads, &embeddings)
                 .await?;
 

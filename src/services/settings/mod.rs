@@ -6,10 +6,10 @@ mod validate;
 
 use self::{
     mappers::{
-        config_from_stored, docling_settings_from_request, provider_account_from_parts,
-        provider_account_response, response_from_stored, runtime_settings_from_request,
-        runtime_settings_response, search_response_from_stored, search_settings_from_request,
-        unconfigured_docling_response,
+        config_from_stored, default_runtime_settings_response, docling_settings_from_request,
+        provider_account_from_parts, provider_account_response, response_from_stored,
+        runtime_settings_from_request, runtime_settings_response, search_response_from_stored,
+        search_settings_from_request, unconfigured_docling_response,
     },
     validate as settings_validate,
 };
@@ -39,12 +39,12 @@ impl SettingsService {
     }
 
     pub async fn get_runtime_settings(&self) -> Result<RuntimeSettingsResponse> {
-        let settings = self
+        Ok(self
             .db
             .get_runtime_settings()
             .await?
-            .context("runtime settings are not initialized")?;
-        Ok(runtime_settings_response(settings))
+            .map(runtime_settings_response)
+            .unwrap_or_else(default_runtime_settings_response))
     }
 
     pub async fn update_runtime_settings(

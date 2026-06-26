@@ -86,14 +86,21 @@ async fn export_openapi(output_path: Option<String>) -> Result<()> {
 async fn serve(app: Arc<Context69App>) -> Result<()> {
     let api_bind_addr = app.config.api.bind_addr.clone();
 
-    if app.config.scheduler.run_on_start {
+    if app.config.scheduler.run_on_start && app.sync.runtime_configured() {
         info!("running startup sync");
         if let Err(error) = run_startup_sync(app.clone()).await {
             warn!(error = %error, "startup sync failed; continuing to serve api");
         }
+    } else if app.config.scheduler.run_on_start {
+        info!("startup sync skipped because sync runtime is not configured");
     }
 
-    let scheduler_task = tokio::spawn(run_scheduler(app.clone()));
+    let scheduler_task = if app.sync.runtime_configured() {
+        Some(tokio::spawn(run_scheduler(app.clone())))
+    } else {
+        info!("scheduler disabled until runtime settings are configured and the service restarts");
+        None
+    };
     let cleanup_task = tokio::spawn(run_rerank_cache_cleanup(app.clone()));
     let mcp_task = if app.config.mcp.enabled {
         Some(tokio::spawn({
@@ -115,7 +122,9 @@ async fn serve(app: Arc<Context69App>) -> Result<()> {
     info!(addrs = ?bound.addrs(), "http api listening");
     bound.run_with_graceful_shutdown(shutdown_signal()).await?;
 
-    scheduler_task.abort();
+    if let Some(scheduler_task) = scheduler_task {
+        scheduler_task.abort();
+    }
     cleanup_task.abort();
     if let Some(mcp_task) = mcp_task {
         mcp_task.abort();

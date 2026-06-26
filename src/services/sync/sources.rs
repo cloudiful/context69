@@ -72,7 +72,9 @@ impl SyncService {
     pub async fn delete_source_in_project(&self, project_id: i64, source_key: &str) -> Result<()> {
         let _guard = self.acquire_lock(source_key).await?;
         let chunk_ids = self.source_store.list_source_chunk_ids(source_key).await?;
-        self.index.delete_points(&chunk_ids).await?;
+        if let Some(runtime) = &self.runtime {
+            runtime.index.delete_points(&chunk_ids).await?;
+        }
         let deleted = self
             .source_store
             .delete_source_in_project(Some(project_id), source_key)
@@ -133,7 +135,9 @@ impl SyncService {
     pub async fn delete_source(&self, source_key: &str) -> Result<()> {
         let _guard = self.acquire_lock(source_key).await?;
         let chunk_ids = self.source_store.list_source_chunk_ids(source_key).await?;
-        self.index.delete_points(&chunk_ids).await?;
+        if let Some(runtime) = &self.runtime {
+            runtime.index.delete_points(&chunk_ids).await?;
+        }
         let deleted = self.source_store.delete_source(source_key).await?;
         if !deleted {
             return Err(anyhow!("unknown source {source_key}"));

@@ -150,6 +150,41 @@ pub(super) fn runtime_settings_response(
     }
 }
 
+pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
+    let defaults = crate::config::Config::default();
+    RuntimeSettingsResponse {
+        qdrant: RuntimeQdrantSettings {
+            url: defaults.qdrant.url,
+            collection_name: defaults.qdrant.collection_name,
+            recreate_on_dimension_mismatch: defaults.qdrant.recreate_on_dimension_mismatch,
+        },
+        embedding: RuntimeEmbeddingSettings {
+            provider_account_key: String::new(),
+            model: defaults.embedding.model,
+            dimensions: defaults.embedding.dimensions,
+            timeout_secs: defaults.embedding.timeout.as_secs(),
+        },
+        scheduler: RuntimeSchedulerSettings {
+            interval_secs: defaults.scheduler.interval.as_secs(),
+            run_on_start: defaults.scheduler.run_on_start,
+            max_concurrency: defaults.scheduler.max_concurrency,
+            job_id: defaults.scheduler.job_id,
+            valkey_url: defaults.scheduler.valkey_url,
+        },
+        chunking: RuntimeChunkingSettings {
+            max_chars: defaults.chunking.max_chars,
+            overlap_chars: defaults.chunking.overlap_chars,
+        },
+        file_library: RuntimeFileLibrarySettings {
+            storage_root: defaults.file_library.storage_root.display().to_string(),
+            max_upload_size_mb: defaults.file_library.max_upload_size_mb,
+            max_upload_request_size_mb: defaults.file_library.max_upload_request_size_mb,
+            ingest_concurrency: defaults.file_library.ingest_concurrency,
+            pdf_pages_per_task: defaults.file_library.pdf_pages_per_task,
+        },
+    }
+}
+
 pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
     DoclingSettingsResponse {
         configured: false,

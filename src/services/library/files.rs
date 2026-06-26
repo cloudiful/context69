@@ -45,6 +45,7 @@ impl LibraryService {
         if !request.metadata_json.is_object() {
             return Err(anyhow!("metadata_json must be an object"));
         }
+        self.runtime()?;
 
         let summary = request
             .summary
@@ -243,6 +244,7 @@ impl LibraryService {
         }
 
         let kind = storage::detect_file_kind(&upload.filename, &upload.media_type)?;
+        self.runtime()?;
         match kind {
             LibraryFileKind::Pdf | LibraryFileKind::Docx => {
                 self.load_docling_pdf_converter().await?;
@@ -305,6 +307,7 @@ impl LibraryService {
         }
 
         let kind = storage::detect_file_kind(&upload.filename, &upload.media_type)?;
+        self.runtime()?;
         match kind {
             LibraryFileKind::Pdf | LibraryFileKind::Docx => {
                 self.load_docling_pdf_converter().await?;
@@ -483,6 +486,7 @@ impl LibraryService {
         if content.is_empty() {
             return Err(anyhow!("text content must not be empty"));
         }
+        self.runtime()?;
         let summary = request
             .summary
             .as_deref()

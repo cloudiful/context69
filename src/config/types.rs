@@ -219,6 +219,14 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        FileConfig::default()
+            .try_into()
+            .expect("default file config should normalize")
+    }
+}
+
 impl TryFrom<FileConfig> for Config {
     type Error = anyhow::Error;
 

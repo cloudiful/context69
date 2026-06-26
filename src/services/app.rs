@@ -6,8 +6,7 @@ use tracing::warn;
 use crate::{
     chunking::ChunkingConfig,
     config::{
-        Config, ConnectionConfig, EmbeddingConfig, FileLibraryConfig, QdrantConfig,
-        SchedulerConfig, validate_legacy_runtime_import_config,
+        Config, ConnectionConfig, EmbeddingConfig, FileLibraryConfig, QdrantConfig, SchedulerConfig,
     },
     db::{
         Database, StoredDoclingSettings, StoredProviderAccount, StoredRuntimeSettings,
@@ -44,42 +43,9 @@ impl Context69App {
 
         let settings = SettingsService::new(db.clone());
         let runtime = load_runtime_settings(&db).await?;
-        let embedding_account = settings
-            .ensure_provider_account_active(&runtime.embedding.provider_account_key, false)
-            .await?;
-
-        config.qdrant = QdrantConfig {
-            url: runtime.qdrant.url.clone(),
-            collection_name: runtime.qdrant.collection_name.clone(),
-            recreate_on_dimension_mismatch: runtime.qdrant.recreate_on_dimension_mismatch,
-        };
-        config.embedding = EmbeddingConfig {
-            base_url: embedding_account.base_url,
-            api_key: embedding_account.api_key,
-            model: runtime.embedding.model.clone(),
-            dimensions: runtime.embedding.dimensions,
-            timeout: Duration::from_secs(runtime.embedding.timeout_secs),
-        };
-        config.scheduler = SchedulerConfig {
-            interval: Duration::from_secs(runtime.scheduler.interval_secs),
-            run_on_start: runtime.scheduler.run_on_start,
-            max_concurrency: runtime.scheduler.max_concurrency,
-            job_id: runtime.scheduler.job_id.clone(),
-            valkey_url: config.scheduler.valkey_url.clone(),
-            execution_guard_ttl: config.scheduler.execution_guard_ttl,
-            execution_guard_renew_interval: config.scheduler.execution_guard_renew_interval,
-        };
-        config.chunking = ChunkingConfig {
-            max_chars: runtime.chunking.max_chars,
-            overlap_chars: runtime.chunking.overlap_chars,
-        };
-        config.file_library = FileLibraryConfig {
-            storage_root: PathBuf::from(&runtime.file_library.storage_root),
-            max_upload_size_mb: runtime.file_library.max_upload_size_mb,
-            max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
-            ingest_concurrency: runtime.file_library.ingest_concurrency,
-            pdf_pages_per_task: runtime.file_library.pdf_pages_per_task,
-        };
+        if let Some(runtime) = &runtime {
+            apply_runtime_settings(&mut config, runtime);
+        }
         config.connections = db
             .list_source_connections()
             .await?
@@ -89,13 +55,59 @@ impl Context69App {
                 database_url: connection.database_url,
             })
             .collect();
-        config.docling = settings.resolve_docling_config().await?;
+        config.docling = match settings.resolve_docling_config().await {
+            Ok(docling) => docling,
+            Err(error) => {
+                warn!(error = %error, "docling settings are invalid; continuing without docling runtime");
+                None
+            }
+        };
 
-        let embedding: Arc<dyn EmbeddingProvider> = Arc::new(
-            OpenAiCompatibleEmbeddingProvider::new(config.embedding.clone())?,
-        );
-        let (index, recreated_collection) =
-            QdrantIndex::connect(&config.qdrant, config.embedding.dimensions).await?;
+        let mut embedding: Option<Arc<dyn EmbeddingProvider>> = None;
+        let mut index: Option<QdrantIndex> = None;
+        let mut recreated_collection = false;
+
+        if let Some(runtime) = &runtime {
+            match settings
+                .ensure_provider_account_active(&runtime.embedding.provider_account_key, false)
+                .await
+            {
+                Ok(embedding_account) => {
+                    config.embedding = EmbeddingConfig {
+                        base_url: embedding_account.base_url,
+                        api_key: embedding_account.api_key,
+                        model: runtime.embedding.model.clone(),
+                        dimensions: runtime.embedding.dimensions,
+                        timeout: Duration::from_secs(runtime.embedding.timeout_secs),
+                    };
+
+                    match OpenAiCompatibleEmbeddingProvider::new(config.embedding.clone()) {
+                        Ok(provider) => {
+                            let provider: Arc<dyn EmbeddingProvider> = Arc::new(provider);
+                            match QdrantIndex::connect(&config.qdrant, config.embedding.dimensions)
+                                .await
+                            {
+                                Ok((connected_index, recreated)) => {
+                                    embedding = Some(provider);
+                                    index = Some(connected_index);
+                                    recreated_collection = recreated;
+                                }
+                                Err(error) => {
+                                    warn!(error = %error, "qdrant runtime is unavailable; continuing in degraded mode");
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            warn!(error = %error, "embedding runtime is unavailable; continuing in degraded mode");
+                        }
+                    }
+                }
+                Err(error) => {
+                    warn!(error = %error, "embedding provider settings are invalid; continuing in degraded mode");
+                }
+            }
+        }
+
         let sync = SyncService::new(
             db.clone(),
             embedding.clone(),
@@ -110,18 +122,22 @@ impl Context69App {
         if let Err(error) = sync.validate_sources().await {
             warn!(error = %error, "source validation failed during startup; continuing without blocking service startup");
         }
-        if recreated_collection {
+        if recreated_collection && sync.runtime_configured() {
             sync.rebuild_index_from_db().await?;
         }
-        let query = QueryService::new(
-            db.clone(),
-            embedding.clone(),
-            index.clone(),
-            config.scheduler.valkey_url.as_deref(),
-            config.embedding.model.clone(),
-            auth.clone(),
-        )
-        .await?;
+        let query = if let (Some(embedding), Some(index)) = (embedding.clone(), index.clone()) {
+            QueryService::new(
+                db.clone(),
+                embedding,
+                index,
+                config.scheduler.valkey_url.as_deref(),
+                config.embedding.model.clone(),
+                auth.clone(),
+            )
+            .await?
+        } else {
+            QueryService::disabled(db.clone())
+        };
         let library = LibraryService::new(
             db.clone(),
             embedding.clone(),
@@ -154,7 +170,6 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
     if db.runtime_settings_initialized().await? {
         return Ok(());
     }
-    validate_legacy_runtime_import_config(config)?;
 
     let embedding_provider_key = "embedding-default".to_string();
     let docling_provider_key = if let Some(docling) = &config.docling {
@@ -272,11 +287,10 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
     Ok(())
 }
 
-async fn load_runtime_settings(db: &Database) -> Result<StoredRuntimeSettings> {
-    let mut runtime = db
-        .get_runtime_settings()
-        .await?
-        .context("runtime settings are not initialized")?;
+async fn load_runtime_settings(db: &Database) -> Result<Option<StoredRuntimeSettings>> {
+    let Some(mut runtime) = db.get_runtime_settings().await? else {
+        return Ok(None);
+    };
 
     if let Some(grpc_url) = qdrant_grpc_url_from_rest_port(&runtime.qdrant.url) {
         warn!(
@@ -288,7 +302,35 @@ async fn load_runtime_settings(db: &Database) -> Result<StoredRuntimeSettings> {
         runtime = db.save_runtime_settings(&runtime).await?;
     }
 
-    Ok(runtime)
+    Ok(Some(runtime))
+}
+
+fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) {
+    config.qdrant = QdrantConfig {
+        url: runtime.qdrant.url.clone(),
+        collection_name: runtime.qdrant.collection_name.clone(),
+        recreate_on_dimension_mismatch: runtime.qdrant.recreate_on_dimension_mismatch,
+    };
+    config.scheduler = SchedulerConfig {
+        interval: Duration::from_secs(runtime.scheduler.interval_secs),
+        run_on_start: runtime.scheduler.run_on_start,
+        max_concurrency: runtime.scheduler.max_concurrency,
+        job_id: runtime.scheduler.job_id.clone(),
+        valkey_url: runtime.scheduler.valkey_url.clone(),
+        execution_guard_ttl: config.scheduler.execution_guard_ttl,
+        execution_guard_renew_interval: config.scheduler.execution_guard_renew_interval,
+    };
+    config.chunking = ChunkingConfig {
+        max_chars: runtime.chunking.max_chars,
+        overlap_chars: runtime.chunking.overlap_chars,
+    };
+    config.file_library = FileLibraryConfig {
+        storage_root: PathBuf::from(&runtime.file_library.storage_root),
+        max_upload_size_mb: runtime.file_library.max_upload_size_mb,
+        max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
+        ingest_concurrency: runtime.file_library.ingest_concurrency,
+        pdf_pages_per_task: runtime.file_library.pdf_pages_per_task,
+    };
 }
 
 fn qdrant_grpc_url_from_rest_port(url: &str) -> Option<String> {

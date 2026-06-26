@@ -25,6 +25,6 @@ impl SyncService {
     }
 
     pub async fn search_smoke_test(&self) -> Result<u64> {
-        self.index.count_points().await
+        self.runtime()?.index.count_points().await
     }
 }

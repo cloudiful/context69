@@ -46,8 +46,7 @@ const FILE_LIBRARY_SOURCE_KEY: &str = "file_library";
 pub struct LibraryService {
     db: Database,
     store: LibraryStore,
-    embedding: Arc<dyn EmbeddingProvider>,
-    index: QdrantIndex,
+    runtime: Option<LibraryRuntime>,
     chunking: ChunkingConfig,
     settings: SettingsService,
     storage_root: PathBuf,
@@ -55,6 +54,12 @@ pub struct LibraryService {
     max_upload_request_size_bytes: usize,
     pdf_pages_per_task: u32,
     ingest_semaphore: Arc<Semaphore>,
+}
+
+#[derive(Clone)]
+struct LibraryRuntime {
+    embedding: Arc<dyn EmbeddingProvider>,
+    index: QdrantIndex,
 }
 
 #[derive(Debug, Clone)]
@@ -96,8 +101,8 @@ struct FolderNodeSeed {
 impl LibraryService {
     pub fn new(
         db: Database,
-        embedding: Arc<dyn EmbeddingProvider>,
-        index: QdrantIndex,
+        embedding: Option<Arc<dyn EmbeddingProvider>>,
+        index: Option<QdrantIndex>,
         chunking: ChunkingConfig,
         settings: SettingsService,
         file_library_config: FileLibraryConfig,
@@ -112,8 +117,9 @@ impl LibraryService {
         Ok(Self {
             db: db.clone(),
             store: LibraryStore::new(db),
-            embedding,
-            index,
+            runtime: embedding
+                .zip(index)
+                .map(|(embedding, index)| LibraryRuntime { embedding, index }),
             chunking,
             settings,
             storage_root: file_library_config.storage_root,
@@ -137,6 +143,18 @@ impl LibraryService {
     fn pdf_pages_per_task(&self) -> u32 {
         self.pdf_pages_per_task
     }
+
+    fn runtime(&self) -> Result<&LibraryRuntime> {
+        self.runtime
+            .as_ref()
+            .ok_or_else(library_runtime_unavailable)
+    }
+}
+
+fn library_runtime_unavailable() -> anyhow::Error {
+    anyhow!(
+        "library ingest runtime is not configured; save runtime/provider/docling settings and restart the service"
+    )
 }
 
 fn build_library_metadata(

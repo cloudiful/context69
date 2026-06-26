@@ -43,8 +43,10 @@ impl LibraryService {
             }
         }
 
-        let payloads = self.store.list_chunk_payloads_for_files(&[file_id]).await?;
-        self.index.update_chunk_payloads(&payloads).await?;
+        if let Some(runtime) = &self.runtime {
+            let payloads = self.store.list_chunk_payloads_for_files(&[file_id]).await?;
+            runtime.index.update_chunk_payloads(&payloads).await?;
+        }
         Ok(())
     }
 
@@ -60,7 +62,9 @@ impl LibraryService {
         }
 
         let chunk_ids = self.store.list_chunk_ids_for_files(file_ids).await?;
-        self.index.delete_points(&chunk_ids).await?;
+        if let Some(runtime) = &self.runtime {
+            runtime.index.delete_points(&chunk_ids).await?;
+        }
         let paths = self.store.list_storage_paths_for_files(file_ids).await?;
         self.store.delete_documents_for_files(file_ids).await?;
 
