@@ -29,7 +29,7 @@ RUN mkdir -p src crates/context69-contracts/src crates/context69-sdk/src \
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build --release
+    cargo build --release --bin context69
 
 COPY Cargo.toml ./
 COPY crates crates
@@ -39,7 +39,7 @@ COPY migrations migrations
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build --release \
+    cargo build --release --bin context69 \
     && install -Dm755 target/release/context69 /app/out/context69
 
 FROM debian:bookworm-slim AS runtime
