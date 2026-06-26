@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.library_files\nWHERE project_id = $1 AND id = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe1ab2ac8d1f1ca940fbb7e30bd950f4a658b77b5fc6d45dcaea7fb2bc108ee3"
+}

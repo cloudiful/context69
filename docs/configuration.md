@@ -77,6 +77,8 @@ cargo run
 ## SQLx CLI
 
 `cargo sqlx prepare` does not read `CONTEXT69_APP_DB__URL`. It reads `DATABASE_URL`.
+`cargo run --bin db_init` loads root `.env` if present, then resolves
+`DATABASE_URL`, `CONTEXT69_APP_DB__URL`, and finally `app_db.url`.
 
 For local development, keep both values aligned:
 

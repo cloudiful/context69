@@ -1,0 +1,220 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    sc.group_id,\n    g.group_key,\n    sc.project_id,\n    p.project_key,\n    sc.visibility,\n    sc.source_key,\n    sc.display_name,\n    sc.description,\n    sc.example_queries AS \"example_queries!: Json<Vec<String>>\",\n    sc.connection,\n    sc.sync_strategy,\n    sc.connector_type,\n    sc.base_query,\n    sc.batch_size,\n    cp.cursor_updated_at AS last_cursor_updated_at,\n    cp.cursor_external_id AS last_cursor_external_id,\n    cp.last_success_at\nFROM context69.source_configs sc\nJOIN context69.groups g ON g.id = sc.group_id\nJOIN context69.projects p ON p.id = sc.project_id\nLEFT JOIN context69.source_checkpoints cp\n    ON cp.source_key = sc.source_key\nWHERE sc.project_id = $1\nORDER BY sc.source_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.projects",
+            "name": "project_key"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "example_queries!: Json<Vec<String>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "example_queries"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "connection",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "connection"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "sync_strategy",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "sync_strategy"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "connector_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "connector_type"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "base_query",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "base_query"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "batch_size",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.source_configs",
+            "name": "batch_size"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "last_cursor_updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "cursor_updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "last_cursor_external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "cursor_external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "last_success_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "last_success_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d4292b4194c8f7b6e43124da160c9491cc9677c9964f1310f20730345f88c621"
+}

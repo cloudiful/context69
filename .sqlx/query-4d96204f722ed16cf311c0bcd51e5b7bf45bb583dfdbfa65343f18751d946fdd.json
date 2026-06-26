@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.source_configs\nSET display_name = $2,\n    description = $3,\n    example_queries = $4,\n    connection = $5,\n    sync_strategy = $6,\n    connector_type = $7,\n    base_query = $8,\n    batch_size = $9,\n    updated_at = now()\nWHERE source_key = $1\n  AND ($10::bigint IS NULL OR project_id = $10)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4d96204f722ed16cf311c0bcd51e5b7bf45bb583dfdbfa65343f18751d946fdd"
+}

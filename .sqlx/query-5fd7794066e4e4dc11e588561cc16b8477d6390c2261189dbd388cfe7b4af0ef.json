@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.runtime_source_connections\nWHERE name = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5fd7794066e4e4dc11e588561cc16b8477d6390c2261189dbd388cfe7b4af0ef"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.runtime_file_library_settings (\n    singleton,\n    storage_root,\n    max_upload_size_mb,\n    max_upload_request_size_mb,\n    ingest_concurrency,\n    pdf_pages_per_task,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, now())\nON CONFLICT (singleton) DO UPDATE\nSET storage_root = EXCLUDED.storage_root,\n    max_upload_size_mb = EXCLUDED.max_upload_size_mb,\n    max_upload_request_size_mb = EXCLUDED.max_upload_request_size_mb,\n    ingest_concurrency = EXCLUDED.ingest_concurrency,\n    pdf_pages_per_task = EXCLUDED.pdf_pages_per_task,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aeb8f453864062c7e803d1edddf1f3a6523c03fbe15b3847796d0db1cb05fbad"
+}

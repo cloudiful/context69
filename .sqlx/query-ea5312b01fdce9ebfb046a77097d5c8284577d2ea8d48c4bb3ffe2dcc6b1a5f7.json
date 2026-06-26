@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT dc.id\nFROM context69.document_chunks dc\nJOIN context69.documents d ON d.id = dc.document_id\nWHERE d.source_key = $1\nORDER BY dc.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ea5312b01fdce9ebfb046a77097d5c8284577d2ea8d48c4bb3ffe2dcc6b1a5f7"
+}

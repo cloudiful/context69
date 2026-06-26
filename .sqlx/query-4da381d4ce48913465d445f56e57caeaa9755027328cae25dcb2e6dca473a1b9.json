@@ -1,0 +1,229 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH folder_scope AS (\n    SELECT group_id, project_id, visibility\n    FROM context69.library_folders\n    WHERE id = $2\n),\ndefault_scope AS (\n    SELECT g.id AS group_id, p.id AS project_id, 'public'::text AS visibility\n    FROM context69.groups g\n    JOIN context69.projects p ON p.group_id = g.id\n    WHERE g.group_key = 'public'\n      AND p.project_key = 'default-public'\n),\nresolved_scope AS (\n    SELECT group_id, project_id, visibility FROM folder_scope\n    UNION ALL\n    SELECT group_id, project_id, visibility FROM default_scope\n    LIMIT 1\n)\nINSERT INTO context69.library_files (\n    id,\n    group_id,\n    project_id,\n    visibility,\n    folder_id,\n    external_id,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status\n)\nSELECT\n    $1,\n    rs.group_id,\n    rs.project_id,\n    rs.visibility,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8,\n    'pending'\nFROM resolved_scope rs\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    project_id,\n    (SELECT project_key FROM context69.projects WHERE id = project_id) AS \"project_key!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "folder_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "folder_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "filename",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "filename"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "media_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "media_type"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "storage_rel_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "storage_rel_path"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "ingest_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "ingest_status"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "ingested_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "ingested_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      null,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4da381d4ce48913465d445f56e57caeaa9755027328cae25dcb2e6dca473a1b9"
+}

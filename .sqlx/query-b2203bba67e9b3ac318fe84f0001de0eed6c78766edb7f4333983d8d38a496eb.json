@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT source_key, cursor_updated_at, cursor_external_id, last_success_at\nFROM context69.source_checkpoints\nORDER BY source_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "cursor_updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "cursor_updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "cursor_external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "cursor_external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "last_success_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "last_success_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "b2203bba67e9b3ac318fe84f0001de0eed6c78766edb7f4333983d8d38a496eb"
+}

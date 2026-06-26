@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT url, collection_name, recreate_on_dimension_mismatch\nFROM context69.runtime_qdrant_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_qdrant_settings",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_qdrant_settings",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "recreate_on_dimension_mismatch",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_qdrant_settings",
+            "name": "recreate_on_dimension_mismatch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0be7776557b05d2c557e89cc88c856dd413bbe3195cb2032c6705230970a980a"
+}

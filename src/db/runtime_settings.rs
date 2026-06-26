@@ -10,26 +10,17 @@ use super::{
 
 impl Database {
     pub async fn runtime_settings_initialized(&self) -> Result<bool> {
-        Ok(sqlx::query_scalar::<_, bool>(
-            r#"
-            SELECT EXISTS(
-                SELECT 1
-                FROM context69.runtime_qdrant_settings
-                WHERE singleton = TRUE
-            )
-            "#,
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/runtime_settings/runtime_settings_initialized.sql")
+                .fetch_one(&self.pool)
+                .await?,
         )
-        .fetch_one(&self.pool)
-        .await?)
     }
 
     pub async fn get_runtime_settings(&self) -> Result<Option<StoredRuntimeSettings>> {
-        let qdrant = sqlx::query_as::<_, RuntimeQdrantSettingsRow>(
-            r#"
-            SELECT url, collection_name, recreate_on_dimension_mismatch
-            FROM context69.runtime_qdrant_settings
-            WHERE singleton = TRUE
-            "#,
+        let qdrant = sqlx::query_file_as!(
+            RuntimeQdrantSettingsRow,
+            "src/sql/db/runtime_settings/get_runtime_qdrant_settings.sql"
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -37,44 +28,27 @@ impl Database {
             return Ok(None);
         };
 
-        let embedding = sqlx::query_as::<_, RuntimeEmbeddingSettingsRow>(
-            r#"
-            SELECT provider_account_key, model, dimensions, timeout_secs
-            FROM context69.runtime_embedding_settings
-            WHERE singleton = TRUE
-            "#,
+        let embedding = sqlx::query_file_as!(
+            RuntimeEmbeddingSettingsRow,
+            "src/sql/db/runtime_settings/get_runtime_embedding_settings.sql"
         )
         .fetch_one(&self.pool)
         .await?;
-        let scheduler = sqlx::query_as::<_, RuntimeSchedulerSettingsRow>(
-            r#"
-            SELECT interval_secs, run_on_start, max_concurrency, job_id, valkey_url
-            FROM context69.runtime_scheduler_settings
-            WHERE singleton = TRUE
-            "#,
+        let scheduler = sqlx::query_file_as!(
+            RuntimeSchedulerSettingsRow,
+            "src/sql/db/runtime_settings/get_runtime_scheduler_settings.sql"
         )
         .fetch_one(&self.pool)
         .await?;
-        let chunking = sqlx::query_as::<_, RuntimeChunkingSettingsRow>(
-            r#"
-            SELECT max_chars, overlap_chars
-            FROM context69.runtime_chunking_settings
-            WHERE singleton = TRUE
-            "#,
+        let chunking = sqlx::query_file_as!(
+            RuntimeChunkingSettingsRow,
+            "src/sql/db/runtime_settings/get_runtime_chunking_settings.sql"
         )
         .fetch_one(&self.pool)
         .await?;
-        let file_library = sqlx::query_as::<_, RuntimeFileLibrarySettingsRow>(
-            r#"
-            SELECT
-                storage_root,
-                max_upload_size_mb,
-                max_upload_request_size_mb,
-                ingest_concurrency,
-                pdf_pages_per_task
-            FROM context69.runtime_file_library_settings
-            WHERE singleton = TRUE
-            "#,
+        let file_library = sqlx::query_file_as!(
+            RuntimeFileLibrarySettingsRow,
+            "src/sql/db/runtime_settings/get_runtime_file_library_settings.sql"
         )
         .fetch_one(&self.pool)
         .await?;
@@ -129,155 +103,73 @@ impl Database {
         settings: &StoredRuntimeSettings,
     ) -> Result<StoredRuntimeSettings> {
         let mut tx = self.pool.begin().await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO context69.runtime_qdrant_settings (
-                singleton,
-                url,
-                collection_name,
-                recreate_on_dimension_mismatch,
-                updated_at
-            )
-            VALUES (TRUE, $1, $2, $3, now())
-            ON CONFLICT (singleton) DO UPDATE
-            SET url = EXCLUDED.url,
-                collection_name = EXCLUDED.collection_name,
-                recreate_on_dimension_mismatch = EXCLUDED.recreate_on_dimension_mismatch,
-                updated_at = now()
-            "#,
-        )
-        .bind(&settings.qdrant.url)
-        .bind(&settings.qdrant.collection_name)
-        .bind(settings.qdrant.recreate_on_dimension_mismatch)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO context69.runtime_embedding_settings (
-                singleton,
-                provider_account_key,
-                model,
-                dimensions,
-                timeout_secs,
-                updated_at
-            )
-            VALUES (TRUE, $1, $2, $3, $4, now())
-            ON CONFLICT (singleton) DO UPDATE
-            SET provider_account_key = EXCLUDED.provider_account_key,
-                model = EXCLUDED.model,
-                dimensions = EXCLUDED.dimensions,
-                timeout_secs = EXCLUDED.timeout_secs,
-                updated_at = now()
-            "#,
-        )
-        .bind(&settings.embedding.provider_account_key)
-        .bind(&settings.embedding.model)
-        .bind(
-            i64::try_from(settings.embedding.dimensions)
-                .context("embedding dimensions too large")?,
-        )
-        .bind(
-            i64::try_from(settings.embedding.timeout_secs)
-                .context("embedding timeout too large")?,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO context69.runtime_scheduler_settings (
-                singleton,
-                interval_secs,
-                run_on_start,
-                max_concurrency,
-                job_id,
-                valkey_url,
-                updated_at
-            )
-            VALUES (TRUE, $1, $2, $3, $4, $5, now())
-            ON CONFLICT (singleton) DO UPDATE
-            SET interval_secs = EXCLUDED.interval_secs,
-                run_on_start = EXCLUDED.run_on_start,
-                max_concurrency = EXCLUDED.max_concurrency,
-                job_id = EXCLUDED.job_id,
-                valkey_url = EXCLUDED.valkey_url,
-                updated_at = now()
-            "#,
-        )
-        .bind(
-            i64::try_from(settings.scheduler.interval_secs)
-                .context("scheduler interval too large")?,
-        )
-        .bind(settings.scheduler.run_on_start)
-        .bind(
-            i64::try_from(settings.scheduler.max_concurrency)
-                .context("scheduler max_concurrency too large")?,
-        )
-        .bind(&settings.scheduler.job_id)
-        .bind(&settings.scheduler.valkey_url)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO context69.runtime_chunking_settings (
-                singleton,
-                max_chars,
-                overlap_chars,
-                updated_at
-            )
-            VALUES (TRUE, $1, $2, now())
-            ON CONFLICT (singleton) DO UPDATE
-            SET max_chars = EXCLUDED.max_chars,
-                overlap_chars = EXCLUDED.overlap_chars,
-                updated_at = now()
-            "#,
-        )
-        .bind(i64::try_from(settings.chunking.max_chars).context("chunking max_chars too large")?)
-        .bind(
-            i64::try_from(settings.chunking.overlap_chars)
-                .context("chunking overlap_chars too large")?,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO context69.runtime_file_library_settings (
-                singleton,
-                storage_root,
-                max_upload_size_mb,
-                max_upload_request_size_mb,
-                ingest_concurrency,
-                pdf_pages_per_task,
-                updated_at
-            )
-            VALUES (TRUE, $1, $2, $3, $4, $5, now())
-            ON CONFLICT (singleton) DO UPDATE
-            SET storage_root = EXCLUDED.storage_root,
-                max_upload_size_mb = EXCLUDED.max_upload_size_mb,
-                max_upload_request_size_mb = EXCLUDED.max_upload_request_size_mb,
-                ingest_concurrency = EXCLUDED.ingest_concurrency,
-                pdf_pages_per_task = EXCLUDED.pdf_pages_per_task,
-                updated_at = now()
-            "#,
-        )
-        .bind(&settings.file_library.storage_root)
-        .bind(
-            i64::try_from(settings.file_library.max_upload_size_mb)
-                .context("file_library max_upload_size_mb too large")?,
-        )
-        .bind(
+        let embedding_dimensions =
+            i64::try_from(settings.embedding.dimensions).context("embedding dimensions too large")?;
+        let embedding_timeout_secs = i64::try_from(settings.embedding.timeout_secs)
+            .context("embedding timeout too large")?;
+        let scheduler_interval_secs = i64::try_from(settings.scheduler.interval_secs)
+            .context("scheduler interval too large")?;
+        let scheduler_max_concurrency = i64::try_from(settings.scheduler.max_concurrency)
+            .context("scheduler max_concurrency too large")?;
+        let chunking_max_chars =
+            i64::try_from(settings.chunking.max_chars).context("chunking max_chars too large")?;
+        let chunking_overlap_chars = i64::try_from(settings.chunking.overlap_chars)
+            .context("chunking overlap_chars too large")?;
+        let file_library_max_upload_size_mb = i64::try_from(settings.file_library.max_upload_size_mb)
+            .context("file_library max_upload_size_mb too large")?;
+        let file_library_max_upload_request_size_mb =
             i64::try_from(settings.file_library.max_upload_request_size_mb)
-                .context("file_library max_upload_request_size_mb too large")?,
-        )
-        .bind(
+                .context("file_library max_upload_request_size_mb too large")?;
+        let file_library_ingest_concurrency =
             i64::try_from(settings.file_library.ingest_concurrency)
-                .context("file_library ingest_concurrency too large")?,
+                .context("file_library ingest_concurrency too large")?;
+
+        sqlx::query_file!(
+            "src/sql/db/runtime_settings/save_runtime_qdrant_settings.sql",
+            settings.qdrant.url,
+            settings.qdrant.collection_name,
+            settings.qdrant.recreate_on_dimension_mismatch
         )
-        .bind(i64::from(settings.file_library.pdf_pages_per_task))
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query_file!(
+            "src/sql/db/runtime_settings/save_runtime_embedding_settings.sql",
+            settings.embedding.provider_account_key,
+            settings.embedding.model,
+            embedding_dimensions,
+            embedding_timeout_secs
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query_file!(
+            "src/sql/db/runtime_settings/save_runtime_scheduler_settings.sql",
+            scheduler_interval_secs,
+            settings.scheduler.run_on_start,
+            scheduler_max_concurrency,
+            settings.scheduler.job_id,
+            settings.scheduler.valkey_url
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query_file!(
+            "src/sql/db/runtime_settings/save_runtime_chunking_settings.sql",
+            chunking_max_chars,
+            chunking_overlap_chars
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query_file!(
+            "src/sql/db/runtime_settings/save_runtime_file_library_settings.sql",
+            settings.file_library.storage_root,
+            file_library_max_upload_size_mb,
+            file_library_max_upload_request_size_mb,
+            file_library_ingest_concurrency,
+            i64::from(settings.file_library.pdf_pages_per_task)
+        )
         .execute(&mut *tx)
         .await?;
 

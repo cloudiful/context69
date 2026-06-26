@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.rerank_item_scores\nSET last_used_at = now()\nWHERE rerank_model = $1\n  AND query_hash = $2\n  AND chunk_id = ANY($3)\nRETURNING rerank_model, query_hash, query_text_trimmed, chunk_id, score\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rerank_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.rerank_item_scores",
+            "name": "rerank_model"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "query_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.rerank_item_scores",
+            "name": "query_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "query_text_trimmed",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.rerank_item_scores",
+            "name": "query_text_trimmed"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "chunk_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.rerank_item_scores",
+            "name": "chunk_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "score",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "context69.rerank_item_scores",
+            "name": "score"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7ac84cf09507f60ecf61af7801e7117f24a64c795b5874d5db03b96e42e4045d"
+}

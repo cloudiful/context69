@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.rerank_item_scores (\n    rerank_model,\n    query_hash,\n    query_text_trimmed,\n    chunk_id,\n    score,\n    created_at,\n    last_used_at\n)\nSELECT\n    item.rerank_model,\n    item.query_hash,\n    item.query_text_trimmed,\n    item.chunk_id,\n    item.score,\n    now(),\n    now()\nFROM unnest(\n    $1::text[],\n    $2::text[],\n    $3::text[],\n    $4::uuid[],\n    $5::real[]\n) AS item(rerank_model, query_hash, query_text_trimmed, chunk_id, score)\nON CONFLICT (rerank_model, query_hash, chunk_id) DO UPDATE\nSET score = EXCLUDED.score,\n    query_text_trimmed = EXCLUDED.query_text_trimmed,\n    last_used_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "UuidArray",
+        "Float4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a148801e9e4650813c9e2ea9820f21a154f3a5e3476f00c622bacffcaadd5cbf"
+}

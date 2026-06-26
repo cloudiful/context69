@@ -45,12 +45,14 @@ tracing-subscriber = "0.3.23"
 url = "2.5.7"
 utoipa = "5.5.0"
 uuid = "1.23.3"
+db-init = { package= "cloudiful-db-init", version = "0.1.0"}
 
 [package]
 name = "context69"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+default-run = "context69"
 
 [dependencies]
 anyhow.workspace = true
@@ -62,6 +64,7 @@ bytes.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 config.workspace = true
 context69-contracts.workspace = true
+db-init.workspace = true
 docling-convert.workspace = true
 futures.workspace = true
 jsonwebtoken.workspace = true

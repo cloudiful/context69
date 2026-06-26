@@ -1,9 +1,10 @@
-use std::env;
-
 use anyhow::{Result, anyhow};
 use config::{ReadOptions, read};
-use context69::db::Database;
+use db_init::{DbInitOptions, init_database, load_dotenv_if_exists, resolve_database_url};
 use serde::{Deserialize, Serialize};
+use sqlx::migrate::Migrator;
+
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct DbInitConfig {
@@ -24,34 +25,32 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
-    let database_url = load_database_url()?;
-    let _db = Database::connect(&database_url).await?;
+    load_dotenv_if_exists(".env")?;
+    let resolution = resolve_database_url(
+        None,
+        &["DATABASE_URL", "CONTEXT69_APP_DB__URL"],
+        load_config_database_url,
+    )?;
+    let _pool = init_database(
+        &resolution.database_url,
+        &MIGRATOR,
+        DbInitOptions::default(),
+    )
+    .await?;
     println!("database init completed");
     Ok(())
 }
 
-fn load_database_url() -> Result<String> {
-    if let Ok(database_url) = env::var("DATABASE_URL") {
-        let trimmed = database_url.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_string());
-        }
-    }
-
+fn load_config_database_url() -> Result<Option<String>> {
     let config: DbInitConfig = read(
         "context69",
         Some(ReadOptions::with_env_prefix("CONTEXT69_")),
     )
     .map_err(|error| anyhow!(error).context("failed to load application config"))?;
 
-    config
+    Ok(config
         .app_db
         .and_then(|app_db| app_db.url)
         .map(|url| url.trim().to_string())
-        .filter(|url| !url.is_empty())
-        .ok_or_else(|| {
-            anyhow!(
-                "missing DATABASE_URL or CONTEXT69_APP_DB__URL (or `app_db.url` in config file)"
-            )
-        })
+        .filter(|url| !url.is_empty()))
 }

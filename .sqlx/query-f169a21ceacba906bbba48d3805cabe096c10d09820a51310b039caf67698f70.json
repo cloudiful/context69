@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT account_key, provider_kind, display_name, base_url, api_key, disabled_at\nFROM context69.runtime_provider_accounts\nWHERE account_key = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_provider_accounts",
+            "name": "account_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "provider_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_provider_accounts",
+            "name": "provider_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_provider_accounts",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_provider_accounts",
+            "name": "base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "api_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_provider_accounts",
+            "name": "api_key"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "disabled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_provider_accounts",
+            "name": "disabled_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "f169a21ceacba906bbba48d3805cabe096c10d09820a51310b039caf67698f70"
+}

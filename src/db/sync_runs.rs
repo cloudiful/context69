@@ -9,30 +9,11 @@ use super::{
 
 impl Database {
     pub async fn start_run(&self, source_key: &str, trigger_type: &str) -> Result<RunHandle> {
-        let id = sqlx::query_scalar::<_, i64>(
-            r#"
-            INSERT INTO context69.sync_runs (
-                group_id,
-                project_id,
-                visibility,
-                source_key,
-                trigger_type,
-                status
-            )
-            SELECT
-                sc.group_id,
-                sc.project_id,
-                sc.visibility,
-                sc.source_key,
-                $2,
-                'running'
-            FROM context69.source_configs sc
-            WHERE sc.source_key = $1
-            RETURNING id
-            "#,
+        let id = sqlx::query_file_scalar!(
+            "src/sql/db/sync_runs/start_run.sql",
+            source_key,
+            trigger_type
         )
-        .bind(source_key)
-        .bind(trigger_type)
         .fetch_one(&self.pool)
         .await?;
 
@@ -49,39 +30,26 @@ impl Database {
         outcome: &SyncOutcome,
         error_message: Option<&str>,
     ) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE context69.sync_runs
-            SET status = $2,
-                records_seen = $3,
-                records_changed = $4,
-                chunks_upserted = $5,
-                error_message = $6,
-                finished_at = now(),
-                updated_at = now()
-            WHERE id = $1
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/finish_run.sql",
+            run.id,
+            status,
+            outcome.records_seen as i32,
+            outcome.records_changed as i32,
+            outcome.chunks_upserted as i32,
+            error_message
         )
-        .bind(run.id)
-        .bind(status)
-        .bind(outcome.records_seen as i32)
-        .bind(outcome.records_changed as i32)
-        .bind(outcome.chunks_upserted as i32)
-        .bind(error_message)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_checkpoint(&self, source_key: &str) -> Result<SyncCheckpoint> {
-        let row = sqlx::query_as::<_, CheckpointRow>(
-            r#"
-            SELECT cursor_updated_at, cursor_external_id
-            FROM context69.source_checkpoints
-            WHERE source_key = $1
-            "#,
+        let row = sqlx::query_file_as!(
+            CheckpointRow,
+            "src/sql/db/sync_runs/get_checkpoint.sql",
+            source_key
         )
-        .bind(source_key)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -101,39 +69,12 @@ impl Database {
         source_key: &str,
         checkpoint: &SyncCheckpoint,
     ) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO context69.source_checkpoints (
-                group_id,
-                project_id,
-                visibility,
-                source_key,
-                cursor_updated_at,
-                cursor_external_id,
-                last_success_at,
-                updated_at
-            )
-            SELECT
-                sc.group_id,
-                sc.project_id,
-                sc.visibility,
-                sc.source_key,
-                $2,
-                $3,
-                now(),
-                now()
-            FROM context69.source_configs sc
-            WHERE sc.source_key = $1
-            ON CONFLICT (source_key) DO UPDATE
-            SET cursor_updated_at = EXCLUDED.cursor_updated_at,
-                cursor_external_id = EXCLUDED.cursor_external_id,
-                last_success_at = now(),
-                updated_at = now()
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/save_checkpoint.sql",
+            source_key,
+            checkpoint.updated_at,
+            checkpoint.external_id.as_deref()
         )
-        .bind(source_key)
-        .bind(checkpoint.updated_at)
-        .bind(checkpoint.external_id.as_deref())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -144,12 +85,9 @@ impl Database {
         connection_names: &HashMap<String, String>,
         sync_strategies: &HashMap<String, String>,
     ) -> Result<Vec<SourceStatus>> {
-        let rows = sqlx::query_as::<_, CheckpointWithKeyRow>(
-            r#"
-            SELECT source_key, cursor_updated_at, cursor_external_id, last_success_at
-            FROM context69.source_checkpoints
-            ORDER BY source_key
-            "#,
+        let rows = sqlx::query_file_as!(
+            CheckpointWithKeyRow,
+            "src/sql/db/sync_runs/list_source_status_checkpoints.sql"
         )
         .fetch_all(&self.pool)
         .await?;

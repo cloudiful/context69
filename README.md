@@ -158,8 +158,9 @@ cargo sqlx prepare --workspace -- --all-targets
 
 Notes:
 
-- `db_init` is migration-only. It uses `DATABASE_URL` first, then falls back to `CONTEXT69_APP_DB__URL` / `app_db.url`.
+- `db_init` is migration-only. It loads root `.env` first when present, then resolves `DATABASE_URL`, `CONTEXT69_APP_DB__URL`, and finally `app_db.url`.
 - `cargo sqlx prepare` reads `DATABASE_URL`. Keep it aligned with `CONTEXT69_APP_DB__URL` when using the app config override.
+- Static runtime SQL should live under `src/sql/**` and be loaded with `sqlx::query_file*!` macros. Keep only genuinely dynamic SQL construction in Rust.
 - SQLx metadata is stored in `.sqlx/` and should be refreshed after migration or checked-query changes.
 
 ## API

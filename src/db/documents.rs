@@ -17,111 +17,68 @@ use crate::normalize::is_meaningful_text;
 impl Database {
     pub async fn upsert_document(&self, payload: &ChunkPayload) -> Result<UpsertedDocument> {
         let mut tx = self.pool.begin().await?;
-        let existing = sqlx::query_as::<_, ExistingDocumentRow>(
-            r#"
-            SELECT id, record_hash
-            FROM context69.documents
-            WHERE project_id = $1 AND source_key = $2 AND external_id = $3
-            "#,
+        let existing = sqlx::query_file_as!(
+            ExistingDocumentRow,
+            "src/sql/db/documents/get_existing_document.sql",
+            payload.project_id,
+            payload.source_key,
+            payload.external_id
         )
-        .bind(payload.project_id)
-        .bind(&payload.source_key)
-        .bind(&payload.external_id)
         .fetch_optional(&mut *tx)
         .await?;
 
         let (document_id, changed) = match existing {
             Some(existing) if existing.record_hash == payload.record_hash => {
-                sqlx::query(
-                    r#"
-                    UPDATE context69.documents
-                    SET title = $3,
-                        summary = $4,
-                        source_uri = $5,
-                        published_at = $6,
-                        updated_at_source = COALESCE($7, updated_at_source),
-                        metadata_json = $8,
-                        last_synced_at = now(),
-                        updated_at = now()
-                    WHERE project_id = $1 AND source_key = $2 AND external_id = $9
-                    "#,
+                sqlx::query_file!(
+                    "src/sql/db/documents/update_document_unchanged.sql",
+                    payload.project_id,
+                    payload.source_key,
+                    payload.title,
+                    payload.summary,
+                    payload.source_uri,
+                    payload.published_at,
+                    payload.updated_at_source,
+                    payload.metadata_json,
+                    payload.external_id
                 )
-                .bind(payload.project_id)
-                .bind(&payload.source_key)
-                .bind(&payload.title)
-                .bind(&payload.summary)
-                .bind(&payload.source_uri)
-                .bind(payload.published_at)
-                .bind(payload.updated_at_source)
-                .bind(&payload.metadata_json)
-                .bind(&payload.external_id)
                 .execute(&mut *tx)
                 .await?;
                 (existing.id, false)
             }
             Some(existing) => {
-                sqlx::query(
-                    r#"
-                    UPDATE context69.documents
-                    SET title = $3,
-                        summary = $4,
-                        source_uri = $5,
-                        published_at = $6,
-                        updated_at_source = COALESCE($7, updated_at_source),
-                        metadata_json = $8,
-                        record_hash = $9,
-                        last_synced_at = now(),
-                        updated_at = now()
-                    WHERE project_id = $1 AND source_key = $2 AND external_id = $10
-                    "#,
+                sqlx::query_file!(
+                    "src/sql/db/documents/update_document_changed.sql",
+                    payload.project_id,
+                    payload.source_key,
+                    payload.title,
+                    payload.summary,
+                    payload.source_uri,
+                    payload.published_at,
+                    payload.updated_at_source,
+                    payload.metadata_json,
+                    payload.record_hash,
+                    payload.external_id
                 )
-                .bind(payload.project_id)
-                .bind(&payload.source_key)
-                .bind(&payload.title)
-                .bind(&payload.summary)
-                .bind(&payload.source_uri)
-                .bind(payload.published_at)
-                .bind(payload.updated_at_source)
-                .bind(&payload.metadata_json)
-                .bind(&payload.record_hash)
-                .bind(&payload.external_id)
                 .execute(&mut *tx)
                 .await?;
                 (existing.id, true)
             }
             None => {
-                let id = sqlx::query_scalar::<_, i64>(
-                    r#"
-                    INSERT INTO context69.documents (
-                        group_id,
-                        project_id,
-                        visibility,
-                        source_key,
-                        external_id,
-                        title,
-                        summary,
-                        source_uri,
-                        published_at,
-                        updated_at_source,
-                        metadata_json,
-                        record_hash
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                    RETURNING id
-                    "#,
+                let id = sqlx::query_file_scalar!(
+                    "src/sql/db/documents/insert_document.sql",
+                    payload.group_id,
+                    payload.project_id,
+                    payload.visibility.as_str(),
+                    payload.source_key,
+                    payload.external_id,
+                    payload.title,
+                    payload.summary,
+                    payload.source_uri,
+                    payload.published_at,
+                    payload.updated_at_source,
+                    payload.metadata_json,
+                    payload.record_hash
                 )
-                .bind(payload.group_id)
-                .bind(payload.project_id)
-                .bind(payload.visibility.as_str())
-                .bind(&payload.source_key)
-                .bind(&payload.external_id)
-                .bind(&payload.title)
-                .bind(&payload.summary)
-                .bind(&payload.source_uri)
-                .bind(payload.published_at)
-                .bind(payload.updated_at_source)
-                .bind(&payload.metadata_json)
-                .bind(&payload.record_hash)
                 .fetch_one(&mut *tx)
                 .await?;
                 (id, true)
@@ -129,30 +86,17 @@ impl Database {
         };
 
         if changed {
-            sqlx::query(
-                r#"
-                INSERT INTO context69.document_versions (
-                    document_id,
-                    record_hash,
-                    title,
-                    summary,
-                    body_text,
-                    source_uri,
-                    published_at,
-                    metadata_json
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                ON CONFLICT (document_id, record_hash) DO NOTHING
-                "#,
+            sqlx::query_file!(
+                "src/sql/db/documents/insert_document_version.sql",
+                document_id,
+                payload.record_hash,
+                payload.title,
+                payload.summary,
+                payload.chunk_text,
+                payload.source_uri,
+                payload.published_at,
+                payload.metadata_json
             )
-            .bind(document_id)
-            .bind(&payload.record_hash)
-            .bind(&payload.title)
-            .bind(&payload.summary)
-            .bind(&payload.chunk_text)
-            .bind(&payload.source_uri)
-            .bind(payload.published_at)
-            .bind(&payload.metadata_json)
             .execute(&mut *tx)
             .await?;
         }
@@ -171,29 +115,19 @@ impl Database {
         chunks: &[DocumentChunk],
     ) -> Result<Vec<Uuid>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM context69.document_chunks WHERE document_id = $1")
-            .bind(document_id)
+        sqlx::query_file!("src/sql/db/documents/delete_document_chunks.sql", document_id)
             .execute(&mut *tx)
             .await?;
 
         for chunk in chunks {
-            sqlx::query(
-                r#"
-                INSERT INTO context69.document_chunks (
-                    id,
-                    document_id,
-                    chunk_index,
-                    chunk_text,
-                    record_hash
-                )
-                VALUES ($1, $2, $3, $4, $5)
-                "#,
+            sqlx::query_file!(
+                "src/sql/db/documents/insert_document_chunk.sql",
+                chunk.id,
+                document_id,
+                chunk.chunk_index,
+                chunk.text,
+                record_hash
             )
-            .bind(chunk.id)
-            .bind(document_id)
-            .bind(chunk.chunk_index)
-            .bind(&chunk.text)
-            .bind(record_hash)
             .execute(&mut *tx)
             .await?;
         }
@@ -203,12 +137,14 @@ impl Database {
     }
 
     pub async fn list_chunk_ids_for_document(&self, document_id: i64) -> Result<Vec<Uuid>> {
-        Ok(sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM context69.document_chunks WHERE document_id = $1 ORDER BY chunk_index",
+        Ok(
+            sqlx::query_file_scalar!(
+                "src/sql/db/documents/list_chunk_ids_for_document.sql",
+                document_id
+            )
+            .fetch_all(&self.pool)
+            .await?,
         )
-        .bind(document_id)
-        .fetch_all(&self.pool)
-        .await?)
     }
 
     pub async fn fetch_search_hits_by_chunk_ids(
@@ -216,37 +152,14 @@ impl Database {
         chunk_ids: &[Uuid],
         scope: &AccessScope,
     ) -> Result<HashMap<Uuid, SearchHit>> {
-        let rows = sqlx::query_as::<_, SearchHitRow>(
-            r#"
-            SELECT
-                c.id AS chunk_id,
-                d.id AS document_id,
-                g.group_key,
-                p.project_key,
-                d.visibility,
-                d.source_key,
-                d.external_id,
-                d.title,
-                d.summary,
-                d.source_uri,
-                d.published_at,
-                c.chunk_index,
-                c.chunk_text,
-                d.metadata_json
-            FROM context69.document_chunks c
-            INNER JOIN context69.documents d ON d.id = c.document_id
-            INNER JOIN context69.groups g ON g.id = d.group_id
-            INNER JOIN context69.projects p ON p.id = d.project_id
-            WHERE c.id = ANY($1)
-              AND (d.visibility = 'public' OR d.project_id = ANY($2))
-              AND ($3::text IS NULL OR g.group_key = $3)
-              AND ($4::text IS NULL OR p.project_key = $4)
-            "#,
+        let rows = sqlx::query_file_as!(
+            SearchHitRow,
+            "src/sql/db/documents/fetch_search_hits_by_chunk_ids.sql",
+            chunk_ids,
+            &scope.private_project_ids,
+            scope.group_key.as_deref(),
+            scope.project_key.as_deref()
         )
-        .bind(chunk_ids)
-        .bind(&scope.private_project_ids)
-        .bind(scope.group_key.as_deref())
-        .bind(scope.project_key.as_deref())
         .fetch_all(&self.pool)
         .await?;
 
@@ -297,95 +210,22 @@ impl Database {
         }
         let phrase_pattern = format!("%{normalized_query}%");
         let terms = keyword_terms(&normalized_query);
+        let keyword_limit = i64::try_from(limit).context("keyword search limit is too large")?;
 
-        let rows = sqlx::query_as::<_, KeywordSearchHitRow>(
-            r#"
-            WITH query_terms AS (
-                SELECT unnest($3::text[]) AS term
-            ),
-            scored AS (
-                SELECT
-                    c.id AS chunk_id,
-                    d.id AS document_id,
-                    g.group_key,
-                    p.project_key,
-                    d.visibility,
-                    d.source_key,
-                    d.external_id,
-                    d.title,
-                    d.summary,
-                    d.source_uri,
-                    d.published_at,
-                    c.chunk_index,
-                    c.chunk_text,
-                    d.metadata_json,
-                    lower(d.title) AS title_lc,
-                    lower(c.chunk_text) AS chunk_lc
-                FROM context69.document_chunks c
-                INNER JOIN context69.documents d ON d.id = c.document_id
-                INNER JOIN context69.groups g ON g.id = d.group_id
-                INNER JOIN context69.projects p ON p.id = d.project_id
-                WHERE ($4::text IS NULL OR d.source_key = $4)
-                  AND ($5::text IS NULL OR g.group_key = $5)
-                  AND ($6::text IS NULL OR p.project_key = $6)
-                  AND ($7::date IS NULL OR d.published_at >= $7)
-                  AND ($8::date IS NULL OR d.published_at <= $8)
-                  AND (d.visibility = 'public' OR d.project_id = ANY($9))
-                  AND (
-                    lower(d.title) LIKE $2
-                    OR lower(c.chunk_text) LIKE $2
-                    OR (
-                        cardinality($3::text[]) > 0
-                        AND NOT EXISTS (
-                            SELECT 1
-                            FROM query_terms qt
-                            WHERE (lower(d.title) || ' ' || lower(c.chunk_text)) NOT LIKE ('%' || qt.term || '%')
-                        )
-                    )
-                  )
-            )
-            SELECT
-                chunk_id,
-                document_id,
-                group_key,
-                project_key,
-                visibility,
-                source_key,
-                external_id,
-                title,
-                summary,
-                source_uri,
-                published_at,
-                chunk_index,
-                chunk_text,
-                metadata_json,
-                (
-                    CASE WHEN title_lc = $1 THEN 1.20 ELSE 0 END
-                    + CASE WHEN title_lc LIKE $2 THEN 1.00 ELSE 0 END
-                    + CASE WHEN chunk_lc LIKE $2 THEN 0.82 ELSE 0 END
-                    + CASE WHEN cardinality($3::text[]) > 0 THEN 0.35 ELSE 0 END
-                )::real AS keyword_score,
-                CASE
-                    WHEN title_lc = $1 THEN 'title_exact'
-                    WHEN title_lc LIKE $2 THEN 'title_phrase'
-                    WHEN chunk_lc LIKE $2 THEN 'chunk_phrase'
-                    ELSE 'all_terms'
-                END AS match_reason
-            FROM scored
-            ORDER BY keyword_score DESC, published_at DESC NULLS LAST, document_id DESC, chunk_index ASC
-            LIMIT $10
-            "#,
+        let rows = sqlx::query_file_as!(
+            KeywordSearchHitRow,
+            "src/sql/db/documents/keyword_search.sql",
+            normalized_query,
+            phrase_pattern,
+            &terms,
+            request.source_key,
+            request.group_key.as_deref(),
+            request.project_key.as_deref(),
+            request.published_after,
+            request.published_before,
+            &scope.private_project_ids,
+            keyword_limit
         )
-        .bind(&normalized_query)
-        .bind(&phrase_pattern)
-        .bind(&terms)
-        .bind(&request.source_key)
-        .bind(request.group_key.as_deref())
-        .bind(request.project_key.as_deref())
-        .bind(request.published_after)
-        .bind(request.published_before)
-        .bind(&scope.private_project_ids)
-        .bind(i64::try_from(limit).context("keyword search limit is too large")?)
         .fetch_all(&self.pool)
         .await?;
 
@@ -393,33 +233,9 @@ impl Database {
     }
 
     pub async fn list_chunk_payloads_for_reindex(&self) -> Result<Vec<ChunkPayload>> {
-        let rows = sqlx::query_as::<_, ReindexChunkRow>(
-            r#"
-            SELECT
-                c.id AS chunk_id,
-                d.id AS document_id,
-                d.group_id,
-                g.group_key,
-                d.project_id,
-                p.project_key,
-                d.visibility,
-                d.source_key,
-                d.external_id,
-                d.title,
-                d.summary,
-                d.source_uri,
-                d.published_at,
-                d.updated_at_source,
-                d.record_hash,
-                c.chunk_index,
-                c.chunk_text,
-                d.metadata_json
-            FROM context69.document_chunks c
-            INNER JOIN context69.documents d ON d.id = c.document_id
-            INNER JOIN context69.groups g ON g.id = d.group_id
-            INNER JOIN context69.projects p ON p.id = d.project_id
-            ORDER BY d.id, c.chunk_index
-            "#,
+        let rows = sqlx::query_file_as!(
+            ReindexChunkRow,
+            "src/sql/db/documents/list_chunk_payloads_for_reindex.sql"
         )
         .fetch_all(&self.pool)
         .await?;
@@ -454,35 +270,14 @@ impl Database {
         document_id: i64,
         scope: &AccessScope,
     ) -> Result<Option<DocumentResponse>> {
-        let document = sqlx::query_as::<_, DocumentRow>(
-            r#"
-            SELECT
-                id,
-                g.group_key,
-                p.project_key,
-                d.visibility,
-                source_key,
-                external_id,
-                title,
-                summary,
-                source_uri,
-                published_at,
-                updated_at_source,
-                record_hash,
-                metadata_json
-            FROM context69.documents d
-            INNER JOIN context69.groups g ON g.id = d.group_id
-            INNER JOIN context69.projects p ON p.id = d.project_id
-            WHERE d.id = $1
-              AND (d.visibility = 'public' OR d.project_id = ANY($2))
-              AND ($3::text IS NULL OR g.group_key = $3)
-              AND ($4::text IS NULL OR p.project_key = $4)
-            "#,
+        let document = sqlx::query_file_as!(
+            DocumentRow,
+            "src/sql/db/documents/get_document.sql",
+            document_id,
+            &scope.private_project_ids,
+            scope.group_key.as_deref(),
+            scope.project_key.as_deref()
         )
-        .bind(document_id)
-        .bind(&scope.private_project_ids)
-        .bind(scope.group_key.as_deref())
-        .bind(scope.project_key.as_deref())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -490,15 +285,11 @@ impl Database {
             return Ok(None);
         };
 
-        let chunks = sqlx::query_as::<_, ChunkRow>(
-            r#"
-            SELECT id, chunk_index, chunk_text
-            FROM context69.document_chunks
-            WHERE document_id = $1
-            ORDER BY chunk_index
-            "#,
+        let chunks = sqlx::query_file_as!(
+            ChunkRow,
+            "src/sql/db/documents/get_document_chunks.sql",
+            document_id
         )
-        .bind(document_id)
         .fetch_all(&self.pool)
         .await?;
 

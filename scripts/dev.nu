@@ -19,7 +19,7 @@ def ensure-backend-binary [] {
 
 def ensure-frontend-sdk [] {
   print "Exporting OpenAPI and generating frontend client before startup..."
-  ^cargo run -- export-openapi
+  ^cargo run --bin context69 -- export-openapi
   do {
     cd frontend
     ^bun run generate:api

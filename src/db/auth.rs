@@ -40,30 +40,20 @@ struct RefreshTokenRow {
 
 impl Database {
     pub async fn get_user_by_login_name(&self, login_name: &str) -> Result<Option<UserRecord>> {
-        let row = sqlx::query_as::<_, UserRow>(
-            r#"
-            SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            FROM context69.users
-            WHERE login_name = $1
-            "#,
+        let row = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/get_user_by_login_name.sql",
+            login_name
         )
-        .bind(login_name)
         .fetch_optional(self.pool())
         .await?;
         Ok(row.map(user_from_row))
     }
 
     pub async fn get_user_by_id(&self, user_id: i64) -> Result<Option<UserRecord>> {
-        let row = sqlx::query_as::<_, UserRow>(
-            r#"
-            SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            FROM context69.users
-            WHERE id = $1
-            "#,
-        )
-        .bind(user_id)
-        .fetch_optional(self.pool())
-        .await?;
+        let row = sqlx::query_file_as!(UserRow, "src/sql/db/auth/get_user_by_id.sql", user_id)
+            .fetch_optional(self.pool())
+            .await?;
         Ok(row.map(user_from_row))
     }
 
@@ -74,37 +64,23 @@ impl Database {
         password_hash: &str,
         is_admin: bool,
     ) -> Result<UserRecord> {
-        let row = sqlx::query_as::<_, UserRow>(
-            r#"
-            INSERT INTO context69.users (
-                login_name,
-                display_name,
-                password_hash,
-                is_admin
-            )
-            VALUES ($1, $2, $3, $4)
-            RETURNING id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            "#,
+        let row = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/create_user.sql",
+            login_name,
+            display_name,
+            password_hash,
+            is_admin
         )
-        .bind(login_name)
-        .bind(display_name)
-        .bind(password_hash)
-        .bind(is_admin)
         .fetch_one(self.pool())
         .await?;
         Ok(user_from_row(row))
     }
 
     pub async fn list_users(&self) -> Result<Vec<UserRecord>> {
-        let rows = sqlx::query_as::<_, UserRow>(
-            r#"
-            SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            FROM context69.users
-            ORDER BY login_name
-            "#,
-        )
-        .fetch_all(self.pool())
-        .await?;
+        let rows = sqlx::query_file_as!(UserRow, "src/sql/db/auth/list_users.sql")
+            .fetch_all(self.pool())
+            .await?;
         Ok(rows.into_iter().map(user_from_row).collect())
     }
 
@@ -115,15 +91,11 @@ impl Database {
         is_admin: Option<bool>,
     ) -> Result<Option<UserRecord>> {
         let mut tx = self.pool().begin().await?;
-        let existing = sqlx::query_as::<_, UserRow>(
-            r#"
-            SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            FROM context69.users
-            WHERE login_name = $1
-            FOR UPDATE
-            "#,
+        let existing = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/get_user_for_update_by_login_name.sql",
+            login_name
         )
-        .bind(login_name)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -136,35 +108,23 @@ impl Database {
         let next_is_admin = is_admin.unwrap_or(existing.is_admin);
 
         if existing.is_admin && !next_is_admin {
-            let admin_count = sqlx::query_scalar::<_, i64>(
-                r#"
-                SELECT COUNT(*)
-                FROM context69.users
-                WHERE is_admin = true
-                  AND disabled_at IS NULL
-                "#,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
+            let admin_count =
+                sqlx::query_file_scalar!("src/sql/db/auth/count_active_admin_users.sql")
+                    .fetch_one(&mut *tx)
+                    .await?;
             if admin_count <= 1 {
                 tx.rollback().await?;
                 return Err(anyhow::anyhow!("cannot remove the last administrator"));
             }
         }
 
-        let row = sqlx::query_as::<_, UserRow>(
-            r#"
-            UPDATE context69.users
-            SET display_name = $2,
-                is_admin = $3,
-                updated_at = now()
-            WHERE login_name = $1
-            RETURNING id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            "#,
+        let row = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/update_user.sql",
+            login_name,
+            next_display_name,
+            next_is_admin
         )
-        .bind(login_name)
-        .bind(next_display_name)
-        .bind(next_is_admin)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -177,17 +137,12 @@ impl Database {
         login_name: &str,
         password_hash: &str,
     ) -> Result<Option<UserRecord>> {
-        let row = sqlx::query_as::<_, UserRow>(
-            r#"
-            UPDATE context69.users
-            SET password_hash = $2,
-                updated_at = now()
-            WHERE login_name = $1
-            RETURNING id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            "#,
+        let row = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/update_user_password_hash.sql",
+            login_name,
+            password_hash
         )
-        .bind(login_name)
-        .bind(password_hash)
         .fetch_optional(self.pool())
         .await?;
         Ok(row.map(user_from_row))
@@ -195,21 +150,12 @@ impl Database {
 
     pub async fn search_user_directory(&self, query: &str, limit: i64) -> Result<Vec<UserRecord>> {
         let normalized_query = format!("%{}%", query.trim().to_lowercase());
-        let rows = sqlx::query_as::<_, UserRow>(
-            r#"
-            SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            FROM context69.users
-            WHERE disabled_at IS NULL
-              AND (
-                lower(login_name) LIKE $1
-                OR lower(display_name) LIKE $1
-              )
-            ORDER BY login_name
-            LIMIT $2
-            "#,
+        let rows = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/search_user_directory.sql",
+            normalized_query,
+            limit
         )
-        .bind(normalized_query)
-        .bind(limit)
         .fetch_all(self.pool())
         .await?;
         Ok(rows.into_iter().map(user_from_row).collect())
@@ -221,15 +167,11 @@ impl Database {
         disabled_at: Option<DateTime<Utc>>,
     ) -> Result<Option<UserRecord>> {
         let mut tx = self.pool().begin().await?;
-        let existing = sqlx::query_as::<_, UserRow>(
-            r#"
-            SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            FROM context69.users
-            WHERE login_name = $1
-            FOR UPDATE
-            "#,
+        let existing = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/get_user_for_update_by_login_name.sql",
+            login_name
         )
-        .bind(login_name)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -239,33 +181,22 @@ impl Database {
         };
 
         if existing.is_admin && disabled_at.is_some() && existing.disabled_at.is_none() {
-            let admin_count = sqlx::query_scalar::<_, i64>(
-                r#"
-                SELECT COUNT(*)
-                FROM context69.users
-                WHERE is_admin = true
-                  AND disabled_at IS NULL
-                "#,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
+            let admin_count =
+                sqlx::query_file_scalar!("src/sql/db/auth/count_active_admin_users.sql")
+                    .fetch_one(&mut *tx)
+                    .await?;
             if admin_count <= 1 {
                 tx.rollback().await?;
                 return Err(anyhow::anyhow!("cannot disable the last administrator"));
             }
         }
 
-        let row = sqlx::query_as::<_, UserRow>(
-            r#"
-            UPDATE context69.users
-            SET disabled_at = $2,
-                updated_at = now()
-            WHERE login_name = $1
-            RETURNING id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
-            "#,
+        let row = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/set_user_disabled_at.sql",
+            login_name,
+            disabled_at
         )
-        .bind(login_name)
-        .bind(disabled_at)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -280,22 +211,14 @@ impl Database {
         token_hash: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<RefreshTokenRecord> {
-        let row = sqlx::query_as::<_, RefreshTokenRow>(
-            r#"
-            INSERT INTO context69.refresh_tokens (
-                id,
-                user_id,
-                token_hash,
-                expires_at
-            )
-            VALUES ($1, $2, $3, $4)
-            RETURNING id, user_id, token_hash, expires_at, revoked_at, replaced_by_token_id
-            "#,
+        let row = sqlx::query_file_as!(
+            RefreshTokenRow,
+            "src/sql/db/auth/insert_refresh_token.sql",
+            id,
+            user_id,
+            token_hash,
+            expires_at
         )
-        .bind(id)
-        .bind(user_id)
-        .bind(token_hash)
-        .bind(expires_at)
         .fetch_one(self.pool())
         .await?;
         Ok(refresh_token_from_row(row))
@@ -305,14 +228,11 @@ impl Database {
         &self,
         token_hash: &str,
     ) -> Result<Option<RefreshTokenRecord>> {
-        let row = sqlx::query_as::<_, RefreshTokenRow>(
-            r#"
-            SELECT id, user_id, token_hash, expires_at, revoked_at, replaced_by_token_id
-            FROM context69.refresh_tokens
-            WHERE token_hash = $1
-            "#,
+        let row = sqlx::query_file_as!(
+            RefreshTokenRow,
+            "src/sql/db/auth/get_refresh_token_by_hash.sql",
+            token_hash
         )
-        .bind(token_hash)
         .fetch_optional(self.pool())
         .await?;
         Ok(row.map(refresh_token_from_row))
@@ -328,36 +248,22 @@ impl Database {
         expires_at: DateTime<Utc>,
     ) -> Result<RefreshTokenRecord> {
         let mut tx = self.pool().begin().await?;
-        sqlx::query(
-            r#"
-            UPDATE context69.refresh_tokens
-            SET revoked_at = now(),
-                replaced_by_token_id = $2,
-                last_used_at = now()
-            WHERE id = $1 AND token_hash = $3
-            "#,
+        sqlx::query_file!(
+            "src/sql/db/auth/rotate_refresh_token_revoke_current.sql",
+            current_id,
+            replacement_id,
+            current_hash
         )
-        .bind(current_id)
-        .bind(replacement_id)
-        .bind(current_hash)
         .execute(&mut *tx)
         .await?;
-        let row = sqlx::query_as::<_, RefreshTokenRow>(
-            r#"
-            INSERT INTO context69.refresh_tokens (
-                id,
-                user_id,
-                token_hash,
-                expires_at
-            )
-            VALUES ($1, $2, $3, $4)
-            RETURNING id, user_id, token_hash, expires_at, revoked_at, replaced_by_token_id
-            "#,
+        let row = sqlx::query_file_as!(
+            RefreshTokenRow,
+            "src/sql/db/auth/insert_refresh_token.sql",
+            replacement_id,
+            user_id,
+            replacement_hash,
+            expires_at
         )
-        .bind(replacement_id)
-        .bind(user_id)
-        .bind(replacement_hash)
-        .bind(expires_at)
         .fetch_one(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -365,17 +271,9 @@ impl Database {
     }
 
     pub async fn revoke_refresh_token_by_hash(&self, token_hash: &str) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE context69.refresh_tokens
-            SET revoked_at = COALESCE(revoked_at, now()),
-                last_used_at = now()
-            WHERE token_hash = $1
-            "#,
-        )
-        .bind(token_hash)
-        .execute(self.pool())
-        .await?;
+        sqlx::query_file!("src/sql/db/auth/revoke_refresh_token_by_hash.sql", token_hash)
+            .execute(self.pool())
+            .await?;
         Ok(())
     }
 }

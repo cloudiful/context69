@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use db_init::{DbInitOptions, connect_pool, run_migrations};
+use sqlx::{PgPool, migrate::Migrator};
 use uuid::Uuid;
 
 use crate::contracts::{SearchMode, SourceOriginStatusKind, SourceStatus, SyncOutcome};
@@ -20,6 +21,8 @@ mod sync_runs;
 
 pub use auth::RefreshTokenRecord;
 use rows::*;
+
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone)]
 pub struct Database {
@@ -157,13 +160,15 @@ pub struct StoredRerankItemScore {
 
 impl Database {
     pub async fn connect(url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .connect(url)
-            .await
-            .context("failed to connect app_db pool")?;
-        sqlx::migrate!("./migrations")
-            .run(&pool)
+        let pool = connect_pool(
+            url,
+            DbInitOptions {
+                max_connections: 10,
+            },
+        )
+        .await
+        .context("failed to connect app_db pool")?;
+        run_migrations(&pool, &MIGRATOR)
             .await
             .context("failed to run app_db migrations")?;
         Ok(Self { pool })
@@ -174,7 +179,9 @@ impl Database {
     }
 
     pub async fn ping(&self) -> Result<()> {
-        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        let _ = sqlx::query_file_scalar!("src/sql/db/ping.sql")
+            .fetch_one(&self.pool)
+            .await?;
         Ok(())
     }
 }

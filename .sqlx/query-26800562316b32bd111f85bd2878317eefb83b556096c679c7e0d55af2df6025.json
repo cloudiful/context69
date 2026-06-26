@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    storage_root,\n    max_upload_size_mb,\n    max_upload_request_size_mb,\n    ingest_concurrency,\n    pdf_pages_per_task\nFROM context69.runtime_file_library_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "storage_root",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "storage_root"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "max_upload_size_mb",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "max_upload_size_mb"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "max_upload_request_size_mb",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "max_upload_request_size_mb"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ingest_concurrency",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "ingest_concurrency"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "pdf_pages_per_task",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "pdf_pages_per_task"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "26800562316b32bd111f85bd2878317eefb83b556096c679c7e0d55af2df6025"
+}

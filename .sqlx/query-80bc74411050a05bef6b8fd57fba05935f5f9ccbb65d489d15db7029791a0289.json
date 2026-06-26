@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n    SELECT 1\n    FROM context69.source_configs\n    WHERE source_key = $1\n      AND ($2::bigint IS NULL OR project_id = $2)\n) AS \"exists!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "80bc74411050a05bef6b8fd57fba05935f5f9ccbb65d489d15db7029791a0289"
+}

@@ -1,0 +1,236 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.docling_settings (\n    singleton,\n    base_url,\n    timeout_secs,\n    poll_interval_secs,\n    pdf_backend,\n    images_scale,\n    image_export_mode,\n    do_ocr,\n    force_ocr,\n    ocr_engine,\n    ocr_lang,\n    do_code_enrichment,\n    do_formula_enrichment,\n    do_picture_description,\n    provider_account_key,\n    vlm_pipeline_model,\n    picture_description_model,\n    code_formula_model,\n    updated_at\n)\nVALUES (\n    TRUE,\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8,\n    $9,\n    $10,\n    $11,\n    $12,\n    $13,\n    $14,\n    $15,\n    $16,\n    $17,\n    now()\n)\nON CONFLICT (singleton) DO UPDATE\nSET base_url = EXCLUDED.base_url,\n    timeout_secs = EXCLUDED.timeout_secs,\n    poll_interval_secs = EXCLUDED.poll_interval_secs,\n    pdf_backend = EXCLUDED.pdf_backend,\n    images_scale = EXCLUDED.images_scale,\n    image_export_mode = EXCLUDED.image_export_mode,\n    do_ocr = EXCLUDED.do_ocr,\n    force_ocr = EXCLUDED.force_ocr,\n    ocr_engine = EXCLUDED.ocr_engine,\n    ocr_lang = EXCLUDED.ocr_lang,\n    do_code_enrichment = EXCLUDED.do_code_enrichment,\n    do_formula_enrichment = EXCLUDED.do_formula_enrichment,\n    do_picture_description = EXCLUDED.do_picture_description,\n    provider_account_key = EXCLUDED.provider_account_key,\n    vlm_pipeline_model = EXCLUDED.vlm_pipeline_model,\n    picture_description_model = EXCLUDED.picture_description_model,\n    code_formula_model = EXCLUDED.code_formula_model,\n    updated_at = now()\nRETURNING\n    base_url,\n    timeout_secs,\n    poll_interval_secs,\n    pdf_backend,\n    images_scale,\n    image_export_mode,\n    do_ocr,\n    force_ocr,\n    ocr_engine,\n    ocr_lang,\n    do_code_enrichment,\n    do_formula_enrichment,\n    do_picture_description,\n    provider_account_key,\n    vlm_pipeline_model,\n    picture_description_model,\n    code_formula_model\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "timeout_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "timeout_secs"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "poll_interval_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "poll_interval_secs"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "pdf_backend",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "pdf_backend"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "images_scale",
+        "type_info": "Float8",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "images_scale"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "image_export_mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "image_export_mode"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "do_ocr",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "do_ocr"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "force_ocr",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "force_ocr"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "ocr_engine",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "ocr_engine"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "ocr_lang",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "ocr_lang"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "do_code_enrichment",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "do_code_enrichment"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "do_formula_enrichment",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "do_formula_enrichment"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "do_picture_description",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "do_picture_description"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "provider_account_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "provider_account_key"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "vlm_pipeline_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "vlm_pipeline_model"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "picture_description_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "picture_description_model"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "code_formula_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "code_formula_model"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Float8",
+        "Text",
+        "Bool",
+        "Bool",
+        "Text",
+        "TextArray",
+        "Bool",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d0b02375bc6e5a672d0e701be99757cf9af18cade8f6f71d388f2af7f8c8a5d3"
+}

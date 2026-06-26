@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT provider_account_key, model, dimensions, timeout_secs\nFROM context69.runtime_embedding_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "provider_account_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "provider_account_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "timeout_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "timeout_secs"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bfe248c111cbc4fc05ac9f86f942cfa14701c5799ae455ef71bd98625d6138bf"
+}

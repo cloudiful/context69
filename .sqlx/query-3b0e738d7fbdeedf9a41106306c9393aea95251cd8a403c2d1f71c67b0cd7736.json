@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT interval_secs, run_on_start, max_concurrency, job_id, valkey_url\nFROM context69.runtime_scheduler_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "interval_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_scheduler_settings",
+            "name": "interval_secs"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "run_on_start",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_scheduler_settings",
+            "name": "run_on_start"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "max_concurrency",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_scheduler_settings",
+            "name": "max_concurrency"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "job_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_scheduler_settings",
+            "name": "job_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "valkey_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_scheduler_settings",
+            "name": "valkey_url"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "3b0e738d7fbdeedf9a41106306c9393aea95251cd8a403c2d1f71c67b0cd7736"
+}

@@ -5,6 +5,12 @@ use super::{ChunkPayloadRow, FileDocumentRow, LibraryStore};
 use crate::domain::ChunkPayload;
 use crate::domain::LibraryFileDocumentRecord;
 
+#[derive(Debug)]
+struct StoragePathRow {
+    id: Uuid,
+    storage_rel_path: String,
+}
+
 impl LibraryStore {
     pub async fn replace_file_documents(
         &self,
@@ -12,35 +18,22 @@ impl LibraryStore {
         documents: &[LibraryFileDocumentRecord],
     ) -> Result<()> {
         let mut tx = self.db.pool().begin().await?;
-        sqlx::query("DELETE FROM context69.library_file_documents WHERE file_id = $1")
-            .bind(file_id)
+        sqlx::query_file!("src/sql/library_store/documents/delete_file_documents.sql", file_id)
             .execute(&mut *tx)
             .await?;
 
         for document in documents {
-            sqlx::query(
-                r#"
-                INSERT INTO context69.library_file_documents (
-                    file_id,
-                    document_id,
-                    group_id,
-                    project_id,
-                    visibility,
-                    section_key,
-                    section_label,
-                    sort_order
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                "#,
+            sqlx::query_file!(
+                "src/sql/library_store/documents/insert_file_document.sql",
+                file_id,
+                document.document_id,
+                document.group_id,
+                document.project_id,
+                document.visibility.as_str(),
+                document.section_key,
+                document.section_label,
+                document.sort_order
             )
-            .bind(file_id)
-            .bind(document.document_id)
-            .bind(document.group_id)
-            .bind(document.project_id)
-            .bind(document.visibility.as_str())
-            .bind(&document.section_key)
-            .bind(&document.section_label)
-            .bind(document.sort_order)
             .execute(&mut *tx)
             .await?;
         }
@@ -53,15 +46,11 @@ impl LibraryStore {
         &self,
         file_id: Uuid,
     ) -> Result<Vec<LibraryFileDocumentRecord>> {
-        let rows = sqlx::query_as::<_, FileDocumentRow>(
-            r#"
-            SELECT file_id, document_id, group_id, project_id, visibility, section_key, section_label, sort_order
-            FROM context69.library_file_documents
-            WHERE file_id = $1
-            ORDER BY sort_order ASC, section_key ASC
-            "#,
+        let rows = sqlx::query_file_as!(
+            FileDocumentRow,
+            "src/sql/library_store/documents/list_file_documents.sql",
+            file_id
         )
-        .bind(file_id)
         .fetch_all(self.db.pool())
         .await?;
 
@@ -88,17 +77,14 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        Ok(sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT DISTINCT document_id
-            FROM context69.library_file_documents
-            WHERE file_id = ANY($1)
-            ORDER BY document_id
-            "#,
+        Ok(
+            sqlx::query_file_scalar!(
+                "src/sql/library_store/documents/list_document_ids_for_files.sql",
+                file_ids
+            )
+            .fetch_all(self.db.pool())
+            .await?,
         )
-        .bind(file_ids)
-        .fetch_all(self.db.pool())
-        .await?)
     }
 
     pub async fn list_chunk_ids_for_files(&self, file_ids: &[Uuid]) -> Result<Vec<Uuid>> {
@@ -106,18 +92,14 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        Ok(sqlx::query_scalar::<_, Uuid>(
-            r#"
-            SELECT c.id
-            FROM context69.document_chunks c
-            INNER JOIN context69.library_file_documents lfd ON lfd.document_id = c.document_id
-            WHERE lfd.file_id = ANY($1)
-            ORDER BY c.document_id, c.chunk_index
-            "#,
+        Ok(
+            sqlx::query_file_scalar!(
+                "src/sql/library_store/documents/list_chunk_ids_for_files.sql",
+                file_ids
+            )
+            .fetch_all(self.db.pool())
+            .await?,
         )
-        .bind(file_ids)
-        .fetch_all(self.db.pool())
-        .await?)
     }
 
     pub async fn list_chunk_payloads_for_files(
@@ -128,37 +110,11 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        let rows = sqlx::query_as::<_, ChunkPayloadRow>(
-            r#"
-            SELECT
-                c.id AS chunk_id,
-                d.id AS document_id,
-                d.group_id,
-                g.group_key,
-                d.project_id,
-                p.project_key,
-                d.visibility,
-                d.source_key,
-                d.external_id,
-                d.title,
-                d.summary,
-                d.source_uri,
-                d.published_at,
-                d.updated_at_source,
-                d.record_hash,
-                c.chunk_index,
-                c.chunk_text,
-                d.metadata_json
-            FROM context69.document_chunks c
-            INNER JOIN context69.documents d ON d.id = c.document_id
-            INNER JOIN context69.groups g ON g.id = d.group_id
-            INNER JOIN context69.projects p ON p.id = d.project_id
-            INNER JOIN context69.library_file_documents lfd ON lfd.document_id = d.id
-            WHERE lfd.file_id = ANY($1)
-            ORDER BY d.id, c.chunk_index
-            "#,
+        let rows = sqlx::query_file_as!(
+            ChunkPayloadRow,
+            "src/sql/library_store/documents/list_chunk_payloads_for_files.sql",
+            file_ids
         )
-        .bind(file_ids)
         .fetch_all(self.db.pool())
         .await?;
 
@@ -195,17 +151,10 @@ impl LibraryStore {
             return Ok(());
         }
 
-        sqlx::query(
-            r#"
-            DELETE FROM context69.documents
-            WHERE id IN (
-                SELECT DISTINCT document_id
-                FROM context69.library_file_documents
-                WHERE file_id = ANY($1)
-            )
-            "#,
+        sqlx::query_file!(
+            "src/sql/library_store/documents/delete_documents_for_files.sql",
+            file_ids
         )
-        .bind(file_ids)
         .execute(self.db.pool())
         .await?;
         Ok(())
@@ -219,19 +168,18 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        let rows = sqlx::query_as::<_, (Uuid, String)>(
-            r#"
-            SELECT id, storage_rel_path
-            FROM context69.library_files
-            WHERE id = ANY($1)
-            ORDER BY filename, id
-            "#,
+        let rows = sqlx::query_file_as!(
+            StoragePathRow,
+            "src/sql/library_store/documents/list_storage_paths_for_files.sql",
+            file_ids
         )
-        .bind(file_ids)
         .fetch_all(self.db.pool())
         .await?;
 
-        Ok(rows)
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.id, row.storage_rel_path))
+            .collect())
     }
 
     pub async fn update_document_metadata(
@@ -239,15 +187,11 @@ impl LibraryStore {
         document_id: i64,
         metadata_json: &serde_json::Value,
     ) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE context69.documents
-            SET metadata_json = $2, updated_at = now()
-            WHERE id = $1
-            "#,
+        sqlx::query_file!(
+            "src/sql/library_store/documents/update_document_metadata.sql",
+            document_id,
+            metadata_json
         )
-        .bind(document_id)
-        .bind(metadata_json)
         .execute(self.db.pool())
         .await?;
         Ok(())
