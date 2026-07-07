@@ -13,6 +13,7 @@ use context69::{
         },
     },
 };
+use jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER as JWT_CRYPTO_PROVIDER;
 use scheduler::{
     CoordinatedLeaseConfig, ExecutionSlot, GuardedRunResult, GuardedRunner, InMemoryStateStore,
     Job, OverlapPolicy, Schedule, Scheduler, SchedulerConfig, Task, TaskContext,
@@ -26,6 +27,7 @@ use utoipa::OpenApi;
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
+    let _ = JWT_CRYPTO_PROVIDER.install_default();
 
     let mode = env::args().nth(1).unwrap_or_else(|| "serve".to_string());
     if mode == "export-openapi" {

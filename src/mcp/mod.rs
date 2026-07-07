@@ -10,9 +10,9 @@ use rmcp::{
     ErrorData as McpError, Json, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{
-        AnnotateAble, ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
-        RawResource, RawResourceTemplate, ReadResourceRequestParams, ReadResourceResult,
-        ResourceContents,
+        ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
+        ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
+        ResourceTemplate,
     },
     service::{RequestContext, RoleServer},
     tool, tool_handler, tool_router,
@@ -179,13 +179,12 @@ impl ServerHandler for Context69McpServer {
         let resources = sources
             .into_iter()
             .map(|source| {
-                RawResource::new(
+                Resource::new(
                     format!("context69://sources/{}", source.source_key),
                     source.source_key,
                 )
                 .with_description("Configured source checkpoint status")
                 .with_mime_type("application/json")
-                .no_annotation()
             })
             .collect::<Vec<_>>();
         Ok(ListResourcesResult {
@@ -203,13 +202,13 @@ impl ServerHandler for Context69McpServer {
         Ok(ListResourceTemplatesResult {
             meta: None,
             resource_templates: vec![
-                RawResourceTemplate::new(
+                ResourceTemplate::new(
                     "context69://documents/{document_id}",
                     "context69-document",
                 )
                 .with_description("Fetch a single indexed document")
                 .with_mime_type("application/json")
-                .no_annotation(),
+                ,
             ],
             next_cursor: None,
         })
