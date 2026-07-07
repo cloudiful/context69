@@ -1,5 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import Select from "primevue/select";
 
 import { apiClient } from "../services/api";
@@ -81,22 +81,22 @@ const providerAccountsResponse = [
   },
 ];
 
-let getRuntimeSettings: ReturnType<typeof vi.spyOn>;
-let updateRuntimeSettings: ReturnType<typeof vi.spyOn>;
-let getDoclingSettings: ReturnType<typeof vi.spyOn>;
-let getSearchSettings: ReturnType<typeof vi.spyOn>;
-let updateDoclingSettings: ReturnType<typeof vi.spyOn>;
-let updateSearchSettings: ReturnType<typeof vi.spyOn>;
-let listProviderAccounts: ReturnType<typeof vi.spyOn>;
-let createProviderAccount: ReturnType<typeof vi.spyOn>;
-let updateProviderAccount: ReturnType<typeof vi.spyOn>;
-let deleteProviderAccount: ReturnType<typeof vi.spyOn>;
-let listAdminUsers: ReturnType<typeof vi.spyOn>;
-let createAdminUser: ReturnType<typeof vi.spyOn>;
-let updateAdminUser: ReturnType<typeof vi.spyOn>;
-let resetAdminUserPassword: ReturnType<typeof vi.spyOn>;
-let disableAdminUser: ReturnType<typeof vi.spyOn>;
-let enableAdminUser: ReturnType<typeof vi.spyOn>;
+let getRuntimeSettings: MockInstance<typeof apiClient.getRuntimeSettings>;
+let updateRuntimeSettings: MockInstance<typeof apiClient.updateRuntimeSettings>;
+let getDoclingSettings: MockInstance<typeof apiClient.getDoclingSettings>;
+let getSearchSettings: MockInstance<typeof apiClient.getSearchSettings>;
+let updateDoclingSettings: MockInstance<typeof apiClient.updateDoclingSettings>;
+let updateSearchSettings: MockInstance<typeof apiClient.updateSearchSettings>;
+let listProviderAccounts: MockInstance<typeof apiClient.listProviderAccounts>;
+let createProviderAccount: MockInstance<typeof apiClient.createProviderAccount>;
+let updateProviderAccount: MockInstance<typeof apiClient.updateProviderAccount>;
+let deleteProviderAccount: MockInstance<typeof apiClient.deleteProviderAccount>;
+let listAdminUsers: MockInstance<typeof apiClient.listAdminUsers>;
+let createAdminUser: MockInstance<typeof apiClient.createAdminUser>;
+let updateAdminUser: MockInstance<typeof apiClient.updateAdminUser>;
+let resetAdminUserPassword: MockInstance<typeof apiClient.resetAdminUserPassword>;
+let disableAdminUser: MockInstance<typeof apiClient.disableAdminUser>;
+let enableAdminUser: MockInstance<typeof apiClient.enableAdminUser>;
 
 describe("SettingsView", () => {
   beforeEach(() => {
