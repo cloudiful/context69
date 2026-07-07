@@ -18,7 +18,6 @@ concurrency:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
-  CACHE_IMAGE_NAME: ghcr.io/${{ github.repository }}-buildcache
 
 jobs:
   prepare:
@@ -90,10 +89,8 @@ jobs:
           labels: ${{ needs.prepare.outputs.labels }}
           cache-from: |
             type=gha,scope=docker-${{ matrix.arch }}
-            type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:${{ matrix.arch }}
           cache-to: |
             type=gha,mode=max,scope=docker-${{ matrix.arch }}
-            type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:${{ matrix.arch }},mode=max
 
   publish-manifest:
     runs-on: ubuntu-24.04

@@ -4,7 +4,6 @@ import { useRoute } from "vue-router";
 import ConfirmDialog from "primevue/confirmdialog";
 import Toast from "primevue/toast";
 
-import AppContextBar from "./components/AppContextBar.vue";
 import AppMobileNav from "./components/AppMobileNav.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import { useUiPreferences } from "./composables/use-ui-preferences";
@@ -21,13 +20,18 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'is-login-route': isLoginRoute }">
+  <div
+    class="app-shell"
+    :class="{
+      'is-login-route': isLoginRoute,
+      'is-sidebar-collapsed': preferences.state.sidebarCollapsed,
+    }"
+  >
     <ConfirmDialog />
     <Toast position="bottom-right" />
     <AppSidebar />
 
     <main class="app-main-shell" :class="{ 'is-login-route': isLoginRoute }">
-      <AppContextBar />
       <div v-if="appReady" class="flex-1">
         <RouterView />
       </div>

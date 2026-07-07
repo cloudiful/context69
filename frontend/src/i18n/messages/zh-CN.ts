@@ -2,6 +2,7 @@ export const zhCN = {
   common: {
     error: "错误",
     loading: "加载中",
+    menu: "菜单",
     open: "打开",
     close: "关闭",
     reset: "重置",
@@ -370,6 +371,7 @@ export const zhCN = {
   },
   settings: {
     title: "设置",
+    openNavigation: "打开导航",
     navigationTitle: "导航",
     loadingTitle: "加载中",
     loadingMessage: "正在加载运行时设置和默认值。",
@@ -384,11 +386,13 @@ export const zhCN = {
       apiKey: "留空表示保留已保存值，只有确实需要删除时才清空。",
       ocrLang: "OCR 语言请用逗号分隔，具体语言代码取决于所选 OCR 引擎。",
     },
+    appearance: {
+      title: "界面",
+    },
     search: {
       title: "搜索",
       settingsTitle: "搜索设置",
       historyTitle: "最近搜索历史",
-      historyDescription: "当前浏览器已保存 {count} 条最近搜索。",
       clearHistory: "清空历史",
       mode: "搜索模式",
       modeHybrid: "混合检索",
@@ -408,7 +412,6 @@ export const zhCN = {
       title: "运行时",
       noneSelected: "新建或选择已有项",
       providerAccountsTitle: "Provider 账户",
-      providerAccountsDescription: "统一保存一套 OpenAI 兼容凭据，供 embedding 和 Docling 复用。",
       selectProviderAccount: "已保存账户",
       accountKey: "账户键",
       providerKind: "Provider 类型",
@@ -462,7 +465,6 @@ export const zhCN = {
     },
     docling: {
       title: "Docling",
-      description: "配置文件知识库使用的文档解析服务。",
       connectionTitle: "连接",
       vlmTitle: "VLM / 模型",
       baseUrl: "基础地址",

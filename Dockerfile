@@ -11,10 +11,29 @@ RUN --mount=type=cache,target=/root/.cache/bun,sharing=locked \
 COPY frontend ./
 RUN bun run build
 
-FROM rust:1-bookworm AS build
+FROM rust:1-bookworm AS chef-base
 
 WORKDIR /app
 ARG TARGETARCH
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo install cargo-chef --locked
+
+FROM chef-base AS planner
+
+COPY . .
+
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef-base AS build
+
+COPY --from=planner /app/recipe.json recipe.json
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
 

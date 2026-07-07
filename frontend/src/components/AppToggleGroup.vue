@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppToggleField from "./AppToggleField.vue";
 
 interface ToggleItem {
   helper?: string;
@@ -30,19 +31,15 @@ function updateItem(key: string, value: boolean) {
 
 <template>
   <div :class="props.columnsClass">
-    <button
+    <AppToggleField
       v-for="item in props.items"
       :key="item.key"
-      :id="item.inputId"
-      :data-testid="item.testId"
-      class="app-toggle-chip"
-      :class="{ 'app-toggle-chip-active': !!props.modelValue[item.key] }"
-      type="button"
-      :aria-pressed="!!props.modelValue[item.key]"
-      @click="updateItem(item.key, !props.modelValue[item.key])"
-    >
-      <span class="app-toggle-chip-label">{{ item.label }}</span>
-      <span v-if="item.helper" class="app-toggle-chip-help">{{ item.helper }}</span>
-    </button>
+      :input-id="item.inputId"
+      :label="item.label"
+      :helper="item.helper"
+      :model-value="!!props.modelValue[item.key]"
+      :test-id="item.testId"
+      @update:model-value="updateItem(item.key, $event)"
+    />
   </div>
 </template>

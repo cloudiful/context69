@@ -1,47 +1,14 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import Select from "primevue/select";
 
+import { apiClient } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
+import { setGuest } from "../test-utils/auth";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
 import { installMockStorage } from "../test-utils/storage";
+import { LOCALE_STORAGE_KEY } from "../i18n/locale";
 import { SEARCH_HISTORY_STORAGE_KEY } from "../utils/search-history";
-
-const {
-  getRuntimeSettings,
-  updateRuntimeSettings,
-  getDoclingSettings,
-  getSearchSettings,
-  updateDoclingSettings,
-  updateSearchSettings,
-  listProviderAccounts,
-  createProviderAccount,
-  updateProviderAccount,
-} = vi.hoisted(() => ({
-  getRuntimeSettings: vi.fn(),
-  updateRuntimeSettings: vi.fn(),
-  getDoclingSettings: vi.fn(),
-  getSearchSettings: vi.fn(),
-  updateDoclingSettings: vi.fn(),
-  updateSearchSettings: vi.fn(),
-  listProviderAccounts: vi.fn(),
-  createProviderAccount: vi.fn(),
-  updateProviderAccount: vi.fn(),
-}));
-
-vi.mock("../services/api", () => ({
-  apiClient: {
-    getRuntimeSettings,
-    updateRuntimeSettings,
-    getDoclingSettings,
-    getSearchSettings,
-    updateDoclingSettings,
-    updateSearchSettings,
-    listProviderAccounts,
-    createProviderAccount,
-    updateProviderAccount,
-    deleteProviderAccount: vi.fn(),
-  },
-}));
 
 import SettingsView from "./SettingsView.vue";
 
@@ -114,31 +81,47 @@ const providerAccountsResponse = [
   },
 ];
 
+let getRuntimeSettings: ReturnType<typeof vi.spyOn>;
+let updateRuntimeSettings: ReturnType<typeof vi.spyOn>;
+let getDoclingSettings: ReturnType<typeof vi.spyOn>;
+let getSearchSettings: ReturnType<typeof vi.spyOn>;
+let updateDoclingSettings: ReturnType<typeof vi.spyOn>;
+let updateSearchSettings: ReturnType<typeof vi.spyOn>;
+let listProviderAccounts: ReturnType<typeof vi.spyOn>;
+let createProviderAccount: ReturnType<typeof vi.spyOn>;
+let updateProviderAccount: ReturnType<typeof vi.spyOn>;
+let deleteProviderAccount: ReturnType<typeof vi.spyOn>;
+let listAdminUsers: ReturnType<typeof vi.spyOn>;
+let createAdminUser: ReturnType<typeof vi.spyOn>;
+let updateAdminUser: ReturnType<typeof vi.spyOn>;
+let resetAdminUserPassword: ReturnType<typeof vi.spyOn>;
+let disableAdminUser: ReturnType<typeof vi.spyOn>;
+let enableAdminUser: ReturnType<typeof vi.spyOn>;
+
 describe("SettingsView", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     installMockStorage();
-    getRuntimeSettings.mockReset();
-    updateRuntimeSettings.mockReset();
-    getDoclingSettings.mockReset();
-    getSearchSettings.mockReset();
-    updateDoclingSettings.mockReset();
-    updateSearchSettings.mockReset();
-    listProviderAccounts.mockReset();
-    createProviderAccount.mockReset();
-    updateProviderAccount.mockReset();
-
-    getRuntimeSettings.mockResolvedValue(runtimeResponse);
-    updateRuntimeSettings.mockResolvedValue(runtimeResponse);
-    getDoclingSettings.mockResolvedValue(doclingResponse);
-    getSearchSettings.mockResolvedValue(searchSettingsResponse);
-    updateDoclingSettings.mockResolvedValue(doclingResponse);
-    updateSearchSettings.mockResolvedValue({
+    setGuest();
+    getRuntimeSettings = vi.spyOn(apiClient, "getRuntimeSettings").mockResolvedValue(runtimeResponse as never);
+    updateRuntimeSettings = vi.spyOn(apiClient, "updateRuntimeSettings").mockResolvedValue(runtimeResponse as never);
+    getDoclingSettings = vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never);
+    getSearchSettings = vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never);
+    updateDoclingSettings = vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never);
+    updateSearchSettings = vi.spyOn(apiClient, "updateSearchSettings").mockResolvedValue({
       ...searchSettingsResponse,
       has_api_key: true,
-    });
-    listProviderAccounts.mockResolvedValue(providerAccountsResponse);
-    createProviderAccount.mockResolvedValue(providerAccountsResponse[0]);
-    updateProviderAccount.mockResolvedValue(providerAccountsResponse[0]);
+    } as never);
+    listProviderAccounts = vi.spyOn(apiClient, "listProviderAccounts").mockResolvedValue(providerAccountsResponse as never);
+    createProviderAccount = vi.spyOn(apiClient, "createProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never);
+    updateProviderAccount = vi.spyOn(apiClient, "updateProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never);
+    deleteProviderAccount = vi.spyOn(apiClient, "deleteProviderAccount").mockResolvedValue(undefined as never);
+    listAdminUsers = vi.spyOn(apiClient, "listAdminUsers").mockResolvedValue([] as never);
+    createAdminUser = vi.spyOn(apiClient, "createAdminUser").mockResolvedValue(undefined as never);
+    updateAdminUser = vi.spyOn(apiClient, "updateAdminUser").mockResolvedValue(undefined as never);
+    resetAdminUserPassword = vi.spyOn(apiClient, "resetAdminUserPassword").mockResolvedValue(undefined as never);
+    disableAdminUser = vi.spyOn(apiClient, "disableAdminUser").mockResolvedValue(undefined as never);
+    enableAdminUser = vi.spyOn(apiClient, "enableAdminUser").mockResolvedValue(undefined as never);
   });
 
   it("loads settings, shows recent search history, and saves runtime/docling/search updates", async () => {
@@ -168,8 +151,12 @@ describe("SettingsView", () => {
       expect(wrapper.find("#docling-base-url").exists()).toBe(true);
     });
 
+    expect(wrapper.text()).toContain("Appearance");
+    expect(wrapper.find('[data-testid="settings-locale-select"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="settings-theme-select"]').exists()).toBe(true);
+    expect(wrapper.get("#runtime-scheduler-valkey-url").attributes("placeholder")).toBe("redis://valkey:6379/0");
     expect(wrapper.text()).toContain("Provider Accounts");
-    expect(wrapper.text()).toContain("1 recent searches stored in this browser.");
+    expect(wrapper.text()).toContain("Recent Search History");
 
     await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
     await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
@@ -201,6 +188,33 @@ describe("SettingsView", () => {
       clear_api_key: false,
     }));
     expect(wrapper.text()).toContain("Settings saved");
+  });
+
+  it("switches locale and theme from the settings page", async () => {
+    const i18n = createTestI18n("en");
+    const wrapper = mount(SettingsView, {
+      attachTo: document.body,
+      global: {
+        plugins: [testPrimeVuePlugin, i18n],
+      },
+    });
+
+    await flushPromises();
+
+    const selects = wrapper.findAllComponents(Select).filter((component) => {
+      const testId = component.attributes()["data-testid"];
+      return testId === "settings-locale-select" || testId === "settings-theme-select";
+    });
+
+    expect(selects).toHaveLength(2);
+
+    await selects[0].vm.$emit("update:modelValue", "zh-CN");
+    await selects[1].vm.$emit("update:modelValue", "light");
+
+    expect(i18n.global.locale.value).toBe("zh-CN");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
+    expect(window.localStorage.getItem("context69.theme")).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 
   it("saves provider account changes through the single page save action", async () => {

@@ -40,8 +40,6 @@ import {
 import { clearSearchHistory, readSearchHistory } from "../utils/search-history";
 
 const providerKindOptions = [{ label: "openai_compatible", value: "openai_compatible" }];
-const timeoutPresets = [60, 120, 300];
-const pollPresets = [2, 5, 10];
 
 export function useSettingsPage() {
   const { t } = useI18n();
@@ -65,7 +63,6 @@ export function useSettingsPage() {
   const adminUsersCreateBusy = ref(false);
   const selectedProviderAccountKey = ref("");
   const rerankApiKeyDraft = ref("");
-  const clearStoredRerankApiKey = ref(false);
   const activeSectionId = ref("");
 
   const runtimeDraft = reactive<DraftRuntimeSettings>(createRuntimeDraft());
@@ -75,6 +72,13 @@ export function useSettingsPage() {
 
   const settingsNavGroups = computed<SettingsNavGroup[]>(() => {
     const groups: SettingsNavGroup[] = [
+      {
+        key: "appearance",
+        label: t("settings.appearance.title"),
+        items: [
+          { id: "settings-appearance", label: t("settings.appearance.title") },
+        ],
+      },
       {
         key: "search",
         label: t("settings.search.title"),
@@ -134,27 +138,6 @@ export function useSettingsPage() {
     })),
   ]);
 
-  const timeoutPresetOptions = computed(() => timeoutPresets.map((value) => ({ label: `${value}s`, value })));
-  const pollPresetOptions = computed(() => pollPresets.map((value) => ({ label: `${value}s`, value })));
-
-  const selectedTimeoutPreset = computed({
-    get: () => (timeoutPresets.includes(doclingDraft.connection.timeout_secs) ? doclingDraft.connection.timeout_secs : null),
-    set: (value: number | null) => {
-      if (typeof value === "number") {
-        doclingDraft.connection.timeout_secs = value;
-      }
-    },
-  });
-
-  const selectedPollPreset = computed({
-    get: () => (pollPresets.includes(doclingDraft.connection.poll_interval_secs) ? doclingDraft.connection.poll_interval_secs : null),
-    set: (value: number | null) => {
-      if (typeof value === "number") {
-        doclingDraft.connection.poll_interval_secs = value;
-      }
-    },
-  });
-
   const searchModeOptions = computed(() => [
     { label: t("settings.search.modeHybrid"), value: "hybrid" },
     { label: t("settings.search.modeVector"), value: "vector" },
@@ -211,13 +194,6 @@ export function useSettingsPage() {
     },
   });
 
-  const rerankApiKeyToggleModel = computed({
-    get: () => ({ clear_api_key: clearStoredRerankApiKey.value }),
-    set: (value: Record<string, boolean>) => {
-      clearStoredRerankApiKey.value = !!value.clear_api_key;
-    },
-  });
-
   const selectedProviderAccount = computed(() => (
     providerAccounts.value.find((account) => account.account_key === selectedProviderAccountKey.value) ?? null
   ));
@@ -258,8 +234,7 @@ export function useSettingsPage() {
     }
 
     return JSON.stringify(buildSearchSettingsComparablePayload(searchDraft)) !== JSON.stringify(searchResponseToPayload(searchSettings.value))
-      || rerankApiKeyDraft.value.trim().length > 0
-      || clearStoredRerankApiKey.value;
+      || rerankApiKeyDraft.value.trim().length > 0;
   });
 
   const hasChanges = computed(() => !!(
@@ -289,12 +264,6 @@ export function useSettingsPage() {
   watch(() => providerDraft.api_key, (value) => {
     if (value.trim()) {
       providerDraft.clear_api_key = false;
-    }
-  });
-
-  watch(rerankApiKeyDraft, (value) => {
-    if (value.trim()) {
-      clearStoredRerankApiKey.value = false;
     }
   });
 
@@ -382,7 +351,7 @@ export function useSettingsPage() {
             buildSearchSettingsPayload(
               searchDraft,
               rerankApiKeyDraft.value,
-              clearStoredRerankApiKey.value,
+              false,
             ),
           )
           : Promise.resolve(searchSettings.value),
@@ -583,7 +552,6 @@ export function useSettingsPage() {
   function assignSearchDraft(response: SearchSettingsResponse) {
     Object.assign(searchDraft, searchResponseToPayload(response));
     rerankApiKeyDraft.value = "";
-    clearStoredRerankApiKey.value = false;
   }
 
   onMounted(() => {
@@ -609,7 +577,6 @@ export function useSettingsPage() {
     hasChanges,
     loading,
     pageError,
-    pollPresetOptions,
     providerAccountOptions,
     providerDraft,
     providerKindOptions,
@@ -620,7 +587,6 @@ export function useSettingsPage() {
     qdrantToggleModel,
     recentSearchCount,
     rerankApiKeyDraft,
-    rerankApiKeyToggleModel,
     rerankToggleModel,
     resetAdminUserPassword,
     saveMessage,
@@ -631,14 +597,11 @@ export function useSettingsPage() {
     scrollToSettingsSection,
     searchDraft,
     searchModeOptions,
-    selectedPollPreset,
     selectedProviderAccount,
     selectedProviderAccountKey,
-    selectedTimeoutPreset,
     settingsNavGroups,
     startNewProviderAccount,
     runtimeDraft,
-    timeoutPresetOptions,
     toggleClearProviderApiKey,
     updateAdminUser,
   };

@@ -13,6 +13,7 @@ const router = useRouter();
 const { t } = useI18n();
 const preferences = useUiPreferences();
 const items = useAppNavigation();
+const mdiLogoutVariant = "M14.08,15.59L16.67,13H7V11H16.67L14.08,8.41L15.5,7L20.5,12L15.5,17L14.08,15.59M4,19H10V21H4C2.89,21 2,20.1 2,19V5C2,3.89 2.89,3 4,3H10V5H4V19Z";
 
 function isActive(itemTo: string) {
   return route.path === itemTo || route.path.startsWith(`${itemTo}/`);
@@ -81,8 +82,15 @@ async function signOut() {
           <span class="app-topbar-user-name">{{ authSessionState.user.display_name }}</span>
           <span class="app-topbar-user-meta">{{ authSessionState.user.login_name }}</span>
         </div>
-        <Button v-if="isAuthenticated()" class="app-control-button" type="button" @click="signOut">
-          {{ t("auth.logout") }}
+        <Button
+          v-if="isAuthenticated()"
+          class="app-control-button app-sidebar-icon-button"
+          type="button"
+          :aria-label="t('auth.logout')"
+          :title="t('auth.logout')"
+          @click="signOut"
+        >
+          <AppMdiIcon :path="mdiLogoutVariant" :title="t('auth.logout')" class="app-sidebar-link-icon" />
         </Button>
       </div>
     </aside>

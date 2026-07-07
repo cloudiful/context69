@@ -3,15 +3,22 @@ import Button from "primevue/button";
 import Message from "primevue/message";
 import { useI18n } from "vue-i18n";
 
+import AppMdiIcon from "../components/AppMdiIcon.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import SettingsAdminUsersSection from "../components/settings-sections/SettingsAdminUsersSection.vue";
+import SettingsAppearanceSection from "../components/settings-sections/SettingsAppearanceSection.vue";
 import SettingsDoclingSection from "../components/settings-sections/SettingsDoclingSection.vue";
 import SettingsRuntimeSection from "../components/settings-sections/SettingsRuntimeSection.vue";
 import SettingsSearchSection from "../components/settings-sections/SettingsSearchSection.vue";
+import { persistLocale, type AppLocale } from "../i18n/locale";
+import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
 
-const { t } = useI18n();
+const { t, locale } = useI18n({ useScope: "global" });
+const preferences = useUiPreferences();
+const mdiMenu = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
+const appLocale = locale as { value: AppLocale };
 
 const {
   activeSectionId,
@@ -29,7 +36,6 @@ const {
   hasChanges,
   loading,
   pageError,
-  pollPresetOptions,
   providerAccountOptions,
   providerDraft,
   providerKindOptions,
@@ -40,7 +46,6 @@ const {
   qdrantToggleModel,
   recentSearchCount,
   rerankApiKeyDraft,
-  rerankApiKeyToggleModel,
   rerankToggleModel,
   resetAdminUserPassword,
   saveMessage,
@@ -51,23 +56,37 @@ const {
   scrollToSettingsSection,
   searchDraft,
   searchModeOptions,
-  selectedPollPreset,
   selectedProviderAccount,
   selectedProviderAccountKey,
-  selectedTimeoutPreset,
   settingsNavGroups,
   startNewProviderAccount,
   runtimeDraft,
-  timeoutPresetOptions,
   toggleClearProviderApiKey,
   updateAdminUser,
 } = useSettingsPage();
+
+function switchLocale(nextLocale: AppLocale) {
+  if (locale.value === nextLocale) {
+    return;
+  }
+
+  locale.value = nextLocale;
+  persistLocale(nextLocale);
+}
 </script>
 
 <template>
   <AppPanel class="settings-panel" :title="t('settings.title')">
     <template #actions>
       <div class="settings-header-actions">
+        <Button
+          class="app-control-button md:hidden"
+          type="button"
+          :aria-label="t('settings.openNavigation')"
+          @click="preferences.toggleMobileNav"
+        >
+          <AppMdiIcon :path="mdiMenu" :title="t('settings.openNavigation')" class="app-sidebar-link-icon" />
+        </Button>
         <Message v-if="hasChanges" severity="secondary" :closable="false">
           {{ t("settings.status.pending") }}
         </Message>
@@ -111,17 +130,22 @@ const {
           </nav>
 
           <div class="settings-sections">
+            <SettingsAppearanceSection
+              :locale="appLocale.value"
+              :theme="preferences.state.theme"
+              @update:locale="switchLocale"
+              @update:theme="preferences.setTheme"
+            />
+
             <SettingsSearchSection
               :clear-recent-searches="clearRecentSearches"
               :recent-search-count="recentSearchCount"
               :rerank-api-key-draft="rerankApiKeyDraft"
-              :rerank-api-key-toggle-model="rerankApiKeyToggleModel"
               :rerank-toggle-model="rerankToggleModel"
               :search-has-stored-api-key="searchHasStoredApiKey"
               :search-draft="searchDraft"
               :search-mode-options="searchModeOptions"
               @update:rerank-api-key-draft="rerankApiKeyDraft = $event"
-              @update:rerank-api-key-toggle-model="rerankApiKeyToggleModel = $event"
               @update:rerank-toggle-model="rerankToggleModel = $event"
             />
 
@@ -151,12 +175,6 @@ const {
             <SettingsDoclingSection
               :docling-draft="doclingDraft"
               :docling-provider-options="doclingProviderOptions"
-              :poll-preset-options="pollPresetOptions"
-              :selected-poll-preset="selectedPollPreset"
-              :selected-timeout-preset="selectedTimeoutPreset"
-              :timeout-preset-options="timeoutPresetOptions"
-              @update:selected-poll-preset="selectedPollPreset = $event"
-              @update:selected-timeout-preset="selectedTimeoutPreset = $event"
             />
 
             <SettingsAdminUsersSection

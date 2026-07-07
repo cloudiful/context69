@@ -272,7 +272,7 @@ onMounted(() => {
 
         <Message v-if="memberError" severity="error" :closable="false">{{ memberError }}</Message>
 
-        <DataTable :value="members" data-key="user_id" scrollable size="small" table-style="min-width: 100%">
+        <DataTable class="app-data-table" :value="members" data-key="user_id" scrollable table-style="min-width: 100%">
           <Column field="login_name" :header="t('adminUsers.loginName')" />
           <Column field="display_name" :header="t('adminUsers.displayName')" />
           <Column field="role" :header="t('members.role')">

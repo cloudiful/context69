@@ -1,11 +1,9 @@
 import { mount } from "@vue/test-utils";
-import InputNumber from "primevue/inputnumber";
 import Select from "primevue/select";
-import SelectButton from "primevue/selectbutton";
+import ToggleSwitch from "primevue/toggleswitch";
 import { describe, expect, it } from "vitest";
 
 import { testPrimeVuePlugin } from "../test-utils/primevue";
-import AppNumberPresetField from "./AppNumberPresetField.vue";
 import AppSelectField from "./AppSelectField.vue";
 import AppTextField from "./AppTextField.vue";
 import AppToggleGroup from "./AppToggleGroup.vue";
@@ -49,30 +47,6 @@ describe("App field controls", () => {
     expect(wrapper.emitted("update:modelValue")?.[0]).toEqual(["rapidocr"]);
   });
 
-  it("emits numeric value and preset updates", async () => {
-    const wrapper = mount(AppNumberPresetField, {
-      props: {
-        inputId: "timeout",
-        label: "Timeout",
-        modelValue: 120,
-        presetValue: 120,
-        presetOptions: [
-          { label: "60s", value: 60 },
-          { label: "120s", value: 120 },
-        ],
-      },
-      global: {
-        plugins: [testPrimeVuePlugin],
-      },
-    });
-
-    await wrapper.findComponent(InputNumber).vm.$emit("update:modelValue", 180);
-    await wrapper.findComponent(SelectButton).vm.$emit("update:modelValue", 60);
-
-    expect(wrapper.emitted("update:modelValue")?.[0]).toEqual([180]);
-    expect(wrapper.emitted("update:presetValue")?.[0]).toEqual([60]);
-  });
-
   it("merges toggle updates by key", async () => {
     const wrapper = mount(AppToggleGroup, {
       props: {
@@ -90,7 +64,7 @@ describe("App field controls", () => {
       },
     });
 
-    await wrapper.findAll("button")[0].trigger("click");
+    await wrapper.findAllComponents(ToggleSwitch)[0].vm.$emit("update:modelValue", true);
 
     expect(wrapper.emitted("update:modelValue")?.[0]?.[0]).toEqual({
       ocr: true,

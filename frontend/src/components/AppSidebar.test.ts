@@ -39,9 +39,9 @@ describe("AppSidebar", () => {
     expect(wrapper.text()).toContain("Search");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).toContain("Administrator");
-    expect(wrapper.text()).toContain("Log Out");
     expect(wrapper.find('[data-nav-key="/search"]').classes()).toContain("is-active");
-    expect(wrapper.findAll(".app-sidebar-link-icon")).toHaveLength(3);
+    expect(wrapper.findAll(".app-sidebar-link-icon")).toHaveLength(4);
+    expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
   });
 
   it("hides business navigation when the session is not authenticated", async () => {
@@ -65,6 +65,6 @@ describe("AppSidebar", () => {
 
     expect(wrapper.text()).toContain("Context69");
     expect(wrapper.text()).not.toContain("Search");
-    expect(wrapper.text()).not.toContain("Log Out");
+    expect(wrapper.html()).not.toContain('aria-label="Log Out"');
   });
 });

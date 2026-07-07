@@ -53,6 +53,7 @@ declare module 'vue' {
     SearchResultList: typeof import('./src/components/SearchResultList.vue')['default']
     SearchSelectionPreview: typeof import('./src/components/SearchSelectionPreview.vue')['default']
     SettingsAdminUsersSection: typeof import('./src/components/settings-sections/SettingsAdminUsersSection.vue')['default']
+    SettingsAppearanceSection: typeof import('./src/components/settings-sections/SettingsAppearanceSection.vue')['default']
     SettingsDoclingSection: typeof import('./src/components/settings-sections/SettingsDoclingSection.vue')['default']
     SettingsRuntimeSection: typeof import('./src/components/settings-sections/SettingsRuntimeSection.vue')['default']
     SettingsSearchSection: typeof import('./src/components/settings-sections/SettingsSearchSection.vue')['default']

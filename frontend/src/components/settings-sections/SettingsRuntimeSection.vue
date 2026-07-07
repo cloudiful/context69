@@ -68,10 +68,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
     <div class="grid gap-6">
       <section id="settings-provider-accounts" class="settings-block">
         <div class="settings-block-header">
-          <div class="settings-block-copy">
-            <h3 class="settings-block-title">{{ t("settings.runtime.providerAccountsTitle") }}</h3>
-            <p class="settings-block-description">{{ t("settings.runtime.providerAccountsDescription") }}</p>
-          </div>
+          <h3 class="settings-block-title">{{ t("settings.runtime.providerAccountsTitle") }}</h3>
           <Button
             class="settings-inline-button"
             type="button"
@@ -262,6 +259,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             input-id="runtime-scheduler-valkey-url"
             v-model="runtimeDraft.scheduler.valkey_url"
             :label="t('settings.runtime.schedulerValkeyUrl')"
+            placeholder="redis://valkey:6379/0"
           />
           <AppToggleGroup
             :model-value="schedulerToggleModel"

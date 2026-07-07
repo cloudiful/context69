@@ -1,5 +1,4 @@
 import { computed } from "vue";
-import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 export interface AppNavItem {
@@ -20,33 +19,4 @@ export function useAppNavigation() {
     { to: "/groups", label: t("nav.groups"), iconPath: mdiAccountMultipleOutline },
     { to: "/settings", label: t("nav.settings"), iconPath: mdiCogOutline },
   ]);
-}
-
-export function usePageChrome() {
-  const route = useRoute();
-  const { t } = useI18n();
-
-  const pageTitle = computed(() => {
-    if (route.name === "search") return t("nav.search");
-    if (route.name === "groups" || route.name === "group-detail" || route.name === "project") return t("nav.groups");
-    if (route.name === "settings") return t("nav.settings");
-    if (route.name === "document") return t("document.title");
-    if (route.name === "login") return t("auth.title");
-    return "Context69";
-  });
-
-  const breadcrumb = computed(() => {
-    if (route.name === "project") {
-      return [t("nav.groups"), String(route.params.groupKey ?? ""), String(route.params.projectKey ?? "")].filter(Boolean);
-    }
-    if (route.name === "group-detail") {
-      return [t("nav.groups"), String(route.params.groupKey ?? "")].filter(Boolean);
-    }
-    return [pageTitle.value];
-  });
-
-  return {
-    pageTitle,
-    breadcrumb,
-  };
 }

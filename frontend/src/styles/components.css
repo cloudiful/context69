@@ -3,8 +3,18 @@
     @apply grid min-h-screen items-start bg-app-bg text-app-text md:grid-cols-[auto_minmax(0,1fr)];
   }
 
+  @media (min-width: 768px) {
+    .app-shell {
+      padding-left: 15.5rem;
+    }
+
+    .app-shell.is-sidebar-collapsed {
+      padding-left: 5.5rem;
+    }
+  }
+
   .app-shell.is-login-route {
-    @apply block;
+    @apply block md:pl-0;
   }
 
   .app-main-shell {
@@ -16,7 +26,7 @@
   }
 
   .app-sidebar {
-    @apply fixed inset-y-0 left-0 z-30 flex h-screen w-[15.5rem] -translate-x-full flex-col overflow-hidden border-r border-app-border/70 bg-app-bg/98 px-3 py-3 transition-transform md:sticky md:top-0 md:translate-x-0 md:bg-app-surface-muted/20;
+    @apply fixed inset-y-0 left-0 z-30 flex h-screen w-[15.5rem] -translate-x-full flex-col overflow-hidden border-r border-app-border/70 bg-app-bg/98 px-3 py-3 transition-transform md:translate-x-0 md:bg-app-surface-muted/20;
   }
 
   .app-sidebar.is-collapsed {
@@ -79,33 +89,16 @@
     @apply mt-auto grid shrink-0 gap-3 border-t border-app-border/50 pt-3;
   }
 
+  .app-sidebar-icon-button {
+    @apply inline-flex h-9 w-9 items-center justify-center self-end px-0;
+  }
+
   .app-sidebar-user {
     @apply grid gap-0.5 rounded-xl border border-app-border/70 bg-app-surface-muted/35 px-3 py-2;
   }
 
   .app-sidebar-tools {
     @apply grid gap-2;
-  }
-
-  .app-contextbar {
-    @apply sticky top-0 z-20 mb-2 flex flex-wrap items-start justify-between gap-3 border-b border-app-border/70 bg-app-bg/94 px-3 py-2 backdrop-blur-xl md:px-4;
-    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.03);
-  }
-
-  .app-contextbar-copy {
-    @apply grid min-w-0 gap-1;
-  }
-
-  .app-contextbar-breadcrumb {
-    @apply text-xs uppercase tracking-[0.16em] text-app-text-dim;
-  }
-
-  .app-contextbar-title {
-    @apply text-lg font-semibold text-app-text;
-  }
-
-  .app-contextbar-actions {
-    @apply flex flex-wrap items-center justify-end gap-2;
   }
 
   .app-contextbar-user {
@@ -282,7 +275,7 @@
   }
 
   .app-form-field {
-    @apply grid content-start self-start gap-3;
+    @apply grid min-w-0 content-start self-start gap-3;
   }
 
   .app-form-field-label {
@@ -461,14 +454,16 @@
   }
 
   .app-mobile-nav {
-    @apply fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 gap-1 border-t border-app-border/70 bg-app-bg/94 px-2 py-2 backdrop-blur-xl md:hidden;
+    @apply fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-app-border/70 bg-app-bg/94 px-2 py-2 backdrop-blur-xl md:hidden;
   }
 
-  .app-mobile-nav-link {
+  .app-mobile-nav-link,
+  .app-mobile-nav-link.p-button {
     @apply grid justify-items-center gap-1 rounded-xl px-2 py-2 text-[0.72rem] font-medium text-app-text-dim transition;
   }
 
-  .app-mobile-nav-link.is-active {
+  .app-mobile-nav-link.is-active,
+  .app-mobile-nav-link.p-button:not(:disabled):hover {
     @apply bg-app-surface-soft/70 text-app-text;
   }
 
@@ -560,44 +555,6 @@
     @apply text-sm leading-6 text-app-text-dim;
   }
 
-  .app-toggle-chip {
-    @apply flex min-h-9 items-center justify-center rounded-lg border border-app-border bg-app-surface-muted/40 px-3 text-sm font-medium text-app-text-muted transition;
-    justify-self: start;
-    width: auto;
-    min-width: 0;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
-
-  .app-toggle-chip:hover {
-    @apply border-app-border-strong bg-app-surface-soft/55 text-app-text;
-  }
-
-  .app-toggle-chip:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-app-border-strong) 72%, transparent);
-    outline-offset: 2px;
-  }
-
-  .app-toggle-chip-active {
-    border-color: color-mix(in srgb, var(--color-app-success) 78%, var(--color-app-border) 22%);
-    background: color-mix(in srgb, var(--color-app-success) 28%, var(--color-app-surface-soft) 72%);
-    color: var(--color-app-text);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-app-success) 42%, transparent);
-  }
-
-  .app-toggle-chip-active:hover {
-    border-color: color-mix(in srgb, var(--color-app-success) 88%, var(--color-app-border) 12%);
-    background: color-mix(in srgb, var(--color-app-success) 34%, var(--color-app-surface-soft) 66%);
-    color: var(--color-app-text);
-  }
-
-  .app-toggle-chip-label {
-    @apply truncate;
-  }
-
-  .app-toggle-chip-help {
-    @apply ml-2 text-xs text-app-text-dim;
-  }
-
   .app-info-value {
     @apply text-sm text-app-text;
   }
@@ -608,10 +565,6 @@
 
   .content-pre {
     @apply mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-app-surface-soft/72 px-3 py-2 text-sm leading-6 text-app-text-muted;
-  }
-
-  .footer-tools {
-    @apply ml-auto flex flex-wrap items-center justify-end gap-1.5 text-sm;
   }
 
   .document-layout {
@@ -630,14 +583,6 @@
 
   .document-chunk-label {
     @apply text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
-  .footer-tools-section {
-    @apply flex items-center gap-1;
-  }
-
-  .footer-tools-select {
-    @apply shrink-0;
   }
 
   .sources-page {
@@ -928,21 +873,6 @@
     @apply md:grid-cols-3 md:items-start;
   }
 
-  .settings-toggle-grid-inline-fit {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: flex-start;
-  }
-
-  .settings-toggle-grid-inline-fit > .app-toggle-chip {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 8rem;
-    max-width: 100%;
-    padding-inline: 1rem;
-  }
-
   .settings-toggle-grid-inline-single {
     @apply grid-cols-1;
   }
@@ -980,19 +910,15 @@
   }
 
   .settings-save-bar {
-    @apply sticky bottom-0 z-10 flex justify-end border-t border-app-border/70 bg-app-bg/94 px-1 py-3 backdrop-blur-xl;
+    @apply fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6;
   }
 
   .settings-save-bar .p-button {
-    @apply min-w-28;
+    @apply min-w-28 rounded-full border border-app-border-strong bg-app-surface px-5 shadow-[0_14px_32px_rgba(0,0,0,0.34)] backdrop-blur-xl;
   }
 
-  .settings-preset-select {
-    @apply justify-start;
-  }
-
-  .app-number-preset-select.p-selectbutton {
-    @apply w-full sm:w-auto;
+  .settings-panel form {
+    padding-bottom: 6rem;
   }
 
   @media (min-width: 1280px) {

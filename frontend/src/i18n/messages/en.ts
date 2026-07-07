@@ -2,6 +2,7 @@ export const en = {
   common: {
     error: "Error",
     loading: "Loading",
+    menu: "Menu",
     open: "Open",
     close: "Close",
     reset: "Reset",
@@ -370,6 +371,7 @@ export const en = {
   },
   settings: {
     title: "Settings",
+    openNavigation: "Open navigation",
     navigationTitle: "Sections",
     loadingTitle: "Loading",
     loadingMessage: "Loading runtime settings and defaults.",
@@ -384,11 +386,13 @@ export const en = {
       apiKey: "Leave blank to keep the stored value. Only clear it when you really want to remove the saved key.",
       ocrLang: "Separate OCR languages with commas. Language codes depend on the selected OCR engine.",
     },
+    appearance: {
+      title: "Appearance",
+    },
     search: {
       title: "Search",
       settingsTitle: "Search Settings",
       historyTitle: "Recent Search History",
-      historyDescription: "{count} recent searches stored in this browser.",
       clearHistory: "Clear History",
       mode: "Search Mode",
       modeHybrid: "Hybrid",
@@ -408,7 +412,6 @@ export const en = {
       title: "Runtime",
       noneSelected: "Create new or choose existing",
       providerAccountsTitle: "Provider Accounts",
-      providerAccountsDescription: "Store one OpenAI-compatible credential set and reuse it in embedding and Docling.",
       selectProviderAccount: "Saved Provider Account",
       accountKey: "Account Key",
       providerKind: "Provider Kind",
@@ -462,7 +465,6 @@ export const en = {
     },
     docling: {
       title: "Docling",
-      description: "Configure the document parsing service used by the file library.",
       connectionTitle: "Connection",
       vlmTitle: "VLM / Models",
       baseUrl: "Base URL",

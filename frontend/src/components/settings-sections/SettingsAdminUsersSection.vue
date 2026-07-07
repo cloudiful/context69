@@ -123,10 +123,7 @@ function confirmEnable(loginNameValue: string) {
 <template>
   <section id="settings-admin-users" class="settings-block">
     <div class="settings-block-header">
-      <div class="settings-block-copy">
-        <p class="settings-block-title">{{ t("adminUsers.title") }}</p>
-        <p class="settings-block-description">{{ t("adminUsers.description") }}</p>
-      </div>
+      <p class="settings-block-title">{{ t("adminUsers.title") }}</p>
       <Button class="tool-action-primary" :disabled="createBusy" @click="openCreate">
         {{ t("adminUsers.create") }}
       </Button>
@@ -134,7 +131,7 @@ function confirmEnable(loginNameValue: string) {
 
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
-    <DataTable :value="users" data-key="user_id" scrollable size="small" table-style="min-width: 100%">
+    <DataTable class="app-data-table" :value="users" data-key="user_id" scrollable table-style="min-width: 100%">
       <Column field="login_name" :header="t('adminUsers.loginName')" sortable />
       <Column field="display_name" :header="t('adminUsers.displayName')" sortable />
       <Column field="is_admin" :header="t('adminUsers.isAdmin')">

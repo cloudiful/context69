@@ -8,8 +8,6 @@ import DataTable from "primevue/datatable";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
 
-import AppPanel from "../components/AppPanel.vue";
-import AppStateMessage from "../components/AppStateMessage.vue";
 import EntityDialog from "../components/EntityDialog.vue";
 import { apiClient, type GroupResponse } from "../services/api";
 
@@ -70,59 +68,59 @@ onMounted(() => {
 
 <template>
   <div class="workspace-page">
-    <AppPanel :title="t('groups.title')">
-      <template #actions>
-        <Button class="tool-action-primary" @click="createDialogVisible = true">
-          {{ t("groups.create") }}
-        </Button>
+    <div class="workspace-block-header">
+      <h1 class="section-title">{{ t("groups.title") }}</h1>
+      <Button class="tool-action-primary" @click="createDialogVisible = true">
+        {{ t("groups.create") }}
+      </Button>
+    </div>
+
+    <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
+
+    <DataTable
+      class="app-data-table"
+      :value="groups"
+      :loading="loading"
+      data-key="group_id"
+      removable-sort
+      row-hover
+      scrollable
+      table-style="min-width: 100%"
+      @row-click="openGroup($event.data)"
+    >
+      <template #empty>
+        {{ t("groups.emptyMessage") }}
       </template>
 
-      <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
+      <Column field="group_key" :header="t('groups.groupKey')" sortable />
+      <Column field="name" :header="t('groups.groupName')" sortable />
+      <Column field="visibility" :header="t('groups.visibility')" sortable>
+        <template #body="{ data }">
+          <Tag :value="data.visibility" severity="secondary" />
+        </template>
+      </Column>
+      <Column field="kind" :header="t('groups.kind')" sortable>
+        <template #body="{ data }">
+          <Tag :value="data.kind" severity="contrast" />
+        </template>
+      </Column>
+      <Column field="current_role" :header="t('groups.currentRole')" sortable>
+        <template #body="{ data }">
+          <Tag :value="data.current_role || '--'" :severity="roleSeverity(data.current_role)" />
+        </template>
+      </Column>
+    </DataTable>
 
-      <DataTable
-        v-if="groups.length > 0"
-        :value="groups"
-        data-key="group_id"
-        removable-sort
-        scrollable
-        size="small"
-        table-style="min-width: 100%"
-        @row-click="openGroup($event.data)"
-      >
-        <Column field="group_key" :header="t('groups.groupKey')" sortable />
-        <Column field="name" :header="t('groups.groupName')" sortable />
-        <Column field="visibility" :header="t('groups.visibility')" sortable>
-          <template #body="{ data }">
-            <Tag :value="data.visibility" severity="secondary" />
-          </template>
-        </Column>
-        <Column field="kind" :header="t('groups.kind')" sortable>
-          <template #body="{ data }">
-            <Tag :value="data.kind" severity="contrast" />
-          </template>
-        </Column>
-        <Column field="current_role" :header="t('groups.currentRole')" sortable>
-          <template #body="{ data }">
-            <Tag :value="data.current_role || '--'" :severity="roleSeverity(data.current_role)" />
-          </template>
-        </Column>
-      </DataTable>
-
-      <AppStateMessage v-else-if="!loading" :title="t('groups.emptyTitle')">
-        {{ t("groups.emptyMessage") }}
-      </AppStateMessage>
-
-      <EntityDialog
-        v-model:visible="createDialogVisible"
-        :busy="createBusy"
-        :error="dialogError"
-        :show-key="true"
-        :title="t('groups.create')"
-        :entity-key-label="t('groups.groupKey')"
-        :entity-name-label="t('groups.groupName')"
-        :submit-label="t('groups.create')"
-        @submit="createGroup"
-      />
-    </AppPanel>
+    <EntityDialog
+      v-model:visible="createDialogVisible"
+      :busy="createBusy"
+      :error="dialogError"
+      :show-key="true"
+      :title="t('groups.create')"
+      :entity-key-label="t('groups.groupKey')"
+      :entity-name-label="t('groups.groupName')"
+      :submit-label="t('groups.create')"
+      @submit="createGroup"
+    />
   </div>
 </template>

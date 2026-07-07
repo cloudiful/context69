@@ -261,7 +261,7 @@ onMounted(() => {
 
         <Message v-if="projectError" severity="error" :closable="false">{{ projectError }}</Message>
 
-        <DataTable :value="projects" data-key="project_id" scrollable size="small" table-style="min-width: 100%">
+        <DataTable class="app-data-table" :value="projects" data-key="project_id" scrollable table-style="min-width: 100%">
           <Column field="project_key" :header="t('groups.projectKey')" />
           <Column field="name" :header="t('groups.projectName')" />
           <Column field="visibility" :header="t('groups.visibility')">
@@ -302,7 +302,7 @@ onMounted(() => {
 
         <Message v-if="memberError" severity="error" :closable="false">{{ memberError }}</Message>
 
-        <DataTable :value="members" data-key="user_id" scrollable size="small" table-style="min-width: 100%">
+        <DataTable class="app-data-table" :value="members" data-key="user_id" scrollable table-style="min-width: 100%">
           <Column field="login_name" :header="t('adminUsers.loginName')" />
           <Column field="display_name" :header="t('adminUsers.displayName')" />
           <Column field="role" :header="t('members.role')">

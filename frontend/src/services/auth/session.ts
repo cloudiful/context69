@@ -32,6 +32,13 @@ export interface AuthSessionState {
   lastFailureReason: AuthFailureReason | null;
 }
 
+interface PersistedAuthSession {
+  accessToken: string;
+  user: AuthUserResponse;
+}
+
+const AUTH_SESSION_STORAGE_KEY = "context69.auth.session";
+
 export const authSessionState = shallowReactive<AuthSessionState>({
   status: "idle",
   accessToken: null,
@@ -74,6 +81,10 @@ function applyIssuedSession(session: AuthTokenResponse) {
   authSessionState.status = "authenticated";
   authSessionState.ready = true;
   authSessionState.lastFailureReason = null;
+  persistSession({
+    accessToken: session.access_token,
+    user: session.user,
+  });
 }
 
 function setGuest(reason: AuthFailureReason | null = null) {
@@ -82,6 +93,69 @@ function setGuest(reason: AuthFailureReason | null = null) {
   authSessionState.status = "guest";
   authSessionState.ready = true;
   authSessionState.lastFailureReason = reason;
+  clearPersistedSession();
+}
+
+function storageAvailable() {
+  return typeof window !== "undefined" && !!window.sessionStorage;
+}
+
+function persistSession(session: PersistedAuthSession) {
+  if (!storageAvailable()) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    // Ignore storage failures and keep the in-memory session usable.
+  }
+}
+
+function clearPersistedSession() {
+  if (!storageAvailable()) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures during logout/expiry cleanup.
+  }
+}
+
+function restorePersistedSession() {
+  if (!storageAvailable()) {
+    return false;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+    if (!raw) {
+      return false;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PersistedAuthSession>;
+    if (
+      typeof parsed.accessToken !== "string"
+      || !parsed.accessToken
+      || !parsed.user
+      || typeof parsed.user !== "object"
+    ) {
+      clearPersistedSession();
+      return false;
+    }
+
+    authSessionState.accessToken = parsed.accessToken;
+    authSessionState.user = parsed.user as AuthUserResponse;
+    authSessionState.status = "authenticated";
+    authSessionState.ready = true;
+    authSessionState.lastFailureReason = null;
+    return true;
+  } catch {
+    clearPersistedSession();
+    return false;
+  }
 }
 
 async function issueSession(
@@ -205,7 +279,9 @@ export async function restoreSession(): Promise<boolean> {
 export async function ensureSessionReady() {
   if (!initialized) {
     initialized = true;
-    await restoreSession();
+    if (!restorePersistedSession()) {
+      await restoreSession();
+    }
   } else if (!authSessionState.ready) {
     await restoreSession();
   }

@@ -1,0 +1,69 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+import AppSelectField from "../AppSelectField.vue";
+import AppSettingsSection from "../AppSettingsSection.vue";
+import type { AppLocale } from "../../i18n/locale";
+import type { AppTheme } from "../../types/ui";
+
+defineProps<{
+  locale: AppLocale;
+  theme: AppTheme;
+}>();
+
+const emit = defineEmits<{
+  "update:locale": [value: AppLocale];
+  "update:theme": [value: AppTheme];
+}>();
+
+const { t } = useI18n();
+
+const localeOptions = computed<Array<{ value: AppLocale; label: string }>>(() => [
+  { value: "en", label: t("language.en") },
+  { value: "zh-CN", label: t("language.zhCN") },
+]);
+
+const themeOptions = computed<Array<{ value: AppTheme; label: string }>>(() => [
+  { value: "dark", label: t("theme.dark") },
+  { value: "light", label: t("theme.light") },
+]);
+
+function updateLocale(value: unknown) {
+  if (value === "en" || value === "zh-CN") {
+    emit("update:locale", value);
+  }
+}
+
+function updateTheme(value: unknown) {
+  if (value === "dark" || value === "light") {
+    emit("update:theme", value);
+  }
+}
+</script>
+
+<template>
+  <AppSettingsSection :legend="t('settings.appearance.title')">
+    <section id="settings-appearance" class="settings-block">
+      <div class="settings-compact-grid settings-compact-grid-two">
+        <AppSelectField
+          input-id="settings-locale-select"
+          :model-value="locale"
+          :label="t('language.label')"
+          :options="localeOptions"
+          test-id="settings-locale-select"
+          @update:model-value="updateLocale"
+        />
+
+        <AppSelectField
+          input-id="settings-theme-select"
+          :model-value="theme"
+          :label="t('theme.label')"
+          :options="themeOptions"
+          test-id="settings-theme-select"
+          @update:model-value="updateTheme"
+        />
+      </div>
+    </section>
+  </AppSettingsSection>
+</template>

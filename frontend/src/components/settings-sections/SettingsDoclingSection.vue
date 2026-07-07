@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 
-import AppNumberPresetField from "../AppNumberPresetField.vue";
+import AppNumberField from "../AppNumberField.vue";
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
@@ -10,15 +10,6 @@ import type { DraftDoclingSettings } from "../../utils/settings";
 defineProps<{
   doclingDraft: DraftDoclingSettings;
   doclingProviderOptions: Array<{ label: string; value: string }>;
-  pollPresetOptions: Array<{ label: string; value: number }>;
-  selectedPollPreset: number | null;
-  selectedTimeoutPreset: number | null;
-  timeoutPresetOptions: Array<{ label: string; value: number }>;
-}>();
-
-const emit = defineEmits<{
-  "update:selectedPollPreset": [value: number | null];
-  "update:selectedTimeoutPreset": [value: number | null];
 }>();
 
 const { t } = useI18n();
@@ -37,27 +28,19 @@ const { t } = useI18n();
             type="url"
             placeholder="http://127.0.0.1:5001"
           />
-          <AppNumberPresetField
+          <AppNumberField
             input-id="docling-timeout"
-            :model-value="doclingDraft.connection.timeout_secs"
-            :preset-value="selectedTimeoutPreset"
+            v-model="doclingDraft.connection.timeout_secs"
             :label="t('settings.docling.timeout')"
-            :preset-options="timeoutPresetOptions"
             :min="1"
             :step="1"
-            @update:model-value="doclingDraft.connection.timeout_secs = $event ?? doclingDraft.connection.timeout_secs"
-            @update:preset-value="emit('update:selectedTimeoutPreset', $event)"
           />
-          <AppNumberPresetField
+          <AppNumberField
             input-id="docling-poll-interval"
-            :model-value="doclingDraft.connection.poll_interval_secs"
-            :preset-value="selectedPollPreset"
+            v-model="doclingDraft.connection.poll_interval_secs"
             :label="t('settings.docling.pollInterval')"
-            :preset-options="pollPresetOptions"
             :min="1"
             :step="1"
-            @update:model-value="doclingDraft.connection.poll_interval_secs = $event ?? doclingDraft.connection.poll_interval_secs"
-            @update:preset-value="emit('update:selectedPollPreset', $event)"
           />
         </div>
       </section>

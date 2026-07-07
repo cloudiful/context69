@@ -207,8 +207,7 @@ impl ServerHandler for Context69McpServer {
                     "context69-document",
                 )
                 .with_description("Fetch a single indexed document")
-                .with_mime_type("application/json")
-                ,
+                .with_mime_type("application/json"),
             ],
             next_cursor: None,
         })

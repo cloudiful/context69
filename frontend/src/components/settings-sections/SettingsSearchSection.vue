@@ -10,13 +10,11 @@ import AppToggleGroup from "../AppToggleGroup.vue";
 import type { DraftSearchSettings } from "../../utils/settings";
 
 type RerankToggleModel = { rerank_enabled: boolean };
-type RerankApiKeyToggleModel = { clear_api_key: boolean };
 
 defineProps<{
   clearRecentSearches: () => void;
   recentSearchCount: number;
   rerankApiKeyDraft: string;
-  rerankApiKeyToggleModel: RerankApiKeyToggleModel;
   rerankToggleModel: RerankToggleModel;
   searchHasStoredApiKey: boolean;
   searchDraft: DraftSearchSettings;
@@ -25,7 +23,6 @@ defineProps<{
 
 const emit = defineEmits<{
   "update:rerankApiKeyDraft": [value: string];
-  "update:rerankApiKeyToggleModel": [value: RerankApiKeyToggleModel];
   "update:rerankToggleModel": [value: RerankToggleModel];
 }>();
 
@@ -36,12 +33,6 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
     rerank_enabled: !!value.rerank_enabled,
   });
 }
-
-function updateRerankApiKeyToggleModel(value: Record<string, boolean>) {
-  emit("update:rerankApiKeyToggleModel", {
-    clear_api_key: !!value.clear_api_key,
-  });
-}
 </script>
 
 <template>
@@ -49,12 +40,7 @@ function updateRerankApiKeyToggleModel(value: Record<string, boolean>) {
     <div id="settings-search" class="grid gap-4">
       <section id="settings-search-history" class="settings-block">
         <div class="settings-block-header">
-          <div class="settings-block-copy">
-            <h3 class="settings-block-title">{{ t("settings.search.historyTitle") }}</h3>
-            <p class="settings-block-description">
-              {{ t("settings.search.historyDescription", { count: recentSearchCount }) }}
-            </p>
-          </div>
+          <h3 class="settings-block-title">{{ t("settings.search.historyTitle") }}</h3>
           <Button
             class="settings-inline-button"
             type="button"
@@ -140,15 +126,6 @@ function updateRerankApiKeyToggleModel(value: Record<string, boolean>) {
               @update:model-value="emit('update:rerankApiKeyDraft', $event)"
             />
           </div>
-
-          <AppToggleGroup
-            :model-value="rerankApiKeyToggleModel"
-            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
-            :items="[
-              { key: 'clear_api_key', inputId: 'search-clear-rerank-api-key', label: t('settings.search.clearApiKey'), testId: 'search-clear-rerank-api-key' },
-            ]"
-            @update:model-value="updateRerankApiKeyToggleModel"
-          />
         </div>
       </section>
     </div>
