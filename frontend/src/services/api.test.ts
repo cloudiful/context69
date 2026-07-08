@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { GET, POST, PUT, DELETE } = vi.hoisted(() => ({
+const { GET, POST, PUT, DELETE, PATCH } = vi.hoisted(() => ({
   GET: vi.fn(),
   POST: vi.fn(),
   PUT: vi.fn(),
   DELETE: vi.fn(),
+  PATCH: vi.fn(),
 }));
 
 vi.mock("./openapi-client", () => ({
@@ -13,6 +14,7 @@ vi.mock("./openapi-client", () => ({
     POST,
     PUT,
     DELETE,
+    PATCH,
   },
 }));
 
@@ -25,6 +27,7 @@ describe("apiClient", () => {
     POST.mockReset();
     PUT.mockReset();
     DELETE.mockReset();
+    PATCH.mockReset();
   });
 
   it("posts search payloads and returns typed results", async () => {
@@ -177,6 +180,85 @@ describe("apiClient", () => {
           vlm_pipeline_model: "gemini-3-flash",
           picture_description_model: "gpt-4o-mini",
           code_formula_model: "gpt-4o-mini",
+        },
+      },
+      signal: undefined,
+    });
+  });
+
+  it("lists, creates, and revokes personal access tokens", async () => {
+    GET.mockResolvedValueOnce({
+      data: [
+        {
+          token_id: "00000000-0000-0000-0000-000000000001",
+          name: "CLI",
+          display_prefix: "ctx_pat_abcd",
+          scopes: ["search", "library"],
+          expires_at: "2026-12-31T00:00:00Z",
+          last_used_at: null,
+          revoked_at: null,
+          created_at: "2026-06-01T00:00:00Z",
+          updated_at: "2026-06-01T00:00:00Z",
+        },
+      ],
+      response: {
+        ok: true,
+        status: 200,
+      },
+    });
+    POST.mockResolvedValueOnce({
+      data: {
+        access_token: "ctx_pat_secret",
+        token: {
+          token_id: "00000000-0000-0000-0000-000000000001",
+          name: "CLI",
+          display_prefix: "ctx_pat_abcd",
+          scopes: ["search"],
+          expires_at: "2026-12-31T00:00:00Z",
+          last_used_at: null,
+          revoked_at: null,
+          created_at: "2026-06-01T00:00:00Z",
+          updated_at: "2026-06-01T00:00:00Z",
+        },
+      },
+      response: {
+        ok: true,
+        status: 200,
+      },
+    });
+    DELETE.mockResolvedValueOnce({
+      data: undefined,
+      response: {
+        ok: true,
+        status: 204,
+      },
+    });
+
+    await expect(apiClient.listPersonalAccessTokens()).resolves.toHaveLength(1);
+    await expect(apiClient.createPersonalAccessToken({
+      name: "CLI",
+      scopes: ["search"],
+      expires_in_days: 30,
+    })).resolves.toEqual(expect.objectContaining({
+      access_token: "ctx_pat_secret",
+    }));
+    await expect(apiClient.revokePersonalAccessToken("00000000-0000-0000-0000-000000000001")).resolves.toBeUndefined();
+
+    expect(GET).toHaveBeenCalledWith("/v1/auth/personal-access-tokens", {
+      signal: undefined,
+    });
+    expect(POST).toHaveBeenCalledWith("/v1/auth/personal-access-tokens", {
+      body: {
+        name: "CLI",
+        scopes: ["search"],
+        expires_in_days: 30,
+      },
+      signal: undefined,
+    });
+    expect(DELETE).toHaveBeenCalledWith("/v1/auth/personal-access-tokens/{token_id}", {
+      params: {
+        path: {
+          token_id: "00000000-0000-0000-0000-000000000001",
         },
       },
       signal: undefined,

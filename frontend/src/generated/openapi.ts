@@ -148,6 +148,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/personal-access-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_personal_access_tokens"];
+        put?: never;
+        post: operations["create_personal_access_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/personal-access-tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revoke_personal_access_token"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/refresh": {
         parameters: {
             query?: never;
@@ -915,6 +947,16 @@ export interface components {
             parent_group_key?: string | null;
             visibility: components["schemas"]["Visibility"];
         };
+        CreatePersonalAccessTokenRequest: {
+            /** Format: int32 */
+            expires_in_days: number;
+            name: string;
+            scopes: components["schemas"]["PersonalAccessTokenScope"][];
+        };
+        CreatePersonalAccessTokenResponse: {
+            access_token: string;
+            token: components["schemas"]["PersonalAccessTokenResponse"];
+        };
         CreateProjectRequest: {
             name: string;
             project_key: string;
@@ -1142,6 +1184,25 @@ export interface components {
         MoveProjectRequest: {
             target_group_key: string;
         };
+        PersonalAccessTokenResponse: {
+            /** Format: date-time */
+            created_at: string;
+            display_prefix: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            name: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            scopes: components["schemas"]["PersonalAccessTokenScope"][];
+            /** Format: uuid */
+            token_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @enum {string} */
+        PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
         ProjectMemberResponse: {
             display_name: string;
             login_name: string;
@@ -1796,6 +1857,143 @@ export interface operations {
             };
             /** @description Missing or invalid bearer token */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_personal_access_tokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List personal access tokens for current user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalAccessTokenResponse"][];
+                };
+            };
+            /** @description Missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access tokens cannot manage personal access tokens */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    create_personal_access_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePersonalAccessTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Create a new personal access token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatePersonalAccessTokenResponse"];
+                };
+            };
+            /** @description Invalid personal access token request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access tokens cannot manage personal access tokens */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    revoke_personal_access_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Personal access token id */
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Personal access token revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access tokens cannot manage personal access tokens */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access token not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

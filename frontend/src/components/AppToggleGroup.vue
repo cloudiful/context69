@@ -11,10 +11,12 @@ interface ToggleItem {
 
 const props = withDefaults(defineProps<{
   columnsClass?: string;
+  helperInline?: boolean;
   items: ToggleItem[];
   modelValue: Record<string, boolean>;
 }>(), {
   columnsClass: "grid gap-4 lg:grid-cols-2 lg:items-start",
+  helperInline: false,
 });
 
 const emit = defineEmits<{
@@ -37,6 +39,7 @@ function updateItem(key: string, value: boolean) {
       :input-id="item.inputId"
       :label="item.label"
       :helper="item.helper"
+      :helper-inline="props.helperInline"
       :model-value="!!props.modelValue[item.key]"
       :test-id="item.testId"
       @update:model-value="updateItem(item.key, $event)"

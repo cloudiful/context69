@@ -12,6 +12,7 @@ mod docling_settings;
 mod documents;
 mod migrations;
 mod namespaces;
+mod personal_access_tokens;
 mod provider_accounts;
 mod rows;
 mod runtime_settings;
@@ -22,6 +23,7 @@ mod sync_runs;
 
 pub use auth::RefreshTokenRecord;
 pub use migrations::MIGRATOR;
+pub use personal_access_tokens::PersonalAccessTokenRecord;
 use rows::*;
 
 #[derive(Clone)]

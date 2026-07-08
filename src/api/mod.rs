@@ -10,6 +10,7 @@ mod health;
 mod library;
 mod library_upload;
 mod namespaces;
+mod personal_access_tokens;
 mod project_access;
 mod project_library;
 mod project_sources;
@@ -31,7 +32,11 @@ pub(crate) use admin_users::{
     reset_admin_user_password, update_admin_user,
 };
 pub(crate) use auth::{
-    RequestAuth, auth_middleware, login, logout, me, optional_auth_middleware, refresh,
+    RequestAuth, auth_middleware, forbid_personal_access_token_middleware, login, logout, me,
+    optional_auth_middleware, refresh, require_admin_scope_middleware,
+    require_library_scope_middleware, require_search_scope_middleware,
+    require_settings_scope_middleware, require_sources_scope_middleware,
+    require_workspace_scope_middleware, touch_personal_access_token_middleware,
 };
 pub(crate) use docs::{get_document, openapi_json, search};
 pub(crate) use health::healthz;
@@ -45,6 +50,9 @@ pub(crate) use namespaces::{
     delete_project_member, get_group, get_project, list_group_members, list_groups,
     list_project_members, list_projects, move_project, update_group, update_project,
     upsert_group_member, upsert_project_member,
+};
+pub(crate) use personal_access_tokens::{
+    create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,
 };
 pub(crate) use project_library::{
     create_project_library_folder, create_project_library_text, delete_project_library_file,

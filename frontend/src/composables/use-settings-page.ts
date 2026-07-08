@@ -36,7 +36,7 @@ import {
   runtimeResponseToPayload,
   searchResponseToPayload,
 } from "../utils/settings";
-import { clearSearchHistory, readSearchHistory } from "../utils/search-history";
+import { useSettingsPersonalAccessTokens } from "./use-settings-personal-access-tokens";
 
 const providerKindOptions = [{ label: "openai_compatible", value: "openai_compatible" }];
 
@@ -44,6 +44,7 @@ export function useSettingsPage() {
   const { t } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
+  const personalAccessTokens = useSettingsPersonalAccessTokens();
 
   const loading = ref(false);
   const saving = ref(false);
@@ -55,7 +56,6 @@ export function useSettingsPage() {
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
   const searchSettings = ref<SearchSettingsResponse | null>(null);
   const providerAccounts = ref<ProviderAccountResponse[]>([]);
-  const recentSearchCount = ref(0);
   const adminUsers = ref<AdminUserResponse[]>([]);
   const adminUsersError = ref("");
   const adminUsersBusy = ref(false);
@@ -190,15 +190,6 @@ export function useSettingsPage() {
       providerDraft.clear_api_key = false;
     }
   });
-
-  function reloadSearchHistoryState() {
-    recentSearchCount.value = readSearchHistory().length;
-  }
-
-  function clearRecentSearches() {
-    clearSearchHistory();
-    reloadSearchHistoryState();
-  }
 
   async function loadAdminUsers() {
     if (!authSessionState.user?.is_admin) {
@@ -479,9 +470,9 @@ export function useSettingsPage() {
   }
 
   onMounted(() => {
-    reloadSearchHistoryState();
     void loadPage();
     void loadAdminUsers();
+    void personalAccessTokens.loadPersonalAccessTokens();
   });
 
   return {
@@ -489,7 +480,6 @@ export function useSettingsPage() {
     adminUsersBusy,
     adminUsersCreateBusy,
     adminUsersError,
-    clearRecentSearches,
     createAdminUser,
     deleteProviderAccount,
     doclingDraft,
@@ -507,10 +497,10 @@ export function useSettingsPage() {
     providerStatusLabel,
     providerToggleModel,
     qdrantToggleModel,
-    recentSearchCount,
     rerankApiKeyDraft,
     rerankToggleModel,
     resetAdminUserPassword,
+    ...personalAccessTokens,
     saveMessage,
     saveSettings,
     saving,
@@ -526,3 +516,5 @@ export function useSettingsPage() {
     updateAdminUser,
   };
 }
+
+export type SettingsPageState = ReturnType<typeof useSettingsPage>;

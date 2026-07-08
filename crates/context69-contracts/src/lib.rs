@@ -5,7 +5,11 @@ pub mod namespace;
 pub mod search;
 pub mod sources;
 
-pub use auth::{AuthLoginRequest, AuthMeResponse, AuthTokenResponse, AuthUserResponse};
+pub use auth::{
+    AuthLoginRequest, AuthMeResponse, AuthTokenResponse, AuthUserResponse,
+    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
+    PersonalAccessTokenResponse, PersonalAccessTokenScope,
+};
 pub use common::{ApiErrorResponse, HealthResponse, HealthStatus};
 pub use library::{
     CreateFolderRequest, CreateTextRequest, LibraryDocumentSectionPreview,

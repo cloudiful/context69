@@ -9,7 +9,6 @@ use chrono::{Duration as ChronoDuration, Utc};
 use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, decode_header, encode,
 };
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -17,6 +16,7 @@ use crate::{
     contracts::{AuthTokenResponse, AuthUserResponse, MembershipRole},
     db::{Database, RefreshTokenRecord},
     domain::{AccessScope, PersonalGroupRecord, UserRecord},
+    services::token_utils::hash_token,
 };
 
 #[derive(Clone)]
@@ -245,7 +245,7 @@ impl AuthService {
     }
 
     pub async fn refresh(&self, refresh_token: &str) -> Result<IssuedSession> {
-        let current_token_hash = token_hash(refresh_token);
+        let current_token_hash = hash_token(refresh_token);
         let record = self
             .db
             .get_refresh_token_by_hash(&current_token_hash)
@@ -261,7 +261,7 @@ impl AuthService {
 
         let access_token = self.sign_access_token(user.id)?;
         let next_refresh_token = new_refresh_token();
-        let next_refresh_hash = token_hash(&next_refresh_token);
+        let next_refresh_hash = hash_token(&next_refresh_token);
         let next_expires_at = Utc::now()
             + ChronoDuration::from_std(self.config.refresh_token_ttl)
                 .context("invalid refresh token ttl")?;
@@ -285,9 +285,7 @@ impl AuthService {
     }
 
     pub async fn logout(&self, refresh_token: &str) -> Result<()> {
-        self.db
-            .revoke_refresh_token_by_hash(&token_hash(refresh_token))
-            .await
+        self.db.revoke_refresh_token_by_hash(&hash_token(refresh_token)).await
     }
 
     pub async fn session_for_user_id(&self, user_id: i64) -> Result<AuthSession> {
@@ -343,7 +341,7 @@ impl AuthService {
     async fn issue_session(&self, user: UserRecord) -> Result<IssuedSession> {
         let access_token = self.sign_access_token(user.id)?;
         let refresh_token = new_refresh_token();
-        let refresh_token_hash = token_hash(&refresh_token);
+        let refresh_token_hash = hash_token(&refresh_token);
         let refresh_expires_at = Utc::now()
             + ChronoDuration::from_std(self.config.refresh_token_ttl)
                 .context("invalid refresh token ttl")?;
@@ -417,13 +415,6 @@ fn verify_password(password_hash: &str, password: &str) -> Result<()> {
 
 fn new_refresh_token() -> String {
     format!("rt_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
-}
-
-fn token_hash(token: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(token.as_bytes());
-    let bytes = hasher.finalize();
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn validate_refresh_token_record(record: &RefreshTokenRecord) -> Result<()> {

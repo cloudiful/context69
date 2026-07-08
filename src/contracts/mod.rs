@@ -9,7 +9,9 @@ mod sources;
 
 pub use auth::{
     AdminUserResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse, AuthUserResponse,
-    CreateAdminUserRequest, ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
+    CreateAdminUserRequest, CreatePersonalAccessTokenRequest,
+    CreatePersonalAccessTokenResponse, PersonalAccessTokenResponse,
+    PersonalAccessTokenScope, ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
 };
 pub use common::{ApiErrorResponse, HealthResponse, HealthStatus};
 pub use library::{

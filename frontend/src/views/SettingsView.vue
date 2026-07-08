@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed, provide, unref } from "vue";
+import { useRoute } from "vue-router";
 import Button from "primevue/button";
 import Message from "primevue/message";
 import { useI18n } from "vue-i18n";
@@ -6,61 +8,51 @@ import { useI18n } from "vue-i18n";
 import AppMdiIcon from "../components/AppMdiIcon.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
-import SettingsAdminUsersSection from "../components/settings-sections/SettingsAdminUsersSection.vue";
-import SettingsAppearanceSection from "../components/settings-sections/SettingsAppearanceSection.vue";
-import SettingsDoclingSection from "../components/settings-sections/SettingsDoclingSection.vue";
-import SettingsRuntimeSection from "../components/settings-sections/SettingsRuntimeSection.vue";
-import SettingsSearchSection from "../components/settings-sections/SettingsSearchSection.vue";
-import { persistLocale, type AppLocale } from "../i18n/locale";
+import { settingsPageStateKey } from "../composables/settings-page-context";
 import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
+import { persistLocale, type AppLocale } from "../i18n/locale";
+import type { SettingsSectionKey } from "../settings/navigation";
+import SettingsAccessTokensPage from "./settings/SettingsAccessTokensPage.vue";
+import SettingsAdminUsersPage from "./settings/SettingsAdminUsersPage.vue";
+import SettingsAppearancePage from "./settings/SettingsAppearancePage.vue";
+import SettingsDoclingPage from "./settings/SettingsDoclingPage.vue";
+import SettingsRuntimePage from "./settings/SettingsRuntimePage.vue";
+import SettingsSearchPage from "./settings/SettingsSearchPage.vue";
 
 const { t, locale } = useI18n({ useScope: "global" });
+const route = useRoute();
 const preferences = useUiPreferences();
 const mdiMenu = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
 const appLocale = locale as { value: AppLocale };
+const state = useSettingsPage();
 
-const {
-  adminUsers,
-  adminUsersBusy,
-  adminUsersCreateBusy,
-  adminUsersError,
-  clearRecentSearches,
-  createAdminUser,
-  deleteProviderAccount,
-  doclingDraft,
-  disableAdminUser,
-  doclingProviderOptions,
-  enableAdminUser,
-  hasChanges,
-  loading,
-  pageError,
-  providerAccountOptions,
-  providerDraft,
-  providerKindOptions,
-  providerMessage,
-  providerSaving,
-  providerStatusLabel,
-  providerToggleModel,
-  qdrantToggleModel,
-  recentSearchCount,
-  rerankApiKeyDraft,
-  rerankToggleModel,
-  resetAdminUserPassword,
-  saveMessage,
-  saveSettings,
-  saving,
-  schedulerToggleModel,
-  searchHasStoredApiKey,
-  searchDraft,
-  searchModeOptions,
-  selectedProviderAccount,
-  selectedProviderAccountKey,
-  startNewProviderAccount,
-  runtimeDraft,
-  toggleClearProviderApiKey,
-  updateAdminUser,
-} = useSettingsPage();
+provide(settingsPageStateKey, state);
+
+const currentSection = computed<SettingsSectionKey>(() => {
+  switch (route.name) {
+    case "settings-access-tokens":
+      return "access-tokens";
+    case "settings-search":
+      return "search";
+    case "settings-runtime":
+      return "runtime";
+    case "settings-docling":
+      return "docling";
+    case "settings-admin-users":
+      return "admin-users";
+    case "settings-appearance":
+    default:
+      return "appearance";
+  }
+});
+
+const hasChanges = computed(() => unref(state.hasChanges));
+const loading = computed(() => unref(state.loading));
+const pageError = computed(() => unref(state.pageError));
+const providerSaving = computed(() => unref(state.providerSaving));
+const saveMessage = computed(() => unref(state.saveMessage));
+const saving = computed(() => unref(state.saving));
 
 function switchLocale(nextLocale: AppLocale) {
   if (locale.value === nextLocale) {
@@ -99,67 +91,20 @@ function switchLocale(nextLocale: AppLocale) {
       :loading-message="t('settings.loadingMessage')"
       :error="pageError"
     >
-      <form class="grid gap-2" @submit.prevent="saveSettings">
+      <form class="grid gap-2" @submit.prevent="state.saveSettings">
         <div class="settings-sections">
-          <SettingsAppearanceSection
+          <SettingsAppearancePage
+            v-if="currentSection === 'appearance'"
             :locale="appLocale.value"
             :theme="preferences.state.theme"
             @update:locale="switchLocale"
             @update:theme="preferences.setTheme"
           />
-
-          <SettingsSearchSection
-            :clear-recent-searches="clearRecentSearches"
-            :recent-search-count="recentSearchCount"
-            :rerank-api-key-draft="rerankApiKeyDraft"
-            :rerank-toggle-model="rerankToggleModel"
-            :search-has-stored-api-key="searchHasStoredApiKey"
-            :search-draft="searchDraft"
-            :search-mode-options="searchModeOptions"
-            @update:rerank-api-key-draft="rerankApiKeyDraft = $event"
-            @update:rerank-toggle-model="rerankToggleModel = $event"
-          />
-
-          <SettingsRuntimeSection
-            :delete-provider-account="deleteProviderAccount"
-            :provider-account-options="providerAccountOptions"
-            :provider-draft="providerDraft"
-            :provider-kind-options="providerKindOptions"
-            :provider-message="providerMessage"
-            :provider-saving="providerSaving"
-            :provider-status-label="providerStatusLabel"
-            :provider-toggle-model="providerToggleModel"
-            :qdrant-toggle-model="qdrantToggleModel"
-            :runtime-draft="runtimeDraft"
-            :saving="saving"
-            :scheduler-toggle-model="schedulerToggleModel"
-            :selected-provider-account="selectedProviderAccount"
-            :selected-provider-account-key="selectedProviderAccountKey"
-            :start-new-provider-account="startNewProviderAccount"
-            :toggle-clear-provider-api-key="toggleClearProviderApiKey"
-            @update:provider-toggle-model="providerToggleModel = $event"
-            @update:qdrant-toggle-model="qdrantToggleModel = $event"
-            @update:scheduler-toggle-model="schedulerToggleModel = $event"
-            @update:selected-provider-account-key="selectedProviderAccountKey = $event"
-          />
-
-          <SettingsDoclingSection
-            :docling-draft="doclingDraft"
-            :docling-provider-options="doclingProviderOptions"
-          />
-
-          <SettingsAdminUsersSection
-            v-if="adminUsers.length > 0 || adminUsersBusy || adminUsersError"
-            :busy="adminUsersBusy"
-            :create-busy="adminUsersCreateBusy"
-            :error="adminUsersError"
-            :users="adminUsers"
-            @create="createAdminUser"
-            @disable="disableAdminUser"
-            @enable="enableAdminUser"
-            @reset-password="resetAdminUserPassword"
-            @update="updateAdminUser"
-          />
+          <SettingsAccessTokensPage v-else-if="currentSection === 'access-tokens'" />
+          <SettingsSearchPage v-else-if="currentSection === 'search'" />
+          <SettingsRuntimePage v-else-if="currentSection === 'runtime'" />
+          <SettingsDoclingPage v-else-if="currentSection === 'docling'" />
+          <SettingsAdminUsersPage v-else />
         </div>
 
         <div class="settings-save-bar">

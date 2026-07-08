@@ -138,14 +138,19 @@
   }
 
   .p-select {
+    display: flex;
     min-height: 2.1rem;
     min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   .p-select-label {
     display: block;
+    flex: 1 1 auto;
     min-height: 2.1rem;
     min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -168,6 +168,8 @@ Runtime endpoints include:
 - `GET /healthz`
 - `GET /openapi.json`
 - `POST /v1/search`
+- `GET|POST /v1/auth/personal-access-tokens`
+- `DELETE /v1/auth/personal-access-tokens/{token_id}`
 - source and document management endpoints under `/v1/*`
 
 For the full surface:
@@ -177,6 +179,10 @@ For the full surface:
 
 ## Security
 
+- Personal access tokens are user-scoped bearer credentials for CLI, MCP, or automation callers.
+- Access token plaintext is returned only once at creation time; after that only metadata is listed in the UI and API.
+- Personal access tokens always expire and can be revoked from the frontend settings page.
+- Personal access tokens inherit the owning user's permissions and are further limited by the selected coarse scopes.
 - Do not commit real credentials, API keys, or database URLs
 - Use environment variables or your platform secret manager
 - Keep `.env` files local only

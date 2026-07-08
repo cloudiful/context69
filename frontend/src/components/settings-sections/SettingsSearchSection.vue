@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
 
 import AppNumberField from "../AppNumberField.vue";
 import AppSelectField from "../AppSelectField.vue";
@@ -12,8 +11,6 @@ import type { DraftSearchSettings } from "../../utils/settings";
 type RerankToggleModel = { rerank_enabled: boolean };
 
 defineProps<{
-  clearRecentSearches: () => void;
-  recentSearchCount: number;
   rerankApiKeyDraft: string;
   rerankToggleModel: RerankToggleModel;
   searchHasStoredApiKey: boolean;
@@ -38,22 +35,6 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
 <template>
   <AppSettingsSection :legend="t('settings.search.title')">
     <div id="settings-search" class="grid gap-4">
-      <section id="settings-search-history" class="settings-block">
-        <div class="settings-block-header">
-          <h3 class="settings-block-title">{{ t("settings.search.historyTitle") }}</h3>
-          <Button
-            class="settings-inline-button"
-            type="button"
-            severity="secondary"
-            variant="outlined"
-            :disabled="recentSearchCount === 0"
-            @click="clearRecentSearches"
-          >
-            {{ t("settings.search.clearHistory") }}
-          </Button>
-        </div>
-      </section>
-
       <section class="settings-block">
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.search.title") }}</h3>
         <div class="grid gap-3">

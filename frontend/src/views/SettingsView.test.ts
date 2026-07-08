@@ -1,6 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Select from "primevue/select";
+import { createMemoryHistory, createRouter } from "vue-router";
 
 import { apiClient } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
@@ -8,7 +9,6 @@ import { setGuest } from "../test-utils/auth";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
 import { installMockStorage } from "../test-utils/storage";
 import { LOCALE_STORAGE_KEY } from "../i18n/locale";
-import { SEARCH_HISTORY_STORAGE_KEY } from "../utils/search-history";
 
 import SettingsView from "./SettingsView.vue";
 
@@ -81,6 +81,20 @@ const providerAccountsResponse = [
   },
 ];
 
+const personalAccessTokensResponse = [
+  {
+    token_id: "00000000-0000-0000-0000-000000000001",
+    name: "CLI",
+    display_prefix: "ctx_pat_abcd",
+    scopes: ["search", "library"],
+    expires_at: "2026-12-31T00:00:00Z",
+    last_used_at: null,
+    revoked_at: null,
+    created_at: "2026-06-01T00:00:00Z",
+    updated_at: "2026-06-01T00:00:00Z",
+  },
+];
+
 function createApiSpies() {
   return {
     getRuntimeSettings: vi.spyOn(apiClient, "getRuntimeSettings").mockResolvedValue(runtimeResponse as never),
@@ -96,6 +110,12 @@ function createApiSpies() {
     createProviderAccount: vi.spyOn(apiClient, "createProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never),
     updateProviderAccount: vi.spyOn(apiClient, "updateProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never),
     deleteProviderAccount: vi.spyOn(apiClient, "deleteProviderAccount").mockResolvedValue(undefined as never),
+    listPersonalAccessTokens: vi.spyOn(apiClient, "listPersonalAccessTokens").mockResolvedValue(personalAccessTokensResponse as never),
+    createPersonalAccessToken: vi.spyOn(apiClient, "createPersonalAccessToken").mockResolvedValue({
+      access_token: "ctx_pat_secret",
+      token: personalAccessTokensResponse[0],
+    } as never),
+    revokePersonalAccessToken: vi.spyOn(apiClient, "revokePersonalAccessToken").mockResolvedValue(undefined as never),
     listAdminUsers: vi.spyOn(apiClient, "listAdminUsers").mockResolvedValue([] as never),
     createAdminUser: vi.spyOn(apiClient, "createAdminUser").mockResolvedValue(undefined as never),
     updateAdminUser: vi.spyOn(apiClient, "updateAdminUser").mockResolvedValue(undefined as never),
@@ -107,6 +127,34 @@ function createApiSpies() {
 
 let apiSpies: ReturnType<typeof createApiSpies>;
 
+async function mountSettingsView(path: string, i18n = createTestI18n("en")) {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: "/settings/appearance", name: "settings-appearance", component: SettingsView },
+      { path: "/settings/access-tokens", name: "settings-access-tokens", component: SettingsView },
+      { path: "/settings/search", name: "settings-search", component: SettingsView },
+      { path: "/settings/runtime", name: "settings-runtime", component: SettingsView },
+      { path: "/settings/docling", name: "settings-docling", component: SettingsView },
+      { path: "/settings/admin-users", name: "settings-admin-users", component: SettingsView },
+    ],
+  });
+
+  router.push(path);
+  await router.isReady();
+
+  const wrapper = mount(SettingsView, {
+    attachTo: document.body,
+    global: {
+      plugins: [testPrimeVuePlugin, i18n, router],
+    },
+  });
+
+  await flushPromises();
+
+  return { wrapper, router };
+}
+
 describe("SettingsView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -115,42 +163,28 @@ describe("SettingsView", () => {
     apiSpies = createApiSpies();
   });
 
-  it("loads settings, shows recent search history, and saves runtime/docling/search updates", async () => {
-    window.localStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify([
-      {
-        query: "policy",
-        sourceKey: "",
-        publishedAfter: "",
-        publishedBefore: "",
-        limit: 8,
-        savedAt: "2026-04-30T00:00:00.000Z",
-      },
-    ]));
+  it("loads settings and preserves shared save flow across runtime, docling, and search subpages", async () => {
+    const { wrapper, router } = await mountSettingsView("/settings/runtime");
 
-    const wrapper = mount(SettingsView, {
-      attachTo: document.body,
-      global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
-      },
-    });
-
-    await flushPromises();
     await vi.waitFor(() => {
       expect(apiSpies.getRuntimeSettings).toHaveBeenCalledTimes(1);
       expect(apiSpies.getDoclingSettings).toHaveBeenCalledTimes(1);
       expect(apiSpies.getSearchSettings).toHaveBeenCalledTimes(1);
-      expect(wrapper.find("#docling-base-url").exists()).toBe(true);
+      expect(apiSpies.listPersonalAccessTokens).toHaveBeenCalledTimes(1);
+      expect(wrapper.find("#runtime-embedding-model").exists()).toBe(true);
     });
 
-    expect(wrapper.text()).toContain("Appearance");
-    expect(wrapper.find('[data-testid="settings-locale-select"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="settings-theme-select"]').exists()).toBe(true);
     expect(wrapper.get("#runtime-scheduler-valkey-url").attributes("placeholder")).toBe("redis://valkey:6379/0");
     expect(wrapper.text()).toContain("Provider Accounts");
-    expect(wrapper.text()).toContain("Recent Search History");
-
     await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
+
+    await router.push("/settings/docling");
+    await flushPromises();
+    expect(wrapper.find("#docling-base-url").exists()).toBe(true);
     await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
+
+    await router.push("/settings/search");
+    await flushPromises();
     await wrapper.get("#search-rerank-api-key").setValue("rerank-secret");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
@@ -183,14 +217,7 @@ describe("SettingsView", () => {
 
   it("switches locale and theme from the settings page", async () => {
     const i18n = createTestI18n("en");
-    const wrapper = mount(SettingsView, {
-      attachTo: document.body,
-      global: {
-        plugins: [testPrimeVuePlugin, i18n],
-      },
-    });
-
-    await flushPromises();
+    const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
 
     const selects = wrapper.findAllComponents(Select).filter((component) => {
       const testId = component.attributes()["data-testid"];
@@ -209,14 +236,7 @@ describe("SettingsView", () => {
   });
 
   it("saves provider account changes through the single page save action", async () => {
-    const wrapper = mount(SettingsView, {
-      attachTo: document.body,
-      global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
-      },
-    });
-
-    await flushPromises();
+    const { wrapper } = await mountSettingsView("/settings/runtime");
     await wrapper.get("#provider-clear-api-key").trigger("click");
     expect(wrapper.find("#provider-save-account").exists()).toBe(false);
     await wrapper.get("form").trigger("submit");
@@ -226,5 +246,45 @@ describe("SettingsView", () => {
       account_key: "openrouter-default",
       clear_api_key: true,
     }));
+  });
+
+  it("creates and reveals a personal access token", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const { wrapper } = await mountSettingsView("/settings/access-tokens");
+
+    await wrapper.get("#personal-access-token-name").setValue("CLI");
+    const libraryToggle = wrapper.findComponent('[data-testid="pat-scope-library"]') as unknown as {
+      vm: { $emit: (event: string, value: boolean) => void };
+    };
+    libraryToggle.vm.$emit("update:modelValue", true);
+    await flushPromises();
+    await wrapper.get('[data-testid="personal-access-token-create"]').trigger("click");
+    await flushPromises();
+
+    expect(apiSpies.createPersonalAccessToken).toHaveBeenCalledWith({
+      name: "CLI",
+      scopes: ["search", "library"],
+      expires_in_days: 30,
+    });
+    expect(wrapper.get('[data-testid="personal-access-token-secret"]').text()).toContain("ctx_pat_secret");
+  });
+
+  it("requires a token name before allowing personal access token creation", async () => {
+    const { wrapper } = await mountSettingsView("/settings/access-tokens");
+
+    const createButton = wrapper.get('[data-testid="personal-access-token-create"]');
+    expect(createButton.attributes("disabled")).toBeDefined();
+    expect(wrapper.text()).toContain("Token name is required.");
+
+    await wrapper.get("#personal-access-token-name").setValue("CLI");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="personal-access-token-create"]').attributes("disabled")).toBeUndefined();
   });
 });

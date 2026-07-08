@@ -60,7 +60,7 @@ impl Context69McpServer {
                 None,
             ));
         }
-        Ok(auth.0.map(|session| session.user.id))
+        Ok(auth.0.map(|authenticated| authenticated.session.user.id))
     }
 
     async fn scope_from_context(

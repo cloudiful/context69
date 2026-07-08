@@ -7,6 +7,7 @@ import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";
 import { createLibraryApi } from "./api-library";
 import { createNamespacesApi } from "./api-namespaces";
+import { createPersonalAccessTokensApi } from "./api-personal-access-tokens";
 import { createProjectWorkspaceApi } from "./api-project-workspace";
 import { createSearchApi } from "./api-search";
 import { createSettingsApi } from "./api-settings";
@@ -102,6 +103,7 @@ export async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
 export const apiClient = {
   ...createAdminUsersApi({ openapiClient, unwrapResponse }),
   ...createNamespacesApi({ openapiClient, unwrapResponse }),
+  ...createPersonalAccessTokensApi({ openapiClient, unwrapResponse }),
   ...createProjectWorkspaceApi({
     authFetch,
     openapiClient,

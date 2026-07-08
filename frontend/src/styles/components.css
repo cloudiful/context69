@@ -81,6 +81,10 @@
     @apply grid flex-1 content-start gap-1 overflow-y-auto py-3;
   }
 
+  .app-sidebar-nav-item {
+    @apply grid gap-1;
+  }
+
   .app-sidebar-link {
     @apply flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm text-app-text-muted transition hover:bg-app-surface-soft/40 hover:text-app-text;
   }
@@ -103,6 +107,22 @@
 
   .app-sidebar-link:hover .app-sidebar-link-mark {
     @apply text-app-text;
+  }
+
+  .app-sidebar-subnav {
+    @apply ml-4 grid gap-1 border-l border-app-border/45 pl-3;
+  }
+
+  .app-sidebar-subnav-heading {
+    @apply truncate px-2.5 pt-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-app-text-dim;
+  }
+
+  .app-sidebar-sublink {
+    @apply flex min-w-0 items-center rounded-lg px-2.5 py-1.5 text-xs text-app-text-dim transition hover:bg-app-surface-soft/35 hover:text-app-text;
+  }
+
+  .app-sidebar-sublink.is-active {
+    @apply bg-app-surface-soft/55 text-app-text;
   }
 
   .app-sidebar-footer {
@@ -1012,6 +1032,10 @@
     @apply flex flex-wrap items-center gap-3;
   }
 
+  .settings-validation-text {
+    @apply text-xs leading-5 font-medium text-app-danger;
+  }
+
   .settings-inline-button.p-button {
     @apply inline-flex min-h-8 items-center justify-center rounded-lg border border-app-border bg-app-surface-soft/45 px-3 text-sm font-medium shadow-none transition whitespace-nowrap;
   }
@@ -1133,16 +1157,12 @@
     @apply font-semibold text-app-text;
   }
 
-  .app-settings-section.p-fieldset {
-    border-radius: 1.15rem;
+  .app-settings-section {
+    @apply min-w-0;
   }
 
-  .app-settings-section .p-fieldset-content {
-    padding: 1rem 1.15rem 1.15rem;
-  }
-
-  .app-settings-section .p-fieldset-legend-label {
-    font-size: 0.98rem;
+  .app-settings-section-body {
+    @apply grid gap-4;
   }
 
   .app-table-record-query {

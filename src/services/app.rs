@@ -16,7 +16,8 @@ use crate::{
     qdrant_index::QdrantIndex,
     services::{
         auth::AuthService, library::LibraryService, namespace::NamespaceService,
-        query::QueryService, settings::SettingsService, sync::SyncService,
+        personal_access_tokens::PersonalAccessTokenService, query::QueryService,
+        settings::SettingsService, sync::SyncService,
     },
     source_store::SourceStore,
 };
@@ -26,6 +27,7 @@ pub struct Context69App {
     pub config: Config,
     pub db: Database,
     pub auth: AuthService,
+    pub personal_access_tokens: PersonalAccessTokenService,
     pub namespace: NamespaceService,
     pub query: QueryService,
     pub sync: SyncService,
@@ -38,6 +40,7 @@ impl Context69App {
         let db = Database::connect(&config.app_db.url).await?;
         let namespace = NamespaceService::new(db.clone());
         let auth = AuthService::new(db.clone(), config.auth.clone())?;
+        let personal_access_tokens = PersonalAccessTokenService::new(db.clone(), auth.clone());
         auth.ensure_bootstrap_admin().await?;
         import_legacy_runtime_if_needed(&db, &config).await?;
 
@@ -157,6 +160,7 @@ impl Context69App {
             config,
             db,
             auth,
+            personal_access_tokens,
             namespace,
             query,
             sync,

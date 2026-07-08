@@ -35,19 +35,72 @@ export const router = createRouter({
     },
     {
       path: "/groups/:groupKey",
-      name: "group-detail",
-      component: () => import("../views/GroupDetailView.vue"),
+      component: () => import("../views/GroupShellView.vue"),
       meta: {
         requiresAuth: true,
       },
+      children: [
+        {
+          path: "",
+          name: "group-detail",
+          redirect: (to) => ({
+            name: "group-overview",
+            params: to.params,
+          }),
+        },
+        {
+          path: "overview",
+          name: "group-overview",
+          component: () => import("../views/workspace/GroupOverviewPage.vue"),
+        },
+        {
+          path: "projects",
+          name: "group-projects",
+          component: () => import("../views/workspace/GroupProjectsPage.vue"),
+        },
+        {
+          path: "members",
+          name: "group-members",
+          component: () => import("../views/workspace/GroupMembersPage.vue"),
+        },
+      ],
     },
     {
       path: "/groups/:groupKey/projects/:projectKey",
-      name: "project",
-      component: () => import("../views/ProjectView.vue"),
+      component: () => import("../views/ProjectShellView.vue"),
       meta: {
         requiresAuth: true,
       },
+      children: [
+        {
+          path: "",
+          name: "project",
+          redirect: (to) => ({
+            name: "project-overview",
+            params: to.params,
+          }),
+        },
+        {
+          path: "overview",
+          name: "project-overview",
+          component: () => import("../views/workspace/ProjectOverviewPage.vue"),
+        },
+        {
+          path: "sources",
+          name: "project-sources",
+          component: () => import("../views/workspace/ProjectSourcesPage.vue"),
+        },
+        {
+          path: "files",
+          name: "project-files",
+          component: () => import("../views/workspace/ProjectFilesPage.vue"),
+        },
+        {
+          path: "members",
+          name: "project-members",
+          component: () => import("../views/workspace/ProjectMembersPage.vue"),
+        },
+      ],
     },
     {
       path: "/sources",
@@ -58,10 +111,58 @@ export const router = createRouter({
     },
     {
       path: "/settings",
-      name: "settings",
+      redirect: "/settings/appearance",
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: "/settings/appearance",
+      name: "settings-appearance",
       component: () => import("../views/SettingsView.vue"),
       meta: {
         requiresAuth: true,
+      },
+    },
+    {
+      path: "/settings/access-tokens",
+      name: "settings-access-tokens",
+      component: () => import("../views/SettingsView.vue"),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: "/settings/search",
+      name: "settings-search",
+      component: () => import("../views/SettingsView.vue"),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: "/settings/runtime",
+      name: "settings-runtime",
+      component: () => import("../views/SettingsView.vue"),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: "/settings/docling",
+      name: "settings-docling",
+      component: () => import("../views/SettingsView.vue"),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: "/settings/admin-users",
+      name: "settings-admin-users",
+      component: () => import("../views/SettingsView.vue"),
+      meta: {
+        requiresAuth: true,
+        requiresAdmin: true,
       },
     },
     {
@@ -124,6 +225,10 @@ router.beforeEach(async (to) => {
 
   if (to.meta.guestOnly && isAuthenticated()) {
     return { name: "search" };
+  }
+
+  if (to.meta.requiresAdmin && !authSessionState.user?.is_admin) {
+    return { name: "settings-appearance" };
   }
 
   return true;

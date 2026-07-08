@@ -51,6 +51,7 @@ declare module 'vue' {
     SearchHistoryPanel: typeof import('./src/components/SearchHistoryPanel.vue')['default']
     SearchResultList: typeof import('./src/components/SearchResultList.vue')['default']
     SearchSelectionPreview: typeof import('./src/components/SearchSelectionPreview.vue')['default']
+    SettingsAccessTokensSection: typeof import('./src/components/settings-sections/SettingsAccessTokensSection.vue')['default']
     SettingsAdminUsersSection: typeof import('./src/components/settings-sections/SettingsAdminUsersSection.vue')['default']
     SettingsAppearanceSection: typeof import('./src/components/settings-sections/SettingsAppearanceSection.vue')['default']
     SettingsDoclingSection: typeof import('./src/components/settings-sections/SettingsDoclingSection.vue')['default']

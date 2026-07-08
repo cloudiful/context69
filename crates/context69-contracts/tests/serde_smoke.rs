@@ -1,6 +1,7 @@
 use context69_contracts::{
-    AuthLoginRequest, CreateTextRequest, GroupKind, GroupResponse, HealthResponse, HealthStatus,
-    LibraryUploadResponse, ListSourcesResponse, MembershipRole, SearchRequest,
+    AuthLoginRequest, CreatePersonalAccessTokenRequest, CreateTextRequest, GroupKind,
+    GroupResponse, HealthResponse, HealthStatus, LibraryUploadResponse, ListSourcesResponse,
+    MembershipRole, PersonalAccessTokenResponse, PersonalAccessTokenScope, SearchRequest,
     SourceOriginStatusKind, SourceStatus, UpsertLibraryTextRequest, Visibility,
 };
 use serde_json::{Value, json};
@@ -32,6 +33,17 @@ fn serializes_and_deserializes_core_requests() {
         serde_json::from_value(serde_json::to_value(login).expect("serialize login"))
             .expect("deserialize login");
     assert_eq!(roundtrip.login_name, "admin");
+
+    let pat_request = CreatePersonalAccessTokenRequest {
+        name: "CI".to_string(),
+        scopes: vec![
+            PersonalAccessTokenScope::Search,
+            PersonalAccessTokenScope::Library,
+        ],
+        expires_in_days: 30,
+    };
+    let pat_request_json = serde_json::to_value(&pat_request).expect("serialize pat request");
+    assert_eq!(pat_request_json["scopes"], json!(["search", "library"]));
 
     let text_request = CreateTextRequest {
         folder_id: Some(Uuid::nil()),
@@ -122,4 +134,24 @@ fn serializes_core_responses() {
     };
     let upload_json = serde_json::to_value(library_upload).expect("serialize library upload");
     assert_eq!(upload_json, json!({ "files": [], "jobs": [] }));
+
+    let pat = PersonalAccessTokenResponse {
+        token_id: Uuid::nil(),
+        name: "CLI".to_string(),
+        display_prefix: "ctx_pat_abcd".to_string(),
+        scopes: vec![PersonalAccessTokenScope::Search],
+        expires_at: chrono::DateTime::parse_from_rfc3339("2026-12-31T00:00:00Z")
+            .expect("expires_at")
+            .with_timezone(&chrono::Utc),
+        last_used_at: None,
+        revoked_at: None,
+        created_at: chrono::DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")
+            .expect("created_at")
+            .with_timezone(&chrono::Utc),
+        updated_at: chrono::DateTime::parse_from_rfc3339("2026-06-02T00:00:00Z")
+            .expect("updated_at")
+            .with_timezone(&chrono::Utc),
+    };
+    let pat_json = serde_json::to_value(pat).expect("serialize pat");
+    assert_eq!(pat_json["display_prefix"], json!("ctx_pat_abcd"));
 }

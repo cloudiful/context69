@@ -4,6 +4,8 @@ use utoipa::ToSchema;
 
 pub use context69_contracts::{
     AuthLoginRequest, AuthMeResponse, AuthTokenResponse, AuthUserResponse,
+    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
+    PersonalAccessTokenResponse, PersonalAccessTokenScope,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

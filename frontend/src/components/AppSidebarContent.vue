@@ -28,6 +28,10 @@ function isActive(itemTo: string) {
   return route.path === itemTo || route.path.startsWith(`${itemTo}/`);
 }
 
+function hasActiveChildren(item: (typeof items.value)[number]) {
+  return !!item.children?.length && isActive(item.to);
+}
+
 function handleNavigate() {
   if (props.closeOnNavigate) {
     preferences.closeMobileNav();
@@ -45,23 +49,47 @@ async function signOut() {
 
 <template>
   <nav class="app-sidebar-nav">
-    <RouterLink
+    <div
       v-for="item in isAuthenticated() ? items : []"
       :key="item.to"
-      :to="item.to"
-      class="app-sidebar-link"
-      :class="{ 'is-active': isActive(item.to) }"
-      :data-nav-key="item.to"
-      :title="item.label"
-      @click="handleNavigate"
+      class="app-sidebar-nav-item"
     >
-      <span class="app-sidebar-link-mark">
-        <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon" />
-      </span>
-      <Transition name="sidebar-label">
-        <span v-if="!collapsed">{{ item.label }}</span>
-      </Transition>
-    </RouterLink>
+      <RouterLink
+        :to="item.to"
+        class="app-sidebar-link"
+        :class="{ 'is-active': isActive(item.to) }"
+        :data-nav-key="item.to"
+        :title="item.label"
+        @click="handleNavigate"
+      >
+        <span class="app-sidebar-link-mark">
+          <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon" />
+        </span>
+        <Transition name="sidebar-label">
+          <span v-if="!collapsed">{{ item.label }}</span>
+        </Transition>
+      </RouterLink>
+
+      <div
+        v-if="!collapsed && hasActiveChildren(item)"
+        class="app-sidebar-subnav"
+      >
+        <p v-if="item.childHeading" class="app-sidebar-subnav-heading">
+          {{ item.childHeading }}
+        </p>
+        <RouterLink
+          v-for="child in item.children"
+          :key="child.to"
+          :to="child.to"
+          class="app-sidebar-sublink"
+          :class="{ 'is-active': isActive(child.to) }"
+          :data-nav-child-key="child.to"
+          @click="handleNavigate"
+        >
+          <span>{{ child.label }}</span>
+        </RouterLink>
+      </div>
+    </div>
   </nav>
 
   <div class="app-sidebar-footer">

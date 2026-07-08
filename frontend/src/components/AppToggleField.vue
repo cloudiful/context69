@@ -5,6 +5,7 @@ const props = defineProps<{
   inputId: string;
   label: string;
   helper?: string;
+  helperInline?: boolean;
   modelValue: boolean;
   testId?: string;
 }>();
@@ -20,8 +21,20 @@ const emit = defineEmits<{
     :for="props.inputId"
   >
     <div class="min-w-0 grow">
-      <p class="text-sm font-medium text-app-text">{{ props.label }}</p>
-      <p v-if="props.helper" class="text-xs leading-5 text-app-text-dim">{{ props.helper }}</p>
+      <div
+        :class="props.helperInline
+          ? 'flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1'
+          : ''"
+      >
+        <p class="text-sm font-medium text-app-text">{{ props.label }}</p>
+        <p
+          v-if="props.helper"
+          class="text-xs leading-5 text-app-text-dim"
+          :class="props.helperInline ? 'min-w-0' : ''"
+        >
+          {{ props.helper }}
+        </p>
+      </div>
     </div>
     <div class="shrink-0 self-center">
       <ToggleSwitch
