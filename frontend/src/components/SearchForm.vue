@@ -121,40 +121,42 @@ function resetForm() {
 
 <template>
   <Fluid>
-    <form class="search-form-layout" @submit.prevent="emit('submit')">
-      <div class="search-form-topline">
-        <div class="search-form-query-shell">
+    <form class="grid gap-2 rounded-[1.1rem] border border-app-border/80 bg-app-surface/95 p-2 max-md:rounded-[0.8rem] max-md:p-2" @submit.prevent="emit('submit')">
+      <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto] max-md:grid-cols-1">
+        <div class="min-w-0">
           <InputText
             id="query"
             v-model="queryModel"
             data-testid="search-query"
-            class="search-form-query"
+            class="min-h-[2.35rem] w-full min-w-0"
             :placeholder="t('search.form.query')"
           />
         </div>
 
-        <div class="search-form-actions">
+        <div class="flex items-stretch justify-end gap-1.5 max-md:grid max-md:grid-cols-2">
           <Button
-            class="search-form-action search-form-action-tertiary"
+            class="justify-center min-h-[2.35rem] px-2"
             data-testid="search-toggle-advanced"
             type="button"
             severity="secondary"
             variant="text"
+            size="small"
             :label="advancedFiltersOpen ? t('search.form.hideFilters') : t('search.form.moreFilters')"
             @click="advancedFiltersOpen = !advancedFiltersOpen"
           />
           <Button
-            class="search-form-action search-form-action-primary"
+            class="justify-center min-h-[2.35rem] min-w-[7.25rem] w-full whitespace-nowrap lg:w-auto"
             data-testid="search-submit"
             type="submit"
             :disabled="busy"
+            size="small"
             :label="busy ? t('search.form.running') : t('search.form.run')"
           />
         </div>
       </div>
 
-      <div v-if="advancedFiltersOpen" class="search-form-advanced">
-        <div class="search-form-grid search-form-grid-primary">
+      <div v-if="advancedFiltersOpen" class="grid gap-2 border-t border-app-border/70 pt-2 max-md:gap-2 max-md:pt-2">
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_8rem] max-md:grid-cols-1">
           <AppFormField input-id="source" :label="t('search.form.source')">
             <Select
               input-id="source"
@@ -178,7 +180,7 @@ function resetForm() {
           </AppFormField>
         </div>
 
-        <div class="search-form-grid search-form-grid-secondary">
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,12rem)_minmax(0,12rem)] max-md:grid-cols-1">
           <AppFormField input-id="published-after" :label="t('search.form.publishedAfter')">
             <DatePicker
               input-id="published-after"
@@ -200,13 +202,14 @@ function resetForm() {
           </AppFormField>
         </div>
 
-        <div class="search-form-advanced-actions">
+        <div class="flex justify-end">
           <Button
-            class="search-form-action search-form-action-secondary"
+            class="min-w-20"
             data-testid="search-reset"
             type="button"
             severity="secondary"
             variant="outlined"
+            size="small"
             :label="t('common.reset')"
             @click="resetForm"
           />

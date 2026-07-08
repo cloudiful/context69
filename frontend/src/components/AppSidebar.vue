@@ -20,13 +20,13 @@ const showSidebar = computed(() => route.name !== "login");
 
 const desktopSidebarPt = {
   mask: {
-    class: "app-sidebar-shell-mask app-sidebar-shell-mask-desktop hidden md:flex",
+    class: "hidden md:flex",
   },
 };
 
 const mobileSidebarPt = {
   mask: {
-    class: "app-sidebar-shell-mask app-sidebar-shell-mask-mobile md:hidden",
+    class: "md:hidden",
   },
 };
 
@@ -45,44 +45,39 @@ function setMobileNavVisible(visible: boolean) {
       :show-close-icon="false"
       :close-on-escape="false"
       :auto-z-index="false"
-      class="app-sidebar-shell app-sidebar-shell-desktop hidden md:flex"
-      :class="{ 'is-collapsed': preferences.state.sidebarCollapsed }"
+      class="hidden md:flex"
+      :class="preferences.state.sidebarCollapsed ? 'h-screen w-[4.75rem]' : 'h-screen w-[14rem]'"
       :pt="desktopSidebarPt"
     >
-      <template #container>
-        <div class="app-sidebar-panel">
-          <div class="app-sidebar-head">
-            <div
-              class="flex items-center gap-2"
-              :class="preferences.state.sidebarCollapsed ? 'justify-center' : 'justify-between'"
-            >
-              <Transition name="sidebar-brand">
-                <div v-if="!preferences.state.sidebarCollapsed" class="app-sidebar-brand">
-                  <span class="app-sidebar-brand-mark">C</span>
-                  <span class="app-sidebar-brand-text">Context69</span>
-                </div>
-              </Transition>
-              <Button
-                data-testid="sidebar-collapse-toggle"
-                class="app-control-button app-sidebar-icon-button"
-                type="button"
-                text
-                :aria-label="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
-                :title="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
-                @click="preferences.toggleSidebar"
-              >
-                <AppMdiIcon
-                  :path="preferences.state.sidebarCollapsed ? mdiChevronRight : mdiChevronLeft"
-                  :title="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
-                  class="app-sidebar-link-icon"
-                />
-              </Button>
-            </div>
+      <template #header>
+        <div
+          class="flex w-full items-center gap-2"
+          :class="preferences.state.sidebarCollapsed ? 'justify-center' : 'justify-between'"
+        >
+          <div v-if="!preferences.state.sidebarCollapsed" class="flex items-center gap-2">
+            <span class="flex h-9 w-9 items-center justify-center rounded-xl border border-app-border bg-app-surface-soft/60 text-sm font-bold">C</span>
+            <span class="text-[0.98rem] font-semibold">Context69</span>
           </div>
-
-          <AppSidebarContent :collapsed="preferences.state.sidebarCollapsed" />
+          <Button
+            data-testid="sidebar-collapse-toggle"
+            class="inline-flex h-9 w-9 shrink-0 items-center justify-center px-0"
+            type="button"
+            severity="secondary"
+            variant="outlined"
+            :aria-label="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
+            :title="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
+            @click="preferences.toggleSidebar"
+          >
+            <AppMdiIcon
+              :path="preferences.state.sidebarCollapsed ? mdiChevronRight : mdiChevronLeft"
+              :title="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
+              class="app-sidebar-link-icon h-4 w-4"
+            />
+          </Button>
         </div>
       </template>
+
+      <AppSidebarContent :collapsed="preferences.state.sidebarCollapsed" />
     </Sidebar>
 
     <Sidebar
@@ -92,34 +87,32 @@ function setMobileNavVisible(visible: boolean) {
       dismissable
       :show-close-icon="false"
       block-scroll
-      class="app-sidebar-shell app-sidebar-shell-mobile md:hidden"
+      class="h-screen md:hidden"
+      :style="{ width: 'min(20rem, calc(100vw - 1rem))', maxWidth: 'calc(100vw - 1rem)' }"
       :pt="mobileSidebarPt"
       @update:visible="setMobileNavVisible"
     >
-      <template #container="{ closeCallback }">
-        <div class="app-sidebar-panel app-sidebar-panel-mobile">
-          <div class="app-sidebar-head">
-            <div class="flex items-center justify-between gap-2">
-              <div class="app-sidebar-brand">
-                <span class="app-sidebar-brand-mark">C</span>
-                <span class="app-sidebar-brand-text">Context69</span>
-              </div>
-              <Button
-                class="app-control-button app-sidebar-icon-button"
-                type="button"
-                text
-                :aria-label="t('common.close')"
-                :title="t('common.close')"
-                @click="closeCallback"
-              >
-                <AppMdiIcon :path="mdiClose" :title="t('common.close')" class="app-sidebar-link-icon" />
-              </Button>
-            </div>
+      <template #header>
+        <div class="flex w-full items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="flex h-9 w-9 items-center justify-center rounded-xl border border-app-border bg-app-surface-soft/60 text-sm font-bold">C</span>
+            <span class="text-[0.98rem] font-semibold">Context69</span>
           </div>
-
-          <AppSidebarContent close-on-navigate />
+          <Button
+            class="inline-flex h-9 w-9 shrink-0 items-center justify-center px-0"
+            type="button"
+            severity="secondary"
+            variant="outlined"
+            :aria-label="t('common.close')"
+            :title="t('common.close')"
+            @click="setMobileNavVisible(false)"
+          >
+            <AppMdiIcon :path="mdiClose" :title="t('common.close')" class="app-sidebar-link-icon h-4 w-4" />
+          </Button>
         </div>
       </template>
+
+      <AppSidebarContent close-on-navigate />
     </Sidebar>
   </div>
 </template>

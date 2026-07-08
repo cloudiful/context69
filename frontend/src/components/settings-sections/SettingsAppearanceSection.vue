@@ -46,8 +46,8 @@ function updateTheme(value: unknown) {
 
 <template>
   <AppSettingsSection :legend="t('settings.appearance.title')">
-    <section id="settings-appearance" class="settings-block">
-      <div class="settings-compact-grid settings-compact-grid-two">
+    <section id="settings-appearance" class="grid scroll-mt-16 gap-2.5">
+      <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
         <AppSelectField
           float-label
           input-id="settings-locale-select"

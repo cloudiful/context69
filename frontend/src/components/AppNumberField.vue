@@ -42,6 +42,7 @@ const emit = defineEmits<{
       :input-id="props.inputId"
       :model-value="props.modelValue"
       :data-testid="props.testId || undefined"
+      class="w-full"
       :min="props.min"
       :max="props.max"
       :step="props.step"

@@ -99,10 +99,10 @@ function handleRowSelect(source: SourceStatus) {
       @update:search-query="searchQuery = $event"
     >
       <template #actions>
-        <Button class="tool-action" severity="secondary" variant="outlined" @click="emit('refresh')">
+        <Button severity="secondary" variant="outlined" @click="emit('refresh')">
           {{ t("sources.refresh") }}
         </Button>
-        <Button v-if="props.canManage" class="tool-action tool-action-primary" type="button" @click="emit('create')">
+        <Button v-if="props.canManage" type="button" @click="emit('create')">
           {{ t("sources.newSource") }}
         </Button>
       </template>
@@ -252,24 +252,24 @@ function handleRowSelect(source: SourceStatus) {
         >
           <template #body="{ data }">
             <div class="source-table-actions">
-              <Button class="source-table-action" type="button" severity="secondary" variant="outlined" @click.stop="emit('edit', data)">
+              <Button type="button" severity="secondary" variant="outlined" size="small" @click.stop="emit('edit', data)">
                 {{ t("common.edit") }}
               </Button>
               <Button
-                class="source-table-action"
                 type="button"
                 severity="secondary"
                 variant="outlined"
+                size="small"
                 :disabled="deletingMap[data.source_key]"
                 @click.stop="emit('delete', data.source_key)"
               >
                 {{ deletingMap[data.source_key] ? t("sources.deleting") : t("common.delete") }}
               </Button>
               <Button
-                class="source-table-action"
                 type="button"
                 severity="secondary"
                 variant="outlined"
+                size="small"
                 :disabled="syncingMap[data.source_key] || deletingMap[data.source_key]"
                 @click.stop="emit('sync', data.source_key)"
               >
@@ -343,24 +343,24 @@ function handleRowSelect(source: SourceStatus) {
           </p>
 
           <div v-if="props.canManage" class="tool-card-actions">
-            <Button class="source-table-action" type="button" severity="secondary" variant="outlined" @click="emit('edit', source)">
+            <Button type="button" severity="secondary" variant="outlined" size="small" @click="emit('edit', source)">
               {{ t("common.edit") }}
             </Button>
             <Button
-              class="source-table-action"
               type="button"
               severity="secondary"
               variant="outlined"
+              size="small"
               :disabled="deletingMap[source.source_key]"
               @click="emit('delete', source.source_key)"
             >
               {{ deletingMap[source.source_key] ? t("sources.deleting") : t("common.delete") }}
             </Button>
             <Button
-              class="source-table-action"
               type="button"
               severity="secondary"
               variant="outlined"
+              size="small"
               :disabled="syncingMap[source.source_key] || deletingMap[source.source_key]"
               @click="emit('sync', source.source_key)"
             >

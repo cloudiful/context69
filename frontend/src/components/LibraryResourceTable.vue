@@ -89,12 +89,11 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 <template>
   <div class="library-pane library-pane-compact flex h-full flex-col">
     <div class="library-browser-actions">
-      <Button class="library-browser-action" severity="secondary" variant="outlined" size="small" @click="emit('refresh')">
+      <Button severity="secondary" variant="outlined" size="small" @click="emit('refresh')">
         {{ $t("sources.refresh") }}
       </Button>
       <Button
         id="library-open-create-folder"
-        class="library-browser-action"
         size="small"
         :disabled="createFolderBusy || !selectedFolderReady"
         @click="emit('create-folder')"
@@ -102,7 +101,6 @@ function handleSurfaceContextMenu(event: MouseEvent) {
         {{ createFolderBusy ? $t("library.creating") : $t("library.newFolder") }}
       </Button>
       <FileUpload
-        class="library-browser-upload"
         mode="basic"
         name="library[]"
         custom-upload
@@ -234,7 +232,6 @@ function handleSurfaceContextMenu(event: MouseEvent) {
             <template #body="{ data }">
               <div class="library-row-actions">
                 <Button
-                  class="library-row-action"
                   severity="secondary"
                   variant="text"
                   size="small"
@@ -245,7 +242,6 @@ function handleSurfaceContextMenu(event: MouseEvent) {
                   {{ $t("common.open") }}
                 </Button>
                 <Button
-                  class="library-row-action"
                   severity="secondary"
                   variant="text"
                   size="small"
@@ -256,8 +252,7 @@ function handleSurfaceContextMenu(event: MouseEvent) {
                   {{ $t("common.move") }}
                 </Button>
                 <Button
-                  class="library-row-action library-row-action-danger"
-                  severity="secondary"
+                  severity="danger"
                   variant="text"
                   size="small"
                   :aria-label="$t('common.delete')"
@@ -348,13 +343,13 @@ function handleSurfaceContextMenu(event: MouseEvent) {
               {{ entry.errorMessage }}
             </p>
             <div class="tool-card-actions">
-              <Button class="library-row-action" severity="secondary" variant="text" size="small" @click.stop="emit('open-entry', entry)">
+              <Button severity="secondary" variant="text" size="small" @click.stop="emit('open-entry', entry)">
                 {{ $t("common.open") }}
               </Button>
-              <Button class="library-row-action" severity="secondary" variant="text" size="small" @click.stop="emit('move-entry', entry)">
+              <Button severity="secondary" variant="text" size="small" @click.stop="emit('move-entry', entry)">
                 {{ $t("common.move") }}
               </Button>
-              <Button class="library-row-action library-row-action-danger" severity="secondary" variant="text" size="small" @click.stop="emit('delete-entry', entry)">
+              <Button severity="danger" variant="text" size="small" @click.stop="emit('delete-entry', entry)">
                 {{ $t("common.delete") }}
               </Button>
             </div>

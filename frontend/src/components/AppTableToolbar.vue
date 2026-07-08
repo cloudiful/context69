@@ -20,14 +20,14 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="utility-toolbar app-table-toolbar">
-    <div class="app-table-toolbar-main">
+  <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-app-border/80 bg-app-surface px-2 py-1.5 max-md:items-stretch max-md:rounded-[0.8rem] max-md:p-2">
+    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2 max-md:w-full">
       <slot name="main" />
       <Tag v-if="countLabel" class="app-table-toolbar-count" :value="countLabel" severity="secondary" />
     </div>
 
-    <div class="utility-toolbar-group app-table-toolbar-actions">
-      <IconField v-if="searchPlaceholder" class="app-table-toolbar-search">
+    <div class="flex w-full flex-wrap items-center gap-1.5 md:w-auto md:justify-end">
+      <IconField v-if="searchPlaceholder" class="min-w-0 w-full md:w-72">
         <InputIcon class="pi pi-search" />
         <InputText
           :model-value="searchQuery"

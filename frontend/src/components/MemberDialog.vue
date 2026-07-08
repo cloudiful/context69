@@ -111,8 +111,8 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
     <div class="grid gap-3">
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
-      <div v-if="allowUserSearch !== false" class="grid gap-2">
-        <label class="form-label">{{ t("members.user") }}</label>
+      <div v-if="allowUserSearch !== false" class="grid gap-1.5">
+        <label class="text-sm font-medium text-app-text">{{ t("members.user") }}</label>
         <AutoComplete
           v-model="selectedUserModel"
           fluid
@@ -131,16 +131,16 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
         </AutoComplete>
       </div>
 
-      <div v-else class="grid gap-2">
-        <label class="form-label">{{ t("members.loginName") }}</label>
+      <div v-else class="grid gap-1.5">
+        <label class="text-sm font-medium text-app-text">{{ t("members.loginName") }}</label>
         <InputText
           v-model="manualLoginName"
           :placeholder="t('members.loginName')"
         />
       </div>
 
-      <div class="grid gap-2">
-        <label class="form-label">{{ t("members.role") }}</label>
+      <div class="grid gap-1.5">
+        <label class="text-sm font-medium text-app-text">{{ t("members.role") }}</label>
         <Select
           v-model="role"
           fluid

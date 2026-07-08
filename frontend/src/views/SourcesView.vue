@@ -243,7 +243,6 @@ onMounted(async () => {
             </div>
             <Button
               v-if="sources.length > 0"
-              class="sources-editor-close tool-action"
               type="button"
               severity="secondary"
               variant="outlined"

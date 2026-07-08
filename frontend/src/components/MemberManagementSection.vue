@@ -57,7 +57,7 @@ function submit() {
     <form class="workspace-inline-form" @submit.prevent="submit">
       <InputText v-model="loginName" :placeholder="t('members.loginName')" />
       <Select v-model="role" :options="roleOptions" option-label="label" option-value="value" />
-      <Button class="tool-action-primary" type="submit" :disabled="busy">
+      <Button type="submit" :disabled="busy">
         {{ t("members.add") }}
       </Button>
     </form>
@@ -68,7 +68,7 @@ function submit() {
           <strong>{{ member.display_name }}</strong>
           <span>{{ member.login_name }} · {{ member.role }}</span>
         </div>
-        <Button class="tool-action" severity="danger" variant="outlined" :disabled="busy" @click="emit('remove', member.login_name)">
+        <Button severity="danger" variant="outlined" :disabled="busy" @click="emit('remove', member.login_name)">
           {{ t("common.delete") }}
         </Button>
       </div>

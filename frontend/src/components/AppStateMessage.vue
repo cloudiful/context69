@@ -11,12 +11,12 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <Message class="app-state-message" :severity="severity" :closable="false">
-    <div class="app-state-message-body">
-      <p v-if="title" class="app-state-message-title">
+  <Message :severity="severity" :closable="false">
+    <div class="grid gap-0.5">
+      <p v-if="title" class="m-0">
         <strong>{{ title }}</strong>
       </p>
-      <p class="app-state-message-text">
+      <p class="m-0">
         <slot />
       </p>
     </div>

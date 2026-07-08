@@ -8,9 +8,16 @@ defineProps<{
 </script>
 
 <template>
-  <Fieldset class="app-settings-section" :legend="legend">
-    <div class="app-settings-section-body">
-      <p v-if="description" class="app-settings-section-description">{{ description }}</p>
+  <Fieldset
+    :legend="legend"
+    class="rounded-[1.15rem]"
+    :pt="{
+      content: { class: 'grid gap-5 p-4 md:p-[1.15rem]' },
+      legendLabel: { class: 'text-[0.98rem]' },
+    }"
+  >
+    <div class="grid gap-5">
+      <p v-if="description" class="text-sm leading-6 text-app-text-dim">{{ description }}</p>
       <slot />
     </div>
   </Fieldset>

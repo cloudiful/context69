@@ -81,24 +81,24 @@ function handleSubmit() {
     <div class="grid gap-3">
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
-      <div v-if="showKey" class="grid gap-2">
-        <label class="form-label">{{ entityKeyLabel || t("groups.groupKey") }}</label>
+      <div v-if="showKey" class="grid gap-1.5">
+        <label class="text-sm font-medium text-app-text">{{ entityKeyLabel || t("groups.groupKey") }}</label>
         <InputText
           v-model="entityKey"
           :placeholder="entityKeyLabel || t('groups.groupKey')"
         />
       </div>
 
-      <div class="grid gap-2">
-        <label class="form-label">{{ entityNameLabel || t("groups.groupName") }}</label>
+      <div class="grid gap-1.5">
+        <label class="text-sm font-medium text-app-text">{{ entityNameLabel || t("groups.groupName") }}</label>
         <InputText
           v-model="entityName"
           :placeholder="entityNameLabel || t('groups.groupName')"
         />
       </div>
 
-      <div class="grid gap-2">
-        <label class="form-label">{{ t("groups.visibility") }}</label>
+      <div class="grid gap-1.5">
+        <label class="text-sm font-medium text-app-text">{{ t("groups.visibility") }}</label>
         <Select
           v-model="visibility"
           fluid

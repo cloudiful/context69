@@ -61,18 +61,18 @@ function confirmMove() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="library-modal" modal :header="title" :style="{ width: '34rem', maxWidth: '92vw' }">
-    <div class="library-modal-body">
-      <div class="library-modal-intro">
-        <p class="section-label">{{ t("library.moveDialog.label") }}</p>
-        <p class="library-modal-description">{{ description }}</p>
+  <Dialog v-model:visible="visible" modal :header="title" :style="{ width: '34rem', maxWidth: '92vw' }">
+    <div class="grid gap-4">
+      <div class="grid gap-1.5">
+        <p class="section-label text-xs font-semibold uppercase tracking-[0.16em] text-app-text-dim">{{ t("library.moveDialog.label") }}</p>
+        <p class="text-sm leading-6 text-app-text-muted">{{ description }}</p>
       </div>
 
-      <label class="library-modal-field">
-        <span class="form-label">{{ t("library.moveDialog.targetFolder") }}</span>
+      <label class="grid gap-1.5">
+        <span class="text-sm font-medium text-app-text">{{ t("library.moveDialog.targetFolder") }}</span>
         <Select
           v-model="selectedValue"
-          class="library-modal-control"
+          class="w-full"
           :options="selectOptions"
           option-label="label"
           option-value="value"
@@ -81,7 +81,7 @@ function confirmMove() {
     </div>
 
     <template #footer>
-      <div class="library-modal-footer">
+      <div class="flex justify-end gap-2">
         <Button severity="secondary" variant="outlined" :disabled="busy" @click="emit('cancel')">
           {{ t("common.cancel") }}
         </Button>

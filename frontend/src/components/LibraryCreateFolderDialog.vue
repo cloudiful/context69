@@ -47,21 +47,21 @@ function confirmCreate() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="library-modal" modal :header="t('library.createDialog.title')" :style="{ width: '32rem', maxWidth: '92vw' }">
-    <div class="library-modal-body">
-      <div class="library-modal-intro">
-        <p class="section-label">{{ t("library.newFolder") }}</p>
-        <p class="library-modal-description">
+  <Dialog v-model:visible="visible" modal :header="t('library.createDialog.title')" :style="{ width: '32rem', maxWidth: '92vw' }">
+    <div class="grid gap-4">
+      <div class="grid gap-1.5">
+        <p class="section-label text-xs font-semibold uppercase tracking-[0.16em] text-app-text-dim">{{ t("library.newFolder") }}</p>
+        <p class="text-sm leading-6 text-app-text-muted">
           {{ t("library.createDialog.description", { name: parentName }) }}
         </p>
       </div>
 
-      <label class="library-modal-field">
-        <span class="form-label">{{ t("library.createDialog.nameLabel") }}</span>
+      <label class="grid gap-1.5">
+        <span class="text-sm font-medium text-app-text">{{ t("library.createDialog.nameLabel") }}</span>
         <InputText
           id="library-create-folder-name"
           v-model="folderName"
-          class="library-modal-control"
+          class="w-full"
           :placeholder="t('library.newFolderPlaceholder')"
           @keyup.enter="confirmCreate"
         />
@@ -69,7 +69,7 @@ function confirmCreate() {
     </div>
 
     <template #footer>
-      <div class="library-modal-footer">
+      <div class="flex justify-end gap-2">
         <Button severity="secondary" variant="outlined" :disabled="busy" @click="emit('cancel')">
           {{ t("common.cancel") }}
         </Button>

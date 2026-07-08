@@ -36,30 +36,30 @@ function formatHistorySummary(entry: SearchHistoryEntry) {
 <template>
   <AppPanel
     v-if="entries.length > 0"
-    class="search-history-panel"
+    surface="plain"
     :title="t('search.history.title')"
   >
     <template #actions>
       <Button
-        class="search-history-clear"
         severity="secondary"
         variant="text"
+        size="small"
         @click="emit('clear')"
       >
         {{ t("search.history.clear") }}
       </Button>
     </template>
 
-    <div class="search-history-cloud">
+    <div class="flex flex-wrap gap-2">
       <button
         v-for="entry in entries"
         :key="`${entry.query}-${entry.sourceKey}-${entry.publishedAfter}-${entry.publishedBefore}-${entry.limit}`"
-        class="search-history-chip"
+        class="inline-flex max-w-full items-center gap-2 rounded-full border border-app-border/70 bg-app-surface-muted/30 px-3 py-2 text-left transition hover:border-app-border-strong hover:bg-app-surface-soft/60"
         type="button"
         @click="emit('rerun', entry)"
       >
-        <span class="search-history-chip-query">{{ entry.query }}</span>
-        <span v-if="formatHistorySummary(entry)" class="search-history-chip-meta">
+        <span class="truncate text-sm font-semibold text-app-text">{{ entry.query }}</span>
+        <span v-if="formatHistorySummary(entry)" class="truncate text-xs text-app-text-dim">
           {{ formatHistorySummary(entry) }}
         </span>
       </button>

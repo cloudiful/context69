@@ -73,16 +73,18 @@ function switchLocale(nextLocale: AppLocale) {
 </script>
 
 <template>
-  <AppPanel class="settings-panel">
+  <AppPanel surface="plain">
     <template #actions>
-      <div class="settings-header-actions">
+      <div class="flex flex-wrap items-center justify-end gap-1.5">
         <Button
-          class="app-control-button md:hidden"
+          class="h-9 w-9 shrink-0 px-0 md:hidden"
           type="button"
           :aria-label="t('settings.openNavigation')"
+          severity="secondary"
+          variant="outlined"
           @click="preferences.toggleMobileNav"
         >
-          <AppMdiIcon :path="mdiMenu" :title="t('settings.openNavigation')" class="app-sidebar-link-icon" />
+          <AppMdiIcon :path="mdiMenu" :title="t('settings.openNavigation')" class="app-sidebar-link-icon h-4 w-4" />
         </Button>
         <Message v-if="hasChanges" severity="secondary" :closable="false">
           {{ t("settings.status.pending") }}
@@ -99,8 +101,8 @@ function switchLocale(nextLocale: AppLocale) {
       :loading-message="t('settings.loadingMessage')"
       :error="pageError"
     >
-      <form class="grid gap-2" @submit.prevent="saveSettings">
-        <div class="settings-sections">
+      <form class="grid gap-2 pb-24" @submit.prevent="saveSettings">
+        <div class="grid gap-2">
           <SettingsAppearanceSection
             :locale="appLocale.value"
             :theme="preferences.state.theme"
@@ -162,9 +164,10 @@ function switchLocale(nextLocale: AppLocale) {
           />
         </div>
 
-        <div class="settings-save-bar">
+        <div class="fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6">
           <Button
             data-testid="settings-save"
+            class="min-w-28 rounded-full px-5 shadow-[0_14px_32px_rgba(0,0,0,0.34)] backdrop-blur-xl"
             type="submit"
             :disabled="saving || providerSaving || !hasChanges"
             :label="saving ? t('common.loading') : t('common.save')"

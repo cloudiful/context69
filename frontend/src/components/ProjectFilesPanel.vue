@@ -8,13 +8,13 @@ import Message from "primevue/message";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
+import AppTableToolbar from "./AppTableToolbar.vue";
 import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
 import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
 import LibraryMoveDialog from "./LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 import LibraryPreviewShell from "./LibraryPreviewShell.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
-import LibraryToolbar from "./LibraryToolbar.vue";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
@@ -205,11 +205,9 @@ onBeforeUnmount(() => {
     accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
     @change="handleUploadInputChange"
   >
-  <LibraryToolbar
-    :breadcrumb-home="treeState.breadcrumbHome"
-    :breadcrumb-items="treeState.breadcrumbItems"
-    :count-label="treeState.filteredResourceCountLabel"
+  <AppTableToolbar
     :search-query="treeState.resourceSearchQuery"
+    :search-placeholder="t('library.filterResourcesPlaceholder')"
     @update:search-query="treeState.resourceSearchQuery = $event"
   />
   <Message v-if="treeState.treeError" severity="error" :closable="false">{{ treeState.treeError }}</Message>

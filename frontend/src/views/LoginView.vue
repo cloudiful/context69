@@ -94,79 +94,85 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
 </script>
 
 <template>
-  <div class="auth-page-shell">
-    <AppPanel class="auth-panel" :title="t('auth.title')">
-      <div v-if="authSessionState.user" class="auth-session-inline">
-        <span class="auth-session-inline-name">{{ authSessionState.user.display_name }}</span>
-        <span class="text-xs text-app-text-dim">{{ authSessionState.user.login_name }}</span>
-      </div>
-
-      <AppStateMessage
-        v-if="errorMessage"
-        severity="error"
-        :title="t('auth.loginFailedTitle')"
-      >
-        {{ errorMessage }}
-      </AppStateMessage>
-
-      <Fluid>
-        <Form
-          class="auth-form"
-          :initial-values="initialValues"
-          :resolver="resolver"
-          @submit="submit"
-        >
-          <FormField v-slot="$field" name="login_name" :initial-value="initialValues.login_name">
-            <label class="app-form-field auth-field">
-              <span class="app-form-field-label">{{ t("auth.loginName") }}</span>
-              <InputText
-                id="login-name"
-                v-bind="$field.props"
-                :model-value="$field.value"
-                :disabled="busy"
-                :placeholder="t('auth.loginNamePlaceholder')"
-                autocomplete="username"
-                fluid
-                @update:model-value="$field.props.onInput({ value: $event })"
-              />
-              <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                {{ $field.error?.message }}
-              </Message>
-            </label>
-          </FormField>
-
-          <FormField v-slot="$field" name="password" :initial-value="initialValues.password">
-            <label class="app-form-field auth-field">
-              <span class="app-form-field-label">{{ t("auth.password") }}</span>
-              <InputText
-                id="login-password"
-                v-bind="$field.props"
-                :model-value="$field.value"
-                type="password"
-                :disabled="busy"
-                :placeholder="t('auth.passwordPlaceholder')"
-                autocomplete="current-password"
-                fluid
-                @update:model-value="$field.props.onInput({ value: $event })"
-              />
-              <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                {{ $field.error?.message }}
-              </Message>
-            </label>
-          </FormField>
-
-          <div class="auth-form-actions">
-            <Button
-              class="app-primary-button auth-submit-button"
-              type="submit"
-              :disabled="busy"
-              :loading="busy"
-            >
-              {{ busy ? t("auth.signingIn") : t("auth.signIn") }}
-            </Button>
+  <div class="flex min-h-[calc(100vh-5rem)] w-full items-center justify-center px-3 py-6 max-md:min-h-auto max-md:justify-stretch max-md:p-3">
+    <div class="w-full max-w-[27rem]">
+      <AppPanel surface="plain" :title="t('auth.title')">
+        <div class="grid gap-4 rounded-[1.1rem] border border-app-border/70 bg-app-surface/95 p-4 md:p-5">
+          <div v-if="authSessionState.user" class="grid gap-1 rounded-xl border border-app-border/70 bg-app-surface-soft/25 px-3 py-2">
+            <span class="text-sm font-semibold text-app-text">{{ authSessionState.user.display_name }}</span>
+            <span class="text-xs text-app-text-dim">{{ authSessionState.user.login_name }}</span>
           </div>
-        </Form>
-      </Fluid>
-    </AppPanel>
+
+          <AppStateMessage
+            v-if="errorMessage"
+            severity="error"
+            :title="t('auth.loginFailedTitle')"
+          >
+            {{ errorMessage }}
+          </AppStateMessage>
+
+          <Fluid>
+            <Form
+              class="grid gap-3 max-md:gap-[0.85rem]"
+              :initial-values="initialValues"
+              :resolver="resolver"
+              @submit="submit"
+            >
+              <FormField v-slot="$field" name="login_name" :initial-value="initialValues.login_name">
+                <label class="app-form-field gap-2">
+                  <span class="app-form-field-label">{{ t("auth.loginName") }}</span>
+                  <InputText
+                    id="login-name"
+                    v-bind="$field.props"
+                    :model-value="$field.value"
+                    class="min-h-12 rounded-2xl px-4"
+                    :disabled="busy"
+                    :placeholder="t('auth.loginNamePlaceholder')"
+                    autocomplete="username"
+                    fluid
+                    @update:model-value="$field.props.onInput({ value: $event })"
+                  />
+                  <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
+                    {{ $field.error?.message }}
+                  </Message>
+                </label>
+              </FormField>
+
+              <FormField v-slot="$field" name="password" :initial-value="initialValues.password">
+                <label class="app-form-field gap-2">
+                  <span class="app-form-field-label">{{ t("auth.password") }}</span>
+                  <InputText
+                    id="login-password"
+                    v-bind="$field.props"
+                    :model-value="$field.value"
+                    class="min-h-12 rounded-2xl px-4"
+                    type="password"
+                    :disabled="busy"
+                    :placeholder="t('auth.passwordPlaceholder')"
+                    autocomplete="current-password"
+                    fluid
+                    @update:model-value="$field.props.onInput({ value: $event })"
+                  />
+                  <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
+                    {{ $field.error?.message }}
+                  </Message>
+                </label>
+              </FormField>
+
+              <div class="pt-1 max-md:w-full">
+                <Button
+                  class="w-full"
+                  type="submit"
+                  :disabled="busy"
+                  :loading="busy"
+                >
+                  {{ busy ? t("auth.signingIn") : t("auth.signIn") }}
+                </Button>
+              </div>
+            </Form>
+          </Fluid>
+        </div>
+      </AppPanel>
+    </div>
   </div>
 </template>

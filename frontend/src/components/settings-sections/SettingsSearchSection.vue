@@ -38,14 +38,14 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
 <template>
   <AppSettingsSection :legend="t('settings.search.title')">
     <div id="settings-search" class="grid gap-4">
-      <section id="settings-search-history" class="settings-block">
-        <div class="settings-block-header">
-          <h3 class="settings-block-title">{{ t("settings.search.historyTitle") }}</h3>
+      <section id="settings-search-history" class="grid scroll-mt-16 gap-2.5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <h3 class="text-sm font-semibold text-app-text">{{ t("settings.search.historyTitle") }}</h3>
           <Button
-            class="settings-inline-button"
             type="button"
             severity="secondary"
             variant="outlined"
+            size="small"
             :disabled="recentSearchCount === 0"
             @click="clearRecentSearches"
           >
@@ -54,10 +54,10 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
         </div>
       </section>
 
-      <section class="settings-block">
+      <section class="grid gap-2.5 border-t border-app-border/60 pt-3">
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.search.title") }}</h3>
         <div class="grid gap-3">
-          <div class="settings-compact-grid lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(14rem,18rem))] xl:justify-start">
+          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(14rem,18rem))] xl:justify-start">
             <AppSelectField
               float-label
               input-id="search-mode"
@@ -90,14 +90,14 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
 
           <AppToggleGroup
             :model-value="rerankToggleModel"
-            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+            columns-class="grid gap-2 grid-cols-1"
             :items="[
               { key: 'rerank_enabled', inputId: 'search-rerank-enabled', label: t('settings.search.rerankEnabled'), testId: 'search-rerank-enabled' },
             ]"
             @update:model-value="updateRerankToggleModel"
           />
 
-          <div class="settings-compact-grid lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(16rem,20rem)_minmax(18rem,24rem)] xl:justify-start">
+          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(16rem,20rem)_minmax(18rem,24rem)] xl:justify-start">
             <AppTextField
               float-label
               input-id="search-rerank-base-url"

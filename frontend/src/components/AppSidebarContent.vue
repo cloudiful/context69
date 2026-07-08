@@ -44,35 +44,36 @@ async function signOut() {
 </script>
 
 <template>
-  <nav class="app-sidebar-nav">
-    <RouterLink
-      v-for="item in isAuthenticated() ? items : []"
-      :key="item.to"
-      :to="item.to"
-      class="app-sidebar-link"
-      :class="{ 'is-active': isActive(item.to) }"
-      :data-nav-key="item.to"
-      :title="item.label"
-      @click="handleNavigate"
-    >
-      <span class="app-sidebar-link-mark">
-        <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon" />
-      </span>
-      <Transition name="sidebar-label">
+  <div class="flex h-full flex-col">
+    <nav class="grid flex-1 content-start gap-1 overflow-y-auto py-3">
+      <RouterLink
+        v-for="item in isAuthenticated() ? items : []"
+        :key="item.to"
+        :to="item.to"
+        class="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm text-app-text-muted transition hover:bg-app-surface-soft/40 hover:text-app-text"
+        :class="{ 'is-active bg-app-surface-soft/70 text-app-text': isActive(item.to) }"
+        :data-nav-key="item.to"
+        :title="item.label"
+        @click="handleNavigate"
+      >
+        <span
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-app-border/60 bg-app-surface-soft/45 text-app-text-dim transition-colors"
+          :class="{ 'border-app-border-strong bg-app-surface-soft text-app-text': isActive(item.to) }"
+        >
+          <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon h-4 w-4" />
+        </span>
         <span v-if="!collapsed">{{ item.label }}</span>
-      </Transition>
-    </RouterLink>
-  </nav>
+      </RouterLink>
+    </nav>
 
-  <div class="app-sidebar-footer">
-    <div
-      class="flex items-end gap-2"
-      :class="{ 'justify-center': collapsed }"
-    >
-      <Transition name="sidebar-user-card">
+    <div class="app-sidebar-footer mt-auto shrink-0 border-t border-app-border/50 pt-3">
+      <div
+        class="flex items-end gap-2"
+        :class="{ 'justify-center': collapsed }"
+      >
         <div
           v-if="authSessionState.user && !collapsed"
-          class="app-sidebar-user grow"
+          class="grid grow gap-1 rounded-xl border border-app-border/70 bg-app-surface-muted/35 px-3 py-2.5"
           data-testid="sidebar-user-card"
         >
           <div class="flex items-start justify-between gap-2">
@@ -91,17 +92,19 @@ async function signOut() {
             @{{ authSessionState.user.login_name }}
           </span>
         </div>
-      </Transition>
-      <Button
-        v-if="isAuthenticated()"
-        class="app-control-button app-sidebar-icon-button"
-        type="button"
-        :aria-label="t('auth.logout')"
-        :title="t('auth.logout')"
-        @click="signOut"
-      >
-        <AppMdiIcon :path="mdiLogoutVariant" :title="t('auth.logout')" class="app-sidebar-link-icon" />
-      </Button>
+        <Button
+          v-if="isAuthenticated()"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center px-0"
+          type="button"
+          severity="secondary"
+          variant="outlined"
+          :aria-label="t('auth.logout')"
+          :title="t('auth.logout')"
+          @click="signOut"
+        >
+          <AppMdiIcon :path="mdiLogoutVariant" :title="t('auth.logout')" class="app-sidebar-link-icon h-4 w-4" />
+        </Button>
+      </div>
     </div>
   </div>
 </template>

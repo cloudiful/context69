@@ -18,9 +18,9 @@ const { t } = useI18n();
 <template>
   <AppSettingsSection :legend="t('settings.docling.title')">
     <div class="grid gap-6">
-      <section id="settings-connection" class="settings-block">
+      <section id="settings-connection" class="grid scroll-mt-16 gap-2.5">
         <h3 class="text-sm font-semibold text-app-text">{{ t('settings.docling.connectionTitle') }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-connection">
+        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(10rem,12rem)_minmax(10rem,12rem)] xl:justify-start">
           <AppTextField
             float-label
             input-id="docling-base-url"
@@ -48,10 +48,10 @@ const { t } = useI18n();
         </div>
       </section>
 
-      <section id="settings-vlm" class="settings-block">
+      <section id="settings-vlm" class="grid gap-2.5 border-t border-app-border/60 pt-3">
         <h3 class="text-sm font-semibold text-app-text">{{ t('settings.docling.vlmTitle') }}</h3>
         <div class="grid gap-3">
-          <div class="settings-compact-grid settings-compact-grid-vlm-main">
+          <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[minmax(16rem,20rem)_minmax(18rem,24rem)] xl:justify-start">
             <AppSelectField
               float-label
               input-id="docling-provider-account"
@@ -68,7 +68,7 @@ const { t } = useI18n();
             />
           </div>
 
-          <div class="settings-compact-grid settings-compact-grid-models">
+          <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(18rem,24rem)] xl:justify-start">
             <AppTextField
               float-label
               input-id="docling-picture-description-model"

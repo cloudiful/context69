@@ -196,18 +196,21 @@ onMounted(() => {
         <Button
           v-if="canManageProject"
           severity="secondary"
+          variant="outlined"
           :label="t('common.edit')"
           @click="projectDialogVisible = true"
         />
         <Button
           v-if="canOwnProject"
           severity="secondary"
+          variant="outlined"
           :label="t('common.move')"
           @click="moveDialogVisible = true"
         />
         <Button
           v-if="canOwnProject"
           severity="danger"
+          variant="outlined"
           :label="t('common.delete')"
           @click="confirmDeleteProject"
         />
@@ -220,45 +223,44 @@ onMounted(() => {
         <Button
           v-for="tab in tabs"
           :key="tab.key"
-          class="workspace-tab-button"
-          :class="{ 'is-active': activeTab === tab.key }"
+          class="rounded-lg px-3 py-2 text-sm"
+          :class="activeTab === tab.key ? 'bg-app-surface-soft/72 text-app-text' : 'text-app-text-muted'"
           type="button"
           severity="secondary"
           variant="text"
+          size="small"
           @click="activeTab = tab.key as ProjectTab"
         >
           {{ tab.label }}
         </Button>
       </div>
 
-      <section v-if="activeTab === 'overview'" class="workspace-block">
-        <dl class="workspace-overview-pairs">
-          <div class="workspace-overview-pair">
-            <dt class="workspace-overview-key">{{ t("project.summary.group") }}</dt>
-            <dd class="workspace-overview-value">{{ groupKey }}</dd>
-          </div>
-          <div class="workspace-overview-pair">
-            <dt class="workspace-overview-key">{{ t("project.summary.project") }}</dt>
-            <dd class="workspace-overview-value">{{ projectKey }}</dd>
-          </div>
-          <div class="workspace-overview-pair">
-            <dt class="workspace-overview-key">{{ t("project.summary.visibility") }}</dt>
-            <dd class="workspace-overview-value">
-              <Tag :value="project?.visibility || '--'" severity="secondary" />
-            </dd>
-          </div>
-          <div class="workspace-overview-pair">
-            <dt class="workspace-overview-key">{{ t("groups.currentRole") }}</dt>
-            <dd class="workspace-overview-value">
-              <Tag :value="project?.current_role || '--'" :severity="roleSeverity(project?.current_role)" />
-            </dd>
-          </div>
-          <div class="workspace-overview-pair">
-            <dt class="workspace-overview-key">{{ t("project.summary.members") }}</dt>
-            <dd class="workspace-overview-value">{{ members.length }}</dd>
-          </div>
-        </dl>
-      </section>
+      <dl v-if="activeTab === 'overview'" class="workspace-overview-pairs">
+        <div class="workspace-overview-pair">
+          <dt class="workspace-overview-key">{{ t("project.summary.group") }}</dt>
+          <dd class="workspace-overview-value">{{ groupKey }}</dd>
+        </div>
+        <div class="workspace-overview-pair">
+          <dt class="workspace-overview-key">{{ t("project.summary.project") }}</dt>
+          <dd class="workspace-overview-value">{{ projectKey }}</dd>
+        </div>
+        <div class="workspace-overview-pair">
+          <dt class="workspace-overview-key">{{ t("project.summary.visibility") }}</dt>
+          <dd class="workspace-overview-value">
+            <Tag class="justify-self-start" :value="project?.visibility || '--'" severity="secondary" />
+          </dd>
+        </div>
+        <div class="workspace-overview-pair">
+          <dt class="workspace-overview-key">{{ t("groups.currentRole") }}</dt>
+          <dd class="workspace-overview-value">
+            <Tag class="justify-self-start" :value="project?.current_role || '--'" :severity="roleSeverity(project?.current_role)" />
+          </dd>
+        </div>
+        <div class="workspace-overview-pair">
+          <dt class="workspace-overview-key">{{ t("project.summary.members") }}</dt>
+          <dd class="workspace-overview-value">{{ members.length }}</dd>
+        </div>
+      </dl>
 
       <ProjectSourcesPanel
         v-else-if="activeTab === 'sources'"

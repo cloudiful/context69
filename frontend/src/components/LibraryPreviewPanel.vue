@@ -107,19 +107,19 @@ const activeSection = computed(() => {
             </div>
             <div class="library-preview-grid">
               <div class="library-preview-block">
-                <p class="form-label">{{ t("library.statusLabel") }}</p>
+                <p class="text-sm font-medium text-app-text">{{ t("library.statusLabel") }}</p>
                 <Tag :value="statusLabel(detail.ingest_status)" :severity="statusSeverity(detail.ingest_status)" />
               </div>
               <div class="library-preview-block">
-                <p class="form-label">{{ t("library.sizeLabel") }}</p>
+                <p class="text-sm font-medium text-app-text">{{ t("library.sizeLabel") }}</p>
                 <p class="library-preview-row-value">{{ formatNumber(detail.size_bytes) }} bytes</p>
               </div>
               <div class="library-preview-block">
-                <p class="form-label">{{ t("library.updatedColumn") }}</p>
+                <p class="text-sm font-medium text-app-text">{{ t("library.updatedColumn") }}</p>
                 <p class="library-preview-row-value">{{ formatTimestamp(detail.updated_at) }}</p>
               </div>
               <div class="library-preview-block">
-                <p class="form-label">{{ t("library.ingestedAt") }}</p>
+                <p class="text-sm font-medium text-app-text">{{ t("library.ingestedAt") }}</p>
                 <p class="library-preview-row-value">{{ formatTimestamp(detail.ingested_at) }}</p>
               </div>
             </div>

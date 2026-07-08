@@ -70,7 +70,7 @@ onMounted(() => {
   <div class="workspace-page">
     <div class="workspace-block-header">
       <h1 class="section-title">{{ t("groups.title") }}</h1>
-      <Button class="tool-action-primary" @click="createDialogVisible = true">
+      <Button @click="createDialogVisible = true">
         {{ t("groups.create") }}
       </Button>
     </div>

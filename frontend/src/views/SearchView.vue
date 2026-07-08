@@ -128,8 +128,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="search-page-layout">
-    <section class="search-console-shell">
+  <div class="grid gap-2 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] max-md:gap-2">
+    <section class="grid gap-2 px-0 py-1">
       <AppStateMessage
         v-if="sourceError"
         severity="error"
@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
 
     <AppPanel
       v-if="showResultsPanel"
-      class="search-results-panel"
+      surface="plain"
       :title="t('search.resultsTitle')"
     >
       <AsyncStateBlock
@@ -172,7 +172,7 @@ onBeforeUnmount(() => {
           </AppStateMessage>
         </template>
 
-        <div v-if="results" class="search-results-layout">
+        <div v-if="results" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start max-md:gap-2">
           <SearchResultList
             class="min-w-0"
             :hits="results.hits"

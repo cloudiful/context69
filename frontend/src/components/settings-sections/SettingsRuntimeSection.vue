@@ -66,14 +66,14 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
 <template>
   <AppSettingsSection :legend="t('settings.runtime.title')">
     <div class="grid gap-6">
-      <section id="settings-provider-accounts" class="settings-block">
-        <div class="settings-block-header">
-          <h3 class="settings-block-title">{{ t("settings.runtime.providerAccountsTitle") }}</h3>
+      <section id="settings-provider-accounts" class="grid scroll-mt-16 gap-2.5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.providerAccountsTitle") }}</h3>
           <Button
-            class="settings-inline-button"
             type="button"
             severity="secondary"
             variant="outlined"
+            size="small"
             @click="startNewProviderAccount"
           >
             {{ t("common.create") }}
@@ -90,7 +90,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             @update:model-value="typeof $event === 'string' && emit('update:selectedProviderAccountKey', $event)"
           />
 
-          <div class="settings-compact-grid settings-compact-grid-models">
+          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(16rem,20rem))] xl:justify-start">
             <AppTextField
               float-label
               input-id="provider-account-key"
@@ -113,7 +113,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             />
           </div>
 
-          <div class="settings-compact-grid settings-compact-grid-vlm-main">
+          <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(20rem,1fr)] xl:justify-start">
             <AppTextField
               float-label
               input-id="provider-base-url"
@@ -123,7 +123,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
               placeholder="https://openrouter.ai/api/v1"
             />
 
-            <div class="settings-api-key-shell">
+            <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
               <AppTextField
                 float-label
                 input-id="provider-api-key"
@@ -133,18 +133,17 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
                 autocomplete="new-password"
                 placeholder="sk-..."
               />
-              <div class="settings-api-key-side">
+              <div class="flex flex-wrap items-center gap-2 lg:justify-end">
                 <Tag
-                  class="settings-status-tag"
                   :severity="providerDraft.clear_api_key ? 'warn' : (selectedProviderAccount?.has_api_key ? 'success' : 'secondary')"
                   :value="providerStatusLabel"
                 />
                 <Button
                   id="provider-clear-api-key"
-                  class="settings-inline-button"
                   type="button"
                   severity="danger"
                   variant="outlined"
+                  size="small"
                   :disabled="!selectedProviderAccount?.has_api_key && !providerDraft.clear_api_key"
                   @click="toggleClearProviderApiKey"
                 >
@@ -154,10 +153,10 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             </div>
           </div>
 
-          <div class="settings-toggle-grid-inline settings-toggle-grid-inline-single">
+          <div class="grid gap-2">
             <AppToggleGroup
               :model-value="providerToggleModel"
-              columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+              columns-class="grid gap-2 grid-cols-1"
               :items="[
                 { key: 'disabled', inputId: 'provider-disabled', label: t('settings.runtime.disableProvider'), testId: 'provider-disabled' },
               ]"
@@ -165,12 +164,12 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             />
           </div>
 
-          <div class="settings-inline-actions">
+          <div class="flex flex-wrap items-center gap-3">
             <Button
-              class="settings-inline-button"
               type="button"
               severity="danger"
               variant="outlined"
+              size="small"
               :disabled="saving || providerSaving || !selectedProviderAccount"
               @click="deleteProviderAccount"
             >
@@ -183,9 +182,9 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         </div>
       </section>
 
-      <section id="settings-embedding" class="settings-block">
+      <section id="settings-embedding" class="grid gap-2.5 border-t border-app-border/60 pt-3">
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.embeddingTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-conversion">
+        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(16rem,20rem)_minmax(10rem,12rem)_minmax(14rem,18rem)] xl:justify-start">
           <AppSelectField
             float-label
             input-id="runtime-embedding-provider"
@@ -218,9 +217,9 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         </div>
       </section>
 
-      <section id="settings-qdrant" class="settings-block">
+      <section id="settings-qdrant" class="grid gap-2.5 border-t border-app-border/60 pt-3">
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.qdrantTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-connection">
+        <div class="grid gap-2 lg:items-start xl:grid-cols-[minmax(18rem,26rem)_minmax(18rem,24rem)_minmax(18rem,24rem)] xl:justify-start">
           <AppTextField
             float-label
             input-id="runtime-qdrant-url"
@@ -236,7 +235,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
           />
           <AppToggleGroup
             :model-value="qdrantToggleModel"
-            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+            columns-class="grid gap-2 grid-cols-1"
             :items="[
               { key: 'recreate_on_dimension_mismatch', inputId: 'runtime-qdrant-recreate', label: t('settings.runtime.recreateOnDimensionMismatch'), testId: 'runtime-qdrant-recreate' },
             ]"
@@ -245,9 +244,9 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         </div>
       </section>
 
-      <section id="settings-scheduler" class="settings-block">
+      <section id="settings-scheduler" class="grid gap-2.5 border-t border-app-border/60 pt-3">
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.schedulerTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-conversion">
+        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(16rem,20rem)_minmax(10rem,12rem)_minmax(14rem,18rem)] xl:justify-start">
           <AppNumberField
             float-label
             input-id="runtime-scheduler-interval"
@@ -279,7 +278,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
           />
           <AppToggleGroup
             :model-value="schedulerToggleModel"
-            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+            columns-class="grid gap-2 grid-cols-1"
             :items="[
               { key: 'run_on_start', inputId: 'runtime-scheduler-run-on-start', label: t('settings.runtime.runOnStart'), testId: 'runtime-scheduler-run-on-start' },
             ]"
@@ -288,9 +287,9 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         </div>
       </section>
 
-      <section id="settings-chunking" class="settings-block">
+      <section id="settings-chunking" class="grid gap-2.5 border-t border-app-border/60 pt-3">
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.chunkingTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-two">
+        <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
           <AppNumberField
             float-label
             input-id="runtime-chunking-max-chars"
@@ -310,9 +309,9 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         </div>
       </section>
 
-      <section id="settings-file-library" class="settings-block">
+      <section id="settings-file-library" class="grid gap-2.5 border-t border-app-border/60 pt-3">
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.fileLibraryTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-models">
+        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(16rem,20rem))] xl:justify-start">
           <AppTextField
             float-label
             input-id="runtime-file-library-root"

@@ -53,32 +53,32 @@ function confirmCreate() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="library-modal" modal :header="t('library.createTextDialog.title')" :style="{ width: '40rem', maxWidth: '92vw' }">
-    <div class="library-modal-body">
-      <div class="library-modal-intro">
-        <p class="section-label">{{ t("library.newTextFile") }}</p>
-        <p class="library-modal-description">
+  <Dialog v-model:visible="visible" modal :header="t('library.createTextDialog.title')" :style="{ width: '40rem', maxWidth: '92vw' }">
+    <div class="grid gap-4">
+      <div class="grid gap-1.5">
+        <p class="section-label text-xs font-semibold uppercase tracking-[0.16em] text-app-text-dim">{{ t("library.newTextFile") }}</p>
+        <p class="text-sm leading-6 text-app-text-muted">
           {{ t("library.createTextDialog.description", { name: parentName }) }}
         </p>
       </div>
 
-      <label class="library-modal-field">
-        <span class="form-label">{{ t("library.createTextDialog.nameLabel") }}</span>
+      <label class="grid gap-1.5">
+        <span class="text-sm font-medium text-app-text">{{ t("library.createTextDialog.nameLabel") }}</span>
         <InputText
           id="library-create-text-title"
           v-model="title"
-          class="library-modal-control"
+          class="w-full"
           :placeholder="t('library.createTextDialog.namePlaceholder')"
           @keyup.enter="confirmCreate"
         />
       </label>
 
-      <label class="library-modal-field">
-        <span class="form-label">{{ t("library.createTextDialog.contentLabel") }}</span>
+      <label class="grid gap-1.5">
+        <span class="text-sm font-medium text-app-text">{{ t("library.createTextDialog.contentLabel") }}</span>
         <Textarea
           id="library-create-text-content"
           v-model="content"
-          class="library-modal-control"
+          class="w-full"
           auto-resize
           rows="10"
           :placeholder="t('library.createTextDialog.contentPlaceholder')"
@@ -87,7 +87,7 @@ function confirmCreate() {
     </div>
 
     <template #footer>
-      <div class="library-modal-footer">
+      <div class="flex justify-end gap-2">
         <Button severity="secondary" variant="outlined" :disabled="busy" @click="emit('cancel')">
           {{ t("common.cancel") }}
         </Button>

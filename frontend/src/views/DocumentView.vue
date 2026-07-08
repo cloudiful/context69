@@ -113,38 +113,37 @@ onBeforeUnmount(() => {
       :error="errorMessage"
       :error-title="notFound ? '404' : t('common.error')"
     >
-      <div v-if="documentData" class="document-layout">
-        <div class="document-main">
+      <div v-if="documentData" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
+        <div class="grid min-w-0 gap-4">
           <AppRecordCard
             :title="documentData.title"
             :subtitle="formatDate(documentData.published_at)"
           >
             <template #tags>
               <div class="flex flex-wrap items-center gap-2">
-                <Tag class="tool-chip" :value="documentData.source_key" severity="secondary" />
-                <Tag class="tool-chip" :value="documentData.external_id" severity="secondary" />
+                <Tag class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap" :value="documentData.source_key" severity="secondary" />
+                <Tag class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap" :value="documentData.external_id" severity="secondary" />
               </div>
             </template>
 
             <template #meta>
-              <p v-if="documentData.library_path" class="app-record-header-note">
+              <p v-if="documentData.library_path" class="break-all text-xs text-app-text-dim">
                 {{ documentData.library_path }}
                 <span v-if="documentData.library_section_label"> · {{ documentData.library_section_label }}</span>
               </p>
             </template>
           </AppRecordCard>
 
-          <div class="document-chunks">
+          <div class="grid gap-3">
             <Card
               v-for="chunk in visibleChunks"
               :key="chunk.chunk_id"
-              class="document-chunk-card"
             >
               <template #content>
-                <p class="document-chunk-label">
+                <p class="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-app-text-dim">
                   {{ t("document.chunkLabel", { index: chunk.chunk_index }) }}
                 </p>
-                <pre class="content-pre">{{ chunk.text }}</pre>
+                <pre class="overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-app-border/60 bg-app-surface-alt/60 p-4 text-sm leading-6 text-app-text">{{ chunk.text }}</pre>
               </template>
             </Card>
 
@@ -159,7 +158,6 @@ onBeforeUnmount(() => {
 
           <Button
             v-if="documentData.chunks.length > 3"
-            class="tool-action"
             type="button"
             severity="secondary"
             variant="outlined"
@@ -168,12 +166,11 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <aside class="document-sidebar">
+        <aside class="grid gap-3 xl:sticky xl:top-4">
           <AppInfoCard :label="t('document.published')" :value="formatDate(documentData.published_at)" />
           <AppInfoCard :label="t('document.updated')" :value="formatTimestamp(documentData.updated_at)" />
           <AppInfoCard :label="t('document.sourceLink')">
             <Button
-              class="tool-action"
               severity="secondary"
               variant="outlined"
               :label="libraryRoute ? t('document.openLibraryFile') : t('document.openOrigin')"
@@ -187,7 +184,7 @@ onBeforeUnmount(() => {
             :meta="documentData.library_section_label"
           />
           <AppInfoCard :label="t('document.metadata')">
-            <pre class="content-pre">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
+            <pre class="overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-app-border/60 bg-app-surface-alt/60 p-4 text-sm leading-6 text-app-text">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
           </AppInfoCard>
         </aside>
       </div>

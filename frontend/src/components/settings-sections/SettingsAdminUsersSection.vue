@@ -9,9 +9,9 @@ import InputText from "primevue/inputtext";
 import Message from "primevue/message";
 import Password from "primevue/password";
 import Tag from "primevue/tag";
-import ToggleSwitch from "primevue/toggleswitch";
 import { useConfirm } from "primevue/useconfirm";
 
+import AppToggleField from "../AppToggleField.vue";
 import { appFormDialogPt } from "../app-dialog";
 import type { AdminUserResponse } from "../../services/api";
 
@@ -122,15 +122,15 @@ function confirmEnable(loginNameValue: string) {
 </script>
 
 <template>
-  <section id="settings-admin-users" class="settings-block">
-    <div class="settings-block-header">
-      <p class="settings-block-title">{{ t("adminUsers.title") }}</p>
+  <section id="settings-admin-users" class="grid scroll-mt-16 gap-3">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <p class="text-sm font-semibold text-app-text">{{ t("adminUsers.title") }}</p>
       <Button :label="t('adminUsers.create')" size="small" :disabled="createBusy" @click="openCreate" />
     </div>
 
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
-    <DataTable class="app-data-table" :value="users" data-key="user_id" scrollable table-style="min-width: 100%">
+    <DataTable :value="users" data-key="user_id" scrollable table-style="min-width: 100%">
       <Column field="login_name" :header="t('adminUsers.loginName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
       <Column field="display_name" :header="t('adminUsers.displayName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
       <Column :header="t('adminUsers.isAdmin')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
@@ -186,22 +186,24 @@ function confirmEnable(loginNameValue: string) {
       :style="{ width: '30rem', maxWidth: '96vw' }"
     >
       <div class="grid gap-3">
-        <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.loginName") }}</label>
-          <InputText v-model="loginName" :placeholder="t('adminUsers.loginName')" />
+        <div class="grid gap-1.5">
+          <label class="text-sm font-medium text-app-text" for="admin-user-login-name">{{ t("adminUsers.loginName") }}</label>
+          <InputText id="admin-user-login-name" v-model="loginName" :placeholder="t('adminUsers.loginName')" />
         </div>
-        <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.displayName") }}</label>
-          <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
+        <div class="grid gap-1.5">
+          <label class="text-sm font-medium text-app-text" for="admin-user-display-name">{{ t("adminUsers.displayName") }}</label>
+          <InputText id="admin-user-display-name" v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
-        <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.password") }}</label>
-          <Password v-model="password" fluid :feedback="false" toggle-mask />
+        <div class="grid gap-1.5">
+          <label class="text-sm font-medium text-app-text" for="admin-user-password">{{ t("adminUsers.password") }}</label>
+          <Password id="admin-user-password" v-model="password" fluid :feedback="false" toggle-mask />
         </div>
-        <label class="workspace-switch">
-          <span>{{ t("adminUsers.isAdmin") }}</span>
-          <ToggleSwitch v-model="isAdmin" />
-        </label>
+        <AppToggleField
+          input-id="admin-user-is-admin"
+          :label="t('adminUsers.isAdmin')"
+          :model-value="isAdmin"
+          @update:model-value="isAdmin = $event"
+        />
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
@@ -223,14 +225,16 @@ function confirmEnable(loginNameValue: string) {
       :style="{ width: '28rem', maxWidth: '96vw' }"
     >
       <div class="grid gap-3">
-        <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.displayName") }}</label>
-          <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
+        <div class="grid gap-1.5">
+          <label class="text-sm font-medium text-app-text" for="admin-user-edit-display-name">{{ t("adminUsers.displayName") }}</label>
+          <InputText id="admin-user-edit-display-name" v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
-        <label class="workspace-switch">
-          <span>{{ t("adminUsers.isAdmin") }}</span>
-          <ToggleSwitch v-model="isAdmin" />
-        </label>
+        <AppToggleField
+          input-id="admin-user-edit-is-admin"
+          :label="t('adminUsers.isAdmin')"
+          :model-value="isAdmin"
+          @update:model-value="isAdmin = $event"
+        />
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
@@ -252,9 +256,9 @@ function confirmEnable(loginNameValue: string) {
       :style="{ width: '28rem', maxWidth: '96vw' }"
     >
       <div class="grid gap-3">
-        <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.resetPassword") }}</label>
-          <Password v-model="password" fluid :feedback="false" toggle-mask />
+        <div class="grid gap-1.5">
+          <label class="text-sm font-medium text-app-text" for="admin-user-reset-password">{{ t("adminUsers.resetPassword") }}</label>
+          <Password id="admin-user-reset-password" v-model="password" fluid :feedback="false" toggle-mask />
         </div>
       </div>
       <template #footer>

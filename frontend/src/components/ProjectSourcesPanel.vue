@@ -3,7 +3,6 @@ import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Message from "primevue/message";
 
-import AppStateMessage from "./AppStateMessage.vue";
 import SourceEditorForm from "./SourceEditorForm.vue";
 import SourceTable from "./SourceTable.vue";
 import { apiClient, type SourceConfigInput, type SourceConnectionResponse, type SourceStatus } from "../services/api";
@@ -112,41 +111,35 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="workspace-block">
-    <Message v-if="pageError" severity="error" :closable="false">{{ pageError }}</Message>
+  <Message v-if="pageError" severity="error" :closable="false">{{ pageError }}</Message>
 
-    <div v-if="!editorOpen">
-      <SourceTable
-        :can-manage="props.canManage"
-        :sources="sources"
-        :syncing-map="syncingMap"
-        :deleting-map="deletingMap"
-        :error-map="errorMap"
-        @create="startCreate"
-        @delete="deleteSource"
-        @edit="startEdit"
-        @select="startEdit"
-        @refresh="loadSources"
-        @sync="syncSource"
-      />
-      <AppStateMessage v-if="sources.length === 0" :title="t('sources.emptyTitle')">
-        {{ t("sources.emptyMessage") }}
-      </AppStateMessage>
-    </div>
+  <SourceTable
+    v-if="!editorOpen"
+    :can-manage="props.canManage"
+    :sources="sources"
+    :syncing-map="syncingMap"
+    :deleting-map="deletingMap"
+    :error-map="errorMap"
+    @create="startCreate"
+    @delete="deleteSource"
+    @edit="startEdit"
+    @select="startEdit"
+    @refresh="loadSources"
+    @sync="syncSource"
+  />
 
-    <div v-else-if="props.canManage" class="app-form-block">
-      <div class="workspace-block-header">
-        <p class="section-title">{{ editingSource ? t("sources.editSource") : t("sources.newSource") }}</p>
-      </div>
-      <Message v-if="formError" severity="error" :closable="false">{{ formError }}</Message>
-      <SourceEditorForm
-        :key="editingSource?.source_key ?? `new-${editorRevision}`"
-        :busy="formBusy"
-        :connections="connections"
-        :source="editingSource"
-        @cancel="resetEditor"
-        @save="saveSource"
-      />
+  <section v-else-if="props.canManage" class="app-form-block">
+    <div class="workspace-block-header">
+      <p class="section-title">{{ editingSource ? t("sources.editSource") : t("sources.newSource") }}</p>
     </div>
-  </div>
+    <Message v-if="formError" severity="error" :closable="false">{{ formError }}</Message>
+    <SourceEditorForm
+      :key="editingSource?.source_key ?? `new-${editorRevision}`"
+      :busy="formBusy"
+      :connections="connections"
+      :source="editingSource"
+      @cancel="resetEditor"
+      @save="saveSource"
+    />
+  </section>
 </template>
