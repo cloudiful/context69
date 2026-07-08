@@ -12,6 +12,7 @@ import Tag from "primevue/tag";
 import { useConfirm } from "primevue/useconfirm";
 
 import AppPanel from "../components/AppPanel.vue";
+import { appFormDialogPt } from "../components/app-dialog";
 import EntityDialog from "../components/EntityDialog.vue";
 import MemberDialog from "../components/MemberDialog.vue";
 import {
@@ -234,7 +235,7 @@ onMounted(() => {
 
 <template>
   <div class="workspace-page">
-    <AppPanel :title="group?.name || groupKey">
+    <AppPanel surface="plain" :title="group?.name || groupKey">
       <template #actions>
         <div class="flex gap-2">
           <Button severity="secondary" variant="outlined" @click="groupDialogVisible = true">
@@ -254,9 +255,7 @@ onMounted(() => {
             <p class="section-title">{{ t("groups.projectsTitle") }}</p>
             <p class="workspace-muted">{{ group?.group_key }} · {{ group?.visibility }}</p>
           </div>
-          <Button class="tool-action-primary" @click="projectDialogVisible = true">
-            {{ t("groups.createProject") }}
-          </Button>
+          <Button :label="t('groups.createProject')" size="small" @click="projectDialogVisible = true" />
         </div>
 
         <Message v-if="projectError" severity="error" :closable="false">{{ projectError }}</Message>
@@ -295,9 +294,7 @@ onMounted(() => {
           <div>
             <p class="section-title">{{ t("groups.membersTitle") }}</p>
           </div>
-          <Button class="tool-action-primary" @click="editingMember = null; selectedMemberUser = null; memberDialogVisible = true">
-            {{ t("members.add") }}
-          </Button>
+          <Button :label="t('members.add')" size="small" @click="editingMember = null; selectedMemberUser = null; memberDialogVisible = true" />
         </div>
 
         <Message v-if="memberError" severity="error" :closable="false">{{ memberError }}</Message>
@@ -375,6 +372,7 @@ onMounted(() => {
         v-model:visible="moveProjectDialogVisible"
         modal
         :header="t('groups.moveProject')"
+        :pt="appFormDialogPt"
         :style="{ width: '30rem', maxWidth: '96vw' }"
       >
         <div class="grid gap-3">

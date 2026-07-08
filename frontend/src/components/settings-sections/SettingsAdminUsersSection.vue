@@ -5,12 +5,14 @@ import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
+import InputText from "primevue/inputtext";
 import Message from "primevue/message";
 import Password from "primevue/password";
 import Tag from "primevue/tag";
 import ToggleSwitch from "primevue/toggleswitch";
 import { useConfirm } from "primevue/useconfirm";
 
+import { appFormDialogPt } from "../app-dialog";
 import type { AdminUserResponse } from "../../services/api";
 
 const props = defineProps<{
@@ -42,7 +44,6 @@ const editingUser = ref<AdminUserResponse | null>(null);
 const resetUser = ref<AdminUserResponse | null>(null);
 
 const statusLabel = computed(() => (user: AdminUserResponse) => user.disabled_at ? t("adminUsers.disabled") : t("adminUsers.active"));
-
 function resetCreateForm() {
   loginName.value = "";
   displayName.value = "";
@@ -124,68 +125,74 @@ function confirmEnable(loginNameValue: string) {
   <section id="settings-admin-users" class="settings-block">
     <div class="settings-block-header">
       <p class="settings-block-title">{{ t("adminUsers.title") }}</p>
-      <Button class="tool-action-primary" :disabled="createBusy" @click="openCreate">
-        {{ t("adminUsers.create") }}
-      </Button>
+      <Button :label="t('adminUsers.create')" size="small" :disabled="createBusy" @click="openCreate" />
     </div>
 
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
     <DataTable class="app-data-table" :value="users" data-key="user_id" scrollable table-style="min-width: 100%">
-      <Column field="login_name" :header="t('adminUsers.loginName')" sortable />
-      <Column field="display_name" :header="t('adminUsers.displayName')" sortable />
-      <Column field="is_admin" :header="t('adminUsers.isAdmin')">
+      <Column field="login_name" :header="t('adminUsers.loginName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
+      <Column field="display_name" :header="t('adminUsers.displayName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
+      <Column :header="t('adminUsers.isAdmin')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
         <template #body="{ data }">
-          <Tag :value="data.is_admin ? t('common.yes') : t('common.no')" :severity="data.is_admin ? 'success' : 'secondary'" />
+          <Tag
+            class="whitespace-nowrap"
+            :value="data.is_admin ? t('common.yes') : t('common.no')"
+            :severity="data.is_admin ? 'success' : 'secondary'"
+          />
         </template>
       </Column>
-      <Column :header="t('adminUsers.status')">
+      <Column :header="t('adminUsers.status')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
         <template #body="{ data }">
-          <Tag :value="statusLabel(data)" :severity="data.disabled_at ? 'warn' : 'success'" />
+          <Tag
+            class="whitespace-nowrap"
+            :value="statusLabel(data)"
+            :severity="data.disabled_at ? 'warn' : 'success'"
+          />
         </template>
       </Column>
-      <Column field="created_at" :header="t('adminUsers.createdAt')" sortable />
-      <Column :header="t('common.edit')">
+      <Column field="created_at" :header="t('adminUsers.createdAt')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
+      <Column :header="t('common.edit')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
         <template #body="{ data }">
-          <div class="flex flex-wrap gap-2">
-            <Button severity="secondary" variant="outlined" size="small" @click="openEdit(data)">
-              {{ t("common.edit") }}
-            </Button>
-            <Button severity="secondary" variant="outlined" size="small" @click="openReset(data)">
-              {{ t("adminUsers.resetPasswordAction") }}
-            </Button>
+          <div class="flex flex-nowrap items-center gap-2 whitespace-nowrap">
+            <Button :label="t('common.edit')" severity="secondary" variant="outlined" size="small" @click="openEdit(data)" />
+            <Button :label="t('adminUsers.resetPasswordAction')" severity="secondary" variant="outlined" size="small" @click="openReset(data)" />
             <Button
               v-if="!data.disabled_at"
+              :label="t('adminUsers.disableUser')"
               severity="danger"
               variant="outlined"
               size="small"
               @click="confirmDisable(data.login_name)"
-            >
-              {{ t("adminUsers.disableUser") }}
-            </Button>
+            />
             <Button
               v-else
+              :label="t('adminUsers.enableUser')"
               severity="secondary"
               variant="outlined"
               size="small"
               @click="confirmEnable(data.login_name)"
-            >
-              {{ t("adminUsers.enableUser") }}
-            </Button>
+            />
           </div>
         </template>
       </Column>
     </DataTable>
 
-    <Dialog v-model:visible="createDialogVisible" modal :header="t('adminUsers.create')" :style="{ width: '30rem', maxWidth: '96vw' }">
+    <Dialog
+      v-model:visible="createDialogVisible"
+      modal
+      :header="t('adminUsers.create')"
+      :pt="appFormDialogPt"
+      :style="{ width: '30rem', maxWidth: '96vw' }"
+    >
       <div class="grid gap-3">
         <div class="grid gap-2">
           <label class="form-label">{{ t("adminUsers.loginName") }}</label>
-          <input v-model="loginName" class="p-inputtext p-component" :placeholder="t('adminUsers.loginName')">
+          <InputText v-model="loginName" :placeholder="t('adminUsers.loginName')" />
         </div>
         <div class="grid gap-2">
           <label class="form-label">{{ t("adminUsers.displayName") }}</label>
-          <input v-model="displayName" class="p-inputtext p-component" :placeholder="t('adminUsers.displayName')">
+          <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <div class="grid gap-2">
           <label class="form-label">{{ t("adminUsers.password") }}</label>
@@ -208,11 +215,17 @@ function confirmEnable(loginNameValue: string) {
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="editDialogVisible" modal :header="t('common.edit')" :style="{ width: '28rem', maxWidth: '96vw' }">
+    <Dialog
+      v-model:visible="editDialogVisible"
+      modal
+      :header="t('common.edit')"
+      :pt="appFormDialogPt"
+      :style="{ width: '28rem', maxWidth: '96vw' }"
+    >
       <div class="grid gap-3">
         <div class="grid gap-2">
           <label class="form-label">{{ t("adminUsers.displayName") }}</label>
-          <input v-model="displayName" class="p-inputtext p-component" :placeholder="t('adminUsers.displayName')">
+          <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <label class="workspace-switch">
           <span>{{ t("adminUsers.isAdmin") }}</span>
@@ -231,7 +244,13 @@ function confirmEnable(loginNameValue: string) {
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="resetDialogVisible" modal :header="t('adminUsers.resetPasswordAction')" :style="{ width: '28rem', maxWidth: '96vw' }">
+    <Dialog
+      v-model:visible="resetDialogVisible"
+      modal
+      :header="t('adminUsers.resetPasswordAction')"
+      :pt="appFormDialogPt"
+      :style="{ width: '28rem', maxWidth: '96vw' }"
+    >
       <div class="grid gap-3">
         <div class="grid gap-2">
           <label class="form-label">{{ t("adminUsers.resetPassword") }}</label>

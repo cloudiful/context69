@@ -25,6 +25,7 @@ const { t } = useI18n();
             input-id="docling-base-url"
             v-model="doclingDraft.connection.base_url"
             :label="t('settings.docling.baseUrl')"
+            layout="inline"
             type="url"
             placeholder="http://127.0.0.1:5001"
           />
@@ -32,6 +33,7 @@ const { t } = useI18n();
             input-id="docling-timeout"
             v-model="doclingDraft.connection.timeout_secs"
             :label="t('settings.docling.timeout')"
+            layout="inline"
             :min="1"
             :step="1"
           />
@@ -39,6 +41,7 @@ const { t } = useI18n();
             input-id="docling-poll-interval"
             v-model="doclingDraft.connection.poll_interval_secs"
             :label="t('settings.docling.pollInterval')"
+            layout="inline"
             :min="1"
             :step="1"
           />

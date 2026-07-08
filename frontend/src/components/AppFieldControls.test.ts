@@ -3,6 +3,7 @@ import Select from "primevue/select";
 import ToggleSwitch from "primevue/toggleswitch";
 import { describe, expect, it } from "vitest";
 
+import AppFormField from "./AppFormField.vue";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
 import AppSelectField from "./AppSelectField.vue";
 import AppTextField from "./AppTextField.vue";
@@ -45,6 +46,22 @@ describe("App field controls", () => {
     await wrapper.findComponent(Select).vm.$emit("update:modelValue", "rapidocr");
 
     expect(wrapper.emitted("update:modelValue")?.[0]).toEqual(["rapidocr"]);
+  });
+
+  it("renders an inline form-field layout when requested", () => {
+    const wrapper = mount(AppFormField, {
+      props: {
+        inputId: "base-url",
+        label: "Base URL",
+        layout: "inline",
+      },
+      slots: {
+        default: '<input id="base-url" class="p-inputtext p-component" />',
+      },
+    });
+
+    expect(wrapper.classes()).toContain("md:grid-cols-[11rem_minmax(0,1fr)]");
+    expect(wrapper.find("label").classes()).toContain("md:self-center");
   });
 
   it("merges toggle updates by key", async () => {

@@ -7,6 +7,7 @@ const props = withDefaults(defineProps<{
   helper?: string;
   inputId: string;
   label: string;
+  layout?: "stacked" | "inline";
   modelValue?: string | number | null;
   optionLabel?: string;
   optionValue?: string;
@@ -15,6 +16,7 @@ const props = withDefaults(defineProps<{
   testId?: string;
 }>(), {
   helper: "",
+  layout: "stacked",
   modelValue: null,
   optionLabel: "label",
   optionValue: "value",
@@ -28,7 +30,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <AppFormField :input-id="props.inputId" :label="props.label" :helper="props.helper || undefined">
+  <AppFormField
+    :input-id="props.inputId"
+    :label="props.label"
+    :helper="props.helper || undefined"
+    :layout="props.layout"
+  >
     <Select
       :input-id="props.inputId"
       :model-value="props.modelValue ?? null"

@@ -39,8 +39,11 @@ describe("AppSidebar", () => {
     expect(wrapper.text()).toContain("Search");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).toContain("Administrator");
+    expect(wrapper.get('[data-testid="sidebar-user-login"]').text()).toBe("@admin");
+    expect(wrapper.get('[data-testid="sidebar-user-badge"]').text()).toContain("Administrator");
     expect(wrapper.find('[data-nav-key="/search"]').classes()).toContain("is-active");
-    expect(wrapper.findAll(".app-sidebar-link-icon")).toHaveLength(4);
+    expect(wrapper.findAll(".app-sidebar-link-icon")).toHaveLength(5);
+    expect(wrapper.get('[data-testid="sidebar-collapse-toggle"]').attributes("aria-label")).toBe("Hide");
     expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
   });
 

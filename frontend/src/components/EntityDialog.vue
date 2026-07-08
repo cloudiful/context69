@@ -3,8 +3,11 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
+import InputText from "primevue/inputtext";
 import Message from "primevue/message";
 import Select from "primevue/select";
+
+import { appFormDialogPt } from "./app-dialog";
 
 type Visibility = "private" | "public";
 
@@ -71,6 +74,7 @@ function handleSubmit() {
     :visible="visible"
     modal
     :header="title"
+    :pt="appFormDialogPt"
     :style="{ width: '32rem', maxWidth: '96vw' }"
     @update:visible="emit('update:visible', $event)"
   >
@@ -79,20 +83,18 @@ function handleSubmit() {
 
       <div v-if="showKey" class="grid gap-2">
         <label class="form-label">{{ entityKeyLabel || t("groups.groupKey") }}</label>
-        <input
+        <InputText
           v-model="entityKey"
-          class="p-inputtext p-component"
           :placeholder="entityKeyLabel || t('groups.groupKey')"
-        >
+        />
       </div>
 
       <div class="grid gap-2">
         <label class="form-label">{{ entityNameLabel || t("groups.groupName") }}</label>
-        <input
+        <InputText
           v-model="entityName"
-          class="p-inputtext p-component"
           :placeholder="entityNameLabel || t('groups.groupName')"
-        >
+        />
       </div>
 
       <div class="grid gap-2">

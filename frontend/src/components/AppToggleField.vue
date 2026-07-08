@@ -15,12 +15,15 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <label class="app-toggle-field" :for="props.inputId">
-    <div class="min-w-0">
-      <p class="app-toggle-field-label">{{ props.label }}</p>
-      <p v-if="props.helper" class="app-toggle-field-help">{{ props.helper }}</p>
+  <label
+    class="flex min-w-0 items-center justify-between gap-3"
+    :for="props.inputId"
+  >
+    <div class="min-w-0 grow">
+      <p class="text-sm font-medium text-app-text">{{ props.label }}</p>
+      <p v-if="props.helper" class="text-xs leading-5 text-app-text-dim">{{ props.helper }}</p>
     </div>
-    <div class="app-toggle-control">
+    <div class="shrink-0 self-center">
       <ToggleSwitch
         :input-id="props.inputId"
         :model-value="props.modelValue"

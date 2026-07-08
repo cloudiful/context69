@@ -7,7 +7,7 @@ import AppSettingsSection from "../AppSettingsSection.vue";
 import type { AppLocale } from "../../i18n/locale";
 import type { AppTheme } from "../../types/ui";
 
-defineProps<{
+const props = defineProps<{
   locale: AppLocale;
   theme: AppTheme;
 }>();
@@ -29,6 +29,8 @@ const themeOptions = computed<Array<{ value: AppTheme; label: string }>>(() => [
   { value: "light", label: t("theme.light") },
 ]);
 
+const selectedLocale = computed<AppLocale>(() => (props.locale === "zh-CN" ? "zh-CN" : "en"));
+
 function updateLocale(value: unknown) {
   if (value === "en" || value === "zh-CN") {
     emit("update:locale", value);
@@ -48,7 +50,7 @@ function updateTheme(value: unknown) {
       <div class="settings-compact-grid settings-compact-grid-two">
         <AppSelectField
           input-id="settings-locale-select"
-          :model-value="locale"
+          :model-value="selectedLocale"
           :label="t('language.label')"
           :options="localeOptions"
           test-id="settings-locale-select"

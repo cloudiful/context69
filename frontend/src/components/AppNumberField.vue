@@ -7,6 +7,7 @@ const props = withDefaults(defineProps<{
   helper?: string;
   inputId: string;
   label: string;
+  layout?: "stacked" | "inline";
   max?: number;
   min?: number;
   modelValue?: number | null;
@@ -14,6 +15,7 @@ const props = withDefaults(defineProps<{
   testId?: string;
 }>(), {
   helper: "",
+  layout: "stacked",
   max: undefined,
   min: undefined,
   modelValue: null,
@@ -27,7 +29,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <AppFormField :input-id="props.inputId" :label="props.label" :helper="props.helper || undefined">
+  <AppFormField
+    :input-id="props.inputId"
+    :label="props.label"
+    :helper="props.helper || undefined"
+    :layout="props.layout"
+  >
     <InputNumber
       :input-id="props.inputId"
       :model-value="props.modelValue"

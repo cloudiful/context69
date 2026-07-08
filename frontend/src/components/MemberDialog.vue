@@ -4,9 +4,11 @@ import { useI18n } from "vue-i18n";
 import AutoComplete from "primevue/autocomplete";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
+import InputText from "primevue/inputtext";
 import Message from "primevue/message";
 import Select from "primevue/select";
 
+import { appFormDialogPt } from "./app-dialog";
 import type { UserDirectoryEntryResponse } from "../services/api";
 
 type MembershipRole = "owner" | "maintainer" | "viewer";
@@ -102,6 +104,7 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
     :visible="visible"
     modal
     :header="title"
+    :pt="appFormDialogPt"
     :style="{ width: '30rem', maxWidth: '96vw' }"
     @update:visible="emit('update:visible', $event)"
   >
@@ -130,11 +133,10 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
 
       <div v-else class="grid gap-2">
         <label class="form-label">{{ t("members.loginName") }}</label>
-        <input
+        <InputText
           v-model="manualLoginName"
-          class="p-inputtext p-component"
           :placeholder="t('members.loginName')"
-        >
+        />
       </div>
 
       <div class="grid gap-2">

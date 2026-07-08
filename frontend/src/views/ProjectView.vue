@@ -12,6 +12,7 @@ import Tag from "primevue/tag";
 import { useConfirm } from "primevue/useconfirm";
 
 import AppPanel from "../components/AppPanel.vue";
+import { appFormDialogPt } from "../components/app-dialog";
 import EntityDialog from "../components/EntityDialog.vue";
 import MemberDialog from "../components/MemberDialog.vue";
 import ProjectFilesPanel from "../components/ProjectFilesPanel.vue";
@@ -190,7 +191,7 @@ onMounted(() => {
 
 <template>
   <div class="workspace-page">
-    <AppPanel :title="project?.name || projectKey">
+    <AppPanel surface="plain" :title="project?.name || projectKey">
       <template #actions>
         <div v-if="canManageProject" class="flex gap-2">
           <Button severity="secondary" variant="outlined" @click="projectDialogVisible = true">
@@ -263,11 +264,10 @@ onMounted(() => {
           </div>
           <Button
             v-if="canManageProject"
-            class="tool-action-primary"
+            :label="t('members.add')"
+            size="small"
             @click="editingMember = null; selectedMemberUser = null; memberDialogVisible = true"
-          >
-            {{ t("members.add") }}
-          </Button>
+          />
         </div>
 
         <Message v-if="memberError" severity="error" :closable="false">{{ memberError }}</Message>
@@ -330,6 +330,7 @@ onMounted(() => {
         v-model:visible="moveDialogVisible"
         modal
         :header="t('project.moveProject')"
+        :pt="appFormDialogPt"
         :style="{ width: '30rem', maxWidth: '96vw' }"
       >
         <div class="grid gap-3">

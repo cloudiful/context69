@@ -49,8 +49,8 @@ export const zhCN = {
   },
   language: {
     label: "语言",
-    en: "EN",
-    zhCN: "中文",
+    en: "English",
+    zhCN: "简体中文",
   },
   theme: {
     label: "主题",
