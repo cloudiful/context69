@@ -59,6 +59,7 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
         <div class="grid gap-3">
           <div class="settings-compact-grid lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(14rem,18rem))] xl:justify-start">
             <AppSelectField
+              float-label
               input-id="search-mode"
               v-model="searchDraft.mode"
               :label="t('settings.search.mode')"
@@ -67,6 +68,7 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
             />
 
             <AppNumberField
+              float-label
               input-id="search-candidate-limit"
               v-model="searchDraft.candidate_limit"
               :label="t('settings.search.candidateLimit')"
@@ -76,6 +78,7 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
             />
 
             <AppNumberField
+              float-label
               input-id="search-rerank-timeout"
               v-model="searchDraft.timeout_secs"
               :label="t('settings.search.timeout')"
@@ -96,6 +99,7 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
 
           <div class="settings-compact-grid lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(16rem,20rem)_minmax(18rem,24rem)] xl:justify-start">
             <AppTextField
+              float-label
               input-id="search-rerank-base-url"
               v-model="searchDraft.rerank_base_url"
               :label="t('settings.search.rerankBaseUrl')"
@@ -105,6 +109,7 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
             />
 
             <AppTextField
+              float-label
               input-id="search-rerank-model"
               v-model="searchDraft.rerank_model"
               :label="t('settings.search.rerankModel')"
@@ -113,10 +118,11 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
             />
 
             <AppTextField
+              float-label
               input-id="search-rerank-api-key"
               :model-value="rerankApiKeyDraft"
               :label="t('settings.search.rerankApiKey')"
-              :help="searchHasStoredApiKey
+              :helper="searchHasStoredApiKey
                 ? `${t('settings.search.apiKeyStatusStored')} · ${t('settings.hints.apiKey')}`
                 : `${t('settings.search.apiKeyStatusMissing')} · ${t('settings.hints.apiKey')}`"
               test-id="search-rerank-api-key"

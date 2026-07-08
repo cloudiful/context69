@@ -49,6 +49,7 @@ function updateTheme(value: unknown) {
     <section id="settings-appearance" class="settings-block">
       <div class="settings-compact-grid settings-compact-grid-two">
         <AppSelectField
+          float-label
           input-id="settings-locale-select"
           :model-value="selectedLocale"
           :label="t('language.label')"
@@ -58,6 +59,7 @@ function updateTheme(value: unknown) {
         />
 
         <AppSelectField
+          float-label
           input-id="settings-theme-select"
           :model-value="theme"
           :label="t('theme.label')"

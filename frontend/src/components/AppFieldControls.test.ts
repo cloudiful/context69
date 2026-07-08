@@ -64,6 +64,23 @@ describe("App field controls", () => {
     expect(wrapper.find("label").classes()).toContain("md:self-center");
   });
 
+  it("renders a float label wrapper when requested", () => {
+    const wrapper = mount(AppTextField, {
+      props: {
+        floatLabel: true,
+        inputId: "base-url",
+        label: "Base URL",
+        modelValue: "",
+      },
+      global: {
+        plugins: [testPrimeVuePlugin],
+      },
+    });
+
+    expect(wrapper.find(".p-floatlabel").exists()).toBe(true);
+    expect(wrapper.find("label[for='base-url']").text()).toBe("Base URL");
+  });
+
   it("merges toggle updates by key", async () => {
     const wrapper = mount(AppToggleGroup, {
       props: {

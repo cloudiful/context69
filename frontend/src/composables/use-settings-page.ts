@@ -17,7 +17,6 @@ import {
   type DraftSearchSettings,
   type DraftRuntimeSettings,
   type ProviderAccountDraft,
-  type SettingsNavGroup,
   buildDoclingPayload,
   buildProviderAccountComparablePayload,
   buildProviderAccountPayload,
@@ -63,64 +62,11 @@ export function useSettingsPage() {
   const adminUsersCreateBusy = ref(false);
   const selectedProviderAccountKey = ref("");
   const rerankApiKeyDraft = ref("");
-  const activeSectionId = ref("");
 
   const runtimeDraft = reactive<DraftRuntimeSettings>(createRuntimeDraft());
   const doclingDraft = reactive<DraftDoclingSettings>(createDoclingDraft());
   const searchDraft = reactive<DraftSearchSettings>(createSearchDraft());
   const providerDraft = reactive<ProviderAccountDraft>(createProviderAccountDraft());
-
-  const settingsNavGroups = computed<SettingsNavGroup[]>(() => {
-    const groups: SettingsNavGroup[] = [
-      {
-        key: "appearance",
-        label: t("settings.appearance.title"),
-        items: [
-          { id: "settings-appearance", label: t("settings.appearance.title") },
-        ],
-      },
-      {
-        key: "search",
-        label: t("settings.search.title"),
-        items: [
-          { id: "settings-search-history", label: t("settings.search.historyTitle") },
-          { id: "settings-search", label: t("settings.search.settingsTitle") },
-        ],
-      },
-      {
-        key: "runtime",
-        label: t("settings.runtime.title"),
-        items: [
-          { id: "settings-provider-accounts", label: t("settings.runtime.providerAccountsTitle") },
-          { id: "settings-embedding", label: t("settings.runtime.embeddingTitle") },
-          { id: "settings-qdrant", label: t("settings.runtime.qdrantTitle") },
-          { id: "settings-scheduler", label: t("settings.runtime.schedulerTitle") },
-          { id: "settings-chunking", label: t("settings.runtime.chunkingTitle") },
-          { id: "settings-file-library", label: t("settings.runtime.fileLibraryTitle") },
-        ],
-      },
-      {
-        key: "docling",
-        label: t("settings.docling.title"),
-        items: [
-          { id: "settings-connection", label: t("settings.docling.connectionTitle") },
-          { id: "settings-vlm", label: t("settings.docling.vlmTitle") },
-        ],
-      },
-    ];
-
-    if (authSessionState.user?.is_admin) {
-      groups.push({
-        key: "admin",
-        label: t("adminUsers.navGroup"),
-        items: [
-          { id: "settings-admin-users", label: t("adminUsers.title") },
-        ],
-      });
-    }
-
-    return groups;
-  });
 
   const providerAccountOptions = computed(() => [
     { label: t("settings.runtime.noneSelected"), value: "" },
@@ -143,28 +89,6 @@ export function useSettingsPage() {
     { label: t("settings.search.modeVector"), value: "vector" },
   ]);
   const searchHasStoredApiKey = computed(() => !!searchSettings.value?.has_api_key);
-
-  function scrollToSettingsSection(sectionId: string) {
-    const section = document.getElementById(sectionId);
-    if (!section) {
-      return;
-    }
-
-    activeSectionId.value = sectionId;
-    if (typeof section.scrollIntoView === "function") {
-      section.scrollIntoView({
-        block: "start",
-        behavior: "smooth",
-      });
-    }
-    window.history.replaceState(null, "", `#${sectionId}`);
-  }
-
-  function initializeActiveSection() {
-    const sectionIds = settingsNavGroups.value.flatMap((group) => group.items.map((item) => item.id));
-    const hashSectionId = window.location.hash.replace(/^#/, "");
-    activeSectionId.value = sectionIds.includes(hashSectionId) ? hashSectionId : (sectionIds[0] ?? "");
-  }
 
   const qdrantToggleModel = computed({
     get: () => ({ recreate_on_dimension_mismatch: runtimeDraft.qdrant.recreate_on_dimension_mismatch }),
@@ -555,14 +479,12 @@ export function useSettingsPage() {
   }
 
   onMounted(() => {
-    initializeActiveSection();
     reloadSearchHistoryState();
     void loadPage();
     void loadAdminUsers();
   });
 
   return {
-    activeSectionId,
     adminUsers,
     adminUsersBusy,
     adminUsersCreateBusy,
@@ -594,12 +516,10 @@ export function useSettingsPage() {
     saving,
     schedulerToggleModel,
     searchHasStoredApiKey,
-    scrollToSettingsSection,
     searchDraft,
     searchModeOptions,
     selectedProviderAccount,
     selectedProviderAccountKey,
-    settingsNavGroups,
     startNewProviderAccount,
     runtimeDraft,
     toggleClearProviderApiKey,

@@ -82,6 +82,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
 
         <div class="grid gap-3">
           <AppSelectField
+            float-label
             input-id="settings-provider-account-select"
             :model-value="selectedProviderAccountKey"
             :label="t('settings.runtime.selectProviderAccount')"
@@ -91,18 +92,21 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
 
           <div class="settings-compact-grid settings-compact-grid-models">
             <AppTextField
+              float-label
               input-id="provider-account-key"
               v-model="providerDraft.account_key"
               :label="t('settings.runtime.accountKey')"
               :readonly="!!selectedProviderAccount"
             />
             <AppSelectField
+              float-label
               input-id="provider-kind"
               v-model="providerDraft.provider_kind"
               :label="t('settings.runtime.providerKind')"
               :options="providerKindOptions"
             />
             <AppTextField
+              float-label
               input-id="provider-display-name"
               v-model="providerDraft.display_name"
               :label="t('settings.runtime.displayName')"
@@ -111,6 +115,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
 
           <div class="settings-compact-grid settings-compact-grid-vlm-main">
             <AppTextField
+              float-label
               input-id="provider-base-url"
               v-model="providerDraft.base_url"
               :label="t('settings.runtime.baseUrl')"
@@ -120,6 +125,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
 
             <div class="settings-api-key-shell">
               <AppTextField
+                float-label
                 input-id="provider-api-key"
                 v-model="providerDraft.api_key"
                 :label="t('settings.runtime.apiKey')"
@@ -181,17 +187,20 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.embeddingTitle") }}</h3>
         <div class="settings-compact-grid settings-compact-grid-conversion">
           <AppSelectField
+            float-label
             input-id="runtime-embedding-provider"
             v-model="runtimeDraft.embedding.provider_account_key"
             :label="t('settings.runtime.embeddingProvider')"
             :options="providerAccountOptions.filter((option) => option.value)"
           />
           <AppTextField
+            float-label
             input-id="runtime-embedding-model"
             v-model="runtimeDraft.embedding.model"
             :label="t('settings.runtime.embeddingModel')"
           />
           <AppNumberField
+            float-label
             input-id="runtime-embedding-dimensions"
             v-model="runtimeDraft.embedding.dimensions"
             :label="t('settings.runtime.embeddingDimensions')"
@@ -199,6 +208,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :step="1"
           />
           <AppNumberField
+            float-label
             input-id="runtime-embedding-timeout"
             v-model="runtimeDraft.embedding.timeout_secs"
             :label="t('settings.runtime.embeddingTimeout')"
@@ -212,12 +222,14 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.qdrantTitle") }}</h3>
         <div class="settings-compact-grid settings-compact-grid-connection">
           <AppTextField
+            float-label
             input-id="runtime-qdrant-url"
             v-model="runtimeDraft.qdrant.url"
             :label="t('settings.runtime.qdrantUrl')"
             type="url"
           />
           <AppTextField
+            float-label
             input-id="runtime-qdrant-collection"
             v-model="runtimeDraft.qdrant.collection_name"
             :label="t('settings.runtime.qdrantCollection')"
@@ -237,6 +249,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.schedulerTitle") }}</h3>
         <div class="settings-compact-grid settings-compact-grid-conversion">
           <AppNumberField
+            float-label
             input-id="runtime-scheduler-interval"
             v-model="runtimeDraft.scheduler.interval_secs"
             :label="t('settings.runtime.schedulerInterval')"
@@ -244,6 +257,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :step="1"
           />
           <AppNumberField
+            float-label
             input-id="runtime-scheduler-concurrency"
             v-model="runtimeDraft.scheduler.max_concurrency"
             :label="t('settings.runtime.schedulerConcurrency')"
@@ -251,11 +265,13 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :step="1"
           />
           <AppTextField
+            float-label
             input-id="runtime-scheduler-job-id"
             v-model="runtimeDraft.scheduler.job_id"
             :label="t('settings.runtime.schedulerJobId')"
           />
           <AppTextField
+            float-label
             input-id="runtime-scheduler-valkey-url"
             v-model="runtimeDraft.scheduler.valkey_url"
             :label="t('settings.runtime.schedulerValkeyUrl')"
@@ -276,6 +292,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.chunkingTitle") }}</h3>
         <div class="settings-compact-grid settings-compact-grid-two">
           <AppNumberField
+            float-label
             input-id="runtime-chunking-max-chars"
             v-model="runtimeDraft.chunking.max_chars"
             :label="t('settings.runtime.chunkingMaxChars')"
@@ -283,6 +300,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :step="1"
           />
           <AppNumberField
+            float-label
             input-id="runtime-chunking-overlap"
             v-model="runtimeDraft.chunking.overlap_chars"
             :label="t('settings.runtime.chunkingOverlapChars')"
@@ -296,11 +314,13 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.fileLibraryTitle") }}</h3>
         <div class="settings-compact-grid settings-compact-grid-models">
           <AppTextField
+            float-label
             input-id="runtime-file-library-root"
             v-model="runtimeDraft.file_library.storage_root"
             :label="t('settings.runtime.fileLibraryRoot')"
           />
           <AppNumberField
+            float-label
             input-id="runtime-file-library-max-upload"
             v-model="runtimeDraft.file_library.max_upload_size_mb"
             :label="t('settings.runtime.fileLibraryMaxUploadSize')"
@@ -308,6 +328,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :step="1"
           />
           <AppNumberField
+            float-label
             input-id="runtime-file-library-max-request"
             v-model="runtimeDraft.file_library.max_upload_request_size_mb"
             :label="t('settings.runtime.fileLibraryMaxRequestSize')"
@@ -315,6 +336,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :step="1"
           />
           <AppNumberField
+            float-label
             input-id="runtime-file-library-concurrency"
             v-model="runtimeDraft.file_library.ingest_concurrency"
             :label="t('settings.runtime.fileLibraryConcurrency')"
@@ -322,6 +344,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :step="1"
           />
           <AppNumberField
+            float-label
             input-id="runtime-file-library-pages"
             v-model="runtimeDraft.file_library.pdf_pages_per_task"
             :label="t('settings.runtime.fileLibraryPdfPagesPerTask')"

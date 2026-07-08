@@ -86,12 +86,6 @@ describe("LoginView", () => {
     expect(wrapper.text()).toContain("Password is required.");
   });
 
-  it("shows the session expired message when routed with an expired reason", async () => {
-    const { wrapper } = await mountView("/login?reason=expired");
-
-    expect(wrapper.text()).toContain("Your session has expired. Sign in again to continue.");
-  });
-
   it("keeps the authenticated user caption visible when available", async () => {
     setAuthenticatedUser();
 

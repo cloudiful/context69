@@ -6,6 +6,7 @@
   @media (min-width: 768px) {
     .app-shell {
       padding-left: 14rem;
+      transition: padding-left 220ms cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     .app-shell.is-sidebar-collapsed {
@@ -25,20 +26,39 @@
     @apply px-0 py-0 pb-0;
   }
 
-  .app-sidebar {
-    @apply fixed inset-y-0 left-0 z-30 flex h-screen w-[14rem] -translate-x-full flex-col overflow-hidden border-r border-app-border/70 bg-app-bg/98 px-2.5 py-3 transition-transform md:translate-x-0 md:bg-app-surface-muted/20;
+  .app-sidebar-shell-mask-desktop {
+    pointer-events: none !important;
   }
 
-  .app-sidebar.is-collapsed {
-    @apply md:w-[4.75rem];
+  .app-sidebar-shell-mask-mobile {
+    @apply bg-black/45 backdrop-blur-[2px];
   }
 
-  .app-sidebar.is-mobile-open {
-    @apply translate-x-0;
+  .app-sidebar-shell.p-drawer {
+    @apply border-0 bg-transparent shadow-none;
   }
 
-  .app-sidebar-backdrop {
-    @apply fixed inset-0 z-20 bg-black/45 backdrop-blur-[2px] md:hidden;
+  .app-sidebar-shell-desktop.p-drawer {
+    @apply h-screen w-[14rem];
+    transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .app-sidebar-shell-desktop.p-drawer.is-collapsed {
+    @apply w-[4.75rem];
+  }
+
+  .app-sidebar-shell-mobile.p-drawer {
+    width: min(20rem, calc(100vw - 1rem));
+    max-width: calc(100vw - 1rem);
+    height: 100vh;
+  }
+
+  .app-sidebar-panel {
+    @apply flex h-full flex-col border-r border-app-border/70 bg-app-bg/98 px-2.5 py-3 md:bg-app-surface-muted/20;
+  }
+
+  .app-sidebar-panel-mobile {
+    @apply border-r-0 bg-app-bg;
   }
 
   .app-sidebar-head {
@@ -97,8 +117,94 @@
     @apply grid gap-1 rounded-xl border border-app-border/70 bg-app-surface-muted/35 px-3 py-2.5;
   }
 
-  .app-sidebar-tools {
-    @apply grid gap-2;
+  .sidebar-brand-enter-active,
+  .sidebar-brand-leave-active,
+  .sidebar-label-enter-active,
+  .sidebar-label-leave-active,
+  .sidebar-user-card-enter-active,
+  .sidebar-user-card-leave-active {
+    overflow: hidden;
+  }
+
+  .sidebar-brand-enter-active,
+  .sidebar-brand-leave-active {
+    transition:
+      opacity 180ms ease,
+      max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sidebar-brand-enter-from,
+  .sidebar-brand-leave-to {
+    opacity: 0;
+    max-width: 0;
+    transform: translateX(-0.45rem);
+  }
+
+  .sidebar-brand-enter-to,
+  .sidebar-brand-leave-from {
+    opacity: 1;
+    max-width: 11rem;
+    transform: translateX(0);
+  }
+
+  .sidebar-label-enter-active,
+  .sidebar-label-leave-active {
+    display: inline-block;
+    transition:
+      opacity 160ms ease,
+      max-width 200ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    white-space: nowrap;
+  }
+
+  .sidebar-label-enter-from,
+  .sidebar-label-leave-to {
+    opacity: 0;
+    max-width: 0;
+    transform: translateX(-0.35rem);
+  }
+
+  .sidebar-label-enter-to,
+  .sidebar-label-leave-from {
+    opacity: 1;
+    max-width: 8rem;
+    transform: translateX(0);
+  }
+
+  .sidebar-user-card-enter-active,
+  .sidebar-user-card-leave-active {
+    transition:
+      opacity 180ms ease,
+      max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sidebar-user-card-enter-from,
+  .sidebar-user-card-leave-to {
+    opacity: 0;
+    max-width: 0;
+    transform: translateX(-0.45rem);
+  }
+
+  .sidebar-user-card-enter-to,
+  .sidebar-user-card-leave-from {
+    opacity: 1;
+    max-width: 11rem;
+    transform: translateX(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-shell,
+    .app-sidebar-shell-desktop.p-drawer,
+    .sidebar-brand-enter-active,
+    .sidebar-brand-leave-active,
+    .sidebar-label-enter-active,
+    .sidebar-label-leave-active,
+    .sidebar-user-card-enter-active,
+    .sidebar-user-card-leave-active {
+      transition: none !important;
+    }
   }
 
   .app-contextbar-user {
@@ -157,12 +263,26 @@
     @apply text-app-text-dim;
   }
 
-  .workspace-overview-grid {
-    @apply grid gap-2 md:grid-cols-2 xl:grid-cols-4;
+  .workspace-overview-pairs {
+    @apply grid gap-2 rounded-xl border border-app-border/60 bg-app-surface-soft/20 p-2.5 md:grid-cols-2 xl:grid-cols-3;
   }
 
-  .workspace-overview-card {
-    @apply grid gap-1 rounded-xl border border-app-border/60 bg-app-surface-soft/25 p-3;
+  .workspace-overview-pair {
+    @apply grid gap-1 rounded-lg border border-app-border/45 bg-app-surface-soft/18 px-3 py-2;
+    grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .workspace-overview-key {
+    @apply text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim;
+  }
+
+  .workspace-overview-value {
+    @apply min-w-0 text-sm font-semibold text-app-text;
+  }
+
+  .workspace-overview-value .p-tag {
+    @apply justify-self-start;
   }
 
   .workspace-tabbar {
@@ -286,8 +406,28 @@
     @apply grid min-w-0 content-start self-start gap-3;
   }
 
+  .app-float-field.p-floatlabel {
+    @apply block;
+  }
+
+  .app-float-field > .p-inputtext,
+  .app-float-field > .p-inputnumber,
+  .app-float-field > .p-select {
+    @apply w-full;
+  }
+
+  .app-float-field > .p-inputnumber > .p-inputtext {
+    @apply w-full;
+  }
+
   .app-form-field-label {
     @apply text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
+  }
+
+  .app-float-field-label {
+    @apply text-xs font-medium uppercase tracking-[0.08em];
+    background: transparent !important;
+    padding-inline: 0 !important;
   }
 
   .app-form-field-help {
@@ -756,35 +896,6 @@
     @apply bg-app-surface-soft/80;
   }
 
-  .settings-anchor-nav {
-    @apply overflow-x-auto border-b border-app-border/70 pb-2;
-    scrollbar-width: thin;
-  }
-
-  .settings-nav-groups {
-    @apply flex gap-5 xl:grid xl:gap-4;
-  }
-
-  .settings-nav-group {
-    @apply grid min-w-[10rem] content-start gap-1;
-  }
-
-  .settings-nav-group-title {
-    @apply px-2 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-app-text-dim;
-  }
-
-  .settings-nav-list {
-    @apply grid gap-0.5;
-  }
-
-  .settings-nav-button {
-    @apply rounded-md px-2 py-1.5 text-left text-[0.92rem] text-app-text-muted transition hover:bg-app-surface-soft/35 hover:text-app-text;
-  }
-
-  .settings-nav-button.is-active {
-    @apply bg-app-surface-soft/60 text-app-text;
-  }
-
   .settings-header-actions {
     @apply flex flex-wrap items-center justify-end gap-1.5;
   }
@@ -979,14 +1090,23 @@
       grid-template-columns: repeat(3, minmax(11rem, 15rem));
       justify-content: start;
     }
-
-    .settings-anchor-nav {
-      @apply sticky top-20 self-start overflow-visible border-b-0 border-r border-app-border/50 pb-0 pr-4;
-    }
   }
 
   .app-table-toolbar-search {
     @apply min-w-0 md:w-72;
+  }
+
+  .app-table-toolbar-search.p-iconfield {
+    @apply w-full;
+  }
+
+  .app-table-toolbar-search .p-inputicon {
+    color: color-mix(in srgb, var(--color-app-text-dim) 88%, transparent);
+    inset-inline-start: 0.8rem;
+  }
+
+  .app-table-toolbar-search .p-inputtext {
+    padding-inline-start: 2.35rem;
   }
 
   .sources-table-shell {
@@ -1191,9 +1311,13 @@
 
   .library-workspace {
     @apply min-h-0 overflow-hidden;
-    height: calc(100vh - 9.25rem);
+    height: calc(100dvh - var(--library-workspace-offset, 9.25rem));
     border-radius: 0.8rem;
     background: var(--color-app-surface);
+  }
+
+  .library-workspace-embedded {
+    --library-workspace-offset: 13rem;
   }
 
   .library-browser-main {

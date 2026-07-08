@@ -35,17 +35,6 @@ const resolver = computed(() =>
   ),
 );
 
-const sessionReasonMessage = computed(() => {
-  const reason = route.query.reason;
-  if (reason === "expired") {
-    return t("auth.sessionExpired");
-  }
-  if (reason === "network") {
-    return t("auth.sessionRestoreFailed");
-  }
-  return "";
-});
-
 const redirectTarget = computed(() => {
   const redirect = route.query.redirect;
   return typeof redirect === "string" && redirect ? redirect : "/search";
@@ -111,14 +100,6 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
         <span class="auth-session-inline-name">{{ authSessionState.user.display_name }}</span>
         <span class="text-xs text-app-text-dim">{{ authSessionState.user.login_name }}</span>
       </div>
-
-      <AppStateMessage
-        v-if="sessionReasonMessage"
-        severity="warn"
-        :title="t('auth.sessionStateTitle')"
-      >
-        {{ sessionReasonMessage }}
-      </AppStateMessage>
 
       <AppStateMessage
         v-if="errorMessage"

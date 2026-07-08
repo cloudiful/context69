@@ -48,6 +48,7 @@ export type UpdateGroupRequest = components["schemas"]["UpdateGroupRequest"];
 export type UpdateProjectRequest = components["schemas"]["UpdateProjectRequest"];
 export type UpdateSearchSettingsRequest = components["schemas"]["UpdateSearchSettingsRequest"];
 export type UpdateRuntimeSettingsRequest = components["schemas"]["UpdateRuntimeSettingsRequest"];
+export type UpsertLibraryTextRequest = components["schemas"]["UpsertLibraryTextRequest"];
 export type UpsertMembershipRequest = components["schemas"]["UpsertMembershipRequest"];
 export type UpsertProviderAccountRequest = components["schemas"]["UpsertProviderAccountRequest"];
 export type UpsertSourceConnectionRequest = components["schemas"]["UpsertSourceConnectionRequest"];

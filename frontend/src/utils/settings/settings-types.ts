@@ -49,12 +49,6 @@ export type DraftDoclingSettings = {
   };
 };
 
-export type SettingsNavGroup = {
-  key: string;
-  label: string;
-  items: Array<{ id: string; label: string }>;
-};
-
 export type DraftSearchSettings = {
   mode: "vector" | "hybrid";
   rerank_enabled: boolean;

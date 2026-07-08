@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import FloatLabel from "primevue/floatlabel";
+
 const props = withDefaults(defineProps<{
+  floatLabel?: boolean;
   inputId: string;
   label: string;
   helper?: string;
   layout?: "stacked" | "inline";
 }>(), {
+  floatLabel: false,
   helper: "",
   layout: "stacked",
 });
@@ -18,6 +22,7 @@ const props = withDefaults(defineProps<{
       : ''"
   >
     <label
+      v-if="!props.floatLabel"
       class="app-form-field-label"
       :class="props.layout === 'inline' ? 'md:mb-0 md:self-center' : ''"
       :for="props.inputId"
@@ -25,7 +30,13 @@ const props = withDefaults(defineProps<{
       {{ props.label }}
     </label>
     <div class="grid min-w-0 gap-2">
-      <slot />
+      <FloatLabel v-if="props.floatLabel" variant="on" class="app-float-field">
+        <slot />
+        <label class="app-float-field-label" :for="props.inputId">
+          {{ props.label }}
+        </label>
+      </FloatLabel>
+      <slot v-else />
       <p v-if="props.helper" class="app-form-field-help">{{ props.helper }}</p>
     </div>
   </div>

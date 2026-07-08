@@ -4,6 +4,7 @@ import Select from "primevue/select";
 import AppFormField from "./AppFormField.vue";
 
 const props = withDefaults(defineProps<{
+  floatLabel?: boolean;
   helper?: string;
   inputId: string;
   label: string;
@@ -15,6 +16,7 @@ const props = withDefaults(defineProps<{
   placeholder?: string;
   testId?: string;
 }>(), {
+  floatLabel: false,
   helper: "",
   layout: "stacked",
   modelValue: null,
@@ -31,6 +33,7 @@ const emit = defineEmits<{
 
 <template>
   <AppFormField
+    :float-label="props.floatLabel"
     :input-id="props.inputId"
     :label="props.label"
     :helper="props.helper || undefined"

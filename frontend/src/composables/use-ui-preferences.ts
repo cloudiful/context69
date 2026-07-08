@@ -69,10 +69,6 @@ function toggleSidebar() {
   persistSidebarCollapsed(state.sidebarCollapsed);
 }
 
-function openMobileNav() {
-  state.mobileNavOpen = true;
-}
-
 function closeMobileNav() {
   state.mobileNavOpen = false;
 }
@@ -99,7 +95,6 @@ export function useUiPreferences() {
     setTheme,
     toggleTheme,
     toggleSidebar,
-    openMobileNav,
     closeMobileNav,
     toggleMobileNav,
   };

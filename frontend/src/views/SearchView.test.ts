@@ -2,34 +2,23 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { apiClient } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
 import { installMockStorage } from "../test-utils/storage";
 import { SEARCH_HISTORY_STORAGE_KEY } from "../utils/search-history";
 
-const { listSources, search } = vi.hoisted(() => ({
-  listSources: vi.fn(),
-  search: vi.fn(),
-}));
-
-vi.mock("../services/api", () => ({
-  apiClient: {
-    listSources,
-    search,
-  },
-}));
-
 import SearchView from "./SearchView.vue";
 
 describe("SearchView", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     installMockStorage();
-    listSources.mockReset();
-    search.mockReset();
   });
 
   it("keeps the page empty before any search has been submitted", async () => {
-    listSources.mockResolvedValue([]);
+    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue({ query: "", hits: [] });
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -57,7 +46,7 @@ describe("SearchView", () => {
   });
 
   it("loads route filters and renders search results", async () => {
-    listSources.mockResolvedValue([
+    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue([
       {
         source_key: "gov_documents",
         group_key: "personal-admin",
@@ -79,7 +68,7 @@ describe("SearchView", () => {
         last_success_at: null,
       },
     ]);
-    search.mockResolvedValue({
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue({
       query: "policy",
       hits: [
         {
@@ -137,8 +126,8 @@ describe("SearchView", () => {
   });
 
   it("stores recent searches, reruns them, and clears local history", async () => {
-    listSources.mockResolvedValue([]);
-    search.mockResolvedValue({
+    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue({
       query: "policy",
       hits: [],
     });
@@ -189,5 +178,34 @@ describe("SearchView", () => {
 
     expect(window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY)).toBeNull();
     expect(wrapper.text()).not.toContain("Recent Searches");
+  });
+
+  it("localizes the runtime-not-configured search error", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
+    vi.spyOn(apiClient, "search").mockRejectedValue(new Error(
+      "search runtime is not configured; save runtime/provider settings and restart the service",
+    ));
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+
+    router.push("/search?q=deepseek");
+    await router.isReady();
+
+    const wrapper = mount(SearchView, {
+      global: {
+        plugins: [testPrimeVuePlugin, router, createTestI18n("zh-CN")],
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("搜索运行时未配置。请先保存运行时或提供商设置，然后重启服务。");
+    expect(wrapper.text()).not.toContain("search runtime is not configured");
   });
 });

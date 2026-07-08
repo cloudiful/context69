@@ -193,17 +193,24 @@ onMounted(() => {
   <div class="workspace-page">
     <AppPanel surface="plain" :title="project?.name || projectKey">
       <template #actions>
-        <div v-if="canManageProject" class="flex gap-2">
-          <Button severity="secondary" variant="outlined" @click="projectDialogVisible = true">
-            {{ t("common.edit") }}
-          </Button>
-          <Button v-if="canOwnProject" severity="secondary" variant="outlined" @click="moveDialogVisible = true">
-            {{ t("common.move") }}
-          </Button>
-          <Button v-if="canOwnProject" severity="danger" variant="outlined" @click="confirmDeleteProject">
-            {{ t("common.delete") }}
-          </Button>
-        </div>
+        <Button
+          v-if="canManageProject"
+          severity="secondary"
+          :label="t('common.edit')"
+          @click="projectDialogVisible = true"
+        />
+        <Button
+          v-if="canOwnProject"
+          severity="secondary"
+          :label="t('common.move')"
+          @click="moveDialogVisible = true"
+        />
+        <Button
+          v-if="canOwnProject"
+          severity="danger"
+          :label="t('common.delete')"
+          @click="confirmDeleteProject"
+        />
       </template>
 
       <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
@@ -225,28 +232,32 @@ onMounted(() => {
       </div>
 
       <section v-if="activeTab === 'overview'" class="workspace-block">
-        <div class="workspace-overview-grid">
-          <div class="workspace-overview-card">
-            <span class="section-label">{{ t("project.summary.group") }}</span>
-            <strong>{{ groupKey }}</strong>
+        <dl class="workspace-overview-pairs">
+          <div class="workspace-overview-pair">
+            <dt class="workspace-overview-key">{{ t("project.summary.group") }}</dt>
+            <dd class="workspace-overview-value">{{ groupKey }}</dd>
           </div>
-          <div class="workspace-overview-card">
-            <span class="section-label">{{ t("project.summary.project") }}</span>
-            <strong>{{ projectKey }}</strong>
+          <div class="workspace-overview-pair">
+            <dt class="workspace-overview-key">{{ t("project.summary.project") }}</dt>
+            <dd class="workspace-overview-value">{{ projectKey }}</dd>
           </div>
-          <div class="workspace-overview-card">
-            <span class="section-label">{{ t("project.summary.visibility") }}</span>
-            <Tag :value="project?.visibility || '--'" severity="secondary" />
+          <div class="workspace-overview-pair">
+            <dt class="workspace-overview-key">{{ t("project.summary.visibility") }}</dt>
+            <dd class="workspace-overview-value">
+              <Tag :value="project?.visibility || '--'" severity="secondary" />
+            </dd>
           </div>
-          <div class="workspace-overview-card">
-            <span class="section-label">{{ t("groups.currentRole") }}</span>
-            <Tag :value="project?.current_role || '--'" :severity="roleSeverity(project?.current_role)" />
+          <div class="workspace-overview-pair">
+            <dt class="workspace-overview-key">{{ t("groups.currentRole") }}</dt>
+            <dd class="workspace-overview-value">
+              <Tag :value="project?.current_role || '--'" :severity="roleSeverity(project?.current_role)" />
+            </dd>
           </div>
-          <div class="workspace-overview-card">
-            <span class="section-label">{{ t("project.summary.members") }}</span>
-            <strong>{{ members.length }}</strong>
+          <div class="workspace-overview-pair">
+            <dt class="workspace-overview-key">{{ t("project.summary.members") }}</dt>
+            <dd class="workspace-overview-value">{{ members.length }}</dd>
           </div>
-        </div>
+        </dl>
       </section>
 
       <ProjectSourcesPanel

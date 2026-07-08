@@ -21,7 +21,6 @@ const mdiMenu = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
 const appLocale = locale as { value: AppLocale };
 
 const {
-  activeSectionId,
   adminUsers,
   adminUsersBusy,
   adminUsersCreateBusy,
@@ -53,12 +52,10 @@ const {
   saving,
   schedulerToggleModel,
   searchHasStoredApiKey,
-  scrollToSettingsSection,
   searchDraft,
   searchModeOptions,
   selectedProviderAccount,
   selectedProviderAccountKey,
-  settingsNavGroups,
   startNewProviderAccount,
   runtimeDraft,
   toggleClearProviderApiKey,
@@ -76,7 +73,7 @@ function switchLocale(nextLocale: AppLocale) {
 </script>
 
 <template>
-  <AppPanel class="settings-panel" :title="t('settings.title')">
+  <AppPanel class="settings-panel">
     <template #actions>
       <div class="settings-header-actions">
         <Button
@@ -103,93 +100,66 @@ function switchLocale(nextLocale: AppLocale) {
       :error="pageError"
     >
       <form class="grid gap-2" @submit.prevent="saveSettings">
-        <div class="grid gap-2 xl:grid-cols-[minmax(10rem,11.5rem)_minmax(0,1fr)] xl:items-start xl:gap-x-6">
-          <nav class="settings-anchor-nav" :aria-label="t('settings.navigationTitle')">
-            <div class="settings-nav-groups">
-              <section
-                v-for="group in settingsNavGroups"
-                :key="group.key"
-                class="settings-nav-group"
-              >
-                <p class="settings-nav-group-title">{{ group.label }}</p>
-                <div class="settings-nav-list">
-                  <button
-                    v-for="item in group.items"
-                    :key="item.id"
-                    type="button"
-                    class="settings-nav-button"
-                    :class="{ 'is-active': activeSectionId === item.id }"
-                    :aria-current="activeSectionId === item.id ? 'location' : undefined"
-                    @click="scrollToSettingsSection(item.id)"
-                  >
-                    {{ item.label }}
-                  </button>
-                </div>
-              </section>
-            </div>
-          </nav>
+        <div class="settings-sections">
+          <SettingsAppearanceSection
+            :locale="appLocale.value"
+            :theme="preferences.state.theme"
+            @update:locale="switchLocale"
+            @update:theme="preferences.setTheme"
+          />
 
-          <div class="settings-sections">
-            <SettingsAppearanceSection
-              :locale="appLocale.value"
-              :theme="preferences.state.theme"
-              @update:locale="switchLocale"
-              @update:theme="preferences.setTheme"
-            />
+          <SettingsSearchSection
+            :clear-recent-searches="clearRecentSearches"
+            :recent-search-count="recentSearchCount"
+            :rerank-api-key-draft="rerankApiKeyDraft"
+            :rerank-toggle-model="rerankToggleModel"
+            :search-has-stored-api-key="searchHasStoredApiKey"
+            :search-draft="searchDraft"
+            :search-mode-options="searchModeOptions"
+            @update:rerank-api-key-draft="rerankApiKeyDraft = $event"
+            @update:rerank-toggle-model="rerankToggleModel = $event"
+          />
 
-            <SettingsSearchSection
-              :clear-recent-searches="clearRecentSearches"
-              :recent-search-count="recentSearchCount"
-              :rerank-api-key-draft="rerankApiKeyDraft"
-              :rerank-toggle-model="rerankToggleModel"
-              :search-has-stored-api-key="searchHasStoredApiKey"
-              :search-draft="searchDraft"
-              :search-mode-options="searchModeOptions"
-              @update:rerank-api-key-draft="rerankApiKeyDraft = $event"
-              @update:rerank-toggle-model="rerankToggleModel = $event"
-            />
+          <SettingsRuntimeSection
+            :delete-provider-account="deleteProviderAccount"
+            :provider-account-options="providerAccountOptions"
+            :provider-draft="providerDraft"
+            :provider-kind-options="providerKindOptions"
+            :provider-message="providerMessage"
+            :provider-saving="providerSaving"
+            :provider-status-label="providerStatusLabel"
+            :provider-toggle-model="providerToggleModel"
+            :qdrant-toggle-model="qdrantToggleModel"
+            :runtime-draft="runtimeDraft"
+            :saving="saving"
+            :scheduler-toggle-model="schedulerToggleModel"
+            :selected-provider-account="selectedProviderAccount"
+            :selected-provider-account-key="selectedProviderAccountKey"
+            :start-new-provider-account="startNewProviderAccount"
+            :toggle-clear-provider-api-key="toggleClearProviderApiKey"
+            @update:provider-toggle-model="providerToggleModel = $event"
+            @update:qdrant-toggle-model="qdrantToggleModel = $event"
+            @update:scheduler-toggle-model="schedulerToggleModel = $event"
+            @update:selected-provider-account-key="selectedProviderAccountKey = $event"
+          />
 
-            <SettingsRuntimeSection
-              :delete-provider-account="deleteProviderAccount"
-              :provider-account-options="providerAccountOptions"
-              :provider-draft="providerDraft"
-              :provider-kind-options="providerKindOptions"
-              :provider-message="providerMessage"
-              :provider-saving="providerSaving"
-              :provider-status-label="providerStatusLabel"
-              :provider-toggle-model="providerToggleModel"
-              :qdrant-toggle-model="qdrantToggleModel"
-              :runtime-draft="runtimeDraft"
-              :saving="saving"
-              :scheduler-toggle-model="schedulerToggleModel"
-              :selected-provider-account="selectedProviderAccount"
-              :selected-provider-account-key="selectedProviderAccountKey"
-              :start-new-provider-account="startNewProviderAccount"
-              :toggle-clear-provider-api-key="toggleClearProviderApiKey"
-              @update:provider-toggle-model="providerToggleModel = $event"
-              @update:qdrant-toggle-model="qdrantToggleModel = $event"
-              @update:scheduler-toggle-model="schedulerToggleModel = $event"
-              @update:selected-provider-account-key="selectedProviderAccountKey = $event"
-            />
+          <SettingsDoclingSection
+            :docling-draft="doclingDraft"
+            :docling-provider-options="doclingProviderOptions"
+          />
 
-            <SettingsDoclingSection
-              :docling-draft="doclingDraft"
-              :docling-provider-options="doclingProviderOptions"
-            />
-
-            <SettingsAdminUsersSection
-              v-if="adminUsers.length > 0 || adminUsersBusy || adminUsersError"
-              :busy="adminUsersBusy"
-              :create-busy="adminUsersCreateBusy"
-              :error="adminUsersError"
-              :users="adminUsers"
-              @create="createAdminUser"
-              @disable="disableAdminUser"
-              @enable="enableAdminUser"
-              @reset-password="resetAdminUserPassword"
-              @update="updateAdminUser"
-            />
-          </div>
+          <SettingsAdminUsersSection
+            v-if="adminUsers.length > 0 || adminUsersBusy || adminUsersError"
+            :busy="adminUsersBusy"
+            :create-busy="adminUsersCreateBusy"
+            :error="adminUsersError"
+            :users="adminUsers"
+            @create="createAdminUser"
+            @disable="disableAdminUser"
+            @enable="enableAdminUser"
+            @reset-password="resetAdminUserPassword"
+            @update="updateAdminUser"
+          />
         </div>
 
         <div class="settings-save-bar">

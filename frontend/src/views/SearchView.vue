@@ -11,6 +11,7 @@ import SearchHistoryPanel from "../components/SearchHistoryPanel.vue";
 import SearchResultList from "../components/SearchResultList.vue";
 import SearchSelectionPreview from "../components/SearchSelectionPreview.vue";
 import { apiClient, type SearchHit, type SearchResponse, type SourceStatus } from "../services/api";
+import { resolveSearchErrorMessage } from "../utils/search-errors";
 import { addSearchHistoryEntry, clearSearchHistory, readSearchHistory, type SearchHistoryEntry } from "../utils/search-history";
 import { createDefaultFilters, filtersFromQuery, filtersToQuery, buildSearchPayload } from "../utils/search";
 import { buildSearchTarget } from "../utils/search-target";
@@ -81,7 +82,7 @@ async function runSearch(options: { persistHistory?: boolean } = {}) {
 
     results.value = null;
     selectedHit.value = null;
-    searchError.value = error instanceof Error ? error.message : t("search.searchFailed");
+    searchError.value = resolveSearchErrorMessage(error, t);
   } finally {
     loading.value = false;
   }

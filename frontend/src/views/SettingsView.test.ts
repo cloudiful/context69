@@ -1,5 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import Select from "primevue/select";
 
 import { apiClient } from "../services/api";
@@ -81,47 +81,38 @@ const providerAccountsResponse = [
   },
 ];
 
-let getRuntimeSettings: MockInstance<typeof apiClient.getRuntimeSettings>;
-let updateRuntimeSettings: MockInstance<typeof apiClient.updateRuntimeSettings>;
-let getDoclingSettings: MockInstance<typeof apiClient.getDoclingSettings>;
-let getSearchSettings: MockInstance<typeof apiClient.getSearchSettings>;
-let updateDoclingSettings: MockInstance<typeof apiClient.updateDoclingSettings>;
-let updateSearchSettings: MockInstance<typeof apiClient.updateSearchSettings>;
-let listProviderAccounts: MockInstance<typeof apiClient.listProviderAccounts>;
-let createProviderAccount: MockInstance<typeof apiClient.createProviderAccount>;
-let updateProviderAccount: MockInstance<typeof apiClient.updateProviderAccount>;
-let deleteProviderAccount: MockInstance<typeof apiClient.deleteProviderAccount>;
-let listAdminUsers: MockInstance<typeof apiClient.listAdminUsers>;
-let createAdminUser: MockInstance<typeof apiClient.createAdminUser>;
-let updateAdminUser: MockInstance<typeof apiClient.updateAdminUser>;
-let resetAdminUserPassword: MockInstance<typeof apiClient.resetAdminUserPassword>;
-let disableAdminUser: MockInstance<typeof apiClient.disableAdminUser>;
-let enableAdminUser: MockInstance<typeof apiClient.enableAdminUser>;
+function createApiSpies() {
+  return {
+    getRuntimeSettings: vi.spyOn(apiClient, "getRuntimeSettings").mockResolvedValue(runtimeResponse as never),
+    updateRuntimeSettings: vi.spyOn(apiClient, "updateRuntimeSettings").mockResolvedValue(runtimeResponse as never),
+    getDoclingSettings: vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never),
+    getSearchSettings: vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never),
+    updateDoclingSettings: vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never),
+    updateSearchSettings: vi.spyOn(apiClient, "updateSearchSettings").mockResolvedValue({
+      ...searchSettingsResponse,
+      has_api_key: true,
+    } as never),
+    listProviderAccounts: vi.spyOn(apiClient, "listProviderAccounts").mockResolvedValue(providerAccountsResponse as never),
+    createProviderAccount: vi.spyOn(apiClient, "createProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never),
+    updateProviderAccount: vi.spyOn(apiClient, "updateProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never),
+    deleteProviderAccount: vi.spyOn(apiClient, "deleteProviderAccount").mockResolvedValue(undefined as never),
+    listAdminUsers: vi.spyOn(apiClient, "listAdminUsers").mockResolvedValue([] as never),
+    createAdminUser: vi.spyOn(apiClient, "createAdminUser").mockResolvedValue(undefined as never),
+    updateAdminUser: vi.spyOn(apiClient, "updateAdminUser").mockResolvedValue(undefined as never),
+    resetAdminUserPassword: vi.spyOn(apiClient, "resetAdminUserPassword").mockResolvedValue(undefined as never),
+    disableAdminUser: vi.spyOn(apiClient, "disableAdminUser").mockResolvedValue(undefined as never),
+    enableAdminUser: vi.spyOn(apiClient, "enableAdminUser").mockResolvedValue(undefined as never),
+  };
+}
+
+let apiSpies: ReturnType<typeof createApiSpies>;
 
 describe("SettingsView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     installMockStorage();
     setGuest();
-    getRuntimeSettings = vi.spyOn(apiClient, "getRuntimeSettings").mockResolvedValue(runtimeResponse as never);
-    updateRuntimeSettings = vi.spyOn(apiClient, "updateRuntimeSettings").mockResolvedValue(runtimeResponse as never);
-    getDoclingSettings = vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never);
-    getSearchSettings = vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never);
-    updateDoclingSettings = vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never);
-    updateSearchSettings = vi.spyOn(apiClient, "updateSearchSettings").mockResolvedValue({
-      ...searchSettingsResponse,
-      has_api_key: true,
-    } as never);
-    listProviderAccounts = vi.spyOn(apiClient, "listProviderAccounts").mockResolvedValue(providerAccountsResponse as never);
-    createProviderAccount = vi.spyOn(apiClient, "createProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never);
-    updateProviderAccount = vi.spyOn(apiClient, "updateProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never);
-    deleteProviderAccount = vi.spyOn(apiClient, "deleteProviderAccount").mockResolvedValue(undefined as never);
-    listAdminUsers = vi.spyOn(apiClient, "listAdminUsers").mockResolvedValue([] as never);
-    createAdminUser = vi.spyOn(apiClient, "createAdminUser").mockResolvedValue(undefined as never);
-    updateAdminUser = vi.spyOn(apiClient, "updateAdminUser").mockResolvedValue(undefined as never);
-    resetAdminUserPassword = vi.spyOn(apiClient, "resetAdminUserPassword").mockResolvedValue(undefined as never);
-    disableAdminUser = vi.spyOn(apiClient, "disableAdminUser").mockResolvedValue(undefined as never);
-    enableAdminUser = vi.spyOn(apiClient, "enableAdminUser").mockResolvedValue(undefined as never);
+    apiSpies = createApiSpies();
   });
 
   it("loads settings, shows recent search history, and saves runtime/docling/search updates", async () => {
@@ -145,9 +136,9 @@ describe("SettingsView", () => {
 
     await flushPromises();
     await vi.waitFor(() => {
-      expect(getRuntimeSettings).toHaveBeenCalledTimes(1);
-      expect(getDoclingSettings).toHaveBeenCalledTimes(1);
-      expect(getSearchSettings).toHaveBeenCalledTimes(1);
+      expect(apiSpies.getRuntimeSettings).toHaveBeenCalledTimes(1);
+      expect(apiSpies.getDoclingSettings).toHaveBeenCalledTimes(1);
+      expect(apiSpies.getSearchSettings).toHaveBeenCalledTimes(1);
       expect(wrapper.find("#docling-base-url").exists()).toBe(true);
     });
 
@@ -164,7 +155,7 @@ describe("SettingsView", () => {
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
-    expect(updateRuntimeSettings).toHaveBeenCalledWith(expect.objectContaining({
+    expect(apiSpies.updateRuntimeSettings).toHaveBeenCalledWith(expect.objectContaining({
       embedding: expect.objectContaining({
         model: "text-embedding-3-small",
         provider_account_key: "openrouter-default",
@@ -173,7 +164,7 @@ describe("SettingsView", () => {
         valkey_url: "redis://valkey:6379/0",
       }),
     }));
-    expect(updateDoclingSettings).toHaveBeenCalledWith(expect.objectContaining({
+    expect(apiSpies.updateDoclingSettings).toHaveBeenCalledWith(expect.objectContaining({
       connection: expect.objectContaining({
         base_url: "http://docling.internal:5001",
       }),
@@ -181,7 +172,7 @@ describe("SettingsView", () => {
         provider_account_key: "openrouter-default",
       }),
     }));
-    expect(updateSearchSettings).toHaveBeenCalledWith(expect.objectContaining({
+    expect(apiSpies.updateSearchSettings).toHaveBeenCalledWith(expect.objectContaining({
       mode: "hybrid",
       rerank_enabled: true,
       api_key: "rerank-secret",
@@ -231,40 +222,9 @@ describe("SettingsView", () => {
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
-    expect(updateProviderAccount).toHaveBeenCalledWith(expect.objectContaining({
+    expect(apiSpies.updateProviderAccount).toHaveBeenCalledWith(expect.objectContaining({
       account_key: "openrouter-default",
       clear_api_key: true,
     }));
-  });
-
-  it("scrolls to the matching section when clicking a left navigation item", async () => {
-    const replaceState = vi.spyOn(window.history, "replaceState");
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
-
-    const wrapper = mount(SettingsView, {
-      attachTo: document.body,
-      global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
-      },
-    });
-
-    await flushPromises();
-
-    const schedulerLink = wrapper
-      .findAll("button")
-      .find((node) => node.text().trim() === "调度器" || node.text().trim() === "Scheduler");
-
-    expect(schedulerLink).toBeTruthy();
-    await schedulerLink!.trigger("click");
-
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "start",
-      behavior: "smooth",
-    });
-    expect(replaceState).toHaveBeenCalledWith(null, "", "#settings-scheduler");
   });
 });

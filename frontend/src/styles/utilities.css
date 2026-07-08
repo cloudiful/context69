@@ -314,6 +314,28 @@
     color: color-mix(in srgb, var(--color-app-warning) 78%, white 22%);
   }
 
+  .app-state-message.p-message {
+    overflow: hidden;
+  }
+
+  .app-state-message .p-message-content-wrapper {
+    padding: 0.75rem 0.9rem;
+  }
+
+  .app-state-message .p-message-content {
+    line-height: 1.45;
+  }
+
+  .app-state-message-body {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .app-state-message-title,
+  .app-state-message-text {
+    margin: 0;
+  }
+
   :root[data-theme="light"] .p-tag-success,
   :root[data-theme="light"] .p-message-success {
     color: color-mix(in srgb, var(--color-app-success) 82%, black 18%);
@@ -335,59 +357,6 @@
 
   .p-dialog {
     overflow: hidden;
-  }
-
-  .library-context-menu.p-contextmenu {
-    min-width: 12rem;
-    border: 1px solid var(--color-app-border);
-    border-radius: 1rem;
-    background: color-mix(in srgb, var(--color-app-surface) 97%, transparent);
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
-    padding: 0.35rem;
-  }
-
-  .library-context-menu .p-contextmenu-root-list {
-    display: grid;
-    gap: 0.2rem;
-  }
-
-  .library-context-menu .p-contextmenu-item-content {
-    border-radius: 0.85rem;
-  }
-
-  .library-context-menu .p-contextmenu-item-content:hover,
-  .library-context-menu .p-contextmenu-item.p-focus > .p-contextmenu-item-content {
-    background: color-mix(in srgb, var(--color-app-surface-soft) 78%, transparent);
-  }
-
-  .library-context-link {
-    display: grid;
-    grid-template-columns: 1rem minmax(0, 1fr);
-    align-items: center;
-    column-gap: 0.75rem;
-    min-width: 100%;
-    padding: 0.8rem 0.9rem;
-    color: var(--color-app-text);
-  }
-
-  .library-context-link-danger {
-    color: #f0b2b2;
-  }
-
-  .library-context-icon {
-    font-size: 0.92rem;
-    text-align: center;
-    color: var(--color-app-text-dim);
-  }
-
-  .library-context-link-danger .library-context-icon {
-    color: #f0b2b2;
-  }
-
-  .library-context-label {
-    font-size: 0.92rem;
-    font-weight: 500;
-    line-height: 1.25rem;
   }
 
   .p-datatable {
@@ -704,8 +673,12 @@
     }
 
     .library-workspace {
-      height: calc(100vh - 8.75rem);
+      height: calc(100dvh - var(--library-workspace-offset, 8.75rem));
       border-radius: 0.8rem;
+    }
+
+    .library-workspace-embedded {
+      --library-workspace-offset: 12rem;
     }
 
     .library-pane {
@@ -747,6 +720,7 @@
     .app-table-toolbar-search .p-inputtext {
       min-height: 2rem;
       padding-block: 0.45rem;
+      padding-inline-start: 2.2rem;
       font-size: 0.86rem;
     }
 
@@ -945,10 +919,6 @@
   @media (min-width: 1280px) {
     .sources-editor-screen {
       min-height: calc(100vh - 8.5rem);
-    }
-
-    .settings-anchor-nav {
-      padding-top: 0.35rem;
     }
   }
 }

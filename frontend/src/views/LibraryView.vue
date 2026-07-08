@@ -23,7 +23,6 @@ import type { ExplorerEntry } from "../types/library";
 
 interface LibraryMenuItem {
   command: () => void;
-  danger?: boolean;
   icon: string;
   label: string;
 }
@@ -107,7 +106,6 @@ const resourceMenuItems = computed<LibraryMenuItem[]>(() => {
       {
         label: t("common.delete"),
         icon: "pi pi-trash",
-        danger: true,
         command: () => {
           void actionsState.deleteFolder(entry.folder);
         },
@@ -133,7 +131,6 @@ const resourceMenuItems = computed<LibraryMenuItem[]>(() => {
     {
       label: t("common.delete"),
       icon: "pi pi-trash",
-      danger: true,
       command: () => {
         void actionsState.deleteFile(entry.file);
       },
@@ -229,14 +226,7 @@ defineExpose({
 
 <template>
   <div class="library-layout">
-    <ContextMenu ref="resourceContextMenu" class="library-context-menu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null">
-      <template #item="{ item, props }">
-        <a v-bind="props.action" class="library-context-link" :class="{ 'library-context-link-danger': item.danger }">
-          <span class="library-context-icon" :class="item.icon" aria-hidden="true" />
-          <span class="library-context-label">{{ item.label }}</span>
-        </a>
-      </template>
-    </ContextMenu>
+    <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
 
     <LibraryToolbar
       :breadcrumb-home="treeState.breadcrumbHome"

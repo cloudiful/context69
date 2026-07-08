@@ -27,17 +27,15 @@ const emit = defineEmits<{
     </div>
 
     <div class="utility-toolbar-group app-table-toolbar-actions">
-      <div v-if="searchPlaceholder" class="app-table-toolbar-search">
-        <IconField class="w-full">
-          <InputIcon class="pi pi-search" />
-          <InputText
-            :model-value="searchQuery"
-            class="w-full min-w-0"
-            :placeholder="searchPlaceholder"
-            @update:model-value="emit('update:searchQuery', String($event ?? ''))"
-          />
-        </IconField>
-      </div>
+      <IconField v-if="searchPlaceholder" class="app-table-toolbar-search">
+        <InputIcon class="pi pi-search" />
+        <InputText
+          :model-value="searchQuery"
+          class="w-full min-w-0"
+          :placeholder="searchPlaceholder"
+          @update:model-value="emit('update:searchQuery', String($event ?? ''))"
+        />
+      </IconField>
 
       <slot name="actions" />
     </div>

@@ -5,6 +5,7 @@ import type {
   MoveFolderRequest,
   RequestOptions,
   SourceConfigInput,
+  UpsertLibraryTextRequest,
 } from "./api-types";
 
 type Deps = {
@@ -58,6 +59,13 @@ export function createProjectWorkspaceApi({
     getProjectLibraryTree(groupKey: string, projectKey: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/{group_key}/projects/{project_key}/library/tree", {
         params: { path: { group_key: groupKey, project_key: projectKey } },
+        signal: options?.signal,
+      }));
+    },
+    upsertProjectLibraryText(groupKey: string, projectKey: string, payload: UpsertLibraryTextRequest, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.PUT("/v1/groups/{group_key}/projects/{project_key}/library/texts", {
+        params: { path: { group_key: groupKey, project_key: projectKey } },
+        body: payload,
         signal: options?.signal,
       }));
     },

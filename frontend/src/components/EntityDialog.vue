@@ -35,10 +35,10 @@ const entityKey = ref("");
 const entityName = ref("");
 const visibility = ref<Visibility>("private");
 
-const visibilityOptions = [
-  { label: "private", value: "private" },
-  { label: "public", value: "public" },
-];
+const visibilityOptions = computed(() => [
+  { label: t("groups.visibilityOptions.private"), value: "private" },
+  { label: t("groups.visibilityOptions.public"), value: "public" },
+]);
 
 watch(
   () => props.visible,

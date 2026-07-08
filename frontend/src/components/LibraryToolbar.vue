@@ -26,28 +26,27 @@ const { t } = useI18n();
 </script>
 
 <template>
-  <section class="library-toolbar-shell">
-    <AppTableToolbar
-      :count-label="countLabel"
-      :search-placeholder="t('library.filterResourcesPlaceholder')"
-      :search-query="searchQuery"
-      @update:search-query="emit('update:searchQuery', $event)"
-    >
-      <template #main>
-        <div class="library-toolbar-main">
-          <Breadcrumb :home="breadcrumbHome" :model="breadcrumbItems" class="library-toolbar-breadcrumb">
-            <template #item="{ item }">
-              <button
-                class="library-breadcrumb-link"
-                type="button"
-                @click="item.onSelect()"
-              >
-                {{ item.label }}
-              </button>
-            </template>
-          </Breadcrumb>
-        </div>
-      </template>
-    </AppTableToolbar>
-  </section>
+  <AppTableToolbar
+    class="library-toolbar-shell"
+    :count-label="countLabel"
+    :search-placeholder="t('library.filterResourcesPlaceholder')"
+    :search-query="searchQuery"
+    @update:search-query="emit('update:searchQuery', $event)"
+  >
+    <template #main>
+      <div class="library-toolbar-main">
+        <Breadcrumb :home="breadcrumbHome" :model="breadcrumbItems" class="library-toolbar-breadcrumb">
+          <template #item="{ item }">
+            <button
+              class="library-breadcrumb-link"
+              type="button"
+              @click="item.onSelect()"
+            >
+              {{ item.label }}
+            </button>
+          </template>
+        </Breadcrumb>
+      </div>
+    </template>
+  </AppTableToolbar>
 </template>

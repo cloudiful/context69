@@ -9,6 +9,7 @@ import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
 import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
+import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
 import LibraryMoveDialog from "./LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 import LibraryPreviewShell from "./LibraryPreviewShell.vue";
@@ -74,6 +75,8 @@ const actions = useProjectLibraryActions({
 const actionsState = proxyRefs(actions);
 
 const resourceContextMenu = ref();
+const surfaceContextMenu = ref();
+const uploadInput = ref<HTMLInputElement | null>(null);
 const resourceMenuItems = computed(() => {
   const entry = treeState.resourceContextEntry;
   if (!entry) return [];
@@ -91,6 +94,35 @@ const resourceMenuItems = computed(() => {
     { label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFile(entry.file); } },
   ];
 });
+
+const surfaceMenuItems = computed(() => [
+  {
+    label: t("common.create"),
+    icon: "pi pi-plus",
+    items: [
+      {
+        label: t("library.newFolder"),
+        icon: "pi pi-folder-plus",
+        command: () => { actionsState.openCreateFolderDialog(); },
+      },
+      {
+        label: t("library.newTextFile"),
+        icon: "pi pi-file-edit",
+        command: () => { actionsState.openCreateTextDialog(); },
+      },
+    ],
+  },
+  {
+    label: t("common.upload"),
+    icon: "pi pi-upload",
+    command: () => { uploadInput.value?.click(); },
+  },
+  {
+    label: t("sources.refresh"),
+    icon: "pi pi-refresh",
+    command: () => { void treeState.refreshLibrary(detailState.loadDetail); },
+  },
+]);
 
 function handleExplorerRowClick(event: { data: ExplorerEntry }) {
   const entry = event.data;
@@ -125,6 +157,21 @@ function handleExplorerRowContextMenu(event: { originalEvent: Event; data: Explo
   resourceContextMenu.value?.show(event.originalEvent);
 }
 
+function handleSurfaceContextMenu(event: { originalEvent: MouseEvent }) {
+  treeState.resourceContextEntry = null;
+  surfaceContextMenu.value?.show(event.originalEvent);
+}
+
+function handleUploadInputChange(event: Event) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) {
+    return;
+  }
+
+  actionsState.handleFileSelection({ files: Array.from(input.files ?? []) });
+  input.value = "";
+}
+
 watch(tree.selectedFileId, (fileId) => {
   if (fileId && !previewState.previewDocked) {
     previewState.previewDialogVisible = true;
@@ -148,18 +195,29 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="workspace-block">
-    <ContextMenu ref="resourceContextMenu" class="library-context-menu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
-    <LibraryToolbar
-      :breadcrumb-home="treeState.breadcrumbHome"
-      :breadcrumb-items="treeState.breadcrumbItems"
-      :count-label="treeState.filteredResourceCountLabel"
-      :search-query="treeState.resourceSearchQuery"
-      @update:search-query="treeState.resourceSearchQuery = $event"
-    />
-    <Message v-if="treeState.treeError" severity="error" :closable="false">{{ treeState.treeError }}</Message>
+  <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
+  <ContextMenu ref="surfaceContextMenu" :model="surfaceMenuItems" />
+  <input
+    ref="uploadInput"
+    class="sr-only"
+    type="file"
+    multiple
+    accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
+    @change="handleUploadInputChange"
+  >
+  <LibraryToolbar
+    :breadcrumb-home="treeState.breadcrumbHome"
+    :breadcrumb-items="treeState.breadcrumbItems"
+    :count-label="treeState.filteredResourceCountLabel"
+    :search-query="treeState.resourceSearchQuery"
+    @update:search-query="treeState.resourceSearchQuery = $event"
+  />
+  <Message v-if="treeState.treeError" severity="error" :closable="false">{{ treeState.treeError }}</Message>
 
-    <section class="library-workspace" :class="{ 'library-workspace-docked': previewState.showDockedPreview }">
+  <section
+    class="library-workspace library-workspace-embedded"
+    :class="{ 'library-workspace-docked': previewState.showDockedPreview }"
+  >
       <Splitter v-if="previewState.showDockedPreview" class="library-splitter">
         <SplitterPanel :size="62" :min-size="42">
           <LibraryResourceTable
@@ -177,6 +235,7 @@ onBeforeUnmount(() => {
             @row-click="handleExplorerRowClick"
             @row-dblclick="handleExplorerRowDoubleClick"
             @row-contextmenu="handleExplorerRowContextMenu"
+            @surface-contextmenu="handleSurfaceContextMenu"
             @open-entry="openExplorerEntry"
             @move-entry="actionsState.moveExplorerEntry"
             @delete-entry="actionsState.deleteExplorerEntry"
@@ -217,6 +276,7 @@ onBeforeUnmount(() => {
         @row-click="handleExplorerRowClick"
         @row-dblclick="handleExplorerRowDoubleClick"
         @row-contextmenu="handleExplorerRowContextMenu"
+        @surface-contextmenu="handleSurfaceContextMenu"
         @open-entry="openExplorerEntry"
         @move-entry="actionsState.moveExplorerEntry"
         @delete-entry="actionsState.deleteExplorerEntry"
@@ -225,37 +285,44 @@ onBeforeUnmount(() => {
         @create-folder="actionsState.openCreateFolderDialog()"
         @upload-select="actionsState.handleFileSelection"
       />
-    </section>
+  </section>
 
-    <LibraryCreateFolderDialog
-      :open="!!actionsState.createDialog"
-      :busy="actionsState.createFolderBusy"
-      :parent-name="actionsState.createDialog?.parentFolderName ?? t('library.rootFolder')"
-      @cancel="actionsState.createDialog = null"
-      @confirm="actionsState.confirmCreateFolder"
+  <LibraryCreateFolderDialog
+    :open="!!actionsState.createDialog"
+    :busy="actionsState.createFolderBusy"
+    :parent-name="actionsState.createDialog?.parentFolderName ?? t('library.rootFolder')"
+    @cancel="actionsState.createDialog = null"
+    @confirm="actionsState.confirmCreateFolder"
+  />
+
+  <LibraryCreateTextFileDialog
+    :open="!!actionsState.createTextDialog"
+    :busy="actionsState.createFolderBusy"
+    :parent-name="actionsState.createTextDialog?.parentFolderName ?? t('library.rootFolder')"
+    @cancel="actionsState.createTextDialog = null"
+    @confirm="actionsState.confirmCreateTextFile"
+  />
+
+  <LibraryMoveDialog
+    :open="!!actionsState.moveDialog"
+    :busy="actionsState.actionBusy"
+    :title="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderTitle', { name: actionsState.moveDialog?.name ?? '' }) : t('library.moveFileTitle', { name: actionsState.moveDialog?.name ?? '' })"
+    :description="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderDescription') : t('library.moveFileDescription')"
+    :options="actionsState.filteredMoveOptions"
+    :current-folder-id="actionsState.moveDialog?.currentFolderId ?? null"
+    @cancel="actionsState.moveDialog = null"
+    @confirm="actionsState.confirmMove"
+  />
+
+  <Dialog v-model:visible="previewState.previewDialogVisible" modal :header="previewState.previewTitle" class="library-preview-dialog">
+    <LibraryPreviewPanel
+      :active-section-key="detailState.activeSectionKey"
+      :detail="detailState.detail"
+      :detail-error="detailState.detailError"
+      :detail-loading="detailState.detailLoading"
+      :selected-file-id="treeState.selectedFileId"
+      :selected-folder-summary="treeState.selectedFolderSummary"
+      @update:active-section-key="detailState.activeSectionKey = $event"
     />
-
-    <LibraryMoveDialog
-      :open="!!actionsState.moveDialog"
-      :busy="actionsState.actionBusy"
-      :title="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderTitle', { name: actionsState.moveDialog?.name ?? '' }) : t('library.moveFileTitle', { name: actionsState.moveDialog?.name ?? '' })"
-      :description="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderDescription') : t('library.moveFileDescription')"
-      :options="actionsState.filteredMoveOptions"
-      :current-folder-id="actionsState.moveDialog?.currentFolderId ?? null"
-      @cancel="actionsState.moveDialog = null"
-      @confirm="actionsState.confirmMove"
-    />
-
-    <Dialog v-model:visible="previewState.previewDialogVisible" modal :header="previewState.previewTitle" class="library-preview-dialog">
-      <LibraryPreviewPanel
-        :active-section-key="detailState.activeSectionKey"
-        :detail="detailState.detail"
-        :detail-error="detailState.detailError"
-        :detail-loading="detailState.detailLoading"
-        :selected-file-id="treeState.selectedFileId"
-        :selected-folder-summary="treeState.selectedFolderSummary"
-        @update:active-section-key="detailState.activeSectionKey = $event"
-      />
-    </Dialog>
-  </div>
+  </Dialog>
 </template>

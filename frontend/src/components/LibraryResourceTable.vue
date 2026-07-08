@@ -32,6 +32,7 @@ const emit = defineEmits<{
   "toggle-folder": [ExplorerEntry];
   "move-entry": [ExplorerEntry];
   "delete-entry": [ExplorerEntry];
+  "surface-contextmenu": [{ originalEvent: MouseEvent }];
   "update:selection": [ExplorerEntry | null];
   "update:tableContextSelection": [ExplorerEntry | null];
   "upload-select": [event: { files?: File[] }];
@@ -70,6 +71,19 @@ function entryIndentStyle(entry: ExplorerEntry) {
 function isFolderExpanded(entry: ExplorerEntry): boolean {
   return entry.kind === "folder" && !!props.expandedKeys[entry.id ?? "__root__"];
 }
+
+function handleSurfaceContextMenu(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (target.closest("tr") || target.closest(".tool-card")) {
+    return;
+  }
+
+  emit("surface-contextmenu", { originalEvent: event });
+}
 </script>
 
 <template>
@@ -101,7 +115,7 @@ function isFolderExpanded(entry: ExplorerEntry): boolean {
       />
     </div>
 
-    <div class="split-panel-body flex-1 overflow-auto">
+    <div class="split-panel-body flex-1 overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
       <AsyncStateBlock
         :loading="props.loading"
         :loading-title="$t('common.loading')"

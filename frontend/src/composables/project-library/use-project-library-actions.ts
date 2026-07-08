@@ -19,6 +19,11 @@ interface CreateDialogState {
   parentFolderName: string;
 }
 
+interface CreateTextDialogState {
+  parentFolderId: string | null;
+  parentFolderName: string;
+}
+
 interface UseProjectLibraryActionsOptions {
   groupKey: string;
   projectKey: string;
@@ -59,10 +64,19 @@ export function useProjectLibraryActions({
   const actionBusy = ref(false);
   const moveDialog = ref<MoveDialogState | null>(null);
   const createDialog = ref<CreateDialogState | null>(null);
+  const createTextDialog = ref<CreateTextDialogState | null>(null);
 
   function openCreateFolderDialog(folder: LibraryFolderNode | null = selectedFolder.value) {
     if (!folder) return;
     createDialog.value = {
+      parentFolderId: folder.folder_id ?? null,
+      parentFolderName: folder.name,
+    };
+  }
+
+  function openCreateTextDialog(folder: LibraryFolderNode | null = selectedFolder.value) {
+    if (!folder) return;
+    createTextDialog.value = {
       parentFolderId: folder.folder_id ?? null,
       parentFolderName: folder.name,
     };
@@ -85,6 +99,31 @@ export function useProjectLibraryActions({
       toast.add({ severity: "success", summary: t("library.newFolder"), detail: folder.name, life: 2500 });
     } catch (error) {
       treeError.value = error instanceof Error ? error.message : t("library.createFolderFailed");
+    } finally {
+      createFolderBusy.value = false;
+    }
+  }
+
+  async function confirmCreateTextFile(payload: { title: string; content: string }) {
+    if (!createTextDialog.value) return;
+    createFolderBusy.value = true;
+    try {
+      const response = await apiClient.upsertProjectLibraryText(groupKey, projectKey, {
+        title: payload.title,
+        content: payload.content,
+        external_id: crypto.randomUUID(),
+        folder_id: createTextDialog.value.parentFolderId,
+      });
+      createTextDialog.value = null;
+      await loadTree();
+      const nextFile = response.files[0] ?? null;
+      if (nextFile) {
+        await replaceSelection(nextFile.folder_id ?? selectedFolder.value?.folder_id ?? null, nextFile.file_id);
+      }
+      schedulePolling(response.jobs.map((job) => job.job_id));
+      toast.add({ severity: "success", summary: t("library.newTextFile"), detail: payload.title, life: 2500 });
+    } catch (error) {
+      treeError.value = error instanceof Error ? error.message : t("library.createTextFileFailed");
     } finally {
       createFolderBusy.value = false;
     }
@@ -239,9 +278,11 @@ export function useProjectLibraryActions({
   return {
     actionBusy,
     confirmCreateFolder,
+    confirmCreateTextFile,
     confirmMove,
     createDialog,
     createFolderBusy,
+    createTextDialog,
     deleteExplorerEntry,
     deleteFile,
     deleteFolder,
@@ -250,6 +291,7 @@ export function useProjectLibraryActions({
     moveDialog,
     moveExplorerEntry,
     openCreateFolderDialog,
+    openCreateTextDialog,
     openMoveFileDialog,
     openMoveFolderDialog,
     revealPreviewForFile,

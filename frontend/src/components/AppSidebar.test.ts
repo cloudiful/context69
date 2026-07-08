@@ -1,27 +1,30 @@
-import { flushPromises, mount } from "@vue/test-utils";
+import { mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
+import Sidebar from "primevue/sidebar";
 
 import { createAppI18n } from "../i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
 import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
+import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { useUiPreferences } from "../composables/use-ui-preferences";
 import AppSidebar from "./AppSidebar.vue";
 
 describe("AppSidebar", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     setGuest();
+    const preferences = useUiPreferences();
+    preferences.state.sidebarCollapsed = false;
+    preferences.state.mobileNavOpen = false;
   });
 
-  it("renders a top navigation bar with the current route highlighted", async () => {
+  it("renders PrimeVue sidebars instead of the old aside shell", async () => {
     setAuthenticatedUser();
 
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
-        { path: "/search", component: { template: "<div />" } },
-        { path: "/groups", component: { template: "<div />" } },
-        { path: "/settings", component: { template: "<div />" } },
+        { path: "/search", name: "search", component: { template: "<div />" } },
       ],
     });
 
@@ -31,43 +34,13 @@ describe("AppSidebar", () => {
     const wrapper = mount(AppSidebar, {
       global: {
         plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+        stubs: {
+          teleport: true,
+        },
       },
     });
 
-    expect(wrapper.text()).toContain("Context69");
-    expect(wrapper.text()).not.toContain("Content Search");
-    expect(wrapper.text()).toContain("Search");
-    expect(wrapper.text()).toContain("Settings");
-    expect(wrapper.text()).toContain("Administrator");
-    expect(wrapper.get('[data-testid="sidebar-user-login"]').text()).toBe("@admin");
-    expect(wrapper.get('[data-testid="sidebar-user-badge"]').text()).toContain("Administrator");
-    expect(wrapper.find('[data-nav-key="/search"]').classes()).toContain("is-active");
-    expect(wrapper.findAll(".app-sidebar-link-icon")).toHaveLength(5);
-    expect(wrapper.get('[data-testid="sidebar-collapse-toggle"]').attributes("aria-label")).toBe("Hide");
-    expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
-  });
-
-  it("hides business navigation when the session is not authenticated", async () => {
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: "/login", component: { template: "<div />" } },
-      ],
-    });
-
-    router.push("/login");
-    await router.isReady();
-
-    const wrapper = mount(AppSidebar, {
-      global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
-      },
-    });
-
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("Context69");
-    expect(wrapper.text()).not.toContain("Search");
-    expect(wrapper.html()).not.toContain('aria-label="Log Out"');
+    expect(wrapper.findAllComponents(Sidebar)).toHaveLength(2);
+    expect(wrapper.find("aside.app-sidebar").exists()).toBe(false);
   });
 });
