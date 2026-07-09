@@ -1,15 +1,17 @@
 pub mod auth;
 pub mod common;
 pub mod library;
+pub mod mcp;
 pub mod namespace;
 pub mod search;
 pub mod settings;
 pub mod sources;
 
 pub use auth::{
-    AuthLoginRequest, AuthMeResponse, AuthTokenResponse, AuthUserResponse,
-    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
-    PersonalAccessTokenResponse, PersonalAccessTokenScope,
+    AdminUserResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse, AuthUserResponse,
+    CreateAdminUserRequest, CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
+    PersonalAccessTokenResponse, PersonalAccessTokenScope, ResetAdminUserPasswordRequest,
+    UpdateAdminUserRequest,
 };
 pub use common::{ApiErrorResponse, HealthResponse, HealthStatus};
 pub use library::{
@@ -19,6 +21,7 @@ pub use library::{
     LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
     UpsertLibraryTextRequest,
 };
+pub use mcp::McpDocumentArgs;
 pub use namespace::{
     CreateGroupRequest, CreateProjectRequest, GroupKind, GroupMemberResponse, GroupResponse,
     MembershipRole, MoveProjectRequest, ProjectMemberResponse, ProjectResponse, UpdateGroupRequest,

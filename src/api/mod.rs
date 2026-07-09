@@ -1,6 +1,16 @@
 use std::sync::Arc;
 
-use crate::services::app::Context69App;
+use axum::extract::FromRef;
+use context69_namespace_http::NamespaceHttpState;
+use context69_search_http::SearchHttpState;
+use context69_settings_http::SettingsHttpState;
+
+use crate::{
+    http_adapters::{
+        NamespaceApiAdapter, SearchApiAdapter, SettingsApiAdapter, UserDirectoryApiAdapter,
+    },
+    services::app::Context69App,
+};
 
 mod admin_users;
 mod auth;
@@ -9,19 +19,53 @@ mod errors;
 mod health;
 mod library;
 mod library_upload;
-mod namespaces;
 mod personal_access_tokens;
 mod project_access;
 mod project_library;
 mod project_sources;
 mod router;
-mod settings;
 mod sources;
-mod user_directory;
 
 #[derive(Clone)]
 pub struct ApiState {
     pub app: Arc<Context69App>,
+    pub namespace_http: NamespaceHttpState,
+    pub search_http: SearchHttpState,
+    pub settings_http: SettingsHttpState,
+}
+
+pub(crate) fn build_api_state(app: Arc<Context69App>) -> ApiState {
+    ApiState {
+        app: app.clone(),
+        namespace_http: NamespaceHttpState {
+            namespace: Arc::new(NamespaceApiAdapter::new(app.namespace.clone())),
+            user_directory: Arc::new(UserDirectoryApiAdapter::new(app.auth.clone())),
+        },
+        search_http: SearchHttpState {
+            search: Arc::new(SearchApiAdapter::new(app.query.clone(), app.auth.clone())),
+        },
+        settings_http: SettingsHttpState {
+            settings: Arc::new(SettingsApiAdapter::new(app.settings.clone())),
+        },
+    }
+}
+
+impl FromRef<ApiState> for NamespaceHttpState {
+    fn from_ref(state: &ApiState) -> Self {
+        state.namespace_http.clone()
+    }
+}
+
+impl FromRef<ApiState> for SearchHttpState {
+    fn from_ref(state: &ApiState) -> Self {
+        state.search_http.clone()
+    }
+}
+
+impl FromRef<ApiState> for SettingsHttpState {
+    fn from_ref(state: &ApiState) -> Self {
+        state.settings_http.clone()
+    }
 }
 
 pub use docs::ApiDoc;
@@ -38,18 +82,12 @@ pub(crate) use auth::{
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, touch_personal_access_token_middleware,
 };
-pub(crate) use docs::{get_document, openapi_json, search};
+pub(crate) use docs::openapi_json;
 pub(crate) use health::healthz;
 pub(crate) use library::{
     create_library_folder, create_library_text, delete_library_file, delete_library_folder,
     get_library_file, get_library_job, get_library_tree, move_library_file, move_library_folder,
     upload_library_files,
-};
-pub(crate) use namespaces::{
-    create_group, create_project, delete_group, delete_group_member, delete_project,
-    delete_project_member, get_group, get_project, list_group_members, list_groups,
-    list_project_members, list_projects, move_project, update_group, update_project,
-    upsert_group_member, upsert_project_member,
 };
 pub(crate) use personal_access_tokens::{
     create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,
@@ -64,13 +102,7 @@ pub(crate) use project_sources::{
     create_project_source, delete_project_source, list_project_sources, sync_project_source,
     update_project_source,
 };
-pub(crate) use settings::{
-    create_provider_account, delete_provider_account, get_docling_settings, get_runtime_settings,
-    get_search_settings, list_provider_accounts, update_docling_settings, update_provider_account,
-    update_runtime_settings, update_search_settings,
-};
 pub(crate) use sources::{
     create_source, create_source_connection, delete_source, delete_source_connection,
     list_source_connections, list_sources, sync_source, update_source, update_source_connection,
 };
-pub(crate) use user_directory::search_user_directory;

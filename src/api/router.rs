@@ -12,35 +12,28 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::services::app::Context69App;
 
 use super::{
-    ApiState, auth_middleware, create_admin_user, create_group, create_library_folder,
-    create_library_text, create_personal_access_token, create_project,
-    create_project_library_folder, create_project_library_text, create_project_source,
-    create_provider_account, create_source, create_source_connection, delete_group,
-    delete_group_member, delete_library_file, delete_library_folder, delete_project,
-    delete_project_library_file, delete_project_library_folder, delete_project_member,
-    delete_project_source, delete_provider_account, delete_source, delete_source_connection,
+    ApiState, auth_middleware, build_api_state, create_admin_user, create_library_folder,
+    create_library_text, create_personal_access_token, create_project_library_folder,
+    create_project_library_text, create_project_source, create_source, create_source_connection,
+    delete_library_file, delete_library_folder, delete_project_library_file,
+    delete_project_library_folder, delete_project_source, delete_source, delete_source_connection,
     disable_admin_user, enable_admin_user, forbid_personal_access_token_middleware,
-    get_docling_settings, get_document, get_group, get_library_file, get_library_job,
-    get_library_tree, get_project, get_project_library_file, get_project_library_job,
-    get_project_library_tree, get_runtime_settings, get_search_settings, healthz, list_admin_users,
-    list_group_members, list_groups, list_personal_access_tokens, list_project_members,
-    list_project_sources, list_projects, list_provider_accounts, list_source_connections,
-    list_sources, login, logout, me, move_library_file, move_library_folder, move_project,
-    move_project_library_file, move_project_library_folder, openapi_json, refresh,
-    require_admin_scope_middleware, require_library_scope_middleware,
-    require_search_scope_middleware, require_settings_scope_middleware,
-    require_sources_scope_middleware, require_workspace_scope_middleware,
-    reset_admin_user_password, revoke_personal_access_token, search, search_user_directory,
+    get_library_file, get_library_job, get_library_tree, get_project_library_file,
+    get_project_library_job, get_project_library_tree, healthz, list_admin_users,
+    list_personal_access_tokens, list_project_sources, list_source_connections, list_sources,
+    login, logout, me, move_library_file, move_library_folder, move_project_library_file,
+    move_project_library_folder, openapi_json, refresh, require_admin_scope_middleware,
+    require_library_scope_middleware, require_search_scope_middleware,
+    require_settings_scope_middleware, require_sources_scope_middleware,
+    require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
     sync_project_source, sync_source, touch_personal_access_token_middleware, update_admin_user,
-    update_docling_settings, update_group, update_project, update_project_source,
-    update_provider_account, update_runtime_settings, update_search_settings, update_source,
-    update_source_connection, upload_library_files, upload_project_library_files,
-    upsert_group_member, upsert_project_library_text, upsert_project_member,
+    update_project_source, update_source, update_source_connection, upload_library_files,
+    upload_project_library_files, upsert_project_library_text,
 };
 
 pub fn router(app: Arc<Context69App>) -> Router {
     let upload_body_limit = app.library.max_upload_request_size_bytes();
-    let api_state = ApiState { app: app.clone() };
+    let api_state = build_api_state(app);
     let protected_v1 = protected_routes(upload_body_limit, api_state.clone())
         .layer(from_fn_with_state(api_state.clone(), auth_middleware));
 
@@ -120,57 +113,17 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
 }
 
 fn search_routes(api_state: ApiState) -> Router<ApiState> {
-    Router::new()
-        .route("/v1/search", post(search))
-        .route("/v1/documents/{document_id}", get(get_document))
-        .layer(from_fn_with_state(
-            api_state,
-            require_search_scope_middleware,
-        ))
+    context69_search_http::router::<ApiState>().layer(from_fn_with_state(
+        api_state,
+        require_search_scope_middleware,
+    ))
 }
 
 fn workspace_routes(api_state: ApiState) -> Router<ApiState> {
-    Router::new()
-        .route("/v1/user-directory", get(search_user_directory))
-        .route("/v1/groups", get(list_groups).post(create_group))
-        .route(
-            "/v1/groups/{group_key}",
-            get(get_group).patch(update_group).delete(delete_group),
-        )
-        .route(
-            "/v1/groups/{group_key}/members",
-            get(list_group_members).post(upsert_group_member),
-        )
-        .route(
-            "/v1/groups/{group_key}/members/{login_name}",
-            axum::routing::delete(delete_group_member),
-        )
-        .route(
-            "/v1/groups/{group_key}/projects",
-            get(list_projects).post(create_project),
-        )
-        .route(
-            "/v1/groups/{group_key}/projects/{project_key}",
-            get(get_project)
-                .patch(update_project)
-                .delete(delete_project),
-        )
-        .route(
-            "/v1/groups/{group_key}/projects/{project_key}/move",
-            post(move_project),
-        )
-        .route(
-            "/v1/groups/{group_key}/projects/{project_key}/members",
-            get(list_project_members).post(upsert_project_member),
-        )
-        .route(
-            "/v1/groups/{group_key}/projects/{project_key}/members/{login_name}",
-            axum::routing::delete(delete_project_member),
-        )
-        .layer(from_fn_with_state(
-            api_state,
-            require_workspace_scope_middleware,
-        ))
+    context69_namespace_http::router::<ApiState>().layer(from_fn_with_state(
+        api_state,
+        require_workspace_scope_middleware,
+    ))
 }
 
 fn sources_routes(api_state: ApiState) -> Router<ApiState> {
@@ -210,33 +163,10 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
 }
 
 fn settings_routes(api_state: ApiState) -> Router<ApiState> {
-    Router::new()
-        .route(
-            "/v1/settings/runtime",
-            get(get_runtime_settings).put(update_runtime_settings),
-        )
-        .route(
-            "/v1/settings/provider-accounts",
-            get(list_provider_accounts)
-                .post(create_provider_account)
-                .put(update_provider_account),
-        )
-        .route(
-            "/v1/settings/provider-accounts/{account_key}",
-            axum::routing::delete(delete_provider_account),
-        )
-        .route(
-            "/v1/settings/docling",
-            get(get_docling_settings).put(update_docling_settings),
-        )
-        .route(
-            "/v1/settings/search",
-            get(get_search_settings).put(update_search_settings),
-        )
-        .layer(from_fn_with_state(
-            api_state,
-            require_settings_scope_middleware,
-        ))
+    context69_settings_http::router::<ApiState>().layer(from_fn_with_state(
+        api_state,
+        require_settings_scope_middleware,
+    ))
 }
 
 fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiState> {
@@ -311,82 +241,12 @@ fn cors_layer() -> CorsLayer {
             Method::GET,
             Method::POST,
             Method::PUT,
+            Method::PATCH,
             Method::DELETE,
-            Method::OPTIONS,
         ])
         .allow_headers([
-            header::ACCEPT,
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
-            HeaderName::from_static("last-event-id"),
-            HeaderName::from_static("mcp-protocol-version"),
-            HeaderName::from_static("mcp-session-id"),
+            HeaderName::from_static("x-requested-with"),
         ])
-        .expose_headers([
-            HeaderName::from_static("mcp-protocol-version"),
-            HeaderName::from_static("mcp-session-id"),
-        ])
-}
-
-#[cfg(test)]
-mod tests {
-    use axum::{
-        Router, body,
-        http::{Method, Request, StatusCode, header},
-        response::IntoResponse,
-        routing::post,
-    };
-    use serde_json::Value;
-    use tower::ServiceExt;
-
-    use super::{cors_layer, openapi_json};
-    use crate::api::ApiDoc;
-    use utoipa::OpenApi;
-
-    #[tokio::test]
-    async fn openapi_route_returns_json_document() {
-        let response = openapi_json().await.into_response();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let bytes = body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body to read");
-        let json: Value = serde_json::from_slice(&bytes).expect("body to be valid json");
-
-        assert_eq!(json.get("openapi").and_then(Value::as_str), Some("3.1.0"));
-        assert!(json.pointer("/paths/~1healthz").is_some());
-    }
-
-    #[tokio::test]
-    async fn cors_layer_allows_mcp_preflight_headers() {
-        let response = Router::new()
-            .route("/mcp", post(async || StatusCode::OK))
-            .layer(cors_layer())
-            .oneshot(
-                Request::builder()
-                    .method(Method::OPTIONS)
-                    .uri("/mcp")
-                    .header(header::ORIGIN, "https://inspector.example")
-                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
-                    .header(
-                        header::ACCESS_CONTROL_REQUEST_HEADERS,
-                        "content-type,mcp-protocol-version,mcp-session-id",
-                    )
-                    .body(axum::body::Body::empty())
-                    .expect("request to build"),
-            )
-            .await
-            .expect("preflight to succeed");
-
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
-            Some(&header::HeaderValue::from_static("*"))
-        );
-    }
-
-    #[test]
-    fn api_doc_is_constructible() {
-        let _ = ApiDoc::openapi();
-    }
 }

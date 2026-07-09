@@ -1,0 +1,9 @@
+[package]
+name = "context69-db-schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+sqlx = { workspace = true, features = ["migrate", "postgres", "runtime-tokio"] }

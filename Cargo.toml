@@ -2,9 +2,14 @@
 members = [
     ".",
     "crates/context69-contracts",
+    "crates/context69-db-schema",
+    "crates/context69-http-support",
     "crates/context69-namespace",
+    "crates/context69-namespace-http",
     "crates/context69-search",
+    "crates/context69-search-http",
     "crates/context69-sdk",
+    "crates/context69-settings-http",
 ]
 resolver = "3"
 
@@ -23,8 +28,13 @@ bytes = "1.12.0"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.2" }
 context69-contracts = { path = "crates/context69-contracts", version = "0.3.0" }
+context69-db-schema = { path = "crates/context69-db-schema", version = "0.3.0" }
+context69-http-support = { path = "crates/context69-http-support", version = "0.3.0" }
 context69-namespace = { path = "crates/context69-namespace", version = "0.3.0" }
+context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.3.0" }
 context69-search = { path = "crates/context69-search", version = "0.3.0" }
+context69-search-http = { path = "crates/context69-search-http", version = "0.3.0" }
+context69-settings-http = { path = "crates/context69-settings-http", version = "0.3.0" }
 docling-convert = { package = "cloudiful-docling-convert", version = "0.2.4" }
 futures = "0.3.32"
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
@@ -68,8 +78,13 @@ bytes.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 config.workspace = true
 context69-contracts.workspace = true
+context69-db-schema.workspace = true
+context69-http-support.workspace = true
 context69-namespace.workspace = true
+context69-namespace-http.workspace = true
 context69-search.workspace = true
+context69-search-http.workspace = true
+context69-settings-http.workspace = true
 db-init.workspace = true
 docling-convert.workspace = true
 futures.workspace = true

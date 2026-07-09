@@ -61,23 +61,6 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
     (status, Json(ApiErrorResponse { error: message })).into_response()
 }
 
-pub(crate) fn settings_management_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if let Some(status) = runtime_aware_status(&message) {
-        status
-    } else if message.contains("must not be empty")
-        || message.contains("must be greater than 0")
-        || message.contains("must be one of")
-        || message.contains("is required when")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-
-    (status, Json(ApiErrorResponse { error: message })).into_response()
-}
-
 pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
     let status = if let Some(status) = runtime_aware_status(&message) {

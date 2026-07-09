@@ -9,6 +9,7 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
+use context69_http_support::AuthenticatedUser;
 use time::Duration as CookieDuration;
 use uuid::Uuid;
 
@@ -75,6 +76,9 @@ pub(crate) async fn auth_middleware(
         Ok(Some(authenticated)) => {
             request
                 .extensions_mut()
+                .insert(authenticated_user(&authenticated.session));
+            request
+                .extensions_mut()
                 .insert(RequestAuth(Some(authenticated)));
             next.run(request).await
         }
@@ -98,6 +102,9 @@ pub(crate) async fn optional_auth_middleware(
         Ok(Some(authenticated)) => {
             request
                 .extensions_mut()
+                .insert(authenticated_user(&authenticated.session));
+            request
+                .extensions_mut()
                 .insert(RequestAuth(Some(authenticated)));
             next.run(request).await
         }
@@ -106,6 +113,15 @@ pub(crate) async fn optional_auth_middleware(
             next.run(request).await
         }
         Err(error) => (StatusCode::UNAUTHORIZED, Json(ApiErrorResponse { error })).into_response(),
+    }
+}
+
+fn authenticated_user(session: &AuthSession) -> AuthenticatedUser {
+    AuthenticatedUser {
+        user_id: session.user.id,
+        login_name: session.user.login_name.clone(),
+        display_name: session.user.display_name.clone(),
+        is_admin: session.user.is_admin,
     }
 }
 

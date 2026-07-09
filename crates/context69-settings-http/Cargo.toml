@@ -1,0 +1,13 @@
+[package]
+name = "context69-settings-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+context69-contracts.workspace = true
+context69-http-support.workspace = true
+utoipa.workspace = true

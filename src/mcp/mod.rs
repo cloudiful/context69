@@ -20,7 +20,7 @@ use rmcp::{
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
-    api::{ApiState, RequestAuth, optional_auth_middleware},
+    api::{RequestAuth, optional_auth_middleware},
     contracts::{
         DocumentResponse, ListSourcesResponse, McpDocumentArgs, SearchRequest, SearchResponse,
     },
@@ -285,7 +285,7 @@ pub async fn run_http(app: Arc<Context69App>) -> Result<()> {
 }
 
 pub fn router(app: Arc<Context69App>) -> Result<Router> {
-    let api_state = ApiState { app: app.clone() };
+    let api_state = crate::api::build_api_state(app.clone());
     let router = server::mcp::router(streamable_http_config(), move || {
         Context69McpServer::new(app.clone())
     })?;

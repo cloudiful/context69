@@ -1,11 +1,11 @@
 pub mod api;
 pub mod chunking;
 pub mod config;
-pub mod contracts;
 pub mod db;
 pub mod docling;
 pub mod domain;
 pub mod embedding;
+pub mod http_adapters;
 pub mod library_store;
 pub mod mcp;
 pub mod models;
@@ -16,3 +16,5 @@ pub mod services;
 pub mod source_store;
 pub mod sources;
 pub mod support;
+
+pub use context69_contracts as contracts;
