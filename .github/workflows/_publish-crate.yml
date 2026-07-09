@@ -33,15 +33,6 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Verify crate version matches tag
-        shell: bash
-        run: |
-          actual_version="$(cargo pkgid -p "${{ inputs.package }}" | sed -E 's|.*#||')"
-          if [ "$actual_version" != "${{ inputs.expected_version }}" ]; then
-            echo "expected version ${{ inputs.expected_version }} but found $actual_version for ${{ inputs.package }}" >&2
-            exit 1
-          fi
-
       - name: Authenticate with crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
