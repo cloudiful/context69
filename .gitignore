@@ -4,3 +4,4 @@ Cargo.lock
 .env.local
 .env.*.local
 /.idea/
+/ci-image-input/

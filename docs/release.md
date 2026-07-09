@@ -32,4 +32,7 @@ Behavior:
 - push of `v*` publishes the matching release tag
 - push of `v*` also publishes both crates, so Docker and crates share one release tag
 - default branch also publishes `latest`
-- separate native `amd64` and `arm64` builds are merged into a multi-arch manifest
+- native `amd64` and `arm64` runners build the backend binary and frontend `dist` as per-arch artifacts
+- a runtime-only Docker assembly job builds from those artifacts using the root `Dockerfile`
+- the runtime image base is `ubuntu:24.04` so the shipped binary matches the GitHub runner userland
+- separate native `amd64` and `arm64` image publishes are merged into a multi-arch manifest

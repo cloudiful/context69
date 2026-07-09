@@ -2,11 +2,25 @@
 
 ## All-in-One Image
 
-The root `Dockerfile` builds:
+The root `Dockerfile` is a runtime-only assembly image based on `ubuntu:24.04`. It does not
+compile Rust or frontend assets inside Docker. Instead it copies prebuilt inputs from
+`ci-image-input/`:
 
-- the frontend assets
-- the Rust backend
-- an nginx + application runtime image
+- `ci-image-input/context69`
+- `ci-image-input/frontend-dist/`
+
+Prepare those inputs first:
+
+```bash
+cargo build --release --bin context69
+cd frontend
+bun install --frozen-lockfile
+bun run build
+cd ..
+mkdir -p ci-image-input/frontend-dist
+install -Dm755 target/release/context69 ci-image-input/context69
+cp -R frontend/dist/. ci-image-input/frontend-dist/
+```
 
 Build:
 
@@ -27,6 +41,9 @@ This is enough to boot the stack. If runtime settings have not been saved into t
 database yet, the backend starts in degraded mode so you can open the frontend and configure
 Qdrant, embedding, Docling, scheduler, and sources there. After saving those settings,
 restart the container to activate search and ingest.
+
+In GitHub Actions, these inputs are produced per architecture on native runners and passed to
+the Docker image assembly job as artifacts.
 
 ## Exposed Services
 

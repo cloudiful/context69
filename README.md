@@ -94,7 +94,26 @@ Detailed configuration docs:
 
 ## Docker
 
-Build the all-in-one image:
+The root `Dockerfile` is now a runtime-only assembly image. It expects prebuilt inputs under
+`ci-image-input/`:
+
+- `ci-image-input/context69`
+- `ci-image-input/frontend-dist/`
+
+Build the backend and frontend first:
+
+```bash
+cargo build --release --bin context69
+cd frontend
+bun install --frozen-lockfile
+bun run build
+cd ..
+mkdir -p ci-image-input/frontend-dist
+install -Dm755 target/release/context69 ci-image-input/context69
+cp -R frontend/dist/. ci-image-input/frontend-dist/
+```
+
+Then build the all-in-one image:
 
 ```bash
 docker build -t context69:latest .
@@ -123,7 +142,7 @@ This repository includes GitHub Actions workflows for:
 - publishing crates to crates.io
 - building and publishing Docker images to `ghcr.io`
 
-The Docker workflow uses native GitHub-hosted runners for both `amd64` and `arm64`, then publishes a multi-architecture image manifest.
+The Docker workflow builds backend and frontend artifacts on native GitHub-hosted runners for both `amd64` and `arm64`, then assembles and publishes runtime-only images before publishing a multi-architecture manifest.
 Release tags use `v*`; the same tag publishes Docker and both crates.
 
 Release details:

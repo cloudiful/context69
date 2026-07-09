@@ -37,7 +37,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
-  build:
+  build-artifacts:
     strategy:
       fail-fast: false
       matrix:
@@ -54,8 +54,76 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: docker-publish-${{ matrix.arch }}
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: bun run build
+
+      - name: Build backend binary
+        run: cargo build --release --bin context69
+
+      - name: Bundle image inputs
+        shell: bash
+        run: |
+          rm -rf ci-image-input
+          mkdir -p ci-image-input/frontend-dist
+          install -Dm755 target/release/context69 ci-image-input/context69
+          cp -R frontend/dist/. ci-image-input/frontend-dist/
+          tar -czf "context69-image-input-${{ matrix.arch }}.tar.gz" ci-image-input
+
+      - name: Upload image input bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: context69-image-input-${{ matrix.arch }}
+          path: context69-image-input-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  build-image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runs_on: ubuntu-24.04
+            platform: linux/amd64
+          - arch: arm64
+            runs_on: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runs_on }}
+    needs:
+      - prepare
+      - build-artifacts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download image input bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: context69-image-input-${{ matrix.arch }}
+
+      - name: Unpack image input bundle
+        shell: bash
+        run: |
+          rm -rf ci-image-input
+          tar -xzf "context69-image-input-${{ matrix.arch }}.tar.gz"
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -63,6 +131,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
       - name: Compute architecture tags
         id: tags
@@ -87,16 +158,12 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.value }}
           labels: ${{ needs.prepare.outputs.labels }}
-          cache-from: |
-            type=gha,scope=docker-${{ matrix.arch }}
-          cache-to: |
-            type=gha,mode=max,scope=docker-${{ matrix.arch }}
 
   publish-manifest:
     runs-on: ubuntu-24.04
     needs:
       - prepare
-      - build
+      - build-image
     steps:
       - name: Log in to GHCR
         uses: docker/login-action@v4
