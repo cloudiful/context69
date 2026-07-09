@@ -153,8 +153,7 @@ impl Context69App {
             settings.clone(),
             config.file_library.clone(),
         )?;
-        let source_folders =
-            SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
+        let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
             warn!(error = %error, "failed to prune expired rerank item scores during startup");
         }

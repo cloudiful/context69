@@ -32,7 +32,14 @@ impl SyncService {
     ) -> Result<SyncOutcome> {
         let identity = source_folder_identity(project.id, folder_path);
 
-        if source.sync_strategy == SyncStrategy::Cursor && self.db.get_checkpoint(&identity).await?.updated_at.is_none() {
+        if source.sync_strategy == SyncStrategy::Cursor
+            && self
+                .db
+                .get_checkpoint(&identity)
+                .await?
+                .updated_at
+                .is_none()
+        {
             self.try_migrate_legacy_checkpoint(project.id, &identity, &source.key)
                 .await?;
         }
@@ -87,7 +94,9 @@ impl SyncService {
         identity: &str,
         legacy_source_key: Option<&str>,
     ) -> Result<()> {
-        self.db.delete_sync_state_in_project(project_id, identity).await?;
+        self.db
+            .delete_sync_state_in_project(project_id, identity)
+            .await?;
         if let Some(legacy_source_key) = legacy_source_key
             && self
                 .source_store
@@ -95,7 +104,8 @@ impl SyncService {
                 .await?
                 .is_some()
         {
-            self.delete_source_in_project(project_id, legacy_source_key).await?;
+            self.delete_source_in_project(project_id, legacy_source_key)
+                .await?;
         }
         Ok(())
     }
@@ -163,7 +173,10 @@ impl SyncService {
                         project,
                         &UpsertNamedTextFileRequest {
                             folder_id: Some(records_folder_id),
-                            external_id: source_record_external_id(folder_id, &normalized.external_id),
+                            external_id: source_record_external_id(
+                                folder_id,
+                                &normalized.external_id,
+                            ),
                             filename: source_record_filename(&normalized.external_id),
                             media_type: "application/json".to_string(),
                             content,
@@ -171,11 +184,7 @@ impl SyncService {
                     )
                     .await?;
                 outcome.records_changed += 1;
-                outcome.chunks_upserted += response
-                    .files
-                    .iter()
-                    .map(|_| 1usize)
-                    .sum::<usize>();
+                outcome.chunks_upserted += response.files.iter().map(|_| 1usize).sum::<usize>();
 
                 local_checkpoint.updated_at = Some(normalized.updated_at);
                 local_checkpoint.external_id = Some(normalized.external_id);
@@ -188,7 +197,11 @@ impl SyncService {
                 .await?
                 .into_iter()
                 .filter(|file| file.folder_id == Some(records_folder_id))
-                .filter(|file| file.external_id.as_deref().is_some_and(|value| value.starts_with(&format!("source-folder:record:{folder_id}:"))))
+                .filter(|file| {
+                    file.external_id.as_deref().is_some_and(|value| {
+                        value.starts_with(&format!("source-folder:record:{folder_id}:"))
+                    })
+                })
                 .filter(|file| {
                     let Some(external_id) = file.external_id.as_deref() else {
                         return false;
@@ -218,7 +231,9 @@ impl SyncService {
                 )
                 .await?;
         } else {
-            self.db.delete_sync_state_in_project(project.id, identity).await?;
+            self.db
+                .delete_sync_state_in_project(project.id, identity)
+                .await?;
         }
 
         if outcome.records_changed > 0 {
@@ -227,7 +242,8 @@ impl SyncService {
                 .get_source_in_project(project.id, &source.key)
                 .await?;
             if legacy.is_some() {
-                self.delete_source_in_project(project.id, &source.key).await?;
+                self.delete_source_in_project(project.id, &source.key)
+                    .await?;
             }
         }
 
@@ -268,7 +284,10 @@ impl SyncService {
             .await
     }
 
-    async fn project_source_connector(&self, source: &SourceConfig) -> Result<Arc<dyn SourceConnector>> {
+    async fn project_source_connector(
+        &self,
+        source: &SourceConfig,
+    ) -> Result<Arc<dyn SourceConnector>> {
         let pool = self
             .source_pools
             .read()
@@ -284,5 +303,4 @@ impl SyncService {
         );
         Ok(Arc::new(connector))
     }
-
 }

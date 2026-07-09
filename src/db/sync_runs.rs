@@ -128,7 +128,11 @@ impl Database {
         Ok(())
     }
 
-    pub async fn delete_sync_state_in_project(&self, project_id: i64, source_key: &str) -> Result<()> {
+    pub async fn delete_sync_state_in_project(
+        &self,
+        project_id: i64,
+        source_key: &str,
+    ) -> Result<()> {
         sqlx::query_file!(
             "src/sql/db/sync_runs/delete_checkpoint_in_project.sql",
             project_id,

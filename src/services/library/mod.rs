@@ -32,6 +32,7 @@ use crate::{
     services::settings::SettingsService,
 };
 
+mod filenames;
 mod files;
 mod folders;
 mod ingest;

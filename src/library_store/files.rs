@@ -45,6 +45,22 @@ impl LibraryStore {
         rows.into_iter().map(file_from_row).collect()
     }
 
+    pub async fn list_filenames_in_project_folder(
+        &self,
+        project_id: i64,
+        folder_id: Option<Uuid>,
+        exclude_file_id: Option<Uuid>,
+    ) -> Result<Vec<String>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/files/list_filenames_in_project_folder.sql",
+            project_id,
+            folder_id,
+            exclude_file_id
+        )
+        .fetch_all(self.db.pool())
+        .await?)
+    }
+
     pub async fn get_file(&self, file_id: Uuid) -> Result<Option<LibraryFileRecord>> {
         let row =
             sqlx::query_file_as!(FileRow, "src/sql/library_store/files/get_file.sql", file_id)

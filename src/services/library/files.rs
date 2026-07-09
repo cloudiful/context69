@@ -31,8 +31,8 @@ impl LibraryService {
         file: &crate::domain::LibraryFileRecord,
     ) -> Result<String> {
         let path = self.storage_root.join(&file.storage_rel_path);
-        let bytes =
-            fs::read(&path).with_context(|| format!("failed to read stored file {}", path.display()))?;
+        let bytes = fs::read(&path)
+            .with_context(|| format!("failed to read stored file {}", path.display()))?;
         String::from_utf8(bytes)
             .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
     }
@@ -94,9 +94,9 @@ impl LibraryService {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
-        let filename = storage::text_filename_from_title(&title);
         let bytes = Bytes::from(content.as_bytes().to_vec());
         if bytes.len() > self.max_upload_size_bytes {
+            let filename = storage::text_filename_from_title(&title);
             return Err(anyhow!(
                 "text {} exceeds upload size limit of {} bytes",
                 filename,
@@ -119,6 +119,15 @@ impl LibraryService {
                 .await?
                 .with_context(|| format!("unknown folder {folder_id}"))?;
         }
+
+        let filename = super::filenames::resolve_project_text_filename(
+            &self.store,
+            project.id,
+            target_folder_id,
+            existing.as_ref().map(|file| file.id),
+            &title,
+        )
+        .await?;
 
         let file_id = existing
             .as_ref()

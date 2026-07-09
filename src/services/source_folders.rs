@@ -49,12 +49,17 @@ impl SourceFoldersService {
     }
 
     pub async fn migrate_project_sources_in_project(&self, project: &ProjectRecord) -> Result<()> {
-        let sources = self.source_store.list_sources_for_project(project.id).await?;
+        let sources = self
+            .source_store
+            .list_sources_for_project(project.id)
+            .await?;
         if sources.is_empty() {
             return Ok(());
         }
 
-        let sources_root = self.ensure_folder_in_project(project, None, "sources").await?;
+        let sources_root = self
+            .ensure_folder_in_project(project, None, "sources")
+            .await?;
         for source in sources {
             self.ensure_legacy_source_folder(project, &sources_root, &source)
                 .await?;
@@ -172,8 +177,8 @@ impl SourceFoldersService {
         let config_text = self
             .library
             .read_text_file_content(&descriptor.source_config_file)?;
-        let input: SourceConfigInput = serde_json::from_str(&config_text)
-            .context("failed to parse source.json content")?;
+        let input: SourceConfigInput =
+            serde_json::from_str(&config_text).context("failed to parse source.json content")?;
         self.sync
             .upsert_source_connection_for_source_folder(&input)
             .await?;
@@ -199,10 +204,17 @@ impl SourceFoldersService {
         folder_id: Uuid,
         request: &MoveFolderRequest,
     ) -> Result<crate::contracts::LibraryFolderResponse> {
-        let before = self.describe_source_folder_subtree(project, folder_id).await?;
+        let before = self
+            .describe_source_folder_subtree(project, folder_id)
+            .await?;
         let old_identities = before
             .iter()
-            .map(|descriptor| (descriptor.folder.id, source_folder_identity(project.id, &descriptor.path)))
+            .map(|descriptor| {
+                (
+                    descriptor.folder.id,
+                    source_folder_identity(project.id, &descriptor.path),
+                )
+            })
             .collect::<HashMap<_, _>>();
 
         let moved = self
@@ -211,12 +223,18 @@ impl SourceFoldersService {
             .await?;
 
         if !old_identities.is_empty() {
-            let after = self.describe_source_folder_subtree(project, folder_id).await?;
+            let after = self
+                .describe_source_folder_subtree(project, folder_id)
+                .await?;
             for descriptor in after {
                 if let Some(old_identity) = old_identities.get(&descriptor.folder.id) {
                     let new_identity = source_folder_identity(project.id, &descriptor.path);
                     self.sync
-                        .rename_project_source_folder_identity(project.id, old_identity, &new_identity)
+                        .rename_project_source_folder_identity(
+                            project.id,
+                            old_identity,
+                            &new_identity,
+                        )
                         .await?;
                 }
             }
@@ -230,7 +248,9 @@ impl SourceFoldersService {
         project: &ProjectRecord,
         folder_id: Uuid,
     ) -> Result<()> {
-        let descriptors = self.describe_source_folder_subtree(project, folder_id).await?;
+        let descriptors = self
+            .describe_source_folder_subtree(project, folder_id)
+            .await?;
         for descriptor in descriptors {
             let identity = source_folder_identity(project.id, &descriptor.path);
             let legacy_source_key = self
@@ -244,7 +264,9 @@ impl SourceFoldersService {
                 )
                 .await?;
         }
-        self.library.delete_folder_in_project(project, folder_id).await
+        self.library
+            .delete_folder_in_project(project, folder_id)
+            .await
     }
 
     async fn ensure_legacy_source_folder(
@@ -281,7 +303,8 @@ impl SourceFoldersService {
 
         let files = self.library.list_file_records_in_project(project).await?;
         let already_exists = files.iter().any(|file| {
-            file.folder_id == Some(source_folder.id) && file.filename.eq_ignore_ascii_case(SOURCE_CONFIG_FILENAME)
+            file.folder_id == Some(source_folder.id)
+                && file.filename.eq_ignore_ascii_case(SOURCE_CONFIG_FILENAME)
         });
         if !already_exists {
             self.library
@@ -352,16 +375,23 @@ impl SourceFoldersService {
         let files = self.library.list_file_records_in_project(project).await?;
         let subtree_ids = descendant_folder_ids(&folders, folder_id);
         let mut descriptors = Vec::new();
-        for folder in folders.iter().filter(|folder| subtree_ids.contains(&folder.id)) {
+        for folder in folders
+            .iter()
+            .filter(|folder| subtree_ids.contains(&folder.id))
+        {
             let path = folder_path_from_records(&folders, folder.id)?;
-            if let Ok(descriptor) = build_source_folder_descriptor(folder, &path, &folders, &files) {
+            if let Ok(descriptor) = build_source_folder_descriptor(folder, &path, &folders, &files)
+            {
                 descriptors.push(descriptor);
             }
         }
         Ok(descriptors)
     }
 
-    fn read_source_config_input(&self, descriptor: &SourceFolderDescriptor) -> Result<Option<SourceConfigInput>> {
+    fn read_source_config_input(
+        &self,
+        descriptor: &SourceFolderDescriptor,
+    ) -> Result<Option<SourceConfigInput>> {
         let content = self
             .library
             .read_text_file_content(&descriptor.source_config_file);
@@ -383,7 +413,8 @@ fn build_source_folder_descriptor(
     let source_config_file = files
         .iter()
         .find(|file| {
-            file.folder_id == Some(folder.id) && file.filename.eq_ignore_ascii_case(SOURCE_CONFIG_FILENAME)
+            file.folder_id == Some(folder.id)
+                && file.filename.eq_ignore_ascii_case(SOURCE_CONFIG_FILENAME)
         })
         .cloned()
         .context("folder is not a source folder")?;

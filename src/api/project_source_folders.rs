@@ -7,8 +7,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::contracts::{
-    CreateSourceFolderRequest, MembershipRole, SourceConfigInput, SourceFolderResponse,
-    SyncOutcome,
+    CreateSourceFolderRequest, MembershipRole, SourceConfigInput, SourceFolderResponse, SyncOutcome,
 };
 
 use super::{

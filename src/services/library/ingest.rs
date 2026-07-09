@@ -263,11 +263,7 @@ impl LibraryService {
                 }),
             }]);
         }
-        if file
-            .filename
-            .to_ascii_lowercase()
-            .ends_with(".json")
-        {
+        if file.filename.to_ascii_lowercase().ends_with(".json") {
             let parsed: SourceRecordJson = serde_json::from_str(text)
                 .with_context(|| format!("failed to parse source record json {}", file.filename))?;
             return Ok(vec![IngestSection {

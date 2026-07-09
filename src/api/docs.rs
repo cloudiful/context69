@@ -42,14 +42,14 @@ use crate::api::{
 };
 use crate::contracts::{
     AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse,
-    AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest, CreateSourceFolderRequest,
-    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateTextRequest,
-    HealthResponse, HealthStatus, LibraryFileDetailResponse, LibraryFolderResponse,
-    LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
-    MoveFolderRequest, PersonalAccessTokenResponse, PersonalAccessTokenScope, SourceFolderResponse,
+    AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest,
+    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateSourceFolderRequest,
+    CreateTextRequest, HealthResponse, HealthStatus, LibraryFileDetailResponse,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse,
+    MoveFileRequest, MoveFolderRequest, PersonalAccessTokenResponse, PersonalAccessTokenScope,
     ResetAdminUserPasswordRequest, SearchMode, SourceConfigInput, SourceConnectionResponse,
-    SourceStatus, SyncOutcome, UpdateAdminUserRequest, UpsertLibraryTextRequest,
-    UpsertSourceConnectionRequest,
+    SourceFolderResponse, SourceStatus, SyncOutcome, UpdateAdminUserRequest,
+    UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
 };
 
 #[derive(OpenApi)]
