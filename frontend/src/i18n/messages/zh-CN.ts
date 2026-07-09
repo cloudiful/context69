@@ -482,8 +482,6 @@ export const zhCN = {
       rerankModel: "重排模型",
       apiKey: "重排 API Key",
       rerankApiKey: "重排 API Key",
-      apiKeyStatusStored: "已保存",
-      apiKeyStatusMissing: "未保存",
       clearApiKey: "保存时清空已保存重排 key",
     },
     runtime: {

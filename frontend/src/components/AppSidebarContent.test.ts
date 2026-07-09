@@ -9,6 +9,7 @@ import {
   setWorkspaceNavigationGroup,
   setWorkspaceNavigationProject,
 } from "../composables/use-workspace-navigation-context";
+import { useUiPreferences } from "../composables/use-ui-preferences";
 import AppSidebarContent from "./AppSidebarContent.vue";
 
 describe("AppSidebarContent", () => {
@@ -209,5 +210,38 @@ describe("AppSidebarContent", () => {
     expect(wrapper.text()).not.toContain("Administrator");
     expect(wrapper.get(".app-sidebar-footer > div").classes()).toContain("justify-center");
     expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
+  });
+
+  it("expands the desktop sidebar when a collapsed top-level item has secondary navigation", async () => {
+    setAuthenticatedUser();
+    const preferences = useUiPreferences();
+    preferences.state.sidebarCollapsed = true;
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", component: { template: "<div />" } },
+        { path: "/groups", component: { template: "<div />" } },
+        { path: "/settings", component: { template: "<div />" } },
+        { path: "/settings/appearance", component: { template: "<div />" } },
+        { path: "/settings/access-tokens", component: { template: "<div />" } },
+      ],
+    });
+
+    router.push("/settings/appearance");
+    await router.isReady();
+
+    const wrapper = mount(AppSidebarContent, {
+      props: {
+        collapsed: true,
+      },
+      global: {
+        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+      },
+    });
+
+    await wrapper.get('[data-nav-key="/settings"]').trigger("click");
+
+    expect(preferences.state.sidebarCollapsed).toBe(false);
   });
 });

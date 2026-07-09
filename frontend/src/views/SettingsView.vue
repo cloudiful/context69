@@ -13,6 +13,7 @@ import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
 import { persistLocale, type AppLocale } from "../i18n/locale";
 import type { SettingsSectionKey } from "../settings/navigation";
+import { settingsFloatingSaveButtonClass } from "../ui/button-classes";
 import SettingsAccessTokensPage from "./settings/SettingsAccessTokensPage.vue";
 import SettingsAdminUsersPage from "./settings/SettingsAdminUsersPage.vue";
 import SettingsAppearancePage from "./settings/SettingsAppearancePage.vue";
@@ -109,6 +110,7 @@ function switchLocale(nextLocale: AppLocale) {
 
         <div class="settings-save-bar">
           <Button
+            :class="settingsFloatingSaveButtonClass"
             data-testid="settings-save"
             type="submit"
             :disabled="saving || providerSaving || !hasChanges"

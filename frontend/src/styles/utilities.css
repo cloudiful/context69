@@ -472,12 +472,6 @@
     background: var(--color-app-surface);
   }
 
-  .p-datatable-table,
-  .p-datatable-tbody > tr > td,
-  .p-datatable-thead > tr > th {
-    font-size: 0.88rem;
-  }
-
   .p-splitter {
     min-height: calc(100vh - 9rem);
     border: 0;

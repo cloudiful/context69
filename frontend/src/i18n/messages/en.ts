@@ -482,8 +482,6 @@ export const en = {
       rerankModel: "Rerank Model",
       apiKey: "Rerank API Key",
       rerankApiKey: "Rerank API Key",
-      apiKeyStatusStored: "Stored",
-      apiKeyStatusMissing: "Not stored",
       clearApiKey: "Clear stored rerank key on save",
     },
     runtime: {

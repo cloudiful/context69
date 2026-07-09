@@ -397,20 +397,17 @@
   }
 
   .app-primary-button,
-  .search-form-action-primary.p-button,
-  .settings-header-actions .p-button {
+  .search-form-action-primary.p-button {
     @apply min-h-8 rounded-lg border border-app-border-strong bg-app-surface-soft px-3 text-sm font-semibold text-app-text shadow-none transition;
   }
 
   .app-primary-button:not(:disabled):hover,
-  .search-form-action-primary.p-button:not(:disabled):hover,
-  .settings-header-actions .p-button:not(:disabled):hover {
+  .search-form-action-primary.p-button:not(:disabled):hover {
     @apply bg-app-surface-soft/80;
   }
 
   .app-primary-button:disabled,
-  .app-control-button:disabled,
-  .settings-header-actions .p-button:disabled {
+  .app-control-button:disabled {
     @apply border-app-border bg-app-surface-soft text-app-text-dim opacity-100;
   }
 
@@ -920,18 +917,6 @@
     @apply flex flex-wrap items-center justify-end gap-1.5;
   }
 
-  .settings-header-actions .p-button {
-    @apply min-h-8 rounded-md px-3 text-sm;
-  }
-
-  .settings-header-actions .p-button:not(:disabled):hover {
-    @apply bg-app-surface-soft/80;
-  }
-
-  .settings-header-actions .p-button:disabled {
-    @apply border-app-border bg-app-surface-soft text-app-text-dim opacity-100;
-  }
-
   .settings-block {
     @apply scroll-mt-16 grid gap-2.5 border-t border-app-border/60 pt-3 first:border-t-0 first:pt-0;
   }
@@ -1036,28 +1021,12 @@
     @apply text-xs leading-5 font-medium text-app-danger;
   }
 
-  .settings-inline-button.p-button {
-    @apply inline-flex min-h-8 items-center justify-center rounded-lg border border-app-border bg-app-surface-soft/45 px-3 text-sm font-medium shadow-none transition whitespace-nowrap;
-  }
-
-  .settings-inline-button.p-button:not(:disabled):hover {
-    @apply border-app-border-strong bg-app-surface-soft/72;
-  }
-
-  .settings-inline-button.p-button:disabled {
-    @apply border-app-border bg-app-surface-soft text-app-text-dim opacity-100;
-  }
-
   .settings-status-tag.p-tag {
     @apply rounded-xl px-3 py-1 text-sm font-medium;
   }
 
   .settings-save-bar {
     @apply fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6;
-  }
-
-  .settings-save-bar .p-button {
-    @apply min-w-28 rounded-full border border-app-border-strong bg-app-surface px-5 shadow-[0_14px_32px_rgba(0,0,0,0.34)] backdrop-blur-xl;
   }
 
   .settings-panel form {

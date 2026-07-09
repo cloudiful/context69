@@ -3,7 +3,6 @@ import { reactive } from "vue";
 import type { AppTheme } from "../types/ui";
 
 const THEME_STORAGE_KEY = "context69.theme";
-const SIDEBAR_STORAGE_KEY = "context69.sidebar-collapsed";
 
 interface UiPreferencesState {
   theme: AppTheme;
@@ -13,7 +12,7 @@ interface UiPreferencesState {
 
 const state = reactive<UiPreferencesState>({
   theme: resolveInitialTheme(),
-  sidebarCollapsed: readStoredSidebarCollapsed(),
+  sidebarCollapsed: false,
   mobileNavOpen: false,
 });
 
@@ -24,16 +23,8 @@ function resolveInitialTheme(): AppTheme {
   return stored === "light" || stored === "dark" ? stored : "dark";
 }
 
-function readStoredSidebarCollapsed(): boolean {
-  return getStorage()?.getItem(SIDEBAR_STORAGE_KEY) === "true";
-}
-
 function persistTheme(theme: AppTheme) {
   getStorage()?.setItem(THEME_STORAGE_KEY, theme);
-}
-
-function persistSidebarCollapsed(sidebarCollapsed: boolean) {
-  getStorage()?.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed));
 }
 
 function applyTheme(theme: AppTheme) {
@@ -66,7 +57,10 @@ function toggleTheme() {
 
 function toggleSidebar() {
   state.sidebarCollapsed = !state.sidebarCollapsed;
-  persistSidebarCollapsed(state.sidebarCollapsed);
+}
+
+function expandSidebar() {
+  state.sidebarCollapsed = false;
 }
 
 function closeMobileNav() {
@@ -95,6 +89,7 @@ export function useUiPreferences() {
     setTheme,
     toggleTheme,
     toggleSidebar,
+    expandSidebar,
     closeMobileNav,
     toggleMobileNav,
   };

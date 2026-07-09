@@ -38,6 +38,14 @@ function handleNavigate() {
   }
 }
 
+function handleItemNavigate(item: (typeof items.value)[number]) {
+  if (props.collapsed && item.children?.length) {
+    preferences.expandSidebar();
+  }
+
+  handleNavigate();
+}
+
 async function signOut() {
   await logout();
   preferences.closeMobileNav();
@@ -60,7 +68,7 @@ async function signOut() {
         :class="{ 'is-active': isActive(item.to) }"
         :data-nav-key="item.to"
         :title="item.label"
-        @click="handleNavigate"
+        @click="handleItemNavigate(item)"
       >
         <span class="app-sidebar-link-mark">
           <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon" />

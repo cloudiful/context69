@@ -89,7 +89,6 @@ export function useSettingsPage() {
     { label: t("settings.search.modeVector"), value: "vector" },
   ]);
   const doclingHasStoredApiKey = computed(() => !!doclingSettings.value?.vlm.has_api_key);
-  const searchHasStoredApiKey = computed(() => !!searchSettings.value?.has_api_key);
 
   const qdrantToggleModel = computed({
     get: () => ({ recreate_on_dimension_mismatch: runtimeDraft.qdrant.recreate_on_dimension_mismatch }),
@@ -534,7 +533,6 @@ export function useSettingsPage() {
     saveSettings,
     saving,
     schedulerToggleModel,
-    searchHasStoredApiKey,
     searchDraft,
     searchModeOptions,
     selectedProviderAccount,

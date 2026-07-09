@@ -7,6 +7,10 @@ import AppNumberField from "../AppNumberField.vue";
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
+import {
+  settingsDangerButtonClass,
+  settingsSecondaryButtonClass,
+} from "../../ui/button-classes";
 import type { DraftDoclingSettings } from "../../utils/settings";
 
 defineProps<{
@@ -93,10 +97,8 @@ const { t } = useI18n();
                 />
                 <Button
                   id="docling-clear-api-key"
-                  class="settings-inline-button"
+                  :class="doclingDraft.vlm.clear_api_key ? settingsSecondaryButtonClass : settingsDangerButtonClass"
                   type="button"
-                  severity="danger"
-                  variant="outlined"
                   :disabled="!doclingHasStoredApiKey && !doclingDraft.vlm.clear_api_key"
                   @click="toggleClearDoclingApiKey"
                 >

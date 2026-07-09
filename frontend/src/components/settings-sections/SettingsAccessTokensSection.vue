@@ -15,6 +15,11 @@ import type {
   CreatePersonalAccessTokenResponse,
   PersonalAccessTokenResponse,
 } from "../../services/api";
+import {
+  settingsDangerButtonClass,
+  settingsPrimaryButtonClass,
+  settingsSecondaryButtonClass,
+} from "../../ui/button-classes";
 
 const props = defineProps<{
   createPersonalAccessToken: () => Promise<void>;
@@ -128,6 +133,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
 
             <div class="settings-inline-actions items-end">
               <Button
+                :class="settingsPrimaryButtonClass"
                 data-testid="personal-access-token-create"
                 type="button"
                 :disabled="personalAccessTokensCreating || !personalAccessTokenCanCreate"
@@ -158,10 +164,10 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-(--p-content-background) p-3 font-mono text-xs text-app-text"
           >{{ personalAccessTokensReveal.access_token }}</pre>
           <div class="settings-inline-actions">
-            <Button type="button" severity="secondary" variant="outlined" @click="copyPersonalAccessToken">
+            <Button :class="settingsSecondaryButtonClass" type="button" @click="copyPersonalAccessToken">
               {{ t("settings.personalAccessTokens.copyAction") }}
             </Button>
-            <Button type="button" severity="secondary" variant="text" @click="dismissPersonalAccessTokenReveal">
+            <Button :class="settingsSecondaryButtonClass" type="button" @click="dismissPersonalAccessTokenReveal">
               {{ t("common.close") }}
             </Button>
           </div>
@@ -176,28 +182,60 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
         <DataTable
           :value="tokenRows"
           data-key="token_id"
-          size="small"
-          class="text-xs"
+          class="w-full"
           :loading="personalAccessTokensLoading"
-          responsive-layout="scroll"
+          scrollable
+          table-style="min-width: 68rem"
         >
-          <Column field="name" :header="t('settings.personalAccessTokens.name')" />
-          <Column field="scopeSummary" :header="t('settings.personalAccessTokens.scopes')" />
-          <Column field="createdLabel" :header="t('settings.personalAccessTokens.createdAt')" />
-          <Column field="expiresLabel" :header="t('settings.personalAccessTokens.expiresAt')" />
-          <Column field="lastUsedLabel" :header="t('settings.personalAccessTokens.lastUsedAt')" />
-          <Column :header="t('settings.personalAccessTokens.status')">
+          <Column
+            field="name"
+            :header="t('settings.personalAccessTokens.name')"
+            header-class="whitespace-nowrap"
+            body-class="whitespace-nowrap align-top font-medium"
+          />
+          <Column
+            field="scopeSummary"
+            :header="t('settings.personalAccessTokens.scopes')"
+            header-class="min-w-52"
+            body-class="min-w-64 align-top text-sm leading-6 text-app-text-dim"
+          />
+          <Column
+            field="createdLabel"
+            :header="t('settings.personalAccessTokens.createdAt')"
+            header-class="whitespace-nowrap"
+            body-class="whitespace-nowrap align-top text-sm"
+          />
+          <Column
+            field="expiresLabel"
+            :header="t('settings.personalAccessTokens.expiresAt')"
+            header-class="whitespace-nowrap"
+            body-class="whitespace-nowrap align-top text-sm"
+          />
+          <Column
+            field="lastUsedLabel"
+            :header="t('settings.personalAccessTokens.lastUsedAt')"
+            header-class="whitespace-nowrap"
+            body-class="whitespace-nowrap align-top text-sm"
+          />
+          <Column
+            :header="t('settings.personalAccessTokens.status')"
+            header-class="whitespace-nowrap"
+            body-class="whitespace-nowrap align-top"
+          >
             <template #body="{ data }">
               <Tag :value="data.status.label" :severity="data.status.severity" />
             </template>
           </Column>
-          <Column :header="t('settings.personalAccessTokens.actions')">
+          <Column
+            :header="t('settings.personalAccessTokens.actions')"
+            header-class="whitespace-nowrap"
+            body-class="whitespace-nowrap align-top"
+          >
             <template #body="{ data }">
               <div class="settings-inline-actions">
                 <Button
+                  :class="settingsDangerButtonClass"
                   type="button"
-                  severity="danger"
-                  variant="outlined"
                   size="small"
                   :disabled="!!data.revoked_at"
                   @click="confirmRevokePersonalAccessToken(data)"

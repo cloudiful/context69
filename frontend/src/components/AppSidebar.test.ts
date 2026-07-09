@@ -43,4 +43,5 @@ describe("AppSidebar", () => {
     expect(wrapper.findAllComponents(Sidebar)).toHaveLength(2);
     expect(wrapper.find("aside.app-sidebar").exists()).toBe(false);
   });
+
 });

@@ -10,6 +10,10 @@ import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
 import type { ProviderAccountResponse } from "../../services/api";
+import {
+  settingsDangerButtonClass,
+  settingsSecondaryButtonClass,
+} from "../../ui/button-classes";
 import type { DraftRuntimeSettings, ProviderAccountDraft } from "../../utils/settings";
 
 type ProviderToggleModel = { disabled: boolean };
@@ -70,10 +74,8 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <div class="settings-block-header">
           <h3 class="settings-block-title">{{ t("settings.runtime.providerAccountsTitle") }}</h3>
           <Button
-            class="settings-inline-button"
+            :class="settingsSecondaryButtonClass"
             type="button"
-            severity="secondary"
-            variant="outlined"
             @click="startNewProviderAccount"
           >
             {{ t("common.create") }}
@@ -141,10 +143,8 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
                 />
                 <Button
                   id="provider-clear-api-key"
-                  class="settings-inline-button"
+                  :class="providerDraft.clear_api_key ? settingsSecondaryButtonClass : settingsDangerButtonClass"
                   type="button"
-                  severity="danger"
-                  variant="outlined"
                   :disabled="!selectedProviderAccount?.has_api_key && !providerDraft.clear_api_key"
                   @click="toggleClearProviderApiKey"
                 >
@@ -167,10 +167,8 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
 
           <div class="settings-inline-actions">
             <Button
-              class="settings-inline-button"
+              :class="settingsDangerButtonClass"
               type="button"
-              severity="danger"
-              variant="outlined"
               :disabled="saving || providerSaving || !selectedProviderAccount"
               @click="deleteProviderAccount"
             >

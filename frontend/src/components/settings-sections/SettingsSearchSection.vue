@@ -13,7 +13,6 @@ type RerankToggleModel = { rerank_enabled: boolean };
 defineProps<{
   rerankApiKeyDraft: string;
   rerankToggleModel: RerankToggleModel;
-  searchHasStoredApiKey: boolean;
   searchDraft: DraftSearchSettings;
   searchModeOptions: Array<{ label: string; value: string }>;
 }>();
@@ -36,7 +35,6 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
   <AppSettingsSection :legend="t('settings.search.title')">
     <div id="settings-search" class="grid gap-4">
       <section class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.search.title") }}</h3>
         <div class="grid gap-3">
           <div class="settings-compact-grid lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(14rem,18rem))] xl:justify-start">
             <AppSelectField
@@ -103,9 +101,6 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
               input-id="search-rerank-api-key"
               :model-value="rerankApiKeyDraft"
               :label="t('settings.search.rerankApiKey')"
-              :helper="searchHasStoredApiKey
-                ? `${t('settings.search.apiKeyStatusStored')} · ${t('settings.hints.apiKey')}`
-                : `${t('settings.search.apiKeyStatusMissing')} · ${t('settings.hints.apiKey')}`"
               test-id="search-rerank-api-key"
               type="password"
               autocomplete="new-password"
