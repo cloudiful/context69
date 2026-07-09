@@ -7,7 +7,7 @@ import ToastService from "primevue/toastservice";
 import App from "./App.vue";
 import { i18n } from "./i18n";
 import { router } from "./router";
-import { ensureSessionReady } from "./services/auth";
+import { ensureSessionReady } from "./services/auth/session";
 import "primeicons/primeicons.css";
 import "./style.css";
 

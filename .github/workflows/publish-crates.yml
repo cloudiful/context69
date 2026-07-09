@@ -41,7 +41,9 @@ jobs:
       expected_version: ${{ needs.prepare.outputs.version }}
 
   publish-sdk:
-    needs: prepare
+    needs:
+      - prepare
+      - publish-contracts
     uses: ./.github/workflows/_publish-crate.yml
     with:
       package: context69-sdk

@@ -16,6 +16,11 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::Error;
+pub use library::LibraryApi;
+pub use search::SearchApi;
+pub use settings::SettingsApi;
+pub use sources::SourcesApi;
+pub use workspace::WorkspaceApi;
 
 pub(crate) const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";
 
@@ -62,6 +67,26 @@ impl Context69Client {
         })
     }
 
+    pub fn workspace(&self) -> WorkspaceApi<'_> {
+        WorkspaceApi::new(self)
+    }
+
+    pub fn sources(&self) -> SourcesApi<'_> {
+        SourcesApi::new(self)
+    }
+
+    pub fn library(&self) -> LibraryApi<'_> {
+        LibraryApi::new(self)
+    }
+
+    pub fn settings(&self) -> SettingsApi<'_> {
+        SettingsApi::new(self)
+    }
+
+    pub fn search(&self) -> SearchApi<'_> {
+        SearchApi::new(self)
+    }
+
     pub async fn me(&self) -> Result<AuthMeResponse, Error> {
         self.execute_json(self.authorized_request(Method::GET, "/v1/auth/me").await?)
             .await
@@ -87,6 +112,24 @@ impl Context69Client {
         Ok(self
             .client
             .request(method, self.url(path)?)
+            .header(AUTHORIZATION, format!("Bearer {personal_access_token}")))
+    }
+
+    pub(crate) async fn authorized_url_request(
+        &self,
+        method: Method,
+        url: Url,
+    ) -> Result<RequestBuilder, Error> {
+        let personal_access_token = self
+            .session
+            .read()
+            .await
+            .personal_access_token
+            .clone()
+            .ok_or(Error::AuthenticationRequired)?;
+        Ok(self
+            .client
+            .request(method, url)
             .header(AUTHORIZATION, format!("Bearer {personal_access_token}")))
     }
 

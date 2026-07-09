@@ -1,4 +1,4 @@
-import { authSessionState, clearSession } from "../services/auth";
+import { authSessionState, clearSession } from "../services/auth/session";
 import type { AuthUserResponse } from "../services/api";
 
 export function setAuthenticatedUser(

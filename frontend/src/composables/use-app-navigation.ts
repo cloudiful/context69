@@ -2,7 +2,7 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 
-import { authSessionState } from "../services/auth";
+import { authSessionState } from "../services/auth/session";
 import { resolveSettingsSectionNav } from "../settings/navigation";
 import {
   resolveGroupSectionNav,

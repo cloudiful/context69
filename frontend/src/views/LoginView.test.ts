@@ -5,8 +5,8 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { createTestI18n } from "../test-utils/i18n";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
 import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
-import * as authService from "../services/auth";
-import { AuthError } from "../services/auth";
+import * as authService from "../services/auth/session";
+import { AuthError } from "../services/auth/session";
 
 import LoginView from "./LoginView.vue";
 

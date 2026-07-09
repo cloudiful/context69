@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import { authSessionState, ensureSessionReady, isAuthenticated, setAuthNavigator } from "../services/auth";
+import { authSessionState, ensureSessionReady, isAuthenticated, setAuthNavigator } from "../services/auth/session";
 
 export const router = createRouter({
   history: createWebHistory(),

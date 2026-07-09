@@ -6,7 +6,7 @@ import Tag from "primevue/tag";
 
 import AppMdiIcon from "./AppMdiIcon.vue";
 import { useAppNavigation } from "../composables/use-app-navigation";
-import { authSessionState, isAuthenticated, logout } from "../services/auth";
+import { authSessionState, isAuthenticated, logout } from "../services/auth/session";
 import { useUiPreferences } from "../composables/use-ui-preferences";
 
 const props = withDefaults(defineProps<{

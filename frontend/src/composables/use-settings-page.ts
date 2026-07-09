@@ -11,7 +11,7 @@ import {
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
 } from "../services/api";
-import { authSessionState } from "../services/auth";
+import { authSessionState } from "../services/auth/session";
 import {
   type DraftDoclingSettings,
   type DraftSearchSettings,

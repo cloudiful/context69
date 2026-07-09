@@ -7,7 +7,7 @@ import Toast from "primevue/toast";
 import AppMobileNav from "./components/AppMobileNav.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import { useUiPreferences } from "./composables/use-ui-preferences";
-import { authSessionState } from "./services/auth";
+import { authSessionState } from "./services/auth/session";
 
 const preferences = useUiPreferences();
 const appReady = computed(() => authSessionState.ready);

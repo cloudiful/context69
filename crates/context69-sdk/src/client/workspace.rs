@@ -7,50 +7,56 @@ use reqwest::Method;
 
 use crate::{Context69Client, Error};
 
-impl Context69Client {
+pub struct WorkspaceApi<'a> {
+    client: &'a Context69Client,
+}
+
+impl<'a> WorkspaceApi<'a> {
+    pub(crate) fn new(client: &'a Context69Client) -> Self {
+        Self { client }
+    }
+
     pub async fn search_user_directory(
         &self,
         query: &str,
         limit: usize,
     ) -> Result<Vec<UserDirectoryEntryResponse>, Error> {
-        let mut url = self.url("/v1/user-directory")?;
+        let mut url = self.client.url("/v1/user-directory")?;
         {
             let mut pairs = url.query_pairs_mut();
             pairs.append_pair("query", query);
             pairs.append_pair("limit", &limit.to_string());
         }
-        self.execute_json(self.client.get(url).header(
-            reqwest::header::AUTHORIZATION,
-            format!(
-                        "Bearer {}",
-                        self.session
-                            .read()
-                            .await
-                            .personal_access_token
-                            .clone()
-                            .ok_or(Error::AuthenticationRequired)?
-                    ),
-        ))
-        .await
+        self.client
+            .execute_json(self.client.authorized_url_request(Method::GET, url).await?)
+            .await
     }
 
     pub async fn list_groups(&self) -> Result<Vec<GroupResponse>, Error> {
-        self.execute_json(self.authorized_request(Method::GET, "/v1/groups").await?)
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::GET, "/v1/groups")
+                    .await?,
+            )
             .await
     }
 
     pub async fn create_group(&self, request: &CreateGroupRequest) -> Result<GroupResponse, Error> {
-        self.execute_json(
-            self.authorized_request(Method::POST, "/v1/groups")
-                .await?
-                .json(request),
-        )
-        .await
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::POST, "/v1/groups")
+                    .await?
+                    .json(request),
+            )
+            .await
     }
 
     pub async fn get_group(&self, group_key: &str) -> Result<GroupResponse, Error> {
         let path = format!("/v1/groups/{group_key}");
-        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+        self.client
+            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
             .await
     }
 
@@ -60,17 +66,24 @@ impl Context69Client {
         request: &UpdateGroupRequest,
     ) -> Result<GroupResponse, Error> {
         let path = format!("/v1/groups/{group_key}");
-        self.execute_json(
-            self.authorized_request(Method::PATCH, &path)
-                .await?
-                .json(request),
-        )
-        .await
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::PATCH, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
     }
 
     pub async fn delete_group(&self, group_key: &str) -> Result<(), Error> {
         let path = format!("/v1/groups/{group_key}");
-        self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
+        self.client
+            .execute_empty(
+                self.client
+                    .authorized_request(Method::DELETE, &path)
+                    .await?,
+            )
             .await
     }
 
@@ -79,7 +92,8 @@ impl Context69Client {
         group_key: &str,
     ) -> Result<Vec<GroupMemberResponse>, Error> {
         let path = format!("/v1/groups/{group_key}/members");
-        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+        self.client
+            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
             .await
     }
 
@@ -89,12 +103,14 @@ impl Context69Client {
         request: &UpsertMembershipRequest,
     ) -> Result<(), Error> {
         let path = format!("/v1/groups/{group_key}/members");
-        self.execute_empty(
-            self.authorized_request(Method::POST, &path)
-                .await?
-                .json(request),
-        )
-        .await
+        self.client
+            .execute_empty(
+                self.client
+                    .authorized_request(Method::POST, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
     }
 
     pub async fn delete_group_member(
@@ -103,13 +119,19 @@ impl Context69Client {
         login_name: &str,
     ) -> Result<(), Error> {
         let path = format!("/v1/groups/{group_key}/members/{login_name}");
-        self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
+        self.client
+            .execute_empty(
+                self.client
+                    .authorized_request(Method::DELETE, &path)
+                    .await?,
+            )
             .await
     }
 
     pub async fn list_projects(&self, group_key: &str) -> Result<Vec<ProjectResponse>, Error> {
         let path = format!("/v1/groups/{group_key}/projects");
-        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+        self.client
+            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
             .await
     }
 
@@ -119,12 +141,14 @@ impl Context69Client {
         request: &CreateProjectRequest,
     ) -> Result<ProjectResponse, Error> {
         let path = format!("/v1/groups/{group_key}/projects");
-        self.execute_json(
-            self.authorized_request(Method::POST, &path)
-                .await?
-                .json(request),
-        )
-        .await
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::POST, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
     }
 
     pub async fn get_project(
@@ -133,7 +157,8 @@ impl Context69Client {
         project_key: &str,
     ) -> Result<ProjectResponse, Error> {
         let path = format!("/v1/groups/{group_key}/projects/{project_key}");
-        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+        self.client
+            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
             .await
     }
 
@@ -144,17 +169,24 @@ impl Context69Client {
         request: &UpdateProjectRequest,
     ) -> Result<ProjectResponse, Error> {
         let path = format!("/v1/groups/{group_key}/projects/{project_key}");
-        self.execute_json(
-            self.authorized_request(Method::PATCH, &path)
-                .await?
-                .json(request),
-        )
-        .await
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::PATCH, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
     }
 
     pub async fn delete_project(&self, group_key: &str, project_key: &str) -> Result<(), Error> {
         let path = format!("/v1/groups/{group_key}/projects/{project_key}");
-        self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
+        self.client
+            .execute_empty(
+                self.client
+                    .authorized_request(Method::DELETE, &path)
+                    .await?,
+            )
             .await
     }
 
@@ -165,12 +197,14 @@ impl Context69Client {
         request: &MoveProjectRequest,
     ) -> Result<ProjectResponse, Error> {
         let path = format!("/v1/groups/{group_key}/projects/{project_key}/move");
-        self.execute_json(
-            self.authorized_request(Method::POST, &path)
-                .await?
-                .json(request),
-        )
-        .await
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::POST, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
     }
 
     pub async fn list_project_members(
@@ -179,7 +213,8 @@ impl Context69Client {
         project_key: &str,
     ) -> Result<Vec<ProjectMemberResponse>, Error> {
         let path = format!("/v1/groups/{group_key}/projects/{project_key}/members");
-        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+        self.client
+            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
             .await
     }
 
@@ -190,12 +225,14 @@ impl Context69Client {
         request: &UpsertMembershipRequest,
     ) -> Result<(), Error> {
         let path = format!("/v1/groups/{group_key}/projects/{project_key}/members");
-        self.execute_empty(
-            self.authorized_request(Method::POST, &path)
-                .await?
-                .json(request),
-        )
-        .await
+        self.client
+            .execute_empty(
+                self.client
+                    .authorized_request(Method::POST, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
     }
 
     pub async fn delete_project_member(
@@ -205,7 +242,12 @@ impl Context69Client {
         login_name: &str,
     ) -> Result<(), Error> {
         let path = format!("/v1/groups/{group_key}/projects/{project_key}/members/{login_name}");
-        self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
+        self.client
+            .execute_empty(
+                self.client
+                    .authorized_request(Method::DELETE, &path)
+                    .await?,
+            )
             .await
     }
 }

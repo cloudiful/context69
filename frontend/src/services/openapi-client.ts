@@ -1,7 +1,7 @@
 import createClient from "openapi-fetch";
 
 import type { paths } from "../generated/openapi";
-import { getAccessToken, handleUnauthorized } from "./auth";
+import { getAccessToken, handleUnauthorized } from "./auth/session";
 
 export const API_BASE_URL = resolveApiBaseUrl();
 

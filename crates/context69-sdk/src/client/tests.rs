@@ -1,10 +1,15 @@
 use axum::{
     Json, Router,
+    extract::Path,
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
-use context69_contracts::ApiErrorResponse;
+use chrono::Utc;
+use context69_contracts::{
+    ApiErrorResponse, GroupKind, GroupResponse, LibraryFolderNode, LibraryTreeResponse,
+    SearchRequest, SearchResponse, SourceOriginStatusKind, SourceStatus, Visibility,
+};
 use serial_test::serial;
 use tokio::net::TcpListener;
 
@@ -13,7 +18,14 @@ use super::*;
 const TEST_PAT: &str = "ctx_pat_test_token";
 
 async fn spawn_test_server() -> String {
-    let app = Router::new().route("/v1/search", post(search_handler));
+    let app = Router::new()
+        .route("/v1/search", post(search_handler))
+        .route("/v1/groups", get(list_groups_handler))
+        .route("/v1/library/tree", get(library_tree_handler))
+        .route(
+            "/v1/groups/{group_key}/projects/{project_key}/sources",
+            get(list_project_sources_handler),
+        );
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -47,10 +59,62 @@ fn json_response<T: serde::Serialize>(status: StatusCode, value: &T) -> Response
     (status, Json(value)).into_response()
 }
 
-async fn search_handler(
-    headers: HeaderMap,
-    Json(request): Json<context69_contracts::SearchRequest>,
-) -> Response {
+fn sample_group() -> GroupResponse {
+    let now = Utc::now();
+    GroupResponse {
+        group_id: 1,
+        group_key: "ops".to_string(),
+        parent_group_key: None,
+        name: "Operations".to_string(),
+        visibility: Visibility::Private,
+        kind: GroupKind::Shared,
+        current_role: None,
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+fn sample_library_tree() -> LibraryTreeResponse {
+    LibraryTreeResponse {
+        root: LibraryFolderNode {
+            group_key: "".to_string(),
+            project_key: "".to_string(),
+            visibility: Visibility::Private,
+            folder_id: None,
+            parent_folder_id: None,
+            name: "Library".to_string(),
+            path: "/".to_string(),
+            processing_count: 0,
+            children: vec![],
+            files: vec![],
+        },
+    }
+}
+
+fn sample_source_status() -> SourceStatus {
+    SourceStatus {
+        group_key: "ops".to_string(),
+        project_key: "runbooks".to_string(),
+        visibility: Visibility::Private,
+        source_key: "alerts".to_string(),
+        display_name: "Alerts".to_string(),
+        description: Some("Operational alerts".to_string()),
+        example_queries: vec!["recent paging incidents".to_string()],
+        connection: "warehouse".to_string(),
+        has_database_url: false,
+        origin_status: SourceOriginStatusKind::Connected,
+        origin_message: None,
+        sync_strategy: "incremental".to_string(),
+        connector_type: "postgres_sql".to_string(),
+        base_query: "select * from alerts".to_string(),
+        batch_size: 500,
+        last_cursor_updated_at: None,
+        last_cursor_external_id: None,
+        last_success_at: None,
+    }
+}
+
+async fn search_handler(headers: HeaderMap, Json(request): Json<SearchRequest>) -> Response {
     if request.query == "unauthorized" {
         return json_response(
             StatusCode::UNAUTHORIZED,
@@ -70,7 +134,41 @@ async fn search_handler(
             },
         );
     }
-    StatusCode::OK.into_response()
+    json_response(
+        StatusCode::OK,
+        &SearchResponse {
+            query: request.query,
+            hits: vec![],
+        },
+    )
+}
+
+async fn list_groups_handler(headers: HeaderMap) -> Response {
+    if let Err(response) = require_pat(&headers) {
+        return response;
+    }
+    json_response(StatusCode::OK, &vec![sample_group()])
+}
+
+async fn library_tree_handler(headers: HeaderMap) -> Response {
+    if let Err(response) = require_pat(&headers) {
+        return response;
+    }
+    json_response(StatusCode::OK, &sample_library_tree())
+}
+
+async fn list_project_sources_handler(
+    headers: HeaderMap,
+    Path((group_key, project_key)): Path<(String, String)>,
+) -> Response {
+    if let Err(response) = require_pat(&headers) {
+        return response;
+    }
+
+    let mut source = sample_source_status();
+    source.group_key = group_key;
+    source.project_key = project_key;
+    json_response(StatusCode::OK, &vec![source])
 }
 
 #[test]
@@ -116,10 +214,72 @@ async fn protected_api_requires_pat() {
         .expect("client");
 
     let error = client
+        .workspace()
         .list_groups()
         .await
         .expect_err("should require authentication");
     assert!(matches!(error, Error::AuthenticationRequired));
+}
+
+#[tokio::test]
+#[serial]
+async fn grouped_workspace_api_lists_groups() {
+    let base_url = spawn_test_server().await;
+    let client = Context69Client::builder()
+        .base_url(&base_url)
+        .expect("base url")
+        .with_personal_access_token(TEST_PAT)
+        .expect("pat")
+        .build()
+        .expect("client");
+
+    let groups = client.workspace().list_groups().await.expect("list groups");
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].group_key, "ops");
+}
+
+#[tokio::test]
+#[serial]
+async fn grouped_library_api_gets_tree() {
+    let base_url = spawn_test_server().await;
+    let client = Context69Client::builder()
+        .base_url(&base_url)
+        .expect("base url")
+        .with_personal_access_token(TEST_PAT)
+        .expect("pat")
+        .build()
+        .expect("client");
+
+    let tree = client
+        .library()
+        .get_library_tree()
+        .await
+        .expect("get library tree");
+
+    assert_eq!(tree.root.path, "/");
+}
+
+#[tokio::test]
+#[serial]
+async fn grouped_sources_api_lists_project_sources() {
+    let base_url = spawn_test_server().await;
+    let client = Context69Client::builder()
+        .base_url(&base_url)
+        .expect("base url")
+        .with_personal_access_token(TEST_PAT)
+        .expect("pat")
+        .build()
+        .expect("client");
+
+    let sources = client
+        .sources()
+        .list_project_sources("ops", "runbooks")
+        .await
+        .expect("list project sources");
+
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].project_key, "runbooks");
 }
 
 #[tokio::test]
@@ -135,7 +295,8 @@ async fn unauthorized_response_does_not_refresh() {
         .expect("client");
 
     let error = client
-        .search(context69_contracts::SearchRequest {
+        .search()
+        .search(SearchRequest {
             query: "unauthorized".to_string(),
             limit: 8,
             source_key: None,
@@ -171,7 +332,8 @@ async fn surfaces_api_error_message() {
         .expect("client");
 
     let error = client
-        .search(context69_contracts::SearchRequest {
+        .search()
+        .search(SearchRequest {
             query: "bad request".to_string(),
             limit: 8,
             source_key: None,

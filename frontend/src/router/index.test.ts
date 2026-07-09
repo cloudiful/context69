@@ -20,7 +20,7 @@ const {
   setAuthNavigator: vi.fn(),
 }));
 
-vi.mock("../services/auth", () => ({
+vi.mock("../services/auth/session", () => ({
   authSessionState,
   ensureSessionReady,
   isAuthenticated,

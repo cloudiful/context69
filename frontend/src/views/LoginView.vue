@@ -12,7 +12,7 @@ import * as z from "zod";
 
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
-import { AuthError, authSessionState, login } from "../services/auth";
+import { AuthError, authSessionState, login } from "../services/auth/session";
 
 const route = useRoute();
 const router = useRouter();

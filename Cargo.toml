@@ -9,7 +9,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -22,9 +22,9 @@ axum-extra = "0.12.6"
 bytes = "1.12.0"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.2" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.2.0" }
-context69-namespace = { path = "crates/context69-namespace", version = "0.2.0" }
-context69-search = { path = "crates/context69-search", version = "0.2.0" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.3.0" }
+context69-namespace = { path = "crates/context69-namespace", version = "0.3.0" }
+context69-search = { path = "crates/context69-search", version = "0.3.0" }
 docling-convert = { package = "cloudiful-docling-convert", version = "0.2.4" }
 futures = "0.3.32"
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }

@@ -6,7 +6,7 @@ import { useI18n } from "vue-i18n";
 import AppMdiIcon from "./AppMdiIcon.vue";
 import { useAppNavigation } from "../composables/use-app-navigation";
 import { useUiPreferences } from "../composables/use-ui-preferences";
-import { isAuthenticated } from "../services/auth";
+import { isAuthenticated } from "../services/auth/session";
 
 const route = useRoute();
 const items = useAppNavigation();

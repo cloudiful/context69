@@ -40,6 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     client
+        .workspace()
         .create_group(&CreateGroupRequest {
             parent_group_key: None,
             group_key: "ops".to_string(),
@@ -50,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     client
+        .workspace()
         .create_project(
             "ops",
             &CreateProjectRequest {
@@ -82,6 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     client
+        .sources()
         .create_project_source(
             "ops",
             "runbooks",
@@ -102,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     client
+        .library()
         .create_library_text(&CreateTextRequest {
             folder_id: None,
             title: "Global Runbook".to_string(),
@@ -112,6 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     client
+        .library()
         .upsert_project_library_text(
             "ops",
             "runbooks",
@@ -132,13 +137,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Settings example
+
+```rust
+use context69_sdk::Context69Client;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Context69Client::builder()
+        .base_url("http://127.0.0.1:8096")?
+        .with_personal_access_token("ctx_pat_example_token")?
+        .build()?;
+
+    let docling = client.settings().get_docling_settings().await?;
+    println!("docling configured: {}", docling.configured);
+    Ok(())
+}
+```
+
 ## API coverage
 
-- Workspace: user directory, groups, projects, group members, project members
-- Sources: source connections, global sources, project sources, sync
-- Library: global tree/folder/file/job APIs, global library text, project library tree/folder/file/job APIs, project library text, multipart uploads
-- Settings: runtime, provider accounts, docling, search settings
-- Search: search, document lookup, `me()`, `healthz()`
+- `client.workspace()`: user directory, groups, projects, group members, project members
+- `client.sources()`: source connections, global sources, project sources, sync
+- `client.library()`: global tree/folder/file/job APIs, global library text, project library tree/folder/file/job APIs, project library text, multipart uploads
+- `client.settings()`: runtime, provider accounts, docling, search settings
+- `client.search()`: search and document lookup
+- Root client: `me()`, `healthz()`
 
 ## Scope requirements
 
@@ -156,3 +180,4 @@ PATs must include the scopes required by the APIs you call:
 - `login()`, `refresh()`, and `logout()` were removed from the main client
 - `401 Unauthorized` responses are returned directly; the SDK no longer retries with refresh-cookie logic
 - JWT-only APIs are intentionally excluded from this client, including login/refresh/logout, PAT management, and admin-user APIs
+- Flat methods like `client.create_group(...)` were replaced by grouped APIs such as `client.workspace().create_group(...)`
