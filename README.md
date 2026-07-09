@@ -36,6 +36,8 @@ With the current startup path, only `app_db.url` is required for the backend to 
 If runtime settings are still empty, the service starts in degraded mode so you can open
 the frontend and save Qdrant, embedding, Docling, scheduler, and source settings there.
 Search and library ingest become available after those settings are saved and the service restarts.
+Text-only ingest does not require Docling. PDF/DOCX/XLSX conversion needs Docling connection
+settings, while Docling VLM fields can be left empty unless you want VLM-based enrichment.
 
 By default this starts:
 

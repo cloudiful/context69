@@ -61,6 +61,7 @@ pub(super) fn runtime_settings_from_request(
 
 pub(super) fn docling_settings_from_request(
     request: &UpdateDoclingSettingsRequest,
+    api_key: Option<String>,
 ) -> StoredDoclingSettings {
     StoredDoclingSettings {
         base_url: request.connection.base_url.trim().to_string(),
@@ -77,6 +78,8 @@ pub(super) fn docling_settings_from_request(
         do_formula_enrichment: true,
         do_picture_description: true,
         provider_account_key: normalize_optional_string(request.vlm.provider_account_key.clone()),
+        openai_base_url: normalize_optional_string(request.vlm.openai_base_url.clone()),
+        api_key,
         vlm_pipeline_model: normalize_optional_string(request.vlm.vlm_pipeline_model.clone()),
         picture_description_model: normalize_optional_string(
             request.vlm.picture_description_model.clone(),
@@ -196,6 +199,8 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
         },
         vlm: DoclingVlmSettingsResponse {
             provider_account_key: None,
+            openai_base_url: None,
+            has_api_key: false,
             vlm_pipeline_model: None,
             picture_description_model: None,
             code_formula_model: None,
@@ -235,6 +240,11 @@ pub(super) fn response_from_stored(
         },
         vlm: DoclingVlmSettingsResponse {
             provider_account_key: settings.provider_account_key,
+            openai_base_url: settings.openai_base_url,
+            has_api_key: settings
+                .api_key
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty()),
             vlm_pipeline_model: settings.vlm_pipeline_model,
             picture_description_model: settings.picture_description_model,
             code_formula_model: settings.code_formula_model,
@@ -246,9 +256,10 @@ pub(super) fn config_from_stored(
     settings: StoredDoclingSettings,
     provider: Option<StoredProviderAccount>,
 ) -> DoclingConfig {
-    let (openai_base_url, api_key) = provider
-        .map(|account| (Some(account.base_url), account.api_key))
-        .unwrap_or((None, None));
+    let (openai_base_url, api_key) = match provider {
+        Some(account) => (Some(account.base_url), account.api_key),
+        None => (settings.openai_base_url.clone(), settings.api_key.clone()),
+    };
 
     DoclingConfig {
         connection: DoclingConnectionConfig {

@@ -155,6 +155,9 @@ pub struct DoclingVlmSettingsResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_account_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openai_base_url: Option<String>,
+    pub has_api_key: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vlm_pipeline_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture_description_model: Option<String>,
@@ -166,6 +169,12 @@ pub struct DoclingVlmSettingsResponse {
 pub struct UpdateDoclingVlmSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_account_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openai_base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub clear_api_key: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vlm_pipeline_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

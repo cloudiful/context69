@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Result, anyhow};
 use docling_convert::DoclingRuntimeConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::serde_helpers;
+use crate::{serde_helpers, support::normalize::normalize_optional_string};
 
 mod client;
 
@@ -53,25 +53,18 @@ pub struct DoclingConfig {
 }
 
 pub fn build_runtime_config(config: &DoclingConfig) -> Result<DoclingRuntimeConfig> {
+    let docling_base_url = api_base_url(&config.connection.base_url);
+    let Some(vlm) = resolve_vlm_runtime_config(&config.vlm)? else {
+        return Ok(DoclingRuntimeConfig::without_vlm(docling_base_url));
+    };
+
     Ok(DoclingRuntimeConfig {
-        docling_base_url: api_base_url(&config.connection.base_url),
-        openai_base_url: config.vlm.openai_base_url.clone().context(
-            "docling.vlm.provider_account_key must be configured for PDF/DOCX conversion",
-        )?,
-        vlm_pipeline_model: config
-            .vlm
-            .vlm_pipeline_model
-            .clone()
-            .context("docling.vlm.vlm_pipeline_model must be configured for PDF/DOCX conversion")?,
-        picture_description_model: config.vlm.picture_description_model.clone().context(
-            "docling.vlm.picture_description_model must be configured for PDF/DOCX conversion",
-        )?,
-        code_formula_model: config
-            .vlm
-            .code_formula_model
-            .clone()
-            .context("docling.vlm.code_formula_model must be configured for PDF/DOCX conversion")?,
-        api_key: config.vlm.api_key.clone(),
+        docling_base_url,
+        openai_base_url: vlm.openai_base_url,
+        vlm_pipeline_model: vlm.vlm_pipeline_model,
+        picture_description_model: vlm.picture_description_model,
+        code_formula_model: vlm.code_formula_model,
+        api_key: Some(vlm.api_key),
     })
 }
 
@@ -82,6 +75,52 @@ pub fn api_base_url(base_url: &str) -> String {
     } else {
         format!("{trimmed}/v1")
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedDoclingVlmRuntimeConfig {
+    openai_base_url: String,
+    api_key: String,
+    vlm_pipeline_model: String,
+    picture_description_model: String,
+    code_formula_model: String,
+}
+
+pub(crate) fn resolve_vlm_runtime_config(
+    config: &DoclingVlmConfig,
+) -> Result<Option<ResolvedDoclingVlmRuntimeConfig>> {
+    let openai_base_url = normalize_optional_string(config.openai_base_url.clone());
+    let api_key = normalize_optional_string(config.api_key.clone());
+    let vlm_pipeline_model = normalize_optional_string(config.vlm_pipeline_model.clone());
+    let picture_description_model =
+        normalize_optional_string(config.picture_description_model.clone());
+    let code_formula_model = normalize_optional_string(config.code_formula_model.clone());
+
+    let fields = [
+        openai_base_url.as_ref(),
+        api_key.as_ref(),
+        vlm_pipeline_model.as_ref(),
+        picture_description_model.as_ref(),
+        code_formula_model.as_ref(),
+    ];
+    let present_count = fields.iter().filter(|value| value.is_some()).count();
+    if present_count == 0 {
+        return Ok(None);
+    }
+    if present_count != fields.len() {
+        return Err(anyhow!(
+            "docling.vlm fields must be fully configured together: openai_base_url, api_key, vlm_pipeline_model, picture_description_model, code_formula_model"
+        ));
+    }
+
+    Ok(Some(ResolvedDoclingVlmRuntimeConfig {
+        openai_base_url: openai_base_url.expect("openai_base_url present"),
+        api_key: api_key.expect("api_key present"),
+        vlm_pipeline_model: vlm_pipeline_model.expect("vlm_pipeline_model present"),
+        picture_description_model: picture_description_model
+            .expect("picture_description_model present"),
+        code_formula_model: code_formula_model.expect("code_formula_model present"),
+    }))
 }
 
 #[cfg(test)]
@@ -125,10 +164,31 @@ mod tests {
     }
 
     #[test]
-    fn runtime_config_requires_vlm_models() {
+    fn runtime_config_allows_disabling_vlm() {
+        let config = DoclingConfig {
+            connection: DoclingConnectionConfig {
+                base_url: "http://localhost:5001".to_string(),
+                timeout: Duration::from_secs(120),
+                poll_interval: Duration::from_secs(2),
+            },
+            vlm: DoclingVlmConfig::default(),
+        };
+
+        let runtime = build_runtime_config(&config).expect("runtime without vlm");
+        assert_eq!(runtime.docling_base_url, "http://localhost:5001/v1");
+        assert!(runtime.openai_base_url.is_empty());
+        assert!(runtime.api_key.is_none());
+    }
+
+    #[test]
+    fn runtime_config_requires_complete_vlm_settings() {
         let mut config = sample_config();
         config.vlm.code_formula_model = None;
         let error = build_runtime_config(&config).expect_err("missing model");
-        assert!(error.to_string().contains("code_formula_model"));
+        assert!(
+            error
+                .to_string()
+                .contains("must be fully configured together")
+        );
     }
 }

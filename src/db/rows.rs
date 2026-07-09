@@ -96,6 +96,8 @@ pub(super) struct DoclingSettingsRow {
     pub(super) do_formula_enrichment: bool,
     pub(super) do_picture_description: bool,
     pub(super) provider_account_key: Option<String>,
+    pub(super) openai_base_url: Option<String>,
+    pub(super) api_key: Option<String>,
     pub(super) vlm_pipeline_model: Option<String>,
     pub(super) picture_description_model: Option<String>,
     pub(super) code_formula_model: Option<String>,

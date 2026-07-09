@@ -54,6 +54,9 @@ export function createDoclingDraft(): DraftDoclingSettings {
     },
     vlm: {
       provider_account_key: "",
+      openai_base_url: "",
+      api_key: "",
+      clear_api_key: false,
       vlm_pipeline_model: "",
       picture_description_model: "",
       code_formula_model: "",
@@ -131,6 +134,9 @@ export function doclingResponseToDraft(
     },
     vlm: {
       provider_account_key: response.vlm.provider_account_key ?? "",
+      openai_base_url: response.vlm.openai_base_url ?? "",
+      api_key: "",
+      clear_api_key: false,
       vlm_pipeline_model: response.vlm.vlm_pipeline_model ?? "",
       picture_description_model: response.vlm.picture_description_model ?? "",
       code_formula_model: response.vlm.code_formula_model ?? "",

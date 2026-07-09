@@ -3908,8 +3908,20 @@
       },
       "DoclingVlmSettingsResponse": {
         "type": "object",
+        "required": [
+          "has_api_key"
+        ],
         "properties": {
           "code_formula_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_api_key": {
+            "type": "boolean"
+          },
+          "openai_base_url": {
             "type": [
               "string",
               "null"
@@ -5486,7 +5498,22 @@
       "UpdateDoclingVlmSettings": {
         "type": "object",
         "properties": {
+          "api_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clear_api_key": {
+            "type": "boolean"
+          },
           "code_formula_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "openai_base_url": {
             "type": [
               "string",
               "null"

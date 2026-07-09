@@ -73,6 +73,9 @@ export function normalizeDoclingPayload(
     },
     vlm: {
       provider_account_key: cleanOptional(vlm.provider_account_key),
+      openai_base_url: cleanOptional(vlm.openai_base_url),
+      api_key: cleanOptional(vlm.api_key),
+      clear_api_key: !!vlm.clear_api_key,
       vlm_pipeline_model: cleanOptional(vlm.vlm_pipeline_model),
       picture_description_model: cleanOptional(vlm.picture_description_model),
       code_formula_model: cleanOptional(vlm.code_formula_model),

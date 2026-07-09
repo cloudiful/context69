@@ -138,7 +138,21 @@ impl SettingsService {
     ) -> Result<DoclingSettingsResponse> {
         settings_validate::docling_request(request)?;
 
-        let candidate = docling_settings_from_request(request);
+        let existing = self.db.get_docling_settings().await?;
+        let openai_base_url = normalize_optional_string(request.vlm.openai_base_url.clone());
+        let merged_api_key = if request.vlm.clear_api_key {
+            None
+        } else if let Some(api_key) = normalize_optional_string(request.vlm.api_key.clone()) {
+            Some(api_key)
+        } else if openai_base_url.is_some() {
+            existing
+                .as_ref()
+                .and_then(|settings| settings.api_key.clone())
+        } else {
+            None
+        };
+
+        let candidate = docling_settings_from_request(request, merged_api_key);
         self.validate_stored_docling_settings(&candidate).await?;
 
         let settings = self.db.save_docling_settings(&candidate).await?;
@@ -240,39 +254,9 @@ impl SettingsService {
         &self,
         settings: &StoredDoclingSettings,
     ) -> Result<()> {
-        let account_key = settings
-            .provider_account_key
-            .as_deref()
-            .context("docling.vlm.provider_account_key is required for PDF/DOCX conversion")?;
-        self.ensure_provider_account_active(account_key, true)
-            .await?;
-
-        if settings
-            .vlm_pipeline_model
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
-        {
-            return Err(anyhow!(
-                "docling.vlm.vlm_pipeline_model is required for PDF/DOCX conversion"
-            ));
-        }
-        if settings
-            .picture_description_model
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
-        {
-            return Err(anyhow!(
-                "docling.vlm.picture_description_model is required for PDF/DOCX conversion"
-            ));
-        }
-        if settings
-            .code_formula_model
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
-        {
-            return Err(anyhow!(
-                "docling.vlm.code_formula_model is required for PDF/DOCX conversion"
-            ));
+        if let Some(account_key) = validate_docling_vlm_shape(settings)? {
+            self.ensure_provider_account_active(account_key, true)
+                .await?;
         }
 
         Ok(())
@@ -323,6 +307,75 @@ fn non_empty_trimmed(field: &str, value: &str) -> Result<String> {
     }
     Ok(trimmed.to_string())
 }
+
+fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<Option<&str>> {
+    let provider_account_key = settings
+        .provider_account_key
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let openai_base_url = settings
+        .openai_base_url
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let api_key = settings
+        .api_key
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let vlm_pipeline_model = settings
+        .vlm_pipeline_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let picture_description_model = settings
+        .picture_description_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let code_formula_model = settings
+        .code_formula_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+
+    let raw_auth_count = [openai_base_url, api_key]
+        .into_iter()
+        .filter(Option::is_some)
+        .count();
+    if raw_auth_count == 1 {
+        return Err(anyhow!(
+            "docling.vlm.openai_base_url and docling.vlm.api_key must be configured together"
+        ));
+    }
+
+    let model_count = [
+        vlm_pipeline_model,
+        picture_description_model,
+        code_formula_model,
+    ]
+    .into_iter()
+    .filter(Option::is_some)
+    .count();
+    if model_count != 0 && model_count != 3 {
+        return Err(anyhow!(
+            "docling.vlm model fields must be fully configured together: vlm_pipeline_model, picture_description_model, code_formula_model"
+        ));
+    }
+
+    let auth_configured = provider_account_key.is_some() || raw_auth_count == 2;
+    if !auth_configured && model_count == 0 {
+        return Ok(None);
+    }
+    if !auth_configured {
+        return Err(anyhow!(
+            "docling.vlm.provider_account_key or docling.vlm.openai_base_url/api_key is required when Docling VLM models are configured"
+        ));
+    }
+    if model_count == 0 {
+        return Err(anyhow!(
+            "docling.vlm.vlm_pipeline_model, docling.vlm.picture_description_model, and docling.vlm.code_formula_model are required when Docling VLM is configured"
+        ));
+    }
+
+    Ok(provider_account_key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -332,6 +385,7 @@ mod tests {
             runtime_settings_request as validate_runtime_settings_request,
             search_request as validate_search_request,
         },
+        validate_docling_vlm_shape,
     };
     use crate::{
         contracts::{
@@ -370,6 +424,8 @@ mod tests {
             do_formula_enrichment: false,
             do_picture_description: false,
             provider_account_key: None,
+            openai_base_url: None,
+            api_key: None,
             vlm_pipeline_model: None,
             picture_description_model: None,
             code_formula_model: None,
@@ -414,34 +470,99 @@ mod tests {
     fn response_exposes_provider_reference_not_secret() {
         let mut settings = sample_stored();
         settings.provider_account_key = Some("openrouter-default".to_string());
+        settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        settings.api_key = Some("secret".to_string());
 
         let response = response_from_stored(DoclingSettingsSource::Database, true, settings);
         assert_eq!(
             response.vlm.provider_account_key.as_deref(),
             Some("openrouter-default")
         );
+        assert_eq!(
+            response.vlm.openai_base_url.as_deref(),
+            Some("https://openrouter.ai/api/v1")
+        );
+        assert!(response.vlm.has_api_key);
     }
 
     #[test]
-    fn request_requires_provider_account() {
-        let mut request = sample_request();
-        request.vlm.vlm_pipeline_model = Some("gemini".to_string());
-        request.vlm.picture_description_model = Some("gpt-4o-mini".to_string());
-        request.vlm.code_formula_model = Some("gpt-4o-mini".to_string());
+    fn request_allows_docling_vlm_to_be_disabled() {
+        validate_docling_request(&sample_request()).expect("request without vlm should be valid");
+    }
 
-        let error = validate_docling_request(&request).expect_err("request should be invalid");
+    #[test]
+    fn stored_docling_settings_allow_vlm_to_be_disabled() {
+        let settings = sample_stored();
+        let account_key =
+            validate_docling_vlm_shape(&settings).expect("disabled vlm should be valid");
+        assert!(account_key.is_none());
+    }
+
+    #[test]
+    fn stored_docling_settings_accept_complete_raw_vlm() {
+        let mut settings = sample_stored();
+        settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        settings.api_key = Some("secret".to_string());
+        settings.vlm_pipeline_model = Some("gemini".to_string());
+        settings.picture_description_model = Some("gpt-4o-mini".to_string());
+        settings.code_formula_model = Some("gpt-4o-mini".to_string());
+
+        let account_key =
+            validate_docling_vlm_shape(&settings).expect("raw vlm settings should be valid");
+        assert!(account_key.is_none());
+    }
+
+    #[test]
+    fn stored_docling_settings_require_complete_raw_auth_fields() {
+        let mut settings = sample_stored();
+        settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        settings.vlm_pipeline_model = Some("gemini".to_string());
+        settings.picture_description_model = Some("gpt-4o-mini".to_string());
+        settings.code_formula_model = Some("gpt-4o-mini".to_string());
+
+        let error =
+            validate_docling_vlm_shape(&settings).expect_err("partial raw auth should be invalid");
+        assert!(error.to_string().contains("openai_base_url"));
+        assert!(error.to_string().contains("api_key"));
+    }
+
+    #[test]
+    fn stored_docling_settings_require_auth_when_models_are_present() {
+        let mut settings = sample_stored();
+        settings.vlm_pipeline_model = Some("gemini".to_string());
+        settings.picture_description_model = Some("gpt-4o-mini".to_string());
+        settings.code_formula_model = Some("gpt-4o-mini".to_string());
+
+        let error =
+            validate_docling_vlm_shape(&settings).expect_err("models without auth should fail");
         assert!(error.to_string().contains("provider_account_key"));
     }
 
     #[test]
-    fn request_requires_picture_model() {
-        let mut request = sample_request();
-        request.vlm.provider_account_key = Some("openrouter-default".to_string());
-        request.vlm.vlm_pipeline_model = Some("gemini".to_string());
-        request.vlm.code_formula_model = Some("gpt-4o-mini".to_string());
+    fn stored_docling_settings_require_models_when_auth_is_present() {
+        let mut settings = sample_stored();
+        settings.provider_account_key = Some("openrouter-default".to_string());
 
-        let error = validate_docling_request(&request).expect_err("request should be invalid");
-        assert!(error.to_string().contains("picture_description_model"));
+        let error =
+            validate_docling_vlm_shape(&settings).expect_err("auth without models should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("required when Docling VLM is configured")
+        );
+    }
+
+    #[test]
+    fn stored_docling_settings_accept_provider_account_vlm() {
+        let mut settings = sample_stored();
+        settings.provider_account_key = Some("openrouter-default".to_string());
+        settings.vlm_pipeline_model = Some("gemini".to_string());
+        settings.picture_description_model = Some("gpt-4o-mini".to_string());
+        settings.code_formula_model = Some("gpt-4o-mini".to_string());
+
+        let account_key =
+            validate_docling_vlm_shape(&settings).expect("provider account vlm should be valid");
+        assert_eq!(account_key, Some("openrouter-default"));
     }
 
     #[test]

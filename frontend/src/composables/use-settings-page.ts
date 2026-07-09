@@ -88,6 +88,7 @@ export function useSettingsPage() {
     { label: t("settings.search.modeHybrid"), value: "hybrid" },
     { label: t("settings.search.modeVector"), value: "vector" },
   ]);
+  const doclingHasStoredApiKey = computed(() => !!doclingSettings.value?.vlm.has_api_key);
   const searchHasStoredApiKey = computed(() => !!searchSettings.value?.has_api_key);
 
   const qdrantToggleModel = computed({
@@ -130,6 +131,16 @@ export function useSettingsPage() {
       return t("settings.runtime.providerApiKeyStored");
     }
     return t("settings.runtime.providerApiKeyMissing");
+  });
+
+  const doclingApiKeyStatusLabel = computed(() => {
+    if (doclingDraft.vlm.clear_api_key) {
+      return t("settings.docling.apiKeyPendingClear");
+    }
+    if (doclingHasStoredApiKey.value) {
+      return t("settings.docling.apiKeyStored");
+    }
+    return t("settings.docling.apiKeyMissing");
   });
 
   const providerHasChanges = computed(() => {
@@ -188,6 +199,12 @@ export function useSettingsPage() {
   watch(() => providerDraft.api_key, (value) => {
     if (value.trim()) {
       providerDraft.clear_api_key = false;
+    }
+  });
+
+  watch(() => doclingDraft.vlm.api_key, (value) => {
+    if (value.trim()) {
+      doclingDraft.vlm.clear_api_key = false;
     }
   });
 
@@ -362,6 +379,16 @@ export function useSettingsPage() {
     }
   }
 
+  function toggleClearDoclingApiKey() {
+    if (!doclingHasStoredApiKey.value && !doclingDraft.vlm.clear_api_key) {
+      return;
+    }
+    doclingDraft.vlm.clear_api_key = !doclingDraft.vlm.clear_api_key;
+    if (doclingDraft.vlm.clear_api_key) {
+      doclingDraft.vlm.api_key = "";
+    }
+  }
+
   async function persistProviderAccount() {
     const payload = buildProviderAccountPayload(providerDraft);
     const exists = !!selectedProviderAccount.value;
@@ -483,6 +510,8 @@ export function useSettingsPage() {
     createAdminUser,
     deleteProviderAccount,
     doclingDraft,
+    doclingApiKeyStatusLabel,
+    doclingHasStoredApiKey,
     disableAdminUser,
     enableAdminUser,
     doclingProviderOptions,
@@ -513,6 +542,7 @@ export function useSettingsPage() {
     startNewProviderAccount,
     runtimeDraft,
     toggleClearProviderApiKey,
+    toggleClearDoclingApiKey,
     updateAdminUser,
   };
 }

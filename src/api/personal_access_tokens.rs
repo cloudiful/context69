@@ -37,7 +37,12 @@ pub(crate) async fn list_personal_access_tokens(
     {
         Ok(tokens) => (
             StatusCode::OK,
-            Json(tokens.into_iter().map(response_from_view).collect::<Vec<_>>()),
+            Json(
+                tokens
+                    .into_iter()
+                    .map(response_from_view)
+                    .collect::<Vec<_>>(),
+            ),
         )
             .into_response(),
         Err(error) => internal_error_response(error),
@@ -71,11 +76,9 @@ pub(crate) async fn create_personal_access_token(
         )
         .await
     {
-        Ok(created) => (
-            StatusCode::OK,
-            Json(create_response_from_created(created)),
-        )
-            .into_response(),
+        Ok(created) => {
+            (StatusCode::OK, Json(create_response_from_created(created))).into_response()
+        }
         Err(error) => (
             StatusCode::BAD_REQUEST,
             Json(ApiErrorResponse {

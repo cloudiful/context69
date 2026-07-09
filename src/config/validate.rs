@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use anyhow::{Result, anyhow};
 
 use crate::{
-    chunking::ChunkingConfig, docling::DoclingConfig, support::normalize::normalize_optional_string,
+    chunking::ChunkingConfig,
+    docling::{DoclingConfig, resolve_vlm_runtime_config},
 };
 
 use super::types::{
@@ -46,31 +47,7 @@ pub(super) fn validate_docling_config(config: Option<&DoclingConfig>) -> Result<
     if docling.connection.poll_interval.as_secs() == 0 {
         return Err(anyhow!("docling.poll_interval_secs must be greater than 0"));
     }
-    if normalize_optional_string(docling.vlm.openai_base_url.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.openai_base_url is required for PDF/DOCX conversion"
-        ));
-    }
-    if normalize_optional_string(docling.vlm.api_key.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.api_key is required for PDF/DOCX conversion"
-        ));
-    }
-    if normalize_optional_string(docling.vlm.vlm_pipeline_model.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.vlm_pipeline_model is required for PDF/DOCX conversion"
-        ));
-    }
-    if normalize_optional_string(docling.vlm.picture_description_model.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.picture_description_model is required for PDF/DOCX conversion"
-        ));
-    }
-    if normalize_optional_string(docling.vlm.code_formula_model.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.code_formula_model is required for PDF/DOCX conversion"
-        ));
-    }
+    resolve_vlm_runtime_config(&docling.vlm)?;
     Ok(())
 }
 

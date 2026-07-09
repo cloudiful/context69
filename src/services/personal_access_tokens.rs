@@ -76,17 +76,13 @@ impl PersonalAccessTokenService {
         }
 
         let access_token = new_personal_access_token();
-        let expires_at = Utc::now()
-            + ChronoDuration::days(i64::from(expires_in_days));
+        let expires_at = Utc::now() + ChronoDuration::days(i64::from(expires_in_days));
         let scope_strings = scopes
             .iter()
             .copied()
             .map(scope_to_string)
             .collect::<Vec<_>>();
-        let display_prefix = access_token
-            .chars()
-            .take(18)
-            .collect::<String>();
+        let display_prefix = access_token.chars().take(18).collect::<String>();
         let record = self
             .db
             .insert_personal_access_token(
@@ -143,7 +139,9 @@ impl PersonalAccessTokenService {
     }
 
     pub async fn touch_last_used(&self, token_id: Uuid) -> Result<()> {
-        self.db.touch_personal_access_token_last_used(token_id).await
+        self.db
+            .touch_personal_access_token_last_used(token_id)
+            .await
     }
 }
 

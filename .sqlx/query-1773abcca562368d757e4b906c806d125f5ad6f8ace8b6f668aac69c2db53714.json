@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO context69.docling_settings (\n    singleton,\n    base_url,\n    timeout_secs,\n    poll_interval_secs,\n    pdf_backend,\n    images_scale,\n    image_export_mode,\n    do_ocr,\n    force_ocr,\n    ocr_engine,\n    ocr_lang,\n    do_code_enrichment,\n    do_formula_enrichment,\n    do_picture_description,\n    provider_account_key,\n    vlm_pipeline_model,\n    picture_description_model,\n    code_formula_model,\n    updated_at\n)\nVALUES (\n    TRUE,\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8,\n    $9,\n    $10,\n    $11,\n    $12,\n    $13,\n    $14,\n    $15,\n    $16,\n    $17,\n    now()\n)\nON CONFLICT (singleton) DO UPDATE\nSET base_url = EXCLUDED.base_url,\n    timeout_secs = EXCLUDED.timeout_secs,\n    poll_interval_secs = EXCLUDED.poll_interval_secs,\n    pdf_backend = EXCLUDED.pdf_backend,\n    images_scale = EXCLUDED.images_scale,\n    image_export_mode = EXCLUDED.image_export_mode,\n    do_ocr = EXCLUDED.do_ocr,\n    force_ocr = EXCLUDED.force_ocr,\n    ocr_engine = EXCLUDED.ocr_engine,\n    ocr_lang = EXCLUDED.ocr_lang,\n    do_code_enrichment = EXCLUDED.do_code_enrichment,\n    do_formula_enrichment = EXCLUDED.do_formula_enrichment,\n    do_picture_description = EXCLUDED.do_picture_description,\n    provider_account_key = EXCLUDED.provider_account_key,\n    vlm_pipeline_model = EXCLUDED.vlm_pipeline_model,\n    picture_description_model = EXCLUDED.picture_description_model,\n    code_formula_model = EXCLUDED.code_formula_model,\n    updated_at = now()\nRETURNING\n    base_url,\n    timeout_secs,\n    poll_interval_secs,\n    pdf_backend,\n    images_scale,\n    image_export_mode,\n    do_ocr,\n    force_ocr,\n    ocr_engine,\n    ocr_lang,\n    do_code_enrichment,\n    do_formula_enrichment,\n    do_picture_description,\n    provider_account_key,\n    vlm_pipeline_model,\n    picture_description_model,\n    code_formula_model\n",
+  "query": "SELECT\n    base_url,\n    timeout_secs,\n    poll_interval_secs,\n    pdf_backend,\n    images_scale,\n    image_export_mode,\n    do_ocr,\n    force_ocr,\n    ocr_engine,\n    ocr_lang,\n    do_code_enrichment,\n    do_formula_enrichment,\n    do_picture_description,\n    provider_account_key,\n    openai_base_url,\n    api_key,\n    vlm_pipeline_model,\n    picture_description_model,\n    code_formula_model\nFROM context69.docling_settings\nWHERE singleton = TRUE\n",
   "describe": {
     "columns": [
       {
@@ -159,6 +159,28 @@
       },
       {
         "ordinal": 14,
+        "name": "openai_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "openai_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "api_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "api_key"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
         "name": "vlm_pipeline_model",
         "type_info": "Text",
         "origin": {
@@ -169,7 +191,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 17,
         "name": "picture_description_model",
         "type_info": "Text",
         "origin": {
@@ -180,7 +202,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 18,
         "name": "code_formula_model",
         "type_info": "Text",
         "origin": {
@@ -192,25 +214,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Text",
-        "Int8",
-        "Int8",
-        "Text",
-        "Float8",
-        "Text",
-        "Bool",
-        "Bool",
-        "Text",
-        "TextArray",
-        "Bool",
-        "Bool",
-        "Bool",
-        "Text",
-        "Text",
-        "Text",
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -229,8 +233,10 @@
       true,
       true,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "d0b02375bc6e5a672d0e701be99757cf9af18cade8f6f71d388f2af7f8c8a5d3"
+  "hash": "1773abcca562368d757e4b906c806d125f5ad6f8ace8b6f668aac69c2db53714"
 }

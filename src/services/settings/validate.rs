@@ -5,7 +5,6 @@ use crate::{
         UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::StoredSearchSettings,
-    support::normalize::normalize_optional_string,
 };
 
 pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -> Result<()> {
@@ -97,26 +96,6 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
     }
     if request.connection.poll_interval_secs == 0 {
         return Err(anyhow!("docling.poll_interval_secs must be greater than 0"));
-    }
-    if normalize_optional_string(request.vlm.provider_account_key.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.provider_account_key is required for PDF/DOCX conversion"
-        ));
-    }
-    if normalize_optional_string(request.vlm.vlm_pipeline_model.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.vlm_pipeline_model is required for PDF/DOCX conversion"
-        ));
-    }
-    if normalize_optional_string(request.vlm.picture_description_model.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.picture_description_model is required for PDF/DOCX conversion"
-        ));
-    }
-    if normalize_optional_string(request.vlm.code_formula_model.clone()).is_none() {
-        return Err(anyhow!(
-            "docling.vlm.code_formula_model is required for PDF/DOCX conversion"
-        ));
     }
 
     Ok(())

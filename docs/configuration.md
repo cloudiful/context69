@@ -62,6 +62,19 @@ The supported config shape is:
 - `docling.vlm.picture_description_model`
 - `docling.vlm.code_formula_model`
 
+The VLM block is optional. Leave all `docling.vlm.*` fields unset to disable VLM enrichment.
+If you use raw Docling VLM config, set all five raw VLM fields together:
+
+- `docling.vlm.openai_base_url`
+- `docling.vlm.api_key`
+- `docling.vlm.vlm_pipeline_model`
+- `docling.vlm.picture_description_model`
+- `docling.vlm.code_formula_model`
+
+In the frontend settings page, Docling VLM can be configured either with a provider account
+plus the three model fields, or with the raw `openai_base_url` and `api_key` fields plus the
+same three model fields.
+
 Legacy OCR, PDF backend, image export, and enrichment toggle fields are no longer used.
 
 ## Secrets and Environment Overrides

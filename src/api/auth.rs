@@ -73,7 +73,9 @@ pub(crate) async fn auth_middleware(
 ) -> Response {
     match authenticate_request(&state, request.headers()).await {
         Ok(Some(authenticated)) => {
-            request.extensions_mut().insert(RequestAuth(Some(authenticated)));
+            request
+                .extensions_mut()
+                .insert(RequestAuth(Some(authenticated)));
             next.run(request).await
         }
         Ok(None) => (
@@ -94,7 +96,9 @@ pub(crate) async fn optional_auth_middleware(
 ) -> Response {
     match authenticate_request(&state, request.headers()).await {
         Ok(Some(authenticated)) => {
-            request.extensions_mut().insert(RequestAuth(Some(authenticated)));
+            request
+                .extensions_mut()
+                .insert(RequestAuth(Some(authenticated)));
             next.run(request).await
         }
         Ok(None) => {
@@ -136,7 +140,11 @@ pub(crate) async fn touch_personal_access_token_middleware(
         kind: AuthKind::PersonalAccessToken { token_id, .. },
         ..
     }))) = request.extensions().get::<RequestAuth>()
-        && let Err(error) = state.app.personal_access_tokens.touch_last_used(*token_id).await
+        && let Err(error) = state
+            .app
+            .personal_access_tokens
+            .touch_last_used(*token_id)
+            .await
     {
         return internal_error_response(error);
     }
@@ -394,13 +402,21 @@ async fn require_scope_middleware(
             return (
                 StatusCode::FORBIDDEN,
                 Json(ApiErrorResponse {
-                    error: format!("personal access token missing {} scope", scope_name(required_scope)),
+                    error: format!(
+                        "personal access token missing {} scope",
+                        scope_name(required_scope)
+                    ),
                 }),
             )
                 .into_response();
         }
 
-        if let Err(error) = state.app.personal_access_tokens.touch_last_used(token_id).await {
+        if let Err(error) = state
+            .app
+            .personal_access_tokens
+            .touch_last_used(token_id)
+            .await
+        {
             return internal_error_response(error);
         }
     }

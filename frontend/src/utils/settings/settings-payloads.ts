@@ -71,6 +71,9 @@ export function buildDoclingPayload(
     },
     vlm: {
       provider_account_key: draft.vlm.provider_account_key,
+      openai_base_url: draft.vlm.openai_base_url,
+      api_key: draft.vlm.api_key,
+      clear_api_key: draft.vlm.clear_api_key,
       vlm_pipeline_model: draft.vlm.vlm_pipeline_model,
       picture_description_model: draft.vlm.picture_description_model,
       code_formula_model: draft.vlm.code_formula_model,

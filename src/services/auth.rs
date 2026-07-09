@@ -285,7 +285,9 @@ impl AuthService {
     }
 
     pub async fn logout(&self, refresh_token: &str) -> Result<()> {
-        self.db.revoke_refresh_token_by_hash(&hash_token(refresh_token)).await
+        self.db
+            .revoke_refresh_token_by_hash(&hash_token(refresh_token))
+            .await
     }
 
     pub async fn session_for_user_id(&self, user_id: i64) -> Result<AuthSession> {

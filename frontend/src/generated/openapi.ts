@@ -987,6 +987,8 @@ export interface components {
         DoclingSettingsSource: "config" | "database" | "unconfigured";
         DoclingVlmSettingsResponse: {
             code_formula_model?: string | null;
+            has_api_key: boolean;
+            openai_base_url?: string | null;
             picture_description_model?: string | null;
             provider_account_key?: string | null;
             vlm_pipeline_model?: string | null;
@@ -1401,7 +1403,10 @@ export interface components {
             vlm?: components["schemas"]["UpdateDoclingVlmSettings"];
         };
         UpdateDoclingVlmSettings: {
+            api_key?: string | null;
+            clear_api_key?: boolean;
             code_formula_model?: string | null;
+            openai_base_url?: string | null;
             picture_description_model?: string | null;
             provider_account_key?: string | null;
             vlm_pipeline_model?: string | null;

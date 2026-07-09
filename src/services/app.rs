@@ -278,6 +278,8 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             do_formula_enrichment: true,
             do_picture_description: true,
             provider_account_key: docling_provider_key,
+            openai_base_url: docling.vlm.openai_base_url.clone(),
+            api_key: docling.vlm.api_key.clone(),
             vlm_pipeline_model: docling.vlm.vlm_pipeline_model.clone(),
             picture_description_model: docling.vlm.picture_description_model.clone(),
             code_formula_model: docling.vlm.code_formula_model.clone(),

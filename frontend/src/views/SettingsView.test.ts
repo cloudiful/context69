@@ -54,6 +54,8 @@ const doclingResponse = {
   },
   vlm: {
     provider_account_key: "openrouter-default",
+    openai_base_url: "https://openrouter.ai/api/v1",
+    has_api_key: true,
     vlm_pipeline_model: "gemini-3-flash",
     picture_description_model: "gpt-4o-mini",
     code_formula_model: "gpt-4o-mini",
@@ -204,6 +206,8 @@ describe("SettingsView", () => {
       }),
       vlm: expect.objectContaining({
         provider_account_key: "openrouter-default",
+        openai_base_url: "https://openrouter.ai/api/v1",
+        clear_api_key: false,
       }),
     }));
     expect(apiSpies.updateSearchSettings).toHaveBeenCalledWith(expect.objectContaining({

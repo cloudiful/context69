@@ -59,6 +59,8 @@ pub struct StoredDoclingSettings {
     pub do_formula_enrichment: bool,
     pub do_picture_description: bool,
     pub provider_account_key: Option<String>,
+    pub openai_base_url: Option<String>,
+    pub api_key: Option<String>,
     pub vlm_pipeline_model: Option<String>,
     pub picture_description_model: Option<String>,
     pub code_formula_model: Option<String>,

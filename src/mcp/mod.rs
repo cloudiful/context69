@@ -202,12 +202,9 @@ impl ServerHandler for Context69McpServer {
         Ok(ListResourceTemplatesResult {
             meta: None,
             resource_templates: vec![
-                ResourceTemplate::new(
-                    "context69://documents/{document_id}",
-                    "context69-document",
-                )
-                .with_description("Fetch a single indexed document")
-                .with_mime_type("application/json"),
+                ResourceTemplate::new("context69://documents/{document_id}", "context69-document")
+                    .with_description("Fetch a single indexed document")
+                    .with_mime_type("application/json"),
             ],
             next_cursor: None,
         })
