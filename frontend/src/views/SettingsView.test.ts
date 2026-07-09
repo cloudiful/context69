@@ -183,6 +183,9 @@ describe("SettingsView", () => {
     await router.push("/settings/docling");
     await flushPromises();
     expect(wrapper.find("#docling-base-url").exists()).toBe(true);
+    expect(wrapper.find("#docling-clear-api-key").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Stored key");
+    expect(wrapper.text()).not.toContain("No key stored");
     await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
 
     await router.push("/settings/search");
@@ -239,6 +242,13 @@ describe("SettingsView", () => {
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
+  it("renders the locale select with the active chinese label", async () => {
+    const i18n = createTestI18n("zh-CN");
+    const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
+
+    expect(wrapper.get("#settings-locale-select").text()).toContain("简体中文");
+  });
+
   it("saves provider account changes through the single page save action", async () => {
     const { wrapper } = await mountSettingsView("/settings/runtime");
     await wrapper.get("#provider-clear-api-key").trigger("click");
@@ -284,7 +294,7 @@ describe("SettingsView", () => {
 
     const createButton = wrapper.get('[data-testid="personal-access-token-create"]');
     expect(createButton.attributes("disabled")).toBeDefined();
-    expect(wrapper.text()).toContain("Token name is required.");
+    expect(wrapper.text()).not.toContain("Token name is required.");
 
     await wrapper.get("#personal-access-token-name").setValue("CLI");
     await flushPromises();

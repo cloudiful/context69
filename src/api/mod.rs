@@ -22,7 +22,7 @@ mod library_upload;
 mod personal_access_tokens;
 mod project_access;
 mod project_library;
-mod project_sources;
+mod project_source_folders;
 mod router;
 mod sources;
 
@@ -68,7 +68,7 @@ impl FromRef<ApiState> for SettingsHttpState {
     }
 }
 
-pub use docs::ApiDoc;
+pub use docs::{ApiDoc, openapi_document};
 pub use router::router;
 
 pub(crate) use admin_users::{
@@ -98,9 +98,8 @@ pub(crate) use project_library::{
     get_project_library_tree, move_project_library_file, move_project_library_folder,
     upload_project_library_files, upsert_project_library_text,
 };
-pub(crate) use project_sources::{
-    create_project_source, delete_project_source, list_project_sources, sync_project_source,
-    update_project_source,
+pub(crate) use project_source_folders::{
+    create_project_source_folder, sync_project_source_folder, update_project_source_folder_config,
 };
 pub(crate) use sources::{
     create_source, create_source_connection, delete_source, delete_source_connection,

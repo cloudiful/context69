@@ -19,7 +19,12 @@ pub(super) fn detect_file_kind(filename: &str, media_type: &str) -> Result<Libra
     {
         return Ok(LibraryFileKind::Xlsx);
     }
-    if lowered.ends_with(".txt") || lowered.ends_with(".md") || media_type.starts_with("text/") {
+    if lowered.ends_with(".txt")
+        || lowered.ends_with(".md")
+        || lowered.ends_with(".json")
+        || media_type.starts_with("text/")
+        || media_type == "application/json"
+    {
         return Ok(LibraryFileKind::PlainText);
     }
     Err(anyhow!("unsupported file type for {}", filename))

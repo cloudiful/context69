@@ -15,12 +15,12 @@ export function resolveGroupSectionNav(
       to: `/groups/${groupKey}/overview`,
     },
     {
-      label: t("groups.projectsTitle"),
-      to: `/groups/${groupKey}/projects`,
-    },
-    {
       label: t("groups.membersTitle"),
       to: `/groups/${groupKey}/members`,
+    },
+    {
+      label: t("nav.settings"),
+      to: `/groups/${groupKey}/settings`,
     },
   ];
 }
@@ -37,16 +37,12 @@ export function resolveProjectSectionNav(
       to: `${basePath}/overview`,
     },
     {
-      label: t("project.tabs.sources"),
-      to: `${basePath}/sources`,
-    },
-    {
-      label: t("project.tabs.files"),
-      to: `${basePath}/files`,
-    },
-    {
       label: t("project.tabs.members"),
       to: `${basePath}/members`,
+    },
+    {
+      label: t("nav.settings"),
+      to: `${basePath}/settings`,
     },
   ];
 }

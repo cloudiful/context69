@@ -1,6 +1,4 @@
 import type { Client } from "openapi-fetch";
-
-import type { paths } from "../../generated/openapi";
 import { getAccessToken, handleUnauthorized } from "../auth/session";
 import { API_BASE_URL, openapiClient } from "../openapi-client";
 import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
@@ -23,7 +21,7 @@ export class ApiError extends Error {
   }
 }
 
-export type OpenApiClient = Client<paths>;
+export type OpenApiClient = Client<any>;
 
 function readErrorMessage(response: Response, error: unknown): string {
   if (error && typeof error === "object" && "error" in error) {

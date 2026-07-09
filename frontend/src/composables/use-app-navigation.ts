@@ -8,7 +8,6 @@ import {
   resolveGroupSectionNav,
   resolveProjectSectionNav,
 } from "../workspace/navigation";
-import { useWorkspaceNavigationContext } from "./use-workspace-navigation-context";
 
 export interface AppNavChildItem {
   to: string;
@@ -19,7 +18,6 @@ export interface AppNavItem {
   to: string;
   label: string;
   iconPath: string;
-  childHeading?: string;
   children?: AppNavChildItem[];
 }
 
@@ -30,18 +28,18 @@ const mdiCogOutline = "M19.43,12.98C19.47,12.66 19.5,12.34 19.5,12C19.5,11.66 19
 export function useAppNavigation() {
   const route = useRoute();
   const { t } = useI18n();
-  const workspaceContext = useWorkspaceNavigationContext();
 
   const routeName = computed(() => String(route.name ?? ""));
   const groupKey = computed(() => String(route.params.groupKey ?? ""));
   const projectKey = computed(() => String(route.params.projectKey ?? ""));
+  const isProjectRoute = computed(() => routeName.value.startsWith("project-") || routeName.value === "project");
 
   const groupsChildren = computed(() => {
     if (!groupKey.value) {
       return undefined;
     }
 
-    if (routeName.value.startsWith("project-") || routeName.value === "project") {
+    if (isProjectRoute.value) {
       return resolveProjectSectionNav(t, groupKey.value, projectKey.value);
     }
 
@@ -52,41 +50,12 @@ export function useAppNavigation() {
     return undefined;
   });
 
-  const groupsChildHeading = computed(() => {
-    if (!groupKey.value) {
-      return "";
-    }
-
-    if (routeName.value.startsWith("project-") || routeName.value === "project") {
-      if (
-        workspaceContext.projectGroupKey === groupKey.value
-        && workspaceContext.projectKey === projectKey.value
-        && workspaceContext.projectLabel
-      ) {
-        return workspaceContext.projectLabel;
-      }
-
-      return projectKey.value;
-    }
-
-    if (routeName.value.startsWith("group-") || routeName.value === "group-detail") {
-      if (workspaceContext.groupKey === groupKey.value && workspaceContext.groupLabel) {
-        return workspaceContext.groupLabel;
-      }
-
-      return groupKey.value;
-    }
-
-    return "";
-  });
-
   return computed<AppNavItem[]>(() => [
     { to: "/search", label: t("nav.search"), iconPath: mdiMagnify },
     {
       to: "/groups",
-      label: t("nav.groups"),
+      label: isProjectRoute.value ? t("project.summary.project") : t("nav.groups"),
       iconPath: mdiAccountMultipleOutline,
-      childHeading: groupsChildHeading.value || undefined,
       children: groupsChildren.value,
     },
     {

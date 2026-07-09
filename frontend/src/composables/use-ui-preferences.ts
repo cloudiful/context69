@@ -7,13 +7,11 @@ const THEME_STORAGE_KEY = "context69.theme";
 interface UiPreferencesState {
   theme: AppTheme;
   sidebarCollapsed: boolean;
-  mobileNavOpen: boolean;
 }
 
 const state = reactive<UiPreferencesState>({
   theme: resolveInitialTheme(),
   sidebarCollapsed: false,
-  mobileNavOpen: false,
 });
 
 let hydrated = false;
@@ -63,14 +61,6 @@ function expandSidebar() {
   state.sidebarCollapsed = false;
 }
 
-function closeMobileNav() {
-  state.mobileNavOpen = false;
-}
-
-function toggleMobileNav() {
-  state.mobileNavOpen = !state.mobileNavOpen;
-}
-
 function getStorage(): Storage | null {
   if (typeof window === "undefined") {
     return null;
@@ -90,7 +80,5 @@ export function useUiPreferences() {
     toggleTheme,
     toggleSidebar,
     expandSidebar,
-    closeMobileNav,
-    toggleMobileNav,
   };
 }

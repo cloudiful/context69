@@ -3,6 +3,7 @@ import type { LibraryFileDetailResponse } from "../../services/api";
 import type { FolderSummary } from "../../types/library";
 
 interface UseLibraryPreviewOptions {
+  allowDockedPreview?: boolean;
   detail: Ref<LibraryFileDetailResponse | null>;
   selectedFileId: Ref<string | null>;
   selectedFolderSummary: Ref<FolderSummary | null>;
@@ -10,6 +11,7 @@ interface UseLibraryPreviewOptions {
 }
 
 export function useLibraryPreview({
+  allowDockedPreview = true,
   detail,
   selectedFileId,
   selectedFolderSummary,
@@ -34,6 +36,12 @@ export function useLibraryPreview({
   const showDockedPreview = computed(() => previewDocked.value && !!selectedFileId.value);
 
   function syncPreviewMode() {
+    if (!allowDockedPreview) {
+      previewDocked.value = false;
+      previewDialogVisible.value = false;
+      return;
+    }
+
     if (typeof window.matchMedia === "function") {
       previewModeMediaQuery = window.matchMedia("(min-width: 1280px)");
       previewModeListener = () => {

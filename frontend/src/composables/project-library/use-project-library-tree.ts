@@ -53,6 +53,14 @@ export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: 
     return flattenFolderOptions(tree.value.root);
   });
 
+  function isSourceFolderNode(folder: LibraryFolderNode): boolean {
+    return folder.files.some((file) => file.filename.toLowerCase() === "source.json");
+  }
+
+  function isSourceRecordsFolderNode(folder: LibraryFolderNode): boolean {
+    return folder.name === "records" && !!folder.parent_folder_id;
+  }
+
   function buildFolderExplorerEntry(folder: LibraryFolderNode, depth: number, parentFolderId: string | null): FolderExplorerEntry {
     return {
       key: `folder:${folderKey(folder.folder_id ?? null)}`,
@@ -65,12 +73,20 @@ export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: 
       updatedAt: null,
       childFolderCount: folder.children.length,
       fileCount: folder.files.length,
+      isSourceFolder: isSourceFolderNode(folder),
+      isSourceRecordsFolder: isSourceRecordsFolderNode(folder),
       processingCount: folder.processing_count,
       folder,
     };
   }
 
-  function buildFileExplorerEntry(file: LibraryFileSummary, depth: number, parentFolderId: string | null, parentPath: string): FileExplorerEntry {
+  function buildFileExplorerEntry(
+    file: LibraryFileSummary,
+    depth: number,
+    parentFolderId: string | null,
+    parentPath: string,
+    parentFolder: LibraryFolderNode,
+  ): FileExplorerEntry {
     return {
       key: `file:${file.file_id}`,
       kind: "file",
@@ -84,6 +100,8 @@ export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: 
       sizeBytes: file.size_bytes,
       ingestStatus: file.ingest_status,
       errorMessage: file.error_message ?? null,
+      isSourceConfigFile: file.filename.toLowerCase() === "source.json" && isSourceFolderNode(parentFolder),
+      isSourceRecordFile: parentFolder.name === "records",
       file,
     };
   }
@@ -101,7 +119,7 @@ export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: 
         }
       }
       for (const file of sortedFiles) {
-        rows.push(buildFileExplorerEntry(file, depth, folder.folder_id ?? null, folder.path));
+        rows.push(buildFileExplorerEntry(file, depth, folder.folder_id ?? null, folder.path, folder));
       }
     }
     appendFolderRows(tree.value.root, 0);
@@ -128,6 +146,8 @@ export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: 
       path: selectedFolder.value.path,
       childFolderCount: selectedFolder.value.children.length,
       fileCount: selectedFolder.value.files.length,
+      isSourceFolder: isSourceFolderNode(selectedFolder.value),
+      isSourceRecordsFolder: isSourceRecordsFolderNode(selectedFolder.value),
       processingCount: selectedFolder.value.processing_count,
     };
   });
@@ -139,13 +159,14 @@ export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: 
     treeLoading.value = !tree.value;
     try {
       treeError.value = "";
-      tree.value = await apiClient.getProjectLibraryTree(groupKey, projectKey);
-      if (selectedFolderId.value && !findFolderById(tree.value.root, selectedFolderId.value)) {
+      const nextTree = await apiClient.getProjectLibraryTree(groupKey, projectKey);
+      tree.value = nextTree;
+      if (selectedFolderId.value && !findFolderById(nextTree.root, selectedFolderId.value)) {
         await replaceSelection(null, selectedFileId.value);
         return;
       }
       if (selectedFileId.value) {
-        const location = findFileLocation(tree.value.root, selectedFileId.value);
+        const location = findFileLocation(nextTree.root, selectedFileId.value);
         if (!location) {
           await replaceSelection(selectedFolderId.value, null);
           return;

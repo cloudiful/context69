@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import FileUpload from "primevue/fileupload";
 import Tag from "primevue/tag";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import type { ExplorerEntry } from "../types/library";
+import { libraryRowActionButtonClass, libraryRowDangerActionButtonClass } from "../ui/button-classes";
 import { createLibraryStatusHelpers } from "../utils/library-status";
-import { formatNumber, formatTimestamp } from "../utils/format";
+import { formatBytes, formatTimestamp } from "../utils/format";
 
 const props = defineProps<{
   createFolderBusy: boolean;
+  createSourceFolderBusy?: boolean;
   entries: ExplorerEntry[];
   expandedKeys: Record<string, boolean>;
   loading: boolean;
@@ -24,6 +24,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "create-folder": [];
+  "create-source-folder": [];
   "open-entry": [ExplorerEntry];
   refresh: [];
   "row-click": [{ data: ExplorerEntry }];
@@ -32,6 +33,7 @@ const emit = defineEmits<{
   "toggle-folder": [ExplorerEntry];
   "move-entry": [ExplorerEntry];
   "delete-entry": [ExplorerEntry];
+  "sync-source-folder": [ExplorerEntry];
   "surface-contextmenu": [{ originalEvent: MouseEvent }];
   "update:selection": [ExplorerEntry | null];
   "update:tableContextSelection": [ExplorerEntry | null];
@@ -59,7 +61,15 @@ function resourceSizeLabel(entry: ExplorerEntry): string {
     return "—";
   }
 
-  return formatNumber(entry.sizeBytes);
+  return formatBytes(entry.sizeBytes);
+}
+
+function statusTooltip(entry: ExplorerEntry): string | undefined {
+  if (entry.kind !== "file" || entry.ingestStatus !== "failed") {
+    return undefined;
+  }
+
+  return entry.errorMessage || undefined;
 }
 
 function entryIndentStyle(entry: ExplorerEntry) {
@@ -84,37 +94,25 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 
   emit("surface-contextmenu", { originalEvent: event });
 }
+
+function canMoveEntry(entry: ExplorerEntry): boolean {
+  if (entry.kind === "folder") {
+    return !entry.isSourceRecordsFolder;
+  }
+  return !entry.isSourceConfigFile && !entry.isSourceRecordFile;
+}
+
+function canDeleteEntry(entry: ExplorerEntry): boolean {
+  if (entry.kind === "folder") {
+    return !entry.isSourceRecordsFolder;
+  }
+  return !entry.isSourceConfigFile && !entry.isSourceRecordFile;
+}
+
 </script>
 
 <template>
   <div class="library-pane library-pane-compact flex h-full flex-col">
-    <div class="library-browser-actions">
-      <Button class="library-browser-action" severity="secondary" variant="outlined" size="small" @click="emit('refresh')">
-        {{ $t("sources.refresh") }}
-      </Button>
-      <Button
-        id="library-open-create-folder"
-        class="library-browser-action"
-        size="small"
-        :disabled="createFolderBusy || !selectedFolderReady"
-        @click="emit('create-folder')"
-      >
-        {{ createFolderBusy ? $t("library.creating") : $t("library.newFolder") }}
-      </Button>
-      <FileUpload
-        class="library-browser-upload"
-        mode="basic"
-        name="library[]"
-        custom-upload
-        auto
-        multiple
-        :disabled="uploadBusy"
-        accept=".pdf,.docx,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        :choose-label="uploadBusy ? $t('library.uploading') : $t('common.upload')"
-        @select="emit('upload-select', $event)"
-      />
-    </div>
-
     <div class="split-panel-body flex-1 overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
       <AsyncStateBlock
         :loading="props.loading"
@@ -183,10 +181,6 @@ function handleSurfaceContextMenu(event: MouseEvent) {
                     <p v-if="data.kind === 'folder'" class="library-resource-meta">
                       {{ $t("library.treeCounts", { folders: data.childFolderCount, files: data.fileCount }) }}
                     </p>
-                    <p v-else class="library-resource-meta">{{ data.mediaType }}</p>
-                    <p v-if="data.kind === 'file' && data.errorMessage" class="library-resource-error">
-                      {{ data.errorMessage }}
-                    </p>
                   </div>
                 </div>
               </div>
@@ -201,11 +195,12 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 
           <Column :header="$t('library.statusLabel')" class="w-32">
             <template #body="{ data }">
-              <Tag
-                v-if="data.kind === 'file'"
-                :value="statusLabel(data.ingestStatus)"
-                :severity="statusSeverity(data.ingestStatus)"
-              />
+              <span v-if="data.kind === 'file'" :class="statusTooltip(data) ? 'inline-flex cursor-help' : 'inline-flex'" :title="statusTooltip(data)">
+                <Tag
+                  :value="statusLabel(data.ingestStatus)"
+                  :severity="statusSeverity(data.ingestStatus)"
+                />
+              </span>
               <span v-else class="text-sm text-app-text-muted">
                 {{
                   data.processingCount > 0
@@ -224,20 +219,28 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 
           <Column :header="$t('library.updatedColumn')" class="w-36">
             <template #body="{ data }">
-              <span class="text-sm text-app-text-muted">
+              <span class="whitespace-nowrap text-sm text-app-text-muted">
                 {{ data.updatedAt ? formatTimestamp(data.updatedAt) : "—" }}
               </span>
             </template>
           </Column>
 
-          <Column :header="$t('sources.table.action')" class="w-44">
+          <Column :header="$t('sources.table.action')" class="w-32">
             <template #body="{ data }">
               <div class="library-row-actions">
                 <Button
-                  class="library-row-action"
-                  severity="secondary"
-                  variant="text"
-                  size="small"
+                  v-if="data.kind === 'folder' && data.isSourceFolder"
+                  unstyled
+                  :class="libraryRowActionButtonClass"
+                  :aria-label="$t('sources.sync')"
+                  :title="$t('sources.sync')"
+                  @click.stop="emit('sync-source-folder', data)"
+                >
+                  {{ $t("sources.sync") }}
+                </Button>
+                <Button
+                  unstyled
+                  :class="libraryRowActionButtonClass"
                   :aria-label="data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
                   :title="data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
                   @click.stop="emit('open-entry', data)"
@@ -245,10 +248,9 @@ function handleSurfaceContextMenu(event: MouseEvent) {
                   {{ $t("common.open") }}
                 </Button>
                 <Button
-                  class="library-row-action"
-                  severity="secondary"
-                  variant="text"
-                  size="small"
+                  v-if="canMoveEntry(data)"
+                  unstyled
+                  :class="libraryRowActionButtonClass"
                   :aria-label="$t('common.move')"
                   :title="$t('common.move')"
                   @click.stop="emit('move-entry', data)"
@@ -256,10 +258,9 @@ function handleSurfaceContextMenu(event: MouseEvent) {
                   {{ $t("common.move") }}
                 </Button>
                 <Button
-                  class="library-row-action library-row-action-danger"
-                  severity="secondary"
-                  variant="text"
-                  size="small"
+                  v-if="canDeleteEntry(data)"
+                  unstyled
+                  :class="libraryRowDangerActionButtonClass"
                   :aria-label="$t('common.delete')"
                   :title="$t('common.delete')"
                   @click.stop="emit('delete-entry', data)"
@@ -317,17 +318,22 @@ function handleSurfaceContextMenu(event: MouseEvent) {
                   >
                     {{ entry.name }}
                   </button>
-                  <p class="tool-card-subtitle">
-                    {{ entry.kind === "folder" ? $t("library.treeCounts", { folders: entry.childFolderCount, files: entry.fileCount }) : entry.mediaType }}
+                  <p v-if="entry.kind === 'folder'" class="tool-card-subtitle">
+                    {{ $t("library.treeCounts", { folders: entry.childFolderCount, files: entry.fileCount }) }}
                   </p>
                 </div>
               </div>
-              <Tag
+              <span
                 v-if="entry.kind === 'file'"
-                class="tool-chip"
-                :value="statusLabel(entry.ingestStatus)"
-                :severity="statusSeverity(entry.ingestStatus)"
-              />
+                :class="statusTooltip(entry) ? 'inline-flex cursor-help' : 'inline-flex'"
+                :title="statusTooltip(entry)"
+              >
+                <Tag
+                  class="tool-chip"
+                  :value="statusLabel(entry.ingestStatus)"
+                  :severity="statusSeverity(entry.ingestStatus)"
+                />
+              </span>
             </div>
 
             <dl v-if="entry.kind === 'file'" class="tool-meta-grid">
@@ -344,17 +350,14 @@ function handleSurfaceContextMenu(event: MouseEvent) {
                 <dd>{{ entry.updatedAt ? formatTimestamp(entry.updatedAt) : "—" }}</dd>
               </div>
             </dl>
-            <p v-if="entry.kind === 'file' && entry.errorMessage" class="app-table-inline-error">
-              {{ entry.errorMessage }}
-            </p>
             <div class="tool-card-actions">
-              <Button class="library-row-action" severity="secondary" variant="text" size="small" @click.stop="emit('open-entry', entry)">
+              <Button unstyled :class="libraryRowActionButtonClass" @click.stop="emit('open-entry', entry)">
                 {{ $t("common.open") }}
               </Button>
-              <Button class="library-row-action" severity="secondary" variant="text" size="small" @click.stop="emit('move-entry', entry)">
+              <Button unstyled :class="libraryRowActionButtonClass" @click.stop="emit('move-entry', entry)">
                 {{ $t("common.move") }}
               </Button>
-              <Button class="library-row-action library-row-action-danger" severity="secondary" variant="text" size="small" @click.stop="emit('delete-entry', entry)">
+              <Button unstyled :class="libraryRowDangerActionButtonClass" @click.stop="emit('delete-entry', entry)">
                 {{ $t("common.delete") }}
               </Button>
             </div>

@@ -13,6 +13,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [boolean];
 }>();
+
+const togglePt = {
+  root: { class: "h-6 w-11" },
+  slider: { class: "rounded-full" },
+  handle: { class: "h-[1.1rem] w-[1.1rem] mt-[-0.55rem] ml-[0.16rem]" },
+} as const;
 </script>
 
 <template>
@@ -41,6 +47,7 @@ const emit = defineEmits<{
         :input-id="props.inputId"
         :model-value="props.modelValue"
         :data-testid="props.testId"
+        :pt="togglePt"
         @update:model-value="emit('update:modelValue', $event)"
       />
     </div>

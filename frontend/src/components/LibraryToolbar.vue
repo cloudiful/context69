@@ -35,7 +35,12 @@ const { t } = useI18n();
   >
     <template #main>
       <div class="library-toolbar-main">
-        <Breadcrumb :home="breadcrumbHome" :model="breadcrumbItems" class="library-toolbar-breadcrumb">
+        <Breadcrumb
+          v-if="breadcrumbItems.length > 0"
+          :home="breadcrumbHome"
+          :model="breadcrumbItems"
+          class="library-toolbar-breadcrumb"
+        >
           <template #item="{ item }">
             <button
               class="library-breadcrumb-link"

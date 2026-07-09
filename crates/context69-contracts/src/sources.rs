@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::Visibility;
 
@@ -85,4 +86,20 @@ pub struct UpsertSourceConnectionRequest {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateSourceFolderRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_folder_id: Option<Uuid>,
+    pub folder_name: String,
+    pub source_config: SourceConfigInput,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SourceFolderResponse {
+    pub folder_id: Uuid,
+    pub source_config_file_id: Uuid,
+    pub records_folder_id: Uuid,
+    pub path: String,
 }

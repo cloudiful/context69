@@ -12,10 +12,8 @@ import { controlButtonClass } from "../ui/button-classes";
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean;
-  closeOnNavigate?: boolean;
 }>(), {
   collapsed: false,
-  closeOnNavigate: false,
 });
 
 const route = useRoute();
@@ -33,23 +31,14 @@ function hasActiveChildren(item: (typeof items.value)[number]) {
   return !!item.children?.length && isActive(item.to);
 }
 
-function handleNavigate() {
-  if (props.closeOnNavigate) {
-    preferences.closeMobileNav();
-  }
-}
-
 function handleItemNavigate(item: (typeof items.value)[number]) {
   if (props.collapsed && item.children?.length) {
     preferences.expandSidebar();
   }
-
-  handleNavigate();
 }
 
 async function signOut() {
   await logout();
-  preferences.closeMobileNav();
   await router.replace({
     name: "login",
   });
@@ -83,9 +72,6 @@ async function signOut() {
         v-if="!collapsed && hasActiveChildren(item)"
         class="app-sidebar-subnav"
       >
-        <p v-if="item.childHeading" class="app-sidebar-subnav-heading">
-          {{ item.childHeading }}
-        </p>
         <RouterLink
           v-for="child in item.children"
           :key="child.to"
@@ -93,7 +79,6 @@ async function signOut() {
           class="app-sidebar-sublink"
           :class="{ 'is-active': isActive(child.to) }"
           :data-nav-child-key="child.to"
-          @click="handleNavigate"
         >
           <span>{{ child.label }}</span>
         </RouterLink>

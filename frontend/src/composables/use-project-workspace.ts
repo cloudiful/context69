@@ -56,7 +56,7 @@ export function useProjectWorkspace() {
       ]);
       project.value = nextProject;
       members.value = nextMembers;
-      groups.value = nextGroups.filter((item) => item.group_key !== groupKey.value);
+      groups.value = nextGroups.filter((item: GroupResponse) => item.group_key !== groupKey.value);
       setWorkspaceNavigationGroup(groupKey.value);
       setWorkspaceNavigationProject(groupKey.value, projectKey.value, nextProject.name);
     } catch (error) {

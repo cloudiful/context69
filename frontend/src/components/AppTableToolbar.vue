@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import InputText from "primevue/inputtext";
 import IconField from "primevue/iconfield";
 import InputIcon from "primevue/inputicon";
 import Tag from "primevue/tag";
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   countLabel?: string;
   searchPlaceholder?: string;
   searchQuery?: string;
@@ -17,6 +18,8 @@ withDefaults(defineProps<{
 const emit = defineEmits<{
   "update:searchQuery": [value: string];
 }>();
+
+const showSearchIcon = computed(() => !(props.searchQuery ?? "").trim());
 </script>
 
 <template>
@@ -27,11 +30,14 @@ const emit = defineEmits<{
     </div>
 
     <div class="utility-toolbar-group app-table-toolbar-actions">
-      <IconField v-if="searchPlaceholder" class="app-table-toolbar-search">
-        <InputIcon class="pi pi-search" />
+      <IconField v-if="searchPlaceholder" class="relative min-w-0 md:w-72 [&.p-iconfield]:w-full">
+        <InputIcon
+          v-if="showSearchIcon"
+          class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-dim"
+        />
         <InputText
           :model-value="searchQuery"
-          class="w-full min-w-0"
+          :class="['w-full min-w-0', showSearchIcon ? 'pl-10' : 'pl-3']"
           :placeholder="searchPlaceholder"
           @update:model-value="emit('update:searchQuery', String($event ?? ''))"
         />

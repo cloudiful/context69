@@ -6,11 +6,37 @@ use super::{
     CheckpointRow, CheckpointWithKeyRow, Database, RunHandle, SourceOriginStatusKind, SourceStatus,
     SyncCheckpoint, SyncOutcome,
 };
+use crate::contracts::Visibility;
 
 impl Database {
     pub async fn start_run(&self, source_key: &str, trigger_type: &str) -> Result<RunHandle> {
         let id = sqlx::query_file_scalar!(
             "src/sql/db/sync_runs/start_run.sql",
+            source_key,
+            trigger_type
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(RunHandle {
+            id,
+            source_key: source_key.to_string(),
+        })
+    }
+
+    pub async fn start_run_in_scope(
+        &self,
+        group_id: i64,
+        project_id: i64,
+        visibility: Visibility,
+        source_key: &str,
+        trigger_type: &str,
+    ) -> Result<RunHandle> {
+        let id = sqlx::query_file_scalar!(
+            "src/sql/db/sync_runs/start_run_in_scope.sql",
+            group_id,
+            project_id,
+            visibility.as_str(),
             source_key,
             trigger_type
         )
@@ -74,6 +100,74 @@ impl Database {
             source_key,
             checkpoint.updated_at,
             checkpoint.external_id.as_deref()
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_checkpoint_in_scope(
+        &self,
+        group_id: i64,
+        project_id: i64,
+        visibility: Visibility,
+        source_key: &str,
+        checkpoint: &SyncCheckpoint,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/save_checkpoint_in_scope.sql",
+            group_id,
+            project_id,
+            visibility.as_str(),
+            source_key,
+            checkpoint.updated_at,
+            checkpoint.external_id.as_deref()
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_sync_state_in_project(&self, project_id: i64, source_key: &str) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/delete_checkpoint_in_project.sql",
+            project_id,
+            source_key
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/delete_runs_in_project.sql",
+            project_id,
+            source_key
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn rename_sync_state_in_project(
+        &self,
+        project_id: i64,
+        old_source_key: &str,
+        new_source_key: &str,
+    ) -> Result<()> {
+        if old_source_key == new_source_key {
+            return Ok(());
+        }
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/rename_checkpoint_in_project.sql",
+            project_id,
+            old_source_key,
+            new_source_key
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/rename_runs_in_project.sql",
+            project_id,
+            old_source_key,
+            new_source_key
         )
         .execute(&self.pool)
         .await?;

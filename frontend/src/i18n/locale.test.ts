@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createAppI18n } from ".";
 import { installMockStorage } from "../test-utils/storage";
-import { LOCALE_STORAGE_KEY, resolveInitialLocale } from "./locale";
+import { LOCALE_STORAGE_KEY, normalizeAppLocale, resolveInitialLocale } from "./locale";
 
 describe("locale initialization", () => {
   beforeEach(() => {
@@ -36,5 +36,12 @@ describe("locale initialization", () => {
     const i18n = createAppI18n(resolveInitialLocale(window.localStorage));
 
     expect(i18n.global.locale.value).toBe("en");
+  });
+
+  it("normalizes legacy and browser-style locale variants", () => {
+    expect(normalizeAppLocale("zh")).toBe("zh-CN");
+    expect(normalizeAppLocale("zh_CN")).toBe("zh-CN");
+    expect(normalizeAppLocale("zh-Hans")).toBe("zh-CN");
+    expect(normalizeAppLocale("en-US")).toBe("en");
   });
 });

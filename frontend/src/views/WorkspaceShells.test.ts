@@ -50,6 +50,17 @@ const projectMembersResponse = [
   },
 ];
 
+const projectLibraryTreeResponse = {
+  root: {
+    folder_id: null,
+    name: "Root",
+    path: "/",
+    processing_count: 0,
+    children: [],
+    files: [],
+  },
+};
+
 function createApiSpies() {
   return {
     getGroup: vi.spyOn(apiClient, "getGroup").mockResolvedValue(groupResponse as never),
@@ -58,16 +69,21 @@ function createApiSpies() {
     listGroups: vi.spyOn(apiClient, "listGroups").mockResolvedValue([groupResponse] as never),
     getProject: vi.spyOn(apiClient, "getProject").mockResolvedValue(projectsResponse[0] as never),
     listProjectMembers: vi.spyOn(apiClient, "listProjectMembers").mockResolvedValue(projectMembersResponse as never),
+    getProjectLibraryTree: vi.spyOn(apiClient, "getProjectLibraryTree").mockResolvedValue(projectLibraryTreeResponse as never),
   };
 }
 
 describe("workspace shells", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(document, "queryCommandSupported", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
     createApiSpies();
   });
 
-  it("redirects group routes to overview and keeps projects and members on dedicated pages", async () => {
+  it("redirects group routes to overview and keeps members and settings on dedicated pages", async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -77,9 +93,15 @@ describe("workspace shells", () => {
           children: [
             { path: "", name: "group-detail", redirect: (to) => ({ name: "group-overview", params: to.params }) },
             { path: "overview", name: "group-overview", component: () => import("./workspace/GroupOverviewPage.vue") },
-            { path: "projects", name: "group-projects", component: () => import("./workspace/GroupProjectsPage.vue") },
+            { path: "projects", name: "group-projects", redirect: (to) => ({ name: "group-overview", params: to.params }) },
             { path: "members", name: "group-members", component: () => import("./workspace/GroupMembersPage.vue") },
+            { path: "settings", name: "group-settings", component: () => import("./workspace/GroupSettingsPage.vue") },
           ],
+        },
+        {
+          path: "/groups/:groupKey/projects/:projectKey/overview",
+          name: "project-overview",
+          component: { template: "<div />" },
         },
       ],
     });
@@ -99,17 +121,24 @@ describe("workspace shells", () => {
     expect(wrapper.text()).toContain("Stock Team");
     expect(wrapper.text()).not.toContain("Project Key");
     expect(wrapper.text()).not.toContain("Login Name");
+    expect(wrapper.text()).not.toContain("EditDelete");
 
     await router.push("/groups/stock/projects");
     await flushPromises();
-    expect(wrapper.text()).toContain("Project Key");
+    expect(router.currentRoute.value.name).toBe("group-overview");
+    expect(wrapper.text()).toContain("Alpha Project");
 
     await router.push("/groups/stock/members");
     await flushPromises();
     expect(wrapper.text()).toContain("Login Name");
+
+    await router.push("/groups/stock/settings");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Edit");
+    expect(wrapper.text()).toContain("Delete");
   });
 
-  it("redirects project routes to overview and renders members as a dedicated route", async () => {
+  it("redirects project routes to overview and renders members and settings as dedicated routes", async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -119,9 +148,10 @@ describe("workspace shells", () => {
           children: [
             { path: "", name: "project", redirect: (to) => ({ name: "project-overview", params: to.params }) },
             { path: "overview", name: "project-overview", component: () => import("./workspace/ProjectOverviewPage.vue") },
-            { path: "sources", name: "project-sources", component: () => import("./workspace/ProjectSourcesPage.vue") },
-            { path: "files", name: "project-files", component: () => import("./workspace/ProjectFilesPage.vue") },
+            { path: "sources", redirect: (to) => ({ name: "project-overview", params: to.params }) },
+            { path: "files", redirect: (to) => ({ name: "project-overview", params: to.params }) },
             { path: "members", name: "project-members", component: () => import("./workspace/ProjectMembersPage.vue") },
+            { path: "settings", name: "project-settings", component: () => import("./workspace/ProjectSettingsPage.vue") },
           ],
         },
       ],
@@ -142,9 +172,24 @@ describe("workspace shells", () => {
     expect(wrapper.text()).toContain("Alpha Project");
     expect(wrapper.text()).not.toContain("Project Members");
     expect(wrapper.text()).not.toContain("SourcesFilesMembers");
+    expect(wrapper.text()).not.toContain("EditMoveDelete");
+
+    await router.push("/groups/stock/projects/alpha/sources");
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe("project-overview");
+
+    await router.push("/groups/stock/projects/alpha/files");
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe("project-overview");
 
     await router.push("/groups/stock/projects/alpha/members");
     await flushPromises();
     expect(wrapper.text()).toContain("Project Members");
+
+    await router.push("/groups/stock/projects/alpha/settings");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Save");
+    expect(wrapper.text()).toContain("Delete");
+    expect(wrapper.text()).not.toContain("Move");
   });
 });

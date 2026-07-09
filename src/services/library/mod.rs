@@ -92,6 +92,15 @@ struct IngestSection {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct UpsertNamedTextFileRequest {
+    pub folder_id: Option<Uuid>,
+    pub external_id: String,
+    pub filename: String,
+    pub media_type: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone)]
 struct FolderNodeSeed {
     folder: Option<LibraryFolderRecord>,
     children: Vec<Uuid>,

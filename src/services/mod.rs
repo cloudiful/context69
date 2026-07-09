@@ -6,6 +6,7 @@ pub mod personal_access_tokens;
 pub mod query;
 pub mod scheduler;
 pub mod settings;
+pub mod source_folders;
 pub mod source_registry;
 pub mod sync;
 pub mod token_utils;

@@ -78,7 +78,7 @@ async function loadProject() {
     ]);
     project.value = nextProject;
     members.value = nextMembers;
-    groups.value = nextGroups.filter((item) => item.group_key !== groupKey.value);
+    groups.value = nextGroups.filter((item: GroupResponse) => item.group_key !== groupKey.value);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : t("project.loadFailed");
   }

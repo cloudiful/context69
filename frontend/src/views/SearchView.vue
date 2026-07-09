@@ -31,6 +31,15 @@ const selectedHit = ref<SearchHit | null>(null);
 const historyEntries = ref<SearchHistoryEntry[]>([]);
 const showResultsPanel = computed(() => loading.value || !!searchError.value || searched.value);
 const visibleHistoryEntries = computed(() => historyEntries.value.slice(0, 8));
+const searchConsoleClass = computed(() => [
+  "grid",
+  "w-full",
+  "min-w-0",
+  "gap-2",
+  "px-0",
+  "py-1",
+  !showResultsPanel.value ? "xl:col-span-2" : "",
+]);
 
 let controller: AbortController | null = null;
 
@@ -73,8 +82,9 @@ async function runSearch(options: { persistHistory?: boolean } = {}) {
   }
 
   try {
-    results.value = await apiClient.search(payload, { signal: controller.signal });
-    selectedHit.value = results.value.hits[0] ?? null;
+    const nextResults = await apiClient.search(payload, { signal: controller.signal });
+    results.value = nextResults;
+    selectedHit.value = nextResults.hits[0] ?? null;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return;
@@ -128,8 +138,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="search-page-layout">
-    <section class="search-console-shell">
+  <div class="grid gap-2 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+    <section :class="searchConsoleClass">
       <AppStateMessage
         v-if="sourceError"
         severity="error"

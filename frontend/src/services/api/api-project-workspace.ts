@@ -1,5 +1,6 @@
 import type {
   CreateFolderRequest,
+  CreateSourceFolderRequest,
   LibraryUploadResponse,
   MoveFileRequest,
   MoveFolderRequest,
@@ -24,35 +25,23 @@ export function createProjectWorkspaceApi({
   unwrapResponse,
 }: Deps) {
   return {
-    listProjectSources(groupKey: string, projectKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/{group_key}/projects/{project_key}/sources", {
-        params: { path: { group_key: groupKey, project_key: projectKey } },
-        signal: options?.signal,
-      }));
-    },
-    createProjectSource(groupKey: string, projectKey: string, payload: SourceConfigInput, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/projects/{project_key}/sources", {
+    createProjectSourceFolder(groupKey: string, projectKey: string, payload: CreateSourceFolderRequest, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/projects/{project_key}/source-folders", {
         params: { path: { group_key: groupKey, project_key: projectKey } },
         body: payload,
         signal: options?.signal,
       }));
     },
-    updateProjectSource(groupKey: string, projectKey: string, sourceKey: string, payload: SourceConfigInput, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.PUT("/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}", {
-        params: { path: { group_key: groupKey, project_key: projectKey, source_key: sourceKey } },
+    updateProjectSourceFolderConfig(groupKey: string, projectKey: string, folderId: string, payload: SourceConfigInput, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.PUT("/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/config", {
+        params: { path: { group_key: groupKey, project_key: projectKey, folder_id: folderId } },
         body: payload,
         signal: options?.signal,
       }));
     },
-    deleteProjectSource(groupKey: string, projectKey: string, sourceKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.DELETE("/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}", {
-        params: { path: { group_key: groupKey, project_key: projectKey, source_key: sourceKey } },
-        signal: options?.signal,
-      }));
-    },
-    syncProjectSource(groupKey: string, projectKey: string, sourceKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}/sync", {
-        params: { path: { group_key: groupKey, project_key: projectKey, source_key: sourceKey } },
+    syncProjectSourceFolder(groupKey: string, projectKey: string, folderId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/sync", {
+        params: { path: { group_key: groupKey, project_key: projectKey, folder_id: folderId } },
         signal: options?.signal,
       }));
     },

@@ -34,9 +34,12 @@ export function useProjectLibraryDetail({ groupKey, projectKey, loadTree, select
     detailLoading.value = true;
     detailError.value = "";
     try {
-      detail.value = await apiClient.getProjectLibraryFile(groupKey, projectKey, fileId, { signal: detailController.signal });
-      activeSectionKey.value = detail.value.sections[0]?.section_key ?? "";
-      const runningJobs = detail.value.jobs.filter((job) => job.status === "pending" || job.status === "running").map((job) => job.job_id);
+      const nextDetail = await apiClient.getProjectLibraryFile(groupKey, projectKey, fileId, { signal: detailController.signal });
+      detail.value = nextDetail;
+      activeSectionKey.value = nextDetail.sections[0]?.section_key ?? "";
+      const runningJobs = nextDetail.jobs
+        .filter((job: { status: string }) => job.status === "pending" || job.status === "running")
+        .map((job: { job_id: string }) => job.job_id);
       if (runningJobs.length > 0) schedulePolling(runningJobs);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;

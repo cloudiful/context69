@@ -340,23 +340,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/projects/{project_key}/sources": {
+    "/v1/groups/{group_key}/projects/{project_key}/source-folders": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["list_project_sources"];
+        get?: never;
         put?: never;
-        post: operations["create_project_source"];
+        post: operations["create_project_source_folder"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}": {
+    "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/config": {
         parameters: {
             query?: never;
             header?: never;
@@ -364,15 +364,15 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put: operations["update_project_source"];
+        put: operations["update_project_source_folder_config"];
         post?: never;
-        delete: operations["delete_project_source"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}/sync": {
+    "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/sync": {
         parameters: {
             query?: never;
             header?: never;
@@ -381,7 +381,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["sync_project_source"];
+        post: operations["sync_project_source_folder"];
         delete?: never;
         options?: never;
         head?: never;
@@ -678,6 +678,12 @@ export interface components {
             access_token: string;
             token: components["schemas"]["PersonalAccessTokenResponse"];
         };
+        CreateSourceFolderRequest: {
+            folder_name: string;
+            /** Format: uuid */
+            parent_folder_id?: string | null;
+            source_config: components["schemas"]["SourceConfigInput"];
+        };
         CreateTextRequest: {
             content: string;
             /** Format: uuid */
@@ -865,6 +871,15 @@ export interface components {
             name: string;
             origin_message?: string | null;
             origin_status: components["schemas"]["SourceOriginStatusKind"];
+        };
+        SourceFolderResponse: {
+            /** Format: uuid */
+            folder_id: string;
+            path: string;
+            /** Format: uuid */
+            records_folder_id: string;
+            /** Format: uuid */
+            source_config_file_id: string;
         };
         /** @enum {string} */
         SourceOriginStatusKind: "unknown" | "connected" | "unreachable" | "misconfigured";
@@ -1921,46 +1936,7 @@ export interface operations {
             };
         };
     };
-    list_project_sources: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List project sources */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceStatus"][];
-                };
-            };
-            /** @description Missing or invalid bearer token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Project not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    create_project_source: {
+    create_project_source_folder: {
         parameters: {
             query?: never;
             header?: never;
@@ -1974,17 +1950,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SourceConfigInput"];
+                "application/json": components["schemas"]["CreateSourceFolderRequest"];
             };
         };
         responses: {
-            /** @description Created project source */
+            /** @description Created source folder */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SourceStatus"];
+                    "application/json": components["schemas"]["SourceFolderResponse"];
                 };
             };
             /** @description Insufficient permissions */
@@ -2003,7 +1979,7 @@ export interface operations {
             };
         };
     };
-    update_project_source: {
+    update_project_source_folder_config: {
         parameters: {
             query?: never;
             header?: never;
@@ -2012,8 +1988,8 @@ export interface operations {
                 group_key: string;
                 /** @description Project key */
                 project_key: string;
-                /** @description Source key */
-                source_key: string;
+                /** @description Source folder id */
+                folder_id: string;
             };
             cookie?: never;
         };
@@ -2023,13 +1999,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Updated project source */
+            /** @description Updated source folder config */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SourceStatus"];
+                    "application/json": components["schemas"]["SourceFolderResponse"];
                 };
             };
             /** @description Insufficient permissions */
@@ -2039,7 +2015,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or source not found */
+            /** @description Project or source folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2048,7 +2024,7 @@ export interface operations {
             };
         };
     };
-    delete_project_source: {
+    sync_project_source_folder: {
         parameters: {
             query?: never;
             header?: never;
@@ -2057,53 +2033,14 @@ export interface operations {
                 group_key: string;
                 /** @description Project key */
                 project_key: string;
-                /** @description Source key */
-                source_key: string;
+                /** @description Source folder id */
+                folder_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted project source */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Insufficient permissions */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Project or source not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    sync_project_source: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
-                /** @description Source key */
-                source_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Triggered project source sync */
+            /** @description Triggered source folder sync */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -2119,7 +2056,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or source not found */
+            /** @description Project or source folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;

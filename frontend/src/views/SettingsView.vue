@@ -5,15 +5,14 @@ import Button from "primevue/button";
 import Message from "primevue/message";
 import { useI18n } from "vue-i18n";
 
-import AppMdiIcon from "../components/AppMdiIcon.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import { settingsPageStateKey } from "../composables/settings-page-context";
 import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
-import { persistLocale, type AppLocale } from "../i18n/locale";
+import { normalizeAppLocale, persistLocale, type AppLocale } from "../i18n/locale";
 import type { SettingsSectionKey } from "../settings/navigation";
-import { controlButtonClass, settingsFloatingSaveButtonClass } from "../ui/button-classes";
+import { settingsFloatingSaveButtonClass } from "../ui/button-classes";
 import SettingsAccessTokensPage from "./settings/SettingsAccessTokensPage.vue";
 import SettingsAdminUsersPage from "./settings/SettingsAdminUsersPage.vue";
 import SettingsAppearancePage from "./settings/SettingsAppearancePage.vue";
@@ -24,8 +23,6 @@ import SettingsSearchPage from "./settings/SettingsSearchPage.vue";
 const { t, locale } = useI18n({ useScope: "global" });
 const route = useRoute();
 const preferences = useUiPreferences();
-const mdiMenu = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
-const appLocale = locale as { value: AppLocale };
 const state = useSettingsPage();
 
 provide(settingsPageStateKey, state);
@@ -54,9 +51,10 @@ const pageError = computed(() => unref(state.pageError));
 const providerSaving = computed(() => unref(state.providerSaving));
 const saveMessage = computed(() => unref(state.saveMessage));
 const saving = computed(() => unref(state.saving));
+const currentLocale = computed<AppLocale>(() => normalizeAppLocale(String(locale.value)) ?? "en");
 
 function switchLocale(nextLocale: AppLocale) {
-  if (locale.value === nextLocale) {
+  if (currentLocale.value === nextLocale) {
     return;
   }
 
@@ -66,17 +64,9 @@ function switchLocale(nextLocale: AppLocale) {
 </script>
 
 <template>
-  <AppPanel class="settings-panel">
+  <AppPanel surface="plain" class="settings-panel">
     <template #actions>
       <div class="settings-header-actions">
-        <Button
-          :class="[controlButtonClass, 'md:hidden']"
-          type="button"
-          :aria-label="t('settings.openNavigation')"
-          @click="preferences.toggleMobileNav"
-        >
-          <AppMdiIcon :path="mdiMenu" :title="t('settings.openNavigation')" class="app-sidebar-link-icon" />
-        </Button>
         <Message v-if="hasChanges" severity="secondary" :closable="false">
           {{ t("settings.status.pending") }}
         </Message>
@@ -96,7 +86,7 @@ function switchLocale(nextLocale: AppLocale) {
         <div class="grid gap-4">
           <SettingsAppearancePage
             v-if="currentSection === 'appearance'"
-            :locale="appLocale.value"
+            :locale="currentLocale"
             :theme="preferences.state.theme"
             @update:locale="switchLocale"
             @update:theme="preferences.setTheme"

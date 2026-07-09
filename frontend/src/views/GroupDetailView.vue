@@ -66,7 +66,7 @@ async function loadPage() {
     group.value = nextGroup;
     members.value = nextMembers;
     projects.value = nextProjects;
-    groupSuggestions.value = nextGroups.filter((item) => item.group_key !== groupKey.value);
+    groupSuggestions.value = nextGroups.filter((item: GroupResponse) => item.group_key !== groupKey.value);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : t("groups.loadFailed");
   } finally {

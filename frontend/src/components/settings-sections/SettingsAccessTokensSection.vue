@@ -2,8 +2,6 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
 
@@ -35,7 +33,6 @@ const props = defineProps<{
   personalAccessTokenExpiryOptions: Array<{ label: string; value: number }>;
   personalAccessTokenScopeOptions: Array<{ key: string; label: string; helper: string }>;
   personalAccessTokenScopeToggleModel: Record<string, boolean>;
-  personalAccessTokenValidationError: string;
   personalAccessTokens: PersonalAccessTokenResponse[];
   personalAccessTokensCreating: boolean;
   personalAccessTokensError: string;
@@ -91,14 +88,6 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
     <div class="grid gap-4">
       <section class="settings-block">
         <div class="grid gap-3">
-          <AppTextField
-            float-label
-            input-id="personal-access-token-name"
-            v-model="personalAccessTokenDraft.name"
-            :label="t('settings.personalAccessTokens.name')"
-            test-id="personal-access-token-name"
-          />
-
           <AppToggleGroup
             :model-value="personalAccessTokenScopeToggleModel"
             columns-class="settings-toggle-grid-three"
@@ -113,15 +102,14 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             @update:model-value="updateScopeToggleModel"
           />
 
-          <p
-            v-if="personalAccessTokenValidationError"
-            class="settings-validation-text"
-            data-testid="personal-access-token-validation"
-          >
-            {{ personalAccessTokenValidationError }}
-          </p>
-
-          <div class="settings-compact-grid settings-compact-grid-two">
+          <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_11rem_auto] md:items-start">
+            <AppTextField
+              float-label
+              input-id="personal-access-token-name"
+              v-model="personalAccessTokenDraft.name"
+              :label="t('settings.personalAccessTokens.name')"
+              test-id="personal-access-token-name"
+            />
             <AppSelectField
               float-label
               input-id="personal-access-token-expiry"
@@ -130,8 +118,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
               :options="personalAccessTokenExpiryOptions"
               test-id="personal-access-token-expiry"
             />
-
-            <div class="settings-inline-actions items-end">
+            <div class="flex items-end">
               <Button
                 :class="settingsPrimaryButtonClass"
                 data-testid="personal-access-token-create"
@@ -175,77 +162,62 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
       </section>
 
       <section class="settings-block">
-        <div class="settings-block-header">
-          <h3 class="settings-block-title">{{ t("settings.personalAccessTokens.listTitle") }}</h3>
+        <div
+          v-if="personalAccessTokensLoading"
+          class="rounded-xl border border-app-border/60 bg-app-surface/20 px-4 py-6 text-sm text-app-text-dim"
+        >
+          {{ t("common.loading") }}
         </div>
 
-        <DataTable
-          :value="tokenRows"
-          data-key="token_id"
-          class="w-full"
-          :loading="personalAccessTokensLoading"
-          scrollable
-          table-style="min-width: 68rem"
+        <div
+          v-else-if="tokenRows.length === 0"
+          class="rounded-xl border border-app-border/60 bg-app-surface/20 px-4 py-6 text-sm text-app-text-dim"
         >
-          <Column
-            field="name"
-            :header="t('settings.personalAccessTokens.name')"
-            header-class="whitespace-nowrap"
-            body-class="whitespace-nowrap align-top font-medium"
-          />
-          <Column
-            field="scopeSummary"
-            :header="t('settings.personalAccessTokens.scopes')"
-            header-class="min-w-52"
-            body-class="min-w-64 align-top text-sm leading-6 text-app-text-dim"
-          />
-          <Column
-            field="createdLabel"
-            :header="t('settings.personalAccessTokens.createdAt')"
-            header-class="whitespace-nowrap"
-            body-class="whitespace-nowrap align-top text-sm"
-          />
-          <Column
-            field="expiresLabel"
-            :header="t('settings.personalAccessTokens.expiresAt')"
-            header-class="whitespace-nowrap"
-            body-class="whitespace-nowrap align-top text-sm"
-          />
-          <Column
-            field="lastUsedLabel"
-            :header="t('settings.personalAccessTokens.lastUsedAt')"
-            header-class="whitespace-nowrap"
-            body-class="whitespace-nowrap align-top text-sm"
-          />
-          <Column
-            :header="t('settings.personalAccessTokens.status')"
-            header-class="whitespace-nowrap"
-            body-class="whitespace-nowrap align-top"
-          >
-            <template #body="{ data }">
-              <Tag :value="data.status.label" :severity="data.status.severity" />
-            </template>
-          </Column>
-          <Column
-            :header="t('settings.personalAccessTokens.actions')"
-            header-class="whitespace-nowrap"
-            body-class="whitespace-nowrap align-top"
-          >
-            <template #body="{ data }">
-              <div class="settings-inline-actions">
-                <Button
-                  :class="settingsDangerButtonClass"
-                  type="button"
-                  size="small"
-                  :disabled="!!data.revoked_at"
-                  @click="confirmRevokePersonalAccessToken(data)"
-                >
-                  {{ t("settings.personalAccessTokens.revokeAction") }}
-                </Button>
-              </div>
-            </template>
-          </Column>
-        </DataTable>
+          {{ t("settings.personalAccessTokens.empty") }}
+        </div>
+
+        <div v-else class="overflow-x-auto rounded-xl border border-app-border/60 bg-app-surface/20">
+          <table class="min-w-[68rem] w-full text-left">
+            <thead>
+              <tr class="border-b border-app-border/60">
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-app-text">{{ t("settings.personalAccessTokens.name") }}</th>
+                <th class="min-w-56 px-4 py-3 text-sm font-semibold text-app-text">{{ t("settings.personalAccessTokens.scopes") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-app-text">{{ t("settings.personalAccessTokens.createdAt") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-app-text">{{ t("settings.personalAccessTokens.expiresAt") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-app-text">{{ t("settings.personalAccessTokens.lastUsedAt") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-app-text">{{ t("settings.personalAccessTokens.status") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-app-text">{{ t("settings.personalAccessTokens.actions") }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="token in tokenRows"
+                :key="token.token_id"
+                class="border-b border-app-border/50 last:border-b-0"
+              >
+                <td class="whitespace-nowrap px-4 py-3 align-top text-base font-medium text-app-text">{{ token.name }}</td>
+                <td class="min-w-64 px-4 py-3 align-top text-sm leading-6 text-app-text-dim">{{ token.scopeSummary }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-app-text">{{ token.createdLabel }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-app-text">{{ token.expiresLabel }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-app-text">{{ token.lastUsedLabel }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top">
+                  <Tag :value="token.status.label" :severity="token.status.severity" />
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 align-top">
+                  <Button
+                    :class="settingsDangerButtonClass"
+                    type="button"
+                    size="small"
+                    :disabled="!!token.revoked_at"
+                    @click="confirmRevokePersonalAccessToken(token)"
+                  >
+                    {{ t("settings.personalAccessTokens.revokeAction") }}
+                  </Button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   </AppSettingsSection>

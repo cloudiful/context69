@@ -56,12 +56,20 @@ export const router = createRouter({
         {
           path: "projects",
           name: "group-projects",
-          component: () => import("../views/workspace/GroupProjectsPage.vue"),
+          redirect: (to) => ({
+            name: "group-overview",
+            params: to.params,
+          }),
         },
         {
           path: "members",
           name: "group-members",
           component: () => import("../views/workspace/GroupMembersPage.vue"),
+        },
+        {
+          path: "settings",
+          name: "group-settings",
+          component: () => import("../views/workspace/GroupSettingsPage.vue"),
         },
       ],
     },
@@ -87,18 +95,27 @@ export const router = createRouter({
         },
         {
           path: "sources",
-          name: "project-sources",
-          component: () => import("../views/workspace/ProjectSourcesPage.vue"),
+          redirect: (to) => ({
+            name: "project-overview",
+            params: to.params,
+          }),
         },
         {
           path: "files",
-          name: "project-files",
-          component: () => import("../views/workspace/ProjectFilesPage.vue"),
+          redirect: (to) => ({
+            name: "project-overview",
+            params: to.params,
+          }),
         },
         {
           path: "members",
           name: "project-members",
           component: () => import("../views/workspace/ProjectMembersPage.vue"),
+        },
+        {
+          path: "settings",
+          name: "project-settings",
+          component: () => import("../views/workspace/ProjectSettingsPage.vue"),
         },
       ],
     },

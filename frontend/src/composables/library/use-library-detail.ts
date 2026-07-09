@@ -36,14 +36,15 @@ export function useLibraryDetail({ loadTree, selectedFileId, t }: UseLibraryDeta
     detailError.value = "";
 
     try {
-      detail.value = await apiClient.getLibraryFile(fileId, {
+      const nextDetail = await apiClient.getLibraryFile(fileId, {
         signal: detailController.signal,
       });
-      activeSectionKey.value = detail.value.sections[0]?.section_key ?? "";
+      detail.value = nextDetail;
+      activeSectionKey.value = nextDetail.sections[0]?.section_key ?? "";
 
-      const runningJobs = detail.value.jobs
-        .filter((job) => job.status === "pending" || job.status === "running")
-        .map((job) => job.job_id);
+      const runningJobs = nextDetail.jobs
+        .filter((job: { status: string }) => job.status === "pending" || job.status === "running")
+        .map((job: { job_id: string }) => job.job_id);
 
       if (runningJobs.length > 0) {
         schedulePolling(runningJobs);

@@ -50,17 +50,6 @@
     margin-bottom: 0;
   }
 
-  .settings-panel.p-card {
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .settings-panel > .p-card-body {
-    gap: 0.65rem;
-    padding-top: 0.35rem;
-  }
-
   .p-toolbar {
     padding: 0;
     border: 0;
@@ -230,22 +219,6 @@
   .p-select-option.p-select-option-selected {
     background: color-mix(in srgb, var(--color-app-surface-soft) 92%, transparent);
     color: var(--color-app-text);
-  }
-
-  .p-toggleswitch {
-    width: 2.75rem;
-    height: 1.5rem;
-  }
-
-  .p-toggleswitch .p-toggleswitch-slider {
-    border-radius: 9999px;
-  }
-
-  .p-toggleswitch .p-toggleswitch-handle {
-    width: 1.1rem;
-    height: 1.1rem;
-    margin-top: -0.55rem;
-    margin-inline-start: 0.16rem;
   }
 
   .p-menu,
@@ -500,12 +473,6 @@
     background: var(--color-app-surface);
   }
 
-  .library-browser-actions .p-button,
-  .library-browser-actions .library-browser-upload.p-button,
-  .library-browser-actions .p-fileupload-basic {
-    @apply min-h-8;
-  }
-
   .library-workspace .p-datatable-tbody > tr {
     cursor: default;
   }
@@ -712,22 +679,14 @@
       width: 100%;
     }
 
-    .app-table-toolbar-search {
+    .app-table-toolbar-actions > .p-iconfield {
       width: 100%;
     }
 
-    .app-table-toolbar-search .p-inputtext {
+    .app-table-toolbar-actions > .p-iconfield .p-inputtext {
       min-height: 2rem;
       padding-block: 0.45rem;
-      padding-inline-start: 2.2rem;
       font-size: 0.86rem;
-    }
-
-    .library-browser-action.p-button,
-    .library-browser-upload.p-button {
-      min-height: 2rem;
-      padding-inline: 0.65rem;
-      font-size: 0.82rem;
     }
 
     .tool-card {
@@ -836,10 +795,6 @@
     }
 
     .auth-form-actions {
-      width: 100%;
-    }
-
-    .auth-submit-button {
       width: 100%;
     }
 

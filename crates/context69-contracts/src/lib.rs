@@ -39,6 +39,7 @@ pub use settings::{
     UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, UpsertProviderAccountRequest,
 };
 pub use sources::{
-    ListSourcesResponse, SourceConfigInput, SourceConnectionResponse, SourceOriginStatusKind,
-    SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
+    CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,
+    SourceFolderResponse, SourceOriginStatusKind, SourceStatus, SyncOutcome,
+    UpsertSourceConnectionRequest,
 };

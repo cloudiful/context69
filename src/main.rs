@@ -2,7 +2,7 @@ use std::{env, fs, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use context69::{
-    api::{self, ApiDoc},
+    api::{self, openapi_document},
     config::Config,
     mcp,
     services::{
@@ -22,8 +22,6 @@ use scheduler::{
 use tokio::signal;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
-use utoipa::OpenApi;
-
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
@@ -79,7 +77,7 @@ async fn export_openapi(output_path: Option<String>) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let document = serde_json::to_string_pretty(&ApiDoc::openapi())?;
+    let document = serde_json::to_string_pretty(&openapi_document())?;
     fs::write(&output_path, document)?;
     info!(path = %output_path.display(), "exported openapi document");
     Ok(())

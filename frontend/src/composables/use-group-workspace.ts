@@ -56,7 +56,7 @@ export function useGroupWorkspace() {
       group.value = nextGroup;
       members.value = nextMembers;
       projects.value = nextProjects;
-      groupSuggestions.value = nextGroups.filter((item) => item.group_key !== groupKey.value);
+      groupSuggestions.value = nextGroups.filter((item: GroupResponse) => item.group_key !== groupKey.value);
       setWorkspaceNavigationGroup(groupKey.value, nextGroup.name);
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : t("groups.loadFailed");

@@ -41,6 +41,14 @@ pub(crate) async fn get_project_library_tree(
         Ok(project) => project,
         Err(error) => return project_access_error_response(error),
     };
+    if let Err(error) = state
+        .app
+        .source_folders
+        .migrate_project_sources_in_project(&project)
+        .await
+    {
+        return library_management_error_response(error);
+    }
     match state.app.library.list_tree_in_project(&project).await {
         Ok(tree) => (StatusCode::OK, Json(tree)).into_response(),
         Err(error) => library_management_error_response(error),
@@ -191,8 +199,8 @@ pub(crate) async fn move_project_library_folder(
     }
     match state
         .app
-        .library
-        .move_folder_in_project(&project, folder_id, &request)
+        .source_folders
+        .move_source_aware_folder_in_project(&project, folder_id, &request)
         .await
     {
         Ok(folder) => (StatusCode::OK, Json(folder)).into_response(),
@@ -228,8 +236,8 @@ pub(crate) async fn delete_project_library_folder(
     }
     match state
         .app
-        .library
-        .delete_folder_in_project(&project, folder_id)
+        .source_folders
+        .delete_source_aware_folder_in_project(&project, folder_id)
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

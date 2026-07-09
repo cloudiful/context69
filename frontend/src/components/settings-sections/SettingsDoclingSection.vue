@@ -1,24 +1,15 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Tag from "primevue/tag";
 
 import AppNumberField from "../AppNumberField.vue";
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
-import {
-  settingsDangerButtonClass,
-  settingsSecondaryButtonClass,
-} from "../../ui/button-classes";
 import type { DraftDoclingSettings } from "../../utils/settings";
 
 defineProps<{
-  doclingApiKeyStatusLabel: string;
   doclingDraft: DraftDoclingSettings;
-  doclingHasStoredApiKey: boolean;
   doclingProviderOptions: Array<{ label: string; value: string }>;
-  toggleClearDoclingApiKey: () => void;
 }>();
 
 const { t } = useI18n();
@@ -79,33 +70,15 @@ const { t } = useI18n();
           </div>
 
           <div class="settings-compact-grid settings-compact-grid-vlm-main">
-            <div class="settings-api-key-shell">
-              <AppTextField
-                float-label
-                input-id="docling-api-key"
-                v-model="doclingDraft.vlm.api_key"
-                :label="t('settings.docling.apiKey')"
-                type="password"
-                autocomplete="new-password"
-                placeholder="sk-..."
-              />
-              <div class="settings-api-key-side">
-                <Tag
-                  class="settings-status-tag"
-                  :severity="doclingDraft.vlm.clear_api_key ? 'warn' : (doclingHasStoredApiKey ? 'success' : 'secondary')"
-                  :value="doclingApiKeyStatusLabel"
-                />
-                <Button
-                  id="docling-clear-api-key"
-                  :class="doclingDraft.vlm.clear_api_key ? settingsSecondaryButtonClass : settingsDangerButtonClass"
-                  type="button"
-                  :disabled="!doclingHasStoredApiKey && !doclingDraft.vlm.clear_api_key"
-                  @click="toggleClearDoclingApiKey"
-                >
-                  {{ doclingDraft.vlm.clear_api_key ? t("settings.docling.cancelClearApiKey") : t("settings.docling.clearApiKey") }}
-                </Button>
-              </div>
-            </div>
+            <AppTextField
+              float-label
+              input-id="docling-api-key"
+              v-model="doclingDraft.vlm.api_key"
+              :label="t('settings.docling.apiKey')"
+              type="password"
+              autocomplete="new-password"
+              placeholder="sk-..."
+            />
             <AppTextField
               float-label
               input-id="docling-vlm-pipeline-model"

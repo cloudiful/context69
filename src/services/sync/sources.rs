@@ -146,7 +146,10 @@ impl SyncService {
         Ok(())
     }
 
-    async fn upsert_source_connection_for_source(&self, input: &SourceConfigInput) -> Result<()> {
+    pub(crate) async fn upsert_source_connection_for_source(
+        &self,
+        input: &SourceConfigInput,
+    ) -> Result<()> {
         let stored = self
             .resolve_source_connection(&input.connection, input.database_url.clone())
             .await?;

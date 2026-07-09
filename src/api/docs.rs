@@ -30,9 +30,9 @@ use crate::api::{
         __path_move_project_library_folder, __path_upload_project_library_files,
         __path_upsert_project_library_text,
     },
-    project_sources::{
-        __path_create_project_source, __path_delete_project_source, __path_list_project_sources,
-        __path_sync_project_source, __path_update_project_source,
+    project_source_folders::{
+        __path_create_project_source_folder, __path_sync_project_source_folder,
+        __path_update_project_source_folder_config,
     },
     sources::{
         __path_create_source, __path_create_source_connection, __path_delete_source,
@@ -42,11 +42,11 @@ use crate::api::{
 };
 use crate::contracts::{
     AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse,
-    AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest,
+    AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest, CreateSourceFolderRequest,
     CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateTextRequest,
     HealthResponse, HealthStatus, LibraryFileDetailResponse, LibraryFolderResponse,
     LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
-    MoveFolderRequest, PersonalAccessTokenResponse, PersonalAccessTokenScope,
+    MoveFolderRequest, PersonalAccessTokenResponse, PersonalAccessTokenScope, SourceFolderResponse,
     ResetAdminUserPasswordRequest, SearchMode, SourceConfigInput, SourceConnectionResponse,
     SourceStatus, SyncOutcome, UpdateAdminUserRequest, UpsertLibraryTextRequest,
     UpsertSourceConnectionRequest,
@@ -88,11 +88,6 @@ use crate::contracts::{
         move_library_file,
         delete_library_file,
         get_library_job,
-        list_project_sources,
-        create_project_source,
-        update_project_source,
-        delete_project_source,
-        sync_project_source,
         get_project_library_tree,
         create_project_library_folder,
         create_project_library_text,
@@ -103,7 +98,10 @@ use crate::contracts::{
         get_project_library_file,
         move_project_library_file,
         delete_project_library_file,
-        get_project_library_job
+        get_project_library_job,
+        create_project_source_folder,
+        update_project_source_folder_config,
+        sync_project_source_folder
     ),
     components(schemas(
         HealthStatus,
@@ -127,6 +125,8 @@ use crate::contracts::{
         SourceConnectionResponse,
         UpsertSourceConnectionRequest,
         SyncOutcome,
+        CreateSourceFolderRequest,
+        SourceFolderResponse,
         CreateFolderRequest,
         CreateTextRequest,
         UpsertLibraryTextRequest,
@@ -141,7 +141,7 @@ use crate::contracts::{
 )]
 pub struct ApiDoc;
 
-pub(crate) fn openapi_document() -> utoipa::openapi::OpenApi {
+pub fn openapi_document() -> utoipa::openapi::OpenApi {
     let mut document = ApiDoc::openapi();
     document.merge(context69_namespace_http::openapi_document());
     document.merge(context69_search_http::openapi_document());
@@ -189,9 +189,9 @@ mod tests {
             "/v1/groups",
             "/v1/groups/{group_key}",
             "/v1/groups/{group_key}/projects/{project_key}",
-            "/v1/groups/{group_key}/projects/{project_key}/sources",
-            "/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}",
-            "/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}/sync",
+            "/v1/groups/{group_key}/projects/{project_key}/source-folders",
+            "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/config",
+            "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/sync",
             "/v1/groups/{group_key}/projects/{project_key}/library/tree",
             "/v1/groups/{group_key}/projects/{project_key}/library/folders",
             "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}/move",

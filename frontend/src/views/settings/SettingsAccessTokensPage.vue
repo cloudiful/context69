@@ -9,7 +9,6 @@ const personalAccessTokenCanCreate = computed(() => unref(state.personalAccessTo
 const personalAccessTokenExpiryOptions = computed(() => unref(state.personalAccessTokenExpiryOptions));
 const personalAccessTokenScopeOptions = computed(() => unref(state.personalAccessTokenScopeOptions));
 const personalAccessTokenScopeToggleModel = computed(() => unref(state.personalAccessTokenScopeToggleModel));
-const personalAccessTokenValidationError = computed(() => unref(state.personalAccessTokenValidationError));
 const personalAccessTokens = computed(() => unref(state.personalAccessTokens));
 const personalAccessTokensCreating = computed(() => unref(state.personalAccessTokensCreating));
 const personalAccessTokensError = computed(() => unref(state.personalAccessTokensError));
@@ -28,7 +27,6 @@ const personalAccessTokensReveal = computed(() => unref(state.personalAccessToke
     :personal-access-token-expiry-options="personalAccessTokenExpiryOptions"
     :personal-access-token-scope-options="personalAccessTokenScopeOptions"
     :personal-access-token-scope-toggle-model="personalAccessTokenScopeToggleModel"
-    :personal-access-token-validation-error="personalAccessTokenValidationError"
     :personal-access-tokens="personalAccessTokens"
     :personal-access-tokens-creating="personalAccessTokensCreating"
     :personal-access-tokens-error="personalAccessTokensError"

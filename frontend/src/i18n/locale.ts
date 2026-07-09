@@ -4,13 +4,30 @@ export const SUPPORTED_LOCALES = ["en", "zh-CN"] as const;
 
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
 
+export function normalizeAppLocale(value: string | null | undefined): AppLocale | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/_/g, "-");
+  if (normalized === "zh" || normalized === "zh-cn" || normalized === "zh-hans" || normalized.startsWith("zh-")) {
+    return "zh-CN";
+  }
+
+  if (normalized === "en" || normalized.startsWith("en-")) {
+    return "en";
+  }
+
+  return null;
+}
+
 export function isAppLocale(value: string | null | undefined): value is AppLocale {
-  return Boolean(value && SUPPORTED_LOCALES.includes(value as AppLocale));
+  return normalizeAppLocale(value) !== null;
 }
 
 export function readStoredLocale(storage: Storage | null | undefined = getStorage()): AppLocale | null {
   const locale = storage?.getItem(LOCALE_STORAGE_KEY);
-  return isAppLocale(locale) ? locale : null;
+  return normalizeAppLocale(locale);
 }
 
 export function resolveInitialLocale(storage: Storage | null | undefined = getStorage()): AppLocale {

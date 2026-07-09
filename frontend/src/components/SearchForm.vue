@@ -125,8 +125,8 @@ function resetForm() {
 </script>
 
 <template>
-  <Fluid>
-    <form class="search-form-layout" @submit.prevent="emit('submit')">
+  <Fluid class="block w-full">
+    <form class="search-form-layout w-full" @submit.prevent="emit('submit')">
       <div class="search-form-topline">
         <div class="search-form-query-shell">
           <InputText

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.sync_runs (\n    group_id,\n    project_id,\n    visibility,\n    source_key,\n    trigger_type,\n    status\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    'running'\n)\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.sync_runs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4170247c4e95cbb8a9e9f4310a39bd79b30f26b0687caf9b7ec8029345548c19"
+}

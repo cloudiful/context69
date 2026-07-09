@@ -93,6 +93,14 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
     return flattenFolderOptions(tree.value.root);
   });
 
+  function isSourceFolderNode(folder: LibraryFolderNode): boolean {
+    return folder.files.some((file) => file.filename.toLowerCase() === "source.json");
+  }
+
+  function isSourceRecordsFolderNode(folder: LibraryFolderNode): boolean {
+    return folder.name === "records" && !!folder.parent_folder_id;
+  }
+
   function buildFolderExplorerEntry(folder: LibraryFolderNode, depth: number, parentFolderId: string | null): FolderExplorerEntry {
     return {
       key: `folder:${folderKey(folder.folder_id ?? null)}`,
@@ -105,6 +113,8 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
       updatedAt: null,
       childFolderCount: folder.children.length,
       fileCount: folder.files.length,
+      isSourceFolder: isSourceFolderNode(folder),
+      isSourceRecordsFolder: isSourceRecordsFolderNode(folder),
       processingCount: folder.processing_count,
       folder,
     };
@@ -115,6 +125,7 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
     depth: number,
     parentFolderId: string | null,
     parentPath: string,
+    parentFolder: LibraryFolderNode,
   ): FileExplorerEntry {
     return {
       key: `file:${file.file_id}`,
@@ -129,6 +140,8 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
       sizeBytes: file.size_bytes,
       ingestStatus: file.ingest_status,
       errorMessage: file.error_message ?? null,
+      isSourceConfigFile: file.filename.toLowerCase() === "source.json" && isSourceFolderNode(parentFolder),
+      isSourceRecordFile: parentFolder.name === "records",
       file,
     };
   }
@@ -157,7 +170,7 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
       }
 
       for (const file of sortedFiles) {
-        rows.push(buildFileExplorerEntry(file, depth, folder.folder_id ?? null, folder.path));
+        rows.push(buildFileExplorerEntry(file, depth, folder.folder_id ?? null, folder.path, folder));
       }
     }
 
@@ -194,6 +207,8 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
       path: selectedFolder.value.path,
       childFolderCount: selectedFolder.value.children.length,
       fileCount: selectedFolder.value.files.length,
+      isSourceFolder: isSourceFolderNode(selectedFolder.value),
+      isSourceRecordsFolder: isSourceRecordsFolderNode(selectedFolder.value),
       processingCount: selectedFolder.value.processing_count,
     };
   });
@@ -219,15 +234,16 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
 
     try {
       treeError.value = "";
-      tree.value = await apiClient.getLibraryTree();
+      const nextTree = await apiClient.getLibraryTree();
+      tree.value = nextTree;
 
-      if (selectedFolderId.value && !findFolderById(tree.value.root, selectedFolderId.value)) {
+      if (selectedFolderId.value && !findFolderById(nextTree.root, selectedFolderId.value)) {
         await replaceQuery(null, selectedFileId.value);
         return;
       }
 
       if (selectedFileId.value) {
-        const location = findFileLocation(tree.value.root, selectedFileId.value);
+        const location = findFileLocation(nextTree.root, selectedFileId.value);
         if (!location) {
           await replaceQuery(selectedFolderId.value, null);
           return;

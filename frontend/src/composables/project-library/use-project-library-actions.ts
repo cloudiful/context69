@@ -120,7 +120,7 @@ export function useProjectLibraryActions({
       if (nextFile) {
         await replaceSelection(nextFile.folder_id ?? selectedFolder.value?.folder_id ?? null, nextFile.file_id);
       }
-      schedulePolling(response.jobs.map((job) => job.job_id));
+      schedulePolling(response.jobs.map((job: { job_id: string }) => job.job_id));
       toast.add({ severity: "success", summary: t("library.newTextFile"), detail: payload.title, life: 2500 });
     } catch (error) {
       treeError.value = error instanceof Error ? error.message : t("library.createTextFileFailed");

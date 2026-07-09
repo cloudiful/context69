@@ -26,6 +26,7 @@ use super::source_registry::SourceRegistry;
 
 mod connections;
 mod execution;
+mod project_source_folders;
 mod runtime;
 mod sources;
 
@@ -132,6 +133,10 @@ impl SyncService {
             .collect())
     }
 
+    pub(crate) async fn connection_names_for_source_folders(&self) -> Result<Vec<String>> {
+        self.connection_names().await
+    }
+
     async fn resolve_source_connection(
         &self,
         connection_name: &str,
@@ -168,6 +173,13 @@ impl SyncService {
             name: name.to_string(),
             database_url,
         })
+    }
+
+    pub(crate) async fn upsert_source_connection_for_source_folder(
+        &self,
+        input: &SourceConfigInput,
+    ) -> Result<()> {
+        self.upsert_source_connection_for_source(input).await
     }
 }
 

@@ -15,10 +15,9 @@ describe("AppSidebar", () => {
     setGuest();
     const preferences = useUiPreferences();
     preferences.state.sidebarCollapsed = false;
-    preferences.state.mobileNavOpen = false;
   });
 
-  it("renders PrimeVue sidebars instead of the old aside shell", async () => {
+  it("renders the desktop PrimeVue sidebar instead of the old aside shell", async () => {
     setAuthenticatedUser();
 
     const router = createRouter({
@@ -40,7 +39,7 @@ describe("AppSidebar", () => {
       },
     });
 
-    expect(wrapper.findAllComponents(Sidebar)).toHaveLength(2);
+    expect(wrapper.findAllComponents(Sidebar)).toHaveLength(1);
     expect(wrapper.find("aside.app-sidebar").exists()).toBe(false);
   });
 

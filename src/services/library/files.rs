@@ -1,6 +1,42 @@
 use super::*;
 
 impl LibraryService {
+    pub(crate) async fn list_file_records_in_project(
+        &self,
+        project: &crate::domain::ProjectRecord,
+    ) -> Result<Vec<crate::domain::LibraryFileRecord>> {
+        self.store.list_files_in_project(project.id).await
+    }
+
+    pub(crate) async fn list_folder_records_in_project(
+        &self,
+        project: &crate::domain::ProjectRecord,
+    ) -> Result<Vec<crate::domain::LibraryFolderRecord>> {
+        self.store.list_folders_in_project(project.id).await
+    }
+
+    pub(crate) async fn get_folder_record_in_project(
+        &self,
+        project: &crate::domain::ProjectRecord,
+        folder_id: Uuid,
+    ) -> Result<crate::domain::LibraryFolderRecord> {
+        self.store
+            .get_folder_in_project(project.id, folder_id)
+            .await?
+            .with_context(|| format!("unknown folder {folder_id}"))
+    }
+
+    pub(crate) fn read_text_file_content(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+    ) -> Result<String> {
+        let path = self.storage_root.join(&file.storage_rel_path);
+        let bytes =
+            fs::read(&path).with_context(|| format!("failed to read stored file {}", path.display()))?;
+        String::from_utf8(bytes)
+            .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
+    }
+
     pub async fn create_text_file(
         &self,
         request: &CreateTextRequest,
@@ -160,6 +196,124 @@ impl LibraryService {
             "library text upsert",
         )
         .await?;
+
+        let file = self
+            .store
+            .get_file(file_id)
+            .await?
+            .with_context(|| format!("unknown file {file_id}"))?;
+        let job = self
+            .store
+            .get_job(job_id)
+            .await?
+            .with_context(|| format!("unknown job {job_id}"))?;
+        Ok(LibraryUploadResponse {
+            files: vec![file_to_summary(&file)],
+            jobs: vec![job_to_response(job)],
+        })
+    }
+
+    pub(crate) async fn upsert_named_text_file_in_project(
+        &self,
+        project: &crate::domain::ProjectRecord,
+        request: &UpsertNamedTextFileRequest,
+    ) -> Result<LibraryUploadResponse> {
+        let external_id = request.external_id.trim();
+        if external_id.is_empty() {
+            return Err(anyhow!("external_id must not be empty"));
+        }
+        let filename = request.filename.trim();
+        if filename.is_empty() {
+            return Err(anyhow!("filename must not be empty"));
+        }
+        let content = request.content.as_str();
+        if content.trim().is_empty() {
+            return Err(anyhow!("text content must not be empty"));
+        }
+        self.runtime()?;
+
+        if let Some(folder_id) = request.folder_id {
+            self.store
+                .get_folder_in_project(project.id, folder_id)
+                .await?
+                .with_context(|| format!("unknown folder {folder_id}"))?;
+        }
+
+        let bytes = Bytes::from(content.as_bytes().to_vec());
+        if bytes.len() > self.max_upload_size_bytes {
+            return Err(anyhow!(
+                "text {} exceeds upload size limit of {} bytes",
+                filename,
+                self.max_upload_size_bytes
+            ));
+        }
+
+        let existing = self
+            .store
+            .get_file_by_external_id_in_project(project.id, external_id)
+            .await?;
+        let file_id = existing
+            .as_ref()
+            .map(|file| file.id)
+            .unwrap_or_else(Uuid::new_v4);
+        let job_id = Uuid::new_v4();
+        let sha256 = storage::hash_bytes(&bytes);
+        let storage_rel_path = storage::build_storage_rel_path(file_id, filename);
+        let storage_path = self.storage_root.join(&storage_rel_path);
+        storage::write_storage_file(&storage_path, &bytes)?;
+
+        let file = match existing {
+            Some(existing_file) => {
+                let updated = self
+                    .store
+                    .update_text_file_in_project(
+                        project.id,
+                        existing_file.id,
+                        &crate::library_store::UpdateLibraryTextFile {
+                            folder_id: request.folder_id,
+                            external_id: Some(external_id.to_string()),
+                            filename: filename.to_string(),
+                            media_type: request.media_type.clone(),
+                            size_bytes: bytes.len() as i64,
+                            sha256,
+                            storage_rel_path,
+                        },
+                    )
+                    .await?
+                    .with_context(|| format!("unknown file {}", existing_file.id))?;
+                if existing_file.storage_rel_path != updated.storage_rel_path {
+                    let old_path = self.storage_root.join(existing_file.storage_rel_path);
+                    if let Err(error) = fs::remove_file(&old_path)
+                        && error.kind() != std::io::ErrorKind::NotFound
+                    {
+                        warn!(path = %old_path.display(), error = %error, "failed to remove stale library file");
+                    }
+                }
+                updated
+            }
+            None => {
+                self.store
+                    .create_file_in_project(
+                        project.id,
+                        &NewLibraryFile {
+                            id: file_id,
+                            folder_id: request.folder_id,
+                            external_id: Some(external_id.to_string()),
+                            filename: filename.to_string(),
+                            media_type: request.media_type.clone(),
+                            size_bytes: bytes.len() as i64,
+                            sha256,
+                            storage_rel_path,
+                        },
+                    )
+                    .await?
+            }
+        };
+        let _created_job = self.store.create_job(job_id, file_id).await?;
+
+        let sections = self.ingest_text(&file, &bytes).await?;
+        self.ingest_text_sections(&file, job_id, sections, "library text upsert")
+            .await?;
 
         let file = self
             .store

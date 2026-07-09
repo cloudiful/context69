@@ -5,9 +5,9 @@ import { useI18n } from "vue-i18n";
 import ContextMenu from "primevue/contextmenu";
 import Dialog from "primevue/dialog";
 import Message from "primevue/message";
-import Splitter from "primevue/splitter";
-import SplitterPanel from "primevue/splitterpanel";
+import { useToast } from "primevue/usetoast";
 
+import { appContextMenuPt } from "./app-context-menu";
 import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
 import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
 import LibraryMoveDialog from "./LibraryMoveDialog.vue";
@@ -15,12 +15,14 @@ import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 import LibraryPreviewShell from "./LibraryPreviewShell.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
 import LibraryToolbar from "./LibraryToolbar.vue";
+import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
+import { apiClient } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
-import type { ExplorerEntry } from "../types/library";
+import type { ExplorerEntry, FileExplorerEntry } from "../types/library";
 
 const props = defineProps<{
   groupKey: string;
@@ -28,8 +30,16 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+const toast = useToast();
 const { statusLabel } = createLibraryStatusHelpers();
 const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed");
+const sourceFolderDialogBusy = ref(false);
+const sourceFolderDialogError = ref("");
+const sourceFolderDialogOpen = ref(false);
+const sourceFolderDialogTitle = ref("");
+const sourceFolderDialogFolderId = ref<string | null>(null);
+const sourceFolderDialogFolderName = ref("");
+const sourceFolderDialogValue = ref("");
 
 const tree = useProjectLibraryTree({
   groupKey: props.groupKey,
@@ -49,6 +59,7 @@ const detail = useProjectLibraryDetail({
 const detailState = proxyRefs(detail);
 
 const preview = useProjectLibraryPreview({
+  allowDockedPreview: false,
   detail: detail.detail,
   selectedFileId: tree.selectedFileId,
   selectedFolderSummary: tree.selectedFolderSummary,
@@ -81,18 +92,27 @@ const resourceMenuItems = computed(() => {
   const entry = treeState.resourceContextEntry;
   if (!entry) return [];
   if (entry.kind === "folder") {
-    return [
+    const items = [
       { label: t("library.openFolder"), icon: "pi pi-folder-open", command: () => { void treeState.selectFolder(entry.id); } },
       { label: t("library.newFolder"), icon: "pi pi-folder-plus", command: () => { actionsState.openCreateFolderDialog(entry.folder); } },
-      { label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { actionsState.openMoveFolderDialog(entry.folder); } },
-      { label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFolder(entry.folder); } },
     ];
+    if (entry.isSourceFolder) {
+      items.push({ label: t("sources.sync"), icon: "pi pi-refresh", command: () => { void syncSourceFolder(entry.id); } });
+    }
+    if (!entry.isSourceRecordsFolder) {
+      items.push({ label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { actionsState.openMoveFolderDialog(entry.folder); } });
+      items.push({ label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFolder(entry.folder); } });
+    }
+    return items;
   }
-  return [
-    { label: t("library.preview"), icon: "pi pi-eye", command: () => { void actionsState.revealPreviewForFile(entry.id); } },
-    { label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { actionsState.openMoveFileDialog(entry.file); } },
-    { label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFile(entry.file); } },
+  const items = [
+    { label: entry.isSourceConfigFile ? t("library.editSourceConfig") : t("library.preview"), icon: entry.isSourceConfigFile ? "pi pi-file-edit" : "pi pi-eye", command: () => { void openExplorerEntry(entry); } },
   ];
+  if (!entry.isSourceConfigFile && !entry.isSourceRecordFile) {
+    items.push({ label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { actionsState.openMoveFileDialog(entry.file); } });
+    items.push({ label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFile(entry.file); } });
+  }
+  return items;
 });
 
 const surfaceMenuItems = computed(() => [
@@ -109,6 +129,11 @@ const surfaceMenuItems = computed(() => [
         label: t("library.newTextFile"),
         icon: "pi pi-file-edit",
         command: () => { actionsState.openCreateTextDialog(); },
+      },
+      {
+        label: t("library.newSourceFolder"),
+        icon: "pi pi-database",
+        command: () => { openCreateSourceFolderDialog(); },
       },
     ],
   },
@@ -140,16 +165,112 @@ function handleExplorerRowDoubleClick(event: { data: ExplorerEntry }) {
     void treeState.selectFolder(entry.id);
     return;
   }
-  void actionsState.revealPreviewForFile(entry.id);
+  void openExplorerEntry(entry);
 }
 
-function openExplorerEntry(entry: ExplorerEntry) {
+async function openExplorerEntry(entry: ExplorerEntry) {
   if (entry.kind === "folder") {
     treeState.toggleFolderExpansion(entry.id);
-    void treeState.selectFolder(entry.id);
+    await treeState.selectFolder(entry.id);
     return;
   }
-  void actionsState.revealPreviewForFile(entry.id);
+  if (entry.isSourceConfigFile) {
+    await openSourceConfigEditor(entry);
+    return;
+  }
+  await actionsState.revealPreviewForFile(entry.id);
+}
+
+function defaultSourceConfigTemplate(folderName = "") {
+  return JSON.stringify({
+    source_key: folderName,
+    display_name: "",
+    description: "",
+    example_queries: [],
+    connection: "",
+    sync_strategy: "cursor",
+    connector_type: "postgres_sql",
+    base_query: "",
+    batch_size: 200,
+  }, null, 2);
+}
+
+function openCreateSourceFolderDialog() {
+  sourceFolderDialogError.value = "";
+  sourceFolderDialogFolderId.value = null;
+  sourceFolderDialogFolderName.value = "";
+  sourceFolderDialogTitle.value = t("library.newSourceFolder");
+  sourceFolderDialogValue.value = defaultSourceConfigTemplate();
+  sourceFolderDialogOpen.value = true;
+}
+
+async function openSourceConfigEditor(entry: FileExplorerEntry) {
+  sourceFolderDialogBusy.value = true;
+  sourceFolderDialogError.value = "";
+  try {
+    const detail = await apiClient.getProjectLibraryFile(props.groupKey, props.projectKey, entry.id);
+    sourceFolderDialogFolderId.value = detail.folder_id ?? null;
+    sourceFolderDialogFolderName.value = detail.folder_path.split("/").filter(Boolean).at(-1) ?? "";
+    sourceFolderDialogTitle.value = t("library.editSourceConfig");
+    sourceFolderDialogValue.value = detail.sections[0]?.preview_text || defaultSourceConfigTemplate(sourceFolderDialogFolderName.value);
+    sourceFolderDialogOpen.value = true;
+  } catch (error) {
+    sourceFolderDialogError.value = error instanceof Error ? error.message : t("library.detailLoadFailed");
+  } finally {
+    sourceFolderDialogBusy.value = false;
+  }
+}
+
+async function saveSourceFolderDialog(payload: { folderName: string; value: string }) {
+  sourceFolderDialogBusy.value = true;
+  sourceFolderDialogError.value = "";
+  try {
+    const sourceConfig = JSON.parse(payload.value);
+    if (sourceFolderDialogFolderId.value) {
+      await apiClient.updateProjectSourceFolderConfig(
+        props.groupKey,
+        props.projectKey,
+        sourceFolderDialogFolderId.value,
+        sourceConfig,
+      );
+    } else {
+      await apiClient.createProjectSourceFolder(props.groupKey, props.projectKey, {
+        parent_folder_id: treeState.selectedFolder?.folder_id ?? null,
+        folder_name: payload.folderName,
+        source_config: sourceConfig,
+      });
+    }
+    sourceFolderDialogOpen.value = false;
+    await treeState.refreshLibrary(detailState.loadDetail);
+    toast.add({
+      severity: "success",
+      summary: sourceFolderDialogFolderId.value ? t("common.save") : t("library.newSourceFolder"),
+      detail: payload.folderName || sourceConfig.source_key,
+      life: 2500,
+    });
+  } catch (error) {
+    sourceFolderDialogError.value = error instanceof Error ? error.message : t("common.save");
+  } finally {
+    sourceFolderDialogBusy.value = false;
+  }
+}
+
+async function syncSourceFolder(folderId: string | null) {
+  if (!folderId) {
+    return;
+  }
+  try {
+    await apiClient.syncProjectSourceFolder(props.groupKey, props.projectKey, folderId);
+    await treeState.refreshLibrary(detailState.loadDetail);
+    toast.add({
+      severity: "success",
+      summary: t("sources.sync"),
+      detail: t("sources.syncing"),
+      life: 2500,
+    });
+  } catch (error) {
+    treeState.treeError = error instanceof Error ? error.message : t("sources.syncFailed");
+  }
 }
 
 function handleExplorerRowContextMenu(event: { originalEvent: Event; data: ExplorerEntry }) {
@@ -195,8 +316,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
-  <ContextMenu ref="surfaceContextMenu" :model="surfaceMenuItems" />
+  <ContextMenu ref="resourceContextMenu" unstyled :pt="appContextMenuPt" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
+  <ContextMenu ref="surfaceContextMenu" unstyled :pt="appContextMenuPt" :model="surfaceMenuItems" />
   <input
     ref="uploadInput"
     class="sr-only"
@@ -214,77 +335,34 @@ onBeforeUnmount(() => {
   />
   <Message v-if="treeState.treeError" severity="error" :closable="false">{{ treeState.treeError }}</Message>
 
-  <section
-    class="library-workspace library-workspace-embedded"
-    :class="{ 'library-workspace-docked': previewState.showDockedPreview }"
-  >
-      <Splitter v-if="previewState.showDockedPreview" class="library-splitter">
-        <SplitterPanel :size="62" :min-size="42">
-          <LibraryResourceTable
-            :create-folder-busy="actionsState.createFolderBusy"
-            :entries="treeState.filteredExplorerEntries"
-            :expanded-keys="treeState.expandedTreeKeys"
-            :loading="treeState.treeLoading"
-            :resource-search-query="treeState.resourceSearchQuery"
-            :selected-folder-ready="!!treeState.selectedFolder"
-            :selection="treeState.selectedExplorerEntry"
-            :table-context-selection="treeState.resourceContextEntry"
-            :upload-busy="actionsState.uploadBusy"
-            @update:selection="treeState.selectedExplorerEntry = $event"
-            @update:tableContextSelection="treeState.resourceContextEntry = $event"
-            @row-click="handleExplorerRowClick"
-            @row-dblclick="handleExplorerRowDoubleClick"
-            @row-contextmenu="handleExplorerRowContextMenu"
-            @surface-contextmenu="handleSurfaceContextMenu"
-            @open-entry="openExplorerEntry"
-            @move-entry="actionsState.moveExplorerEntry"
-            @delete-entry="actionsState.deleteExplorerEntry"
-            @toggle-folder="treeState.toggleFolderExpansion($event.id)"
-            @refresh="treeState.refreshLibrary(detailState.loadDetail)"
-            @create-folder="actionsState.openCreateFolderDialog()"
-            @upload-select="actionsState.handleFileSelection"
-          />
-        </SplitterPanel>
-        <SplitterPanel :size="38" :min-size="28">
-          <LibraryPreviewShell :title="previewState.previewTitle" class="library-docked-preview">
-            <LibraryPreviewPanel
-              :active-section-key="detailState.activeSectionKey"
-              :detail="detailState.detail"
-              :detail-error="detailState.detailError"
-              :detail-loading="detailState.detailLoading"
-              :selected-file-id="treeState.selectedFileId"
-              :selected-folder-summary="treeState.selectedFolderSummary"
-              @update:active-section-key="detailState.activeSectionKey = $event"
-            />
-          </LibraryPreviewShell>
-        </SplitterPanel>
-      </Splitter>
-
-      <LibraryResourceTable
-        v-else
-        :create-folder-busy="actionsState.createFolderBusy"
-        :entries="treeState.filteredExplorerEntries"
-        :expanded-keys="treeState.expandedTreeKeys"
-        :loading="treeState.treeLoading"
-        :resource-search-query="treeState.resourceSearchQuery"
-        :selected-folder-ready="!!treeState.selectedFolder"
-        :selection="treeState.selectedExplorerEntry"
-        :table-context-selection="treeState.resourceContextEntry"
-        :upload-busy="actionsState.uploadBusy"
-        @update:selection="treeState.selectedExplorerEntry = $event"
-        @update:tableContextSelection="treeState.resourceContextEntry = $event"
-        @row-click="handleExplorerRowClick"
-        @row-dblclick="handleExplorerRowDoubleClick"
-        @row-contextmenu="handleExplorerRowContextMenu"
-        @surface-contextmenu="handleSurfaceContextMenu"
-        @open-entry="openExplorerEntry"
-        @move-entry="actionsState.moveExplorerEntry"
-        @delete-entry="actionsState.deleteExplorerEntry"
-        @toggle-folder="treeState.toggleFolderExpansion($event.id)"
-        @refresh="treeState.refreshLibrary(detailState.loadDetail)"
-        @create-folder="actionsState.openCreateFolderDialog()"
-        @upload-select="actionsState.handleFileSelection"
-      />
+  <section class="library-workspace library-workspace-embedded">
+    <LibraryResourceTable
+      :create-folder-busy="actionsState.createFolderBusy"
+      :create-source-folder-busy="sourceFolderDialogBusy"
+      :entries="treeState.filteredExplorerEntries"
+      :expanded-keys="treeState.expandedTreeKeys"
+      :loading="treeState.treeLoading"
+      :resource-search-query="treeState.resourceSearchQuery"
+      :selected-folder-ready="!!treeState.selectedFolder"
+      :selection="treeState.selectedExplorerEntry"
+      :table-context-selection="treeState.resourceContextEntry"
+      :upload-busy="actionsState.uploadBusy"
+      @update:selection="treeState.selectedExplorerEntry = $event"
+      @update:tableContextSelection="treeState.resourceContextEntry = $event"
+      @row-click="handleExplorerRowClick"
+      @row-dblclick="handleExplorerRowDoubleClick"
+      @row-contextmenu="handleExplorerRowContextMenu"
+      @surface-contextmenu="handleSurfaceContextMenu"
+      @open-entry="openExplorerEntry"
+      @move-entry="actionsState.moveExplorerEntry"
+      @delete-entry="actionsState.deleteExplorerEntry"
+      @toggle-folder="treeState.toggleFolderExpansion($event.id)"
+      @refresh="treeState.refreshLibrary(detailState.loadDetail)"
+      @create-folder="actionsState.openCreateFolderDialog()"
+      @create-source-folder="openCreateSourceFolderDialog()"
+      @sync-source-folder="syncSourceFolder($event.id)"
+      @upload-select="actionsState.handleFileSelection"
+    />
   </section>
 
   <LibraryCreateFolderDialog
@@ -312,6 +390,19 @@ onBeforeUnmount(() => {
     :current-folder-id="actionsState.moveDialog?.currentFolderId ?? null"
     @cancel="actionsState.moveDialog = null"
     @confirm="actionsState.confirmMove"
+  />
+
+  <ProjectSourceFolderDialog
+    :open="sourceFolderDialogOpen"
+    :busy="sourceFolderDialogBusy"
+    :error="sourceFolderDialogError"
+    :folder-name="sourceFolderDialogFolderName"
+    :folder-name-readonly="!!sourceFolderDialogFolderId"
+    :title="sourceFolderDialogTitle"
+    :value="sourceFolderDialogValue"
+    @cancel="sourceFolderDialogOpen = false"
+    @confirm="saveSourceFolderDialog"
+    @update:value="sourceFolderDialogValue = $event"
   />
 
   <Dialog v-model:visible="previewState.previewDialogVisible" modal :header="previewState.previewTitle" class="library-preview-dialog">

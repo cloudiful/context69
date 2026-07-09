@@ -42,6 +42,28 @@ export function formatNumber(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+export function formatBytes(value: number | null | undefined): string {
+  if (value == null) {
+    return "--";
+  }
+
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = value / 1024;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = size >= 100 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(digits)} ${units[unitIndex]}`;
+}
+
 export function formatScore(value: number): string {
   return value.toFixed(3);
 }

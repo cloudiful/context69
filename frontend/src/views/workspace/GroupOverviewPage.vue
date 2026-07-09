@@ -1,48 +1,94 @@
 <script setup lang="ts">
+import Button from "primevue/button";
+import Column from "primevue/column";
+import DataTable from "primevue/datatable";
 import Tag from "primevue/tag";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
+import { toolPrimaryButtonClass } from "../../ui/button-classes";
 
 const state = useGroupWorkspaceContext();
+
+function projectRowClass() {
+  return "cursor-pointer";
+}
 </script>
 
 <template>
-  <section class="workspace-block">
-    <dl class="workspace-overview-pairs">
-      <div class="workspace-overview-pair">
-        <dt class="workspace-overview-key">{{ $t("groups.groupKey") }}</dt>
-        <dd class="workspace-overview-value">{{ state.group?.group_key || state.groupKey }}</dd>
+  <div class="workspace-overview-layout">
+    <section class="workspace-overview-main">
+      <div class="workspace-section-header">
+        <p class="section-title">{{ $t("groups.projectsTitle") }}</p>
+        <Button :class="toolPrimaryButtonClass" size="small" @click="state.openCreateProjectDialog">
+          {{ $t("groups.createProject") }}
+        </Button>
       </div>
-      <div class="workspace-overview-pair">
-        <dt class="workspace-overview-key">{{ $t("groups.groupName") }}</dt>
-        <dd class="workspace-overview-value">{{ state.group?.name || "--" }}</dd>
-      </div>
-      <div class="workspace-overview-pair">
-        <dt class="workspace-overview-key">{{ $t("groups.visibility") }}</dt>
-        <dd class="workspace-overview-value">
-          <Tag :value="state.group?.visibility || '--'" severity="secondary" />
-        </dd>
-      </div>
-      <div class="workspace-overview-pair">
-        <dt class="workspace-overview-key">{{ $t("groups.kind") }}</dt>
-        <dd class="workspace-overview-value">
-          <Tag :value="state.group?.kind || '--'" severity="contrast" />
-        </dd>
-      </div>
-      <div class="workspace-overview-pair">
-        <dt class="workspace-overview-key">{{ $t("groups.currentRole") }}</dt>
-        <dd class="workspace-overview-value">
-          <Tag :value="state.group?.current_role || '--'" :severity="state.roleSeverity(state.group?.current_role)" />
-        </dd>
-      </div>
-      <div class="workspace-overview-pair">
-        <dt class="workspace-overview-key">{{ $t("groups.projectsTitle") }}</dt>
-        <dd class="workspace-overview-value">{{ state.projects.length }}</dd>
-      </div>
-      <div class="workspace-overview-pair">
-        <dt class="workspace-overview-key">{{ $t("groups.membersTitle") }}</dt>
-        <dd class="workspace-overview-value">{{ state.members.length }}</dd>
-      </div>
-    </dl>
-  </section>
+
+      <DataTable
+        class="app-data-table"
+        :value="state.projects"
+        data-key="project_id"
+        row-hover
+        scrollable
+        table-style="min-width: 100%"
+        :row-class="projectRowClass"
+        @row-click="state.openProject($event.data)"
+      >
+        <template #empty>
+          {{ $t("groups.emptyProjects") }}
+        </template>
+
+        <Column :header="$t('groups.projectName')">
+          <template #body="{ data }">
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="truncate text-sm font-semibold text-app-text">
+                {{ data.name }}
+              </span>
+              <span class="truncate text-sm text-app-text-dim">
+                {{ data.project_key }}
+              </span>
+            </div>
+          </template>
+        </Column>
+      </DataTable>
+    </section>
+
+    <aside class="workspace-overview-side">
+      <section class="workspace-summary-card">
+        <p class="section-title">{{ $t("groups.tabs.overview") }}</p>
+        <dl class="workspace-summary-list">
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.groupKey") }}</dt>
+            <dd class="workspace-summary-value">{{ state.group?.group_key || state.groupKey }}</dd>
+          </div>
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.groupName") }}</dt>
+            <dd class="workspace-summary-value">{{ state.group?.name || "--" }}</dd>
+          </div>
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.visibility") }}</dt>
+            <dd class="workspace-summary-value">
+              <Tag :value="state.group?.visibility || '--'" severity="secondary" />
+            </dd>
+          </div>
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.kind") }}</dt>
+            <dd class="workspace-summary-value">
+              <Tag :value="state.group?.kind || '--'" severity="contrast" />
+            </dd>
+          </div>
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.currentRole") }}</dt>
+            <dd class="workspace-summary-value">
+              <Tag :value="state.group?.current_role || '--'" :severity="state.roleSeverity(state.group?.current_role)" />
+            </dd>
+          </div>
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.membersTitle") }}</dt>
+            <dd class="workspace-summary-value">{{ state.members.length }}</dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
+  </div>
 </template>

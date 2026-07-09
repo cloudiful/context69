@@ -13,6 +13,7 @@ import * as z from "zod";
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
 import { AuthError, authSessionState, login } from "../services/auth/session";
+import { authSubmitButtonClass } from "../ui/button-classes";
 
 const route = useRoute();
 const router = useRouter();
@@ -157,7 +158,8 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
 
           <div class="auth-form-actions">
             <Button
-              class="app-primary-button auth-submit-button"
+              unstyled
+              :class="authSubmitButtonClass"
               type="submit"
               :disabled="busy"
               :loading="busy"

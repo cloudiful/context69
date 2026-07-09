@@ -5,7 +5,7 @@ import { useI18n } from "vue-i18n";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
-import type { AppLocale } from "../../i18n/locale";
+import { normalizeAppLocale, type AppLocale } from "../../i18n/locale";
 import type { AppTheme } from "../../types/ui";
 
 const props = defineProps<{
@@ -30,7 +30,8 @@ const themeOptions = computed<Array<{ value: AppTheme; label: string }>>(() => [
   { value: "light", label: t("theme.light") },
 ]);
 
-const selectedLocale = computed<AppLocale>(() => (props.locale === "zh-CN" ? "zh-CN" : "en"));
+const selectedLocale = computed<AppLocale>(() => normalizeAppLocale(props.locale) ?? "en");
+const localeSelectKey = computed(() => `${selectedLocale.value}:${localeOptions.value.map((option) => option.label).join("|")}`);
 
 function updateLocale(value: unknown) {
   if (value === "en" || value === "zh-CN") {
@@ -50,6 +51,7 @@ function updateTheme(value: unknown) {
     <AppSettingsBlock id="settings-appearance">
       <div class="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
         <AppSelectField
+          :key="localeSelectKey"
           float-label
           input-id="settings-locale-select"
           :model-value="selectedLocale"

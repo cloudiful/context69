@@ -1,6 +1,32 @@
 use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
+use serde::Deserialize;
 
 use super::*;
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct SourceConfigPreview {
+    source_key: String,
+    connection: String,
+    sync_strategy: String,
+    connector_type: String,
+    base_query: String,
+    batch_size: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct SourceRecordJson {
+    external_id: String,
+    title: String,
+    body_text: String,
+    source_uri: String,
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    published_at: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    metadata_json: Value,
+}
 
 impl LibraryService {
     pub(super) async fn run_ingest(
@@ -213,13 +239,49 @@ impl LibraryService {
         Ok(sections)
     }
 
-    async fn ingest_text(
+    pub(super) async fn ingest_text(
         &self,
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
     ) -> Result<Vec<IngestSection>> {
         let text = std::str::from_utf8(bytes)
             .with_context(|| format!("failed to decode utf-8 text {}", file.filename))?;
+        if file.filename.eq_ignore_ascii_case("source.json") {
+            let _: SourceConfigPreview = serde_json::from_str(text)
+                .with_context(|| format!("failed to parse source config json {}", file.filename))?;
+            return Ok(vec![IngestSection {
+                section_key: "source-config".to_string(),
+                section_label: file.filename.clone(),
+                title: file.filename.clone(),
+                summary: None,
+                body_text: text.to_string(),
+                source_uri: None,
+                external_id: file.external_id.clone(),
+                published_at: None,
+                metadata_json: json!({
+                    "source_folder_file_kind": "config",
+                }),
+            }]);
+        }
+        if file
+            .filename
+            .to_ascii_lowercase()
+            .ends_with(".json")
+        {
+            let parsed: SourceRecordJson = serde_json::from_str(text)
+                .with_context(|| format!("failed to parse source record json {}", file.filename))?;
+            return Ok(vec![IngestSection {
+                section_key: "record".to_string(),
+                section_label: parsed.title.clone(),
+                title: parsed.title.clone(),
+                summary: parsed.summary,
+                body_text: normalize_body(&parsed.body_text),
+                source_uri: Some(parsed.source_uri),
+                external_id: Some(parsed.external_id),
+                published_at: parsed.published_at,
+                metadata_json: parsed.metadata_json,
+            }]);
+        }
         Ok(vec![IngestSection {
             section_key: "document".to_string(),
             section_label: file.filename.clone(),

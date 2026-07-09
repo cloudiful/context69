@@ -22,16 +22,16 @@
     @apply flex min-h-screen min-w-0 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3;
   }
 
+  .app-main-content {
+    @apply grid min-h-0 flex-1 content-start gap-2;
+  }
+
   .app-main-shell.is-login-route {
     @apply px-0 py-0 pb-0;
   }
 
   .app-sidebar-shell-mask-desktop {
     pointer-events: none !important;
-  }
-
-  .app-sidebar-shell-mask-mobile {
-    @apply bg-black/45 backdrop-blur-[2px];
   }
 
   .app-sidebar-shell.p-drawer {
@@ -47,18 +47,8 @@
     @apply w-[4.75rem];
   }
 
-  .app-sidebar-shell-mobile.p-drawer {
-    width: min(20rem, calc(100vw - 1rem));
-    max-width: calc(100vw - 1rem);
-    height: 100vh;
-  }
-
   .app-sidebar-panel {
     @apply flex h-full flex-col border-r border-app-border/70 bg-app-bg/98 px-2.5 py-3 md:bg-app-surface-muted/20;
-  }
-
-  .app-sidebar-panel-mobile {
-    @apply border-r-0 bg-app-bg;
   }
 
   .app-sidebar-head {
@@ -111,10 +101,6 @@
 
   .app-sidebar-subnav {
     @apply ml-4 grid gap-1 border-l border-app-border/45 pl-3;
-  }
-
-  .app-sidebar-subnav-heading {
-    @apply truncate px-2.5 pt-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-app-text-dim;
   }
 
   .app-sidebar-sublink {
@@ -255,6 +241,10 @@
     @apply flex flex-wrap items-start justify-between gap-3;
   }
 
+  .workspace-section-header {
+    @apply flex flex-wrap items-center justify-between gap-3;
+  }
+
   .workspace-inline-form {
     @apply grid gap-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto] lg:items-center;
   }
@@ -303,6 +293,56 @@
 
   .workspace-overview-value .p-tag {
     @apply justify-self-start;
+  }
+
+  .workspace-overview-layout {
+    @apply grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_18rem] xl:items-start;
+  }
+
+  .workspace-overview-main {
+    @apply grid min-w-0 gap-3;
+  }
+
+  .workspace-overview-side {
+    @apply grid gap-3;
+  }
+
+  .workspace-summary-card {
+    @apply grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4;
+  }
+
+  .workspace-summary-list {
+    @apply grid gap-2;
+  }
+
+  .workspace-summary-row {
+    @apply grid gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .workspace-summary-label {
+    @apply text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim;
+  }
+
+  .workspace-summary-value {
+    @apply min-w-0 text-right text-sm font-semibold text-app-text;
+  }
+
+  .workspace-summary-value .p-tag {
+    @apply justify-self-end;
+  }
+
+  .workspace-empty-inline {
+    @apply rounded-[1rem] border border-dashed border-app-border/65 bg-app-surface-muted/15 px-4 py-6 text-sm text-app-text-dim;
+  }
+
+  .workspace-settings-layout {
+    @apply grid gap-3 xl:max-w-[28rem];
+  }
+
+  .workspace-action-row {
+    @apply flex flex-wrap items-center gap-2;
   }
 
   .workspace-tabbar {
@@ -376,30 +416,6 @@
     border-radius: 1.1rem;
     background: color-mix(in srgb, var(--color-app-surface-muted) 36%, transparent);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
-
-  .library-browser-action.p-button,
-  .library-browser-upload.p-button,
-  .library-browser-upload .p-fileupload-basic {
-    @apply min-h-8 rounded-lg border border-app-border bg-app-surface-soft/45 px-3 text-sm font-medium text-app-text shadow-none transition;
-  }
-
-  .library-browser-action.p-button:not(:disabled):hover,
-  .library-browser-upload.p-button:not(:disabled):hover,
-  .library-browser-upload .p-fileupload-basic:not(:disabled):hover {
-    @apply border-app-border-strong bg-app-surface-soft/72;
-  }
-
-  .app-primary-button {
-    @apply min-h-8 rounded-lg border border-app-border-strong bg-app-surface-soft px-3 text-sm font-semibold text-app-text shadow-none transition;
-  }
-
-  .app-primary-button:not(:disabled):hover {
-    @apply bg-app-surface-soft/80;
-  }
-
-  .app-primary-button:disabled {
-    @apply border-app-border bg-app-surface-soft text-app-text-dim opacity-100;
   }
 
   .form-label {
@@ -498,10 +514,6 @@
     @apply flex justify-end;
   }
 
-  .search-page-layout {
-    @apply grid gap-2 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)];
-  }
-
   .search-results-layout {
     @apply grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start;
   }
@@ -551,10 +563,6 @@
     @apply pt-1;
   }
 
-  .auth-submit-button {
-    @apply w-full;
-  }
-
 
   .search-results-panel.p-card {
     border-radius: 1.1rem;
@@ -562,10 +570,6 @@
 
   .search-results-panel > .p-card-body {
     padding: 0.75rem;
-  }
-
-  .search-console-shell {
-    @apply grid gap-2 px-0 py-1;
   }
 
   .search-history-panel.p-card {
@@ -585,7 +589,7 @@
   }
 
   .app-mobile-nav {
-    @apply fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-app-border/70 bg-app-bg/94 px-2 py-2 backdrop-blur-xl md:hidden;
+    @apply fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 gap-1 border-t border-app-border/70 bg-app-bg/94 px-2 py-2 backdrop-blur-xl md:hidden;
   }
 
   .app-mobile-nav-link {
@@ -759,10 +763,6 @@
 
   .sources-editor-note {
     @apply text-sm text-app-text-dim;
-  }
-
-  .sources-editor-close.p-button {
-    @apply min-w-24;
   }
 
   .source-editor-form {
@@ -957,10 +957,6 @@
     @apply flex flex-wrap items-center gap-3;
   }
 
-  .settings-validation-text {
-    @apply text-xs leading-5 font-medium text-app-danger;
-  }
-
   .settings-status-tag.p-tag {
     @apply rounded-xl px-3 py-1 text-sm font-medium;
   }
@@ -1023,23 +1019,6 @@
       grid-template-columns: repeat(3, minmax(11rem, 15rem));
       justify-content: start;
     }
-  }
-
-  .app-table-toolbar-search {
-    @apply min-w-0 md:w-72;
-  }
-
-  .app-table-toolbar-search.p-iconfield {
-    @apply w-full;
-  }
-
-  .app-table-toolbar-search .p-inputicon {
-    color: color-mix(in srgb, var(--color-app-text-dim) 88%, transparent);
-    inset-inline-start: 0.8rem;
-  }
-
-  .app-table-toolbar-search .p-inputtext {
-    padding-inline-start: 2.35rem;
   }
 
   .sources-table-shell {
@@ -1185,10 +1164,6 @@
     @apply flex flex-wrap items-center justify-end gap-1;
   }
 
-  .tool-card-open.p-button {
-    @apply min-h-7 shrink-0 rounded-md px-2 text-xs;
-  }
-
   .tool-empty {
     @apply px-3 py-8 text-center text-sm text-app-text-dim;
   }
@@ -1261,34 +1236,6 @@
     @apply mb-1.5 flex flex-wrap items-center justify-end gap-1.5;
   }
 
-  .library-browser-action.p-button,
-  .library-browser-upload.p-button,
-  .library-browser-upload .p-fileupload-basic {
-    @apply min-h-8 px-3 text-sm font-medium;
-    border-radius: 0.55rem;
-  }
-
-  .library-browser-upload.p-button,
-  .library-browser-upload .p-fileupload-basic {
-    display: inline-flex;
-    align-items: center;
-    gap: 0;
-    line-height: 1.25rem;
-  }
-
-  .library-browser-upload.p-button .p-button-icon,
-  .library-browser-upload.p-button svg,
-  .library-browser-upload .p-button-icon,
-  .library-browser-upload svg {
-    display: none !important;
-  }
-
-  .library-browser-action.p-button:not(:disabled):hover,
-  .library-browser-upload.p-button:not(:disabled):hover,
-  .library-browser-upload .p-fileupload-basic:not(:disabled):hover {
-    @apply border-app-border-strong bg-app-surface-soft/80;
-  }
-
   .library-tree-node {
     @apply min-w-0 rounded-xl px-2 py-1 transition hover:bg-app-surface-soft/70;
   }
@@ -1298,7 +1245,7 @@
   }
 
   .library-entry-button {
-    @apply text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted;
+    @apply block w-full truncate text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted;
   }
 
   .library-entry-button:focus-visible {
@@ -1391,14 +1338,6 @@
     @apply text-xs leading-4 text-app-text-dim;
   }
 
-  .library-resource-error {
-    @apply text-xs leading-5 text-app-text;
-  }
-
-  .library-preview-content {
-    @apply grid gap-5;
-  }
-
   .library-preview-dialog .p-dialog-header {
     @apply border-b border-app-border/70 px-5 py-4;
   }
@@ -1417,30 +1356,6 @@
 
   .library-docked-preview {
     border-left: 1px solid color-mix(in srgb, var(--color-app-border) 70%, transparent);
-  }
-
-  .library-preview-section {
-    @apply grid gap-5;
-  }
-
-  .library-preview-grid {
-    @apply grid gap-3 sm:grid-cols-2;
-  }
-
-  .library-preview-block {
-    @apply rounded-lg border border-app-border bg-app-surface-muted/20 px-4 py-3.5;
-  }
-
-  .library-preview-row {
-    @apply flex items-start justify-between gap-5 border-b border-app-border/70 pb-4 last:border-b-0 last:pb-0;
-  }
-
-  .library-preview-row-label {
-    @apply text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
-  .library-preview-row-value {
-    @apply text-sm text-app-text;
   }
 
   .library-preview-plaintext {
@@ -1512,27 +1427,8 @@
     @apply bg-transparent p-0;
   }
 
-  .library-job-row {
-    @apply flex items-center justify-between gap-3 rounded-2xl border border-app-border/70 bg-app-surface-soft/35 px-4 py-3;
-  }
-
   .library-row-actions {
-    @apply flex items-center justify-end gap-1;
-  }
-
-  .library-row-action.p-button {
-    @apply h-7 min-w-0 px-2 py-0 text-xs;
-    border-radius: 0.55rem;
-    color: var(--color-app-text-muted);
-  }
-
-  .library-row-action.p-button:not(:disabled):hover {
-    background: color-mix(in srgb, var(--color-app-surface-soft) 58%, transparent);
-    color: var(--color-app-text);
-  }
-
-  .library-row-action-danger.p-button {
-    color: #fca5a5;
+    @apply flex flex-nowrap items-center justify-start gap-1 whitespace-nowrap;
   }
 
   .library-pane-compact .p-datatable {
@@ -1548,11 +1444,6 @@
     top: 0;
     z-index: 1;
     background: color-mix(in srgb, var(--color-app-surface) 98%, transparent);
-  }
-
-  .library-preview-card.p-card {
-    border-radius: 1rem;
-    background: color-mix(in srgb, var(--color-app-surface) 96%, transparent);
   }
 
   .app-topbar-brand {

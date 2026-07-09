@@ -14,21 +14,22 @@ use crate::services::app::Context69App;
 use super::{
     ApiState, auth_middleware, build_api_state, create_admin_user, create_library_folder,
     create_library_text, create_personal_access_token, create_project_library_folder,
-    create_project_library_text, create_project_source, create_source, create_source_connection,
-    delete_library_file, delete_library_folder, delete_project_library_file,
-    delete_project_library_folder, delete_project_source, delete_source, delete_source_connection,
-    disable_admin_user, enable_admin_user, forbid_personal_access_token_middleware,
-    get_library_file, get_library_job, get_library_tree, get_project_library_file,
-    get_project_library_job, get_project_library_tree, healthz, list_admin_users,
-    list_personal_access_tokens, list_project_sources, list_source_connections, list_sources,
-    login, logout, me, move_library_file, move_library_folder, move_project_library_file,
+    create_project_library_text, create_project_source_folder, create_source,
+    create_source_connection, delete_library_file, delete_library_folder,
+    delete_project_library_file, delete_project_library_folder, delete_source,
+    delete_source_connection, disable_admin_user, enable_admin_user,
+    forbid_personal_access_token_middleware, get_library_file, get_library_job, get_library_tree,
+    get_project_library_file, get_project_library_job, get_project_library_tree, healthz,
+    list_admin_users, list_personal_access_tokens, list_source_connections, list_sources, login,
+    logout, me, move_library_file, move_library_folder, move_project_library_file,
     move_project_library_folder, openapi_json, refresh, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
-    sync_project_source, sync_source, touch_personal_access_token_middleware, update_admin_user,
-    update_project_source, update_source, update_source_connection, upload_library_files,
-    upload_project_library_files, upsert_project_library_text,
+    sync_project_source_folder, sync_source, touch_personal_access_token_middleware,
+    update_admin_user, update_project_source_folder_config, update_source,
+    update_source_connection, upload_library_files, upload_project_library_files,
+    upsert_project_library_text,
 };
 
 pub fn router(app: Arc<Context69App>) -> Router {
@@ -145,16 +146,16 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         )
         .route("/v1/sources/{source_key}/sync", post(sync_source))
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/sources",
-            get(list_project_sources).post(create_project_source),
+            "/v1/groups/{group_key}/projects/{project_key}/source-folders",
+            post(create_project_source_folder),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}",
-            put(update_project_source).delete(delete_project_source),
+            "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/config",
+            put(update_project_source_folder_config),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}/sync",
-            post(sync_project_source),
+            "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/sync",
+            post(sync_project_source_folder),
         )
         .layer(from_fn_with_state(
             api_state,

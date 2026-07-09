@@ -25,6 +25,8 @@ export interface FolderExplorerEntry extends ExplorerBaseEntry {
   id: string | null;
   childFolderCount: number;
   fileCount: number;
+  isSourceFolder: boolean;
+  isSourceRecordsFolder: boolean;
   processingCount: number;
   folder: LibraryFolderNode;
 }
@@ -36,6 +38,8 @@ export interface FileExplorerEntry extends ExplorerBaseEntry {
   sizeBytes: number;
   ingestStatus: LibraryIngestStatus;
   errorMessage: string | null;
+  isSourceConfigFile: boolean;
+  isSourceRecordFile: boolean;
   file: LibraryFileSummary;
 }
 
@@ -44,6 +48,8 @@ export type ExplorerEntry = FolderExplorerEntry | FileExplorerEntry;
 export interface FolderSummary {
   childFolderCount: number;
   fileCount: number;
+  isSourceFolder: boolean;
+  isSourceRecordsFolder: boolean;
   name: string;
   path: string;
   processingCount: number;

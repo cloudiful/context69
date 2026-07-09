@@ -8,6 +8,7 @@ import Message from "primevue/message";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
+import { appContextMenuPt } from "../components/app-context-menu";
 import LibraryCreateFolderDialog from "../components/LibraryCreateFolderDialog.vue";
 import LibraryMoveDialog from "../components/LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "../components/LibraryPreviewPanel.vue";
@@ -226,7 +227,7 @@ defineExpose({
 
 <template>
   <div class="library-layout">
-    <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
+    <ContextMenu ref="resourceContextMenu" unstyled :pt="appContextMenuPt" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
 
     <LibraryToolbar
       :breadcrumb-home="treeState.breadcrumbHome"

@@ -244,7 +244,8 @@ onMounted(async () => {
             </div>
             <Button
               v-if="sources.length > 0"
-              :class="[toolSecondaryButtonClass, 'sources-editor-close']"
+              unstyled
+              :class="[toolSecondaryButtonClass, 'min-w-24']"
               type="button"
               @click="resetEditor"
             >

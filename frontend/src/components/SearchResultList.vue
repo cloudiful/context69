@@ -6,6 +6,7 @@ import DataTable from "primevue/datatable";
 import Tag from "primevue/tag";
 
 import type { SearchHit } from "../services/api";
+import { compactTableActionButtonClass, searchResultOpenButtonClass } from "../ui/button-classes";
 import { formatDate, formatScore } from "../utils/format";
 
 defineProps<{
@@ -72,10 +73,9 @@ const { t } = useI18n();
       <Column :header="t('sources.table.action')" style="width: 7rem">
         <template #body="{ data: hit }">
           <Button
+            unstyled
+            :class="compactTableActionButtonClass"
             data-testid="search-result-open"
-            severity="secondary"
-            variant="outlined"
-            size="small"
             :label="t('common.open')"
             @click.stop="emit('open', hit)"
           />
@@ -107,11 +107,9 @@ const { t } = useI18n();
             </div>
           </div>
           <Button
-            class="tool-card-open"
+            unstyled
+            :class="searchResultOpenButtonClass"
             data-testid="search-result-open"
-            severity="secondary"
-            variant="outlined"
-            size="small"
             :label="t('common.open')"
             @click.stop="emit('open', hit)"
           />
