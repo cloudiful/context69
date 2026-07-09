@@ -25,7 +25,7 @@ config = { package = "cloudiful-config", version = "0.6.2" }
 context69-contracts = { path = "crates/context69-contracts", version = "0.1.0" }
 context69-namespace = { path = "crates/context69-namespace", version = "0.1.0" }
 context69-search = { path = "crates/context69-search", version = "0.1.0" }
-docling-convert = { package = "cloudiful-docling-convert", version = "0.2.1" }
+docling-convert = { package = "cloudiful-docling-convert", version = "0.2.3" }
 futures = "0.3.32"
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
 qdrant-client = "1.18.0"
