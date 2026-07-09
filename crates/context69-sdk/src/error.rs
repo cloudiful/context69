@@ -6,6 +6,7 @@ use reqwest::StatusCode;
 pub enum Error {
     InvalidBaseUrl(String),
     InvalidHeader(String),
+    InvalidPersonalAccessToken(String),
     Http(reqwest::Error),
     Serialization(serde_json::Error),
     HttpStatus {
@@ -14,10 +15,6 @@ pub enum Error {
         body: String,
     },
     AuthenticationRequired,
-    RefreshFailed {
-        status: Option<StatusCode>,
-        message: String,
-    },
     UrlJoin {
         path: String,
         source: url::ParseError,
@@ -30,6 +27,7 @@ impl fmt::Display for Error {
         match self {
             Self::InvalidBaseUrl(url) => write!(f, "invalid base url: {url}"),
             Self::InvalidHeader(value) => write!(f, "invalid header value: {value}"),
+            Self::InvalidPersonalAccessToken(message) => write!(f, "{message}"),
             Self::Http(error) => write!(f, "{error}"),
             Self::Serialization(error) => write!(f, "{error}"),
             Self::HttpStatus {
@@ -44,12 +42,11 @@ impl fmt::Display for Error {
                 }
             }
             Self::AuthenticationRequired => {
-                write!(f, "authentication required before calling this API")
+                write!(
+                    f,
+                    "personal access token is required before calling this API"
+                )
             }
-            Self::RefreshFailed { status, message } => match status {
-                Some(status) => write!(f, "token refresh failed with {status}: {message}"),
-                None => write!(f, "token refresh failed: {message}"),
-            },
             Self::UrlJoin { path, source } => {
                 write!(f, "failed to resolve path '{path}': {source}")
             }

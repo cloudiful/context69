@@ -3,6 +3,7 @@ pub mod common;
 pub mod library;
 pub mod namespace;
 pub mod search;
+pub mod settings;
 pub mod sources;
 
 pub use auth::{
@@ -19,10 +20,22 @@ pub use library::{
     UpsertLibraryTextRequest,
 };
 pub use namespace::{
-    GroupKind, GroupMemberResponse, GroupResponse, MembershipRole, ProjectMemberResponse,
-    ProjectResponse, UserDirectoryEntryResponse, Visibility,
+    CreateGroupRequest, CreateProjectRequest, GroupKind, GroupMemberResponse, GroupResponse,
+    MembershipRole, MoveProjectRequest, ProjectMemberResponse, ProjectResponse, UpdateGroupRequest,
+    UpdateProjectRequest, UpsertMembershipRequest, UserDirectoryEntryResponse, Visibility,
 };
 pub use search::{
     DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse,
 };
-pub use sources::{ListSourcesResponse, SourceOriginStatusKind, SourceStatus, SyncOutcome};
+pub use settings::{
+    DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,
+    DoclingVlmSettingsResponse, ProviderAccountResponse, RuntimeChunkingSettings,
+    RuntimeEmbeddingSettings, RuntimeFileLibrarySettings, RuntimeQdrantSettings,
+    RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse,
+    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings,
+    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, UpsertProviderAccountRequest,
+};
+pub use sources::{
+    ListSourcesResponse, SourceConfigInput, SourceConnectionResponse, SourceOriginStatusKind,
+    SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
+};

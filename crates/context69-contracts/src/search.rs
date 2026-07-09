@@ -1,5 +1,5 @@
 use chrono::{DateTime, NaiveDate, Utc};
-use rmcp::schemars::JsonSchema;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;

@@ -7,7 +7,6 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-chrono.workspace = true
 context69-contracts.workspace = true
 redis = { workspace = true, features = ["tokio-comp", "connection-manager"] }
 reqwest = { workspace = true, features = ["charset", "gzip", "http2", "json", "rustls", "system-proxy"] }
@@ -16,3 +15,6 @@ serde_json.workspace = true
 sha2.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
