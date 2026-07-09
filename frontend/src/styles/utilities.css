@@ -723,9 +723,6 @@
       font-size: 0.86rem;
     }
 
-    .tool-action.p-button,
-    .tool-action-primary.p-button,
-    .source-table-action.p-button,
     .library-browser-action.p-button,
     .library-browser-upload.p-button {
       min-height: 2rem;
@@ -854,17 +851,6 @@
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       justify-content: stretch;
-    }
-
-    .search-form-action-primary.p-button {
-      width: 100%;
-      min-height: 2rem;
-      min-width: 0;
-    }
-
-    .search-form-action-tertiary.p-button {
-      min-height: 2rem;
-      min-width: 0;
     }
 
     .search-form-advanced {

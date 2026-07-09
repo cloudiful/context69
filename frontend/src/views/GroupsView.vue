@@ -10,6 +10,7 @@ import Tag from "primevue/tag";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import { apiClient, type GroupResponse } from "../services/api";
+import { toolPrimaryButtonClass } from "../ui/button-classes";
 
 const router = useRouter();
 const { t } = useI18n();
@@ -70,7 +71,7 @@ onMounted(() => {
   <div class="workspace-page">
     <div class="workspace-block-header">
       <h1 class="section-title">{{ t("groups.title") }}</h1>
-      <Button class="tool-action-primary" @click="createDialogVisible = true">
+      <Button :class="toolPrimaryButtonClass" @click="createDialogVisible = true">
         {{ t("groups.create") }}
       </Button>
     </div>

@@ -8,6 +8,7 @@ import AppMdiIcon from "./AppMdiIcon.vue";
 import { useAppNavigation } from "../composables/use-app-navigation";
 import { authSessionState, isAuthenticated, logout } from "../services/auth/session";
 import { useUiPreferences } from "../composables/use-ui-preferences";
+import { controlButtonClass } from "../ui/button-classes";
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean;
@@ -130,7 +131,7 @@ async function signOut() {
       </Transition>
       <Button
         v-if="isAuthenticated()"
-        class="app-control-button app-sidebar-icon-button"
+        :class="[controlButtonClass, 'app-sidebar-icon-button']"
         type="button"
         :aria-label="t('auth.logout')"
         :title="t('auth.logout')"

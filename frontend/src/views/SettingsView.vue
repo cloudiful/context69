@@ -13,7 +13,7 @@ import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
 import { persistLocale, type AppLocale } from "../i18n/locale";
 import type { SettingsSectionKey } from "../settings/navigation";
-import { settingsFloatingSaveButtonClass } from "../ui/button-classes";
+import { controlButtonClass, settingsFloatingSaveButtonClass } from "../ui/button-classes";
 import SettingsAccessTokensPage from "./settings/SettingsAccessTokensPage.vue";
 import SettingsAdminUsersPage from "./settings/SettingsAdminUsersPage.vue";
 import SettingsAppearancePage from "./settings/SettingsAppearancePage.vue";
@@ -70,7 +70,7 @@ function switchLocale(nextLocale: AppLocale) {
     <template #actions>
       <div class="settings-header-actions">
         <Button
-          class="app-control-button md:hidden"
+          :class="[controlButtonClass, 'md:hidden']"
           type="button"
           :aria-label="t('settings.openNavigation')"
           @click="preferences.toggleMobileNav"
@@ -93,7 +93,7 @@ function switchLocale(nextLocale: AppLocale) {
       :error="pageError"
     >
       <form class="grid gap-2" @submit.prevent="state.saveSettings">
-        <div class="settings-sections">
+        <div class="grid gap-4">
           <SettingsAppearancePage
             v-if="currentSection === 'appearance'"
             :locale="appLocale.value"

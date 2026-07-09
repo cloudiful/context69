@@ -3,6 +3,7 @@ import { useI18n } from "vue-i18n";
 
 import AppStateMessage from "./AppStateMessage.vue";
 import type { SearchHit } from "../services/api";
+import { controlButtonClass } from "../ui/button-classes";
 import { formatDate, formatScore } from "../utils/format";
 
 defineProps<{
@@ -29,7 +30,7 @@ const { t } = useI18n();
           </p>
         </div>
         <button
-          class="app-control-button min-h-8 shrink-0"
+          :class="[controlButtonClass, 'shrink-0']"
           type="button"
           @click="emit('open', selectedHit)"
         >

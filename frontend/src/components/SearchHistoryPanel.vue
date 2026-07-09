@@ -3,6 +3,7 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 
 import AppPanel from "./AppPanel.vue";
+import { searchHistoryClearButtonClass } from "../ui/button-classes";
 import type { SearchHistoryEntry } from "../utils/search-history";
 
 defineProps<{
@@ -41,9 +42,7 @@ function formatHistorySummary(entry: SearchHistoryEntry) {
   >
     <template #actions>
       <Button
-        class="search-history-clear"
-        severity="secondary"
-        variant="text"
+        :class="searchHistoryClearButtonClass"
         @click="emit('clear')"
       >
         {{ t("search.history.clear") }}

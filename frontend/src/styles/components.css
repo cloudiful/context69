@@ -378,36 +378,27 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
 
-  .app-control-button,
-  .search-form-action-secondary.p-button,
-  .source-table-action.p-button,
   .library-browser-action.p-button,
   .library-browser-upload.p-button,
   .library-browser-upload .p-fileupload-basic {
     @apply min-h-8 rounded-lg border border-app-border bg-app-surface-soft/45 px-3 text-sm font-medium text-app-text shadow-none transition;
   }
 
-  .app-control-button:not(:disabled):hover,
-  .search-form-action-secondary.p-button:not(:disabled):hover,
-  .source-table-action.p-button:not(:disabled):hover,
   .library-browser-action.p-button:not(:disabled):hover,
   .library-browser-upload.p-button:not(:disabled):hover,
   .library-browser-upload .p-fileupload-basic:not(:disabled):hover {
     @apply border-app-border-strong bg-app-surface-soft/72;
   }
 
-  .app-primary-button,
-  .search-form-action-primary.p-button {
+  .app-primary-button {
     @apply min-h-8 rounded-lg border border-app-border-strong bg-app-surface-soft px-3 text-sm font-semibold text-app-text shadow-none transition;
   }
 
-  .app-primary-button:not(:disabled):hover,
-  .search-form-action-primary.p-button:not(:disabled):hover {
+  .app-primary-button:not(:disabled):hover {
     @apply bg-app-surface-soft/80;
   }
 
-  .app-primary-button:disabled,
-  .app-control-button:disabled {
+  .app-primary-button:disabled {
     @apply border-app-border bg-app-surface-soft text-app-text-dim opacity-100;
   }
 
@@ -493,31 +484,6 @@
 
   .search-form-action {
     @apply justify-center;
-  }
-
-  .search-form-action-primary.p-button {
-    @apply min-h-[2.35rem] w-full whitespace-nowrap lg:w-auto;
-    min-width: 7.25rem;
-  }
-
-  .search-form-action-primary.p-button:not(:disabled):hover {
-    @apply bg-app-surface-soft/80;
-  }
-
-  .search-form-action-secondary.p-button {
-    @apply min-w-20;
-  }
-
-  .search-form-action-secondary.p-button:not(:disabled):hover {
-    @apply border-app-border-strong bg-app-surface-soft;
-  }
-
-  .search-form-action-tertiary.p-button {
-    @apply min-h-[2.35rem] px-2 text-sm text-app-text-muted;
-  }
-
-  .search-form-action-tertiary.p-button:not(:disabled):hover {
-    @apply bg-app-surface-soft/35 text-app-text;
   }
 
   .search-form-advanced {
@@ -622,13 +588,12 @@
     @apply fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-app-border/70 bg-app-bg/94 px-2 py-2 backdrop-blur-xl md:hidden;
   }
 
-  .app-mobile-nav-link,
-  .app-mobile-nav-link.p-button {
+  .app-mobile-nav-link {
     @apply grid justify-items-center gap-1 rounded-xl px-2 py-2 text-[0.72rem] font-medium text-app-text-dim transition;
   }
 
   .app-mobile-nav-link.is-active,
-  .app-mobile-nav-link.p-button:not(:disabled):hover {
+  .app-mobile-nav-link:not(:disabled):hover {
     @apply bg-app-surface-soft/70 text-app-text;
   }
 
@@ -646,10 +611,6 @@
 
   .search-history-chip-meta {
     @apply truncate text-xs text-app-text-dim;
-  }
-
-  .search-history-clear.p-button {
-    @apply min-h-8 px-1 text-sm text-app-text-muted;
   }
 
   .search-results-table .p-datatable-table-container {
@@ -890,27 +851,6 @@
 
   .utility-toolbar-group {
     @apply flex flex-wrap items-center gap-1.5;
-  }
-
-  .tool-action.p-button,
-  .tool-action-primary.p-button {
-    @apply min-h-8 rounded-md px-3 text-sm font-medium shadow-none;
-  }
-
-  .tool-action.p-button {
-    @apply border border-app-border bg-app-surface-soft/40 text-app-text;
-  }
-
-  .tool-action-primary.p-button {
-    @apply border border-app-border-strong bg-app-surface-soft text-app-text;
-  }
-
-  .tool-action.p-button:not(:disabled):hover {
-    @apply border-app-border-strong bg-app-surface-soft/72;
-  }
-
-  .tool-action-primary.p-button:not(:disabled):hover {
-    @apply bg-app-surface-soft/80;
   }
 
   .settings-header-actions {
@@ -1172,14 +1112,6 @@
 
   .source-table-actions {
     @apply flex flex-wrap justify-start gap-1 text-sm xl:justify-end;
-  }
-
-  .source-table-action.p-button {
-    @apply min-h-7 rounded-md px-2 text-xs;
-  }
-
-  .source-table-action.p-button:not(:disabled):hover {
-    @apply border-app-border-strong bg-app-surface-soft/72;
   }
 
   .tool-table-desktop {

@@ -8,6 +8,7 @@ import Sidebar from "primevue/sidebar";
 import AppMdiIcon from "./AppMdiIcon.vue";
 import AppSidebarContent from "./AppSidebarContent.vue";
 import { useUiPreferences } from "../composables/use-ui-preferences";
+import { controlButtonClass } from "../ui/button-classes";
 
 const route = useRoute();
 const { t } = useI18n();
@@ -64,9 +65,8 @@ function setMobileNavVisible(visible: boolean) {
               </Transition>
               <Button
                 data-testid="sidebar-collapse-toggle"
-                class="app-control-button app-sidebar-icon-button"
+                :class="[controlButtonClass, 'app-sidebar-icon-button']"
                 type="button"
-                text
                 :aria-label="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
                 :title="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
                 @click="preferences.toggleSidebar"
@@ -105,9 +105,8 @@ function setMobileNavVisible(visible: boolean) {
                 <span class="app-sidebar-brand-text">Context69</span>
               </div>
               <Button
-                class="app-control-button app-sidebar-icon-button"
+                :class="[controlButtonClass, 'app-sidebar-icon-button']"
                 type="button"
-                text
                 :aria-label="t('common.close')"
                 :title="t('common.close')"
                 @click="closeCallback"

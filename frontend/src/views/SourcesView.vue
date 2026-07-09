@@ -16,6 +16,7 @@ import {
   type SourceConnectionResponse,
   type SourceStatus,
 } from "../services/api";
+import { toolSecondaryButtonClass } from "../ui/button-classes";
 
 const { t } = useI18n();
 const confirm = useConfirm();
@@ -243,10 +244,8 @@ onMounted(async () => {
             </div>
             <Button
               v-if="sources.length > 0"
-              class="sources-editor-close tool-action"
+              :class="[toolSecondaryButtonClass, 'sources-editor-close']"
               type="button"
-              severity="secondary"
-              variant="outlined"
               @click="resetEditor"
             >
               {{ t("common.close") }}

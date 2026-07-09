@@ -8,6 +8,11 @@ import Tag from "primevue/tag";
 
 import AppTableToolbar from "./AppTableToolbar.vue";
 import type { SourceStatus } from "../services/api";
+import {
+  compactTableActionButtonClass,
+  toolPrimaryButtonClass,
+  toolSecondaryButtonClass,
+} from "../ui/button-classes";
 import { formatTimestamp } from "../utils/format";
 
 const props = withDefaults(defineProps<{
@@ -99,10 +104,10 @@ function handleRowSelect(source: SourceStatus) {
       @update:search-query="searchQuery = $event"
     >
       <template #actions>
-        <Button class="tool-action" severity="secondary" variant="outlined" @click="emit('refresh')">
+        <Button :class="toolSecondaryButtonClass" @click="emit('refresh')">
           {{ t("sources.refresh") }}
         </Button>
-        <Button v-if="props.canManage" class="tool-action tool-action-primary" type="button" @click="emit('create')">
+        <Button v-if="props.canManage" :class="toolPrimaryButtonClass" type="button" @click="emit('create')">
           {{ t("sources.newSource") }}
         </Button>
       </template>
@@ -252,24 +257,20 @@ function handleRowSelect(source: SourceStatus) {
         >
           <template #body="{ data }">
             <div class="source-table-actions">
-              <Button class="source-table-action" type="button" severity="secondary" variant="outlined" @click.stop="emit('edit', data)">
+              <Button :class="compactTableActionButtonClass" type="button" @click.stop="emit('edit', data)">
                 {{ t("common.edit") }}
               </Button>
               <Button
-                class="source-table-action"
+                :class="compactTableActionButtonClass"
                 type="button"
-                severity="secondary"
-                variant="outlined"
                 :disabled="deletingMap[data.source_key]"
                 @click.stop="emit('delete', data.source_key)"
               >
                 {{ deletingMap[data.source_key] ? t("sources.deleting") : t("common.delete") }}
               </Button>
               <Button
-                class="source-table-action"
+                :class="compactTableActionButtonClass"
                 type="button"
-                severity="secondary"
-                variant="outlined"
                 :disabled="syncingMap[data.source_key] || deletingMap[data.source_key]"
                 @click.stop="emit('sync', data.source_key)"
               >
@@ -343,24 +344,20 @@ function handleRowSelect(source: SourceStatus) {
           </p>
 
           <div v-if="props.canManage" class="tool-card-actions">
-            <Button class="source-table-action" type="button" severity="secondary" variant="outlined" @click="emit('edit', source)">
+            <Button :class="compactTableActionButtonClass" type="button" @click="emit('edit', source)">
               {{ t("common.edit") }}
             </Button>
             <Button
-              class="source-table-action"
+              :class="compactTableActionButtonClass"
               type="button"
-              severity="secondary"
-              variant="outlined"
               :disabled="deletingMap[source.source_key]"
               @click="emit('delete', source.source_key)"
             >
               {{ deletingMap[source.source_key] ? t("sources.deleting") : t("common.delete") }}
             </Button>
             <Button
-              class="source-table-action"
+              :class="compactTableActionButtonClass"
               type="button"
-              severity="secondary"
-              variant="outlined"
               :disabled="syncingMap[source.source_key] || deletingMap[source.source_key]"
               @click="emit('sync', source.source_key)"
             >

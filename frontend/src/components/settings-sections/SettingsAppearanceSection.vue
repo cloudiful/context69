@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import type { AppLocale } from "../../i18n/locale";
@@ -46,8 +47,8 @@ function updateTheme(value: unknown) {
 
 <template>
   <AppSettingsSection :legend="t('settings.appearance.title')">
-    <section id="settings-appearance" class="settings-block">
-      <div class="settings-compact-grid settings-compact-grid-two">
+    <AppSettingsBlock id="settings-appearance">
+      <div class="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
         <AppSelectField
           float-label
           input-id="settings-locale-select"
@@ -68,6 +69,6 @@ function updateTheme(value: unknown) {
           @update:model-value="updateTheme"
         />
       </div>
-    </section>
+    </AppSettingsBlock>
   </AppSettingsSection>
 </template>

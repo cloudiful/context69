@@ -7,6 +7,7 @@ import AppMdiIcon from "./AppMdiIcon.vue";
 import { useAppNavigation } from "../composables/use-app-navigation";
 import { useUiPreferences } from "../composables/use-ui-preferences";
 import { isAuthenticated } from "../services/auth/session";
+import { controlButtonClass } from "../ui/button-classes";
 
 const route = useRoute();
 const items = useAppNavigation();
@@ -26,9 +27,8 @@ function isActive(itemTo: string) {
     aria-label="Primary"
   >
     <Button
-      class="app-mobile-nav-link app-mobile-nav-menu"
+      :class="[controlButtonClass, 'app-mobile-nav-link app-mobile-nav-menu']"
       type="button"
-      text
       :aria-label="t('settings.openNavigation')"
       @click="preferences.toggleMobileNav"
     >

@@ -12,6 +12,7 @@ import AppInfoCard from "../components/AppInfoCard.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
 import { ApiError, apiClient, type DocumentResponse } from "../services/api";
+import { toolSecondaryButtonClass } from "../ui/button-classes";
 import { formatDate, formatJson, formatTimestamp } from "../utils/format";
 
 const route = useRoute();
@@ -159,10 +160,8 @@ onBeforeUnmount(() => {
 
           <Button
             v-if="documentData.chunks.length > 3"
-            class="tool-action"
+            :class="toolSecondaryButtonClass"
             type="button"
-            severity="secondary"
-            variant="outlined"
             :label="expanded ? t('document.collapse') : t('document.showAll', { count: documentData.chunks.length })"
             @click="expanded = !expanded"
           />
@@ -173,9 +172,7 @@ onBeforeUnmount(() => {
           <AppInfoCard :label="t('document.updated')" :value="formatTimestamp(documentData.updated_at)" />
           <AppInfoCard :label="t('document.sourceLink')">
             <Button
-              class="tool-action"
-              severity="secondary"
-              variant="outlined"
+              :class="toolSecondaryButtonClass"
               :label="libraryRoute ? t('document.openLibraryFile') : t('document.openOrigin')"
               @click="openSourceTarget"
             />

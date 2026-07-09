@@ -21,6 +21,7 @@ declare module 'vue' {
     AppRecordCard: typeof import('./src/components/AppRecordCard.vue')['default']
     AppRecordHeader: typeof import('./src/components/AppRecordHeader.vue')['default']
     AppSelectField: typeof import('./src/components/AppSelectField.vue')['default']
+    AppSettingsBlock: typeof import('./src/components/AppSettingsBlock.vue')['default']
     AppSettingsSection: typeof import('./src/components/AppSettingsSection.vue')['default']
     AppSidebar: typeof import('./src/components/AppSidebar.vue')['default']
     AppSidebarContent: typeof import('./src/components/AppSidebarContent.vue')['default']

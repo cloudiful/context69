@@ -7,7 +7,7 @@ defineProps<{
 
 <template>
   <section class="app-settings-section" :aria-label="legend">
-    <div class="app-settings-section-body">
+    <div class="grid gap-6">
       <p v-if="description" class="app-settings-section-description">{{ description }}</p>
       <slot />
     </div>

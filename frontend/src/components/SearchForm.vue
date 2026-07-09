@@ -11,6 +11,11 @@ import Select from "primevue/select";
 import AppFormField from "./AppFormField.vue";
 import type { SourceStatus } from "../services/api";
 import type { SearchFilters } from "../types/ui";
+import {
+  settingsPrimaryButtonClass,
+  settingsSecondaryButtonClass,
+  subtleTextButtonClass,
+} from "../ui/button-classes";
 
 const props = defineProps<{
   filters: SearchFilters;
@@ -135,16 +140,14 @@ function resetForm() {
 
         <div class="search-form-actions">
           <Button
-            class="search-form-action search-form-action-tertiary"
+            :class="[subtleTextButtonClass, 'search-form-action min-w-0']"
             data-testid="search-toggle-advanced"
             type="button"
-            severity="secondary"
-            variant="text"
             :label="advancedFiltersOpen ? t('search.form.hideFilters') : t('search.form.moreFilters')"
             @click="advancedFiltersOpen = !advancedFiltersOpen"
           />
           <Button
-            class="search-form-action search-form-action-primary"
+            :class="[settingsPrimaryButtonClass, 'search-form-action min-h-[2.35rem] w-full min-w-0 whitespace-nowrap lg:w-auto lg:min-w-[7.25rem]']"
             data-testid="search-submit"
             type="submit"
             :disabled="busy"
@@ -202,11 +205,9 @@ function resetForm() {
 
         <div class="search-form-advanced-actions">
           <Button
-            class="search-form-action search-form-action-secondary"
+            :class="[settingsSecondaryButtonClass, 'search-form-action min-w-20']"
             data-testid="search-reset"
             type="button"
-            severity="secondary"
-            variant="outlined"
             :label="t('common.reset')"
             @click="resetForm"
           />
