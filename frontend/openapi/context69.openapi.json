@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "paths": {
     "/healthz": {
@@ -3725,6 +3725,9 @@
           "content": {
             "type": "string"
           },
+          "content_format": {
+            "$ref": "#/components/schemas/LibraryTextContentFormat"
+          },
           "folder_id": {
             "type": [
               "string",
@@ -4472,6 +4475,13 @@
         ]
       },
       "LibraryPreviewContentFormat": {
+        "type": "string",
+        "enum": [
+          "plain_text",
+          "markdown"
+        ]
+      },
+      "LibraryTextContentFormat": {
         "type": "string",
         "enum": [
           "plain_text",
@@ -5586,6 +5596,9 @@
         "properties": {
           "content": {
             "type": "string"
+          },
+          "content_format": {
+            "$ref": "#/components/schemas/LibraryTextContentFormat"
           },
           "external_id": {
             "type": "string"

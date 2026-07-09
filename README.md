@@ -197,6 +197,7 @@ For the full surface:
 
 - [API Reference](/Users/cloudiful/codes/research/context69/docs/api.md)
 - generated OpenAPI output at `frontend/openapi/context69.openapi.json`
+- JSON library text endpoints accept `content_format = plain_text | markdown`; Markdown requests are stored as `.md` with `text/markdown`, while multipart uploads already support `.md` files directly
 
 ## Security
 

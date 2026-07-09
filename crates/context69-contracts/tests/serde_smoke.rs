@@ -1,8 +1,8 @@
 use context69_contracts::{
     AuthLoginRequest, CreatePersonalAccessTokenRequest, CreateTextRequest, GroupKind,
-    GroupResponse, HealthResponse, HealthStatus, LibraryUploadResponse, ListSourcesResponse,
-    MembershipRole, PersonalAccessTokenResponse, PersonalAccessTokenScope, SearchRequest,
-    SourceOriginStatusKind, SourceStatus, UpsertLibraryTextRequest, Visibility,
+    GroupResponse, HealthResponse, HealthStatus, LibraryTextContentFormat, LibraryUploadResponse,
+    ListSourcesResponse, MembershipRole, PersonalAccessTokenResponse, PersonalAccessTokenScope,
+    SearchRequest, SourceOriginStatusKind, SourceStatus, UpsertLibraryTextRequest, Visibility,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -49,6 +49,7 @@ fn serializes_and_deserializes_core_requests() {
         folder_id: Some(Uuid::nil()),
         title: "Doc".to_string(),
         content: "Hello".to_string(),
+        content_format: LibraryTextContentFormat::Markdown,
         source_uri: Some("https://example.test/doc".to_string()),
         summary: Some("Summary".to_string()),
     };
@@ -56,6 +57,20 @@ fn serializes_and_deserializes_core_requests() {
         serde_json::from_value(serde_json::to_value(text_request).expect("serialize text request"))
             .expect("deserialize text request");
     assert_eq!(text_roundtrip.title, "Doc");
+    assert_eq!(
+        text_roundtrip.content_format,
+        LibraryTextContentFormat::Markdown
+    );
+
+    let default_text_request: CreateTextRequest = serde_json::from_value(json!({
+        "title": "Plain Doc",
+        "content": "Hello"
+    }))
+    .expect("deserialize default text request");
+    assert_eq!(
+        default_text_request.content_format,
+        LibraryTextContentFormat::PlainText
+    );
 
     let upsert_request: UpsertLibraryTextRequest = serde_json::from_value(json!({
         "external_id": "doc-1",
@@ -66,6 +81,10 @@ fn serializes_and_deserializes_core_requests() {
     .expect("deserialize upsert request");
     assert_eq!(upsert_request.metadata_json, json!({}));
     assert_eq!(upsert_request.external_id, "doc-1");
+    assert_eq!(
+        upsert_request.content_format,
+        LibraryTextContentFormat::PlainText
+    );
 }
 
 #[test]

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use anyhow::Result;
 use uuid::Uuid;
 
+use crate::contracts::LibraryTextContentFormat;
 use crate::library_store::LibraryStore;
 
 use super::storage;
@@ -13,12 +14,13 @@ pub(super) async fn resolve_project_text_filename(
     folder_id: Option<Uuid>,
     exclude_file_id: Option<Uuid>,
     title: &str,
+    format: LibraryTextContentFormat,
 ) -> Result<String> {
     let occupied = store
         .list_filenames_in_project_folder(project_id, folder_id, exclude_file_id)
         .await?;
     Ok(next_available_filename(
-        &storage::text_filename_from_title(title),
+        &storage::text_filename_from_title(title, format),
         &occupied,
     ))
 }

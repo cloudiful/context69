@@ -7,10 +7,12 @@ import Tag from "primevue/tag";
 
 const props = withDefaults(defineProps<{
   countLabel?: string;
+  searchEnabled?: boolean;
   searchPlaceholder?: string;
   searchQuery?: string;
 }>(), {
   countLabel: "",
+  searchEnabled: false,
   searchPlaceholder: "",
   searchQuery: "",
 });
@@ -30,7 +32,7 @@ const showSearchIcon = computed(() => !(props.searchQuery ?? "").trim());
     </div>
 
     <div class="utility-toolbar-group app-table-toolbar-actions">
-      <IconField v-if="searchPlaceholder" class="relative min-w-0 md:w-72 [&.p-iconfield]:w-full">
+      <IconField v-if="searchEnabled" class="relative min-w-0 md:w-72 [&.p-iconfield]:w-full">
         <InputIcon
           v-if="showSearchIcon"
           class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-dim"

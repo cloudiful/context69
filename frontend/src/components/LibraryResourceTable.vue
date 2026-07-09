@@ -163,12 +163,6 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
                   </button>
                   <span v-else class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
 
-                  <span
-                    class="library-resource-kind-icon"
-                    :class="data.kind === 'folder' ? 'library-resource-kind-folder' : 'library-resource-kind-file'"
-                    aria-hidden="true"
-                  />
-
                   <div class="library-resource-copy">
                     <button
                       class="library-entry-button"
@@ -304,11 +298,6 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
                   </span>
                 </button>
                 <span v-else class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
-                <span
-                  class="library-resource-kind-icon"
-                  :class="entry.kind === 'folder' ? 'library-resource-kind-folder' : 'library-resource-kind-file'"
-                  aria-hidden="true"
-                />
                 <div class="min-w-0">
                   <button
                     class="tool-card-title library-entry-button"

@@ -88,6 +88,7 @@ impl LibraryService {
             .as_deref()
             .map(normalize_whitespace)
             .filter(|value| !value.is_empty());
+        let content_format = request.content_format;
         let source_uri = request
             .source_uri
             .as_deref()
@@ -96,7 +97,7 @@ impl LibraryService {
             .map(ToOwned::to_owned);
         let bytes = Bytes::from(content.as_bytes().to_vec());
         if bytes.len() > self.max_upload_size_bytes {
-            let filename = storage::text_filename_from_title(&title);
+            let filename = storage::text_filename_from_title(&title, content_format);
             return Err(anyhow!(
                 "text {} exceeds upload size limit of {} bytes",
                 filename,
@@ -126,6 +127,7 @@ impl LibraryService {
             target_folder_id,
             existing.as_ref().map(|file| file.id),
             &title,
+            content_format,
         )
         .await?;
 
@@ -150,7 +152,7 @@ impl LibraryService {
                             folder_id: target_folder_id,
                             external_id: Some(external_id.to_string()),
                             filename: filename.clone(),
-                            media_type: "text/plain".to_string(),
+                            media_type: storage::text_media_type(content_format).to_string(),
                             size_bytes: bytes.len() as i64,
                             sha256,
                             storage_rel_path,
@@ -177,7 +179,7 @@ impl LibraryService {
                             folder_id: target_folder_id,
                             external_id: Some(external_id.to_string()),
                             filename: filename.clone(),
-                            media_type: "text/plain".to_string(),
+                            media_type: storage::text_media_type(content_format).to_string(),
                             size_bytes: bytes.len() as i64,
                             sha256,
                             storage_rel_path,
@@ -655,13 +657,14 @@ impl LibraryService {
             .as_deref()
             .map(normalize_whitespace)
             .filter(|value| !value.is_empty());
+        let content_format = request.content_format;
         let source_uri = request
             .source_uri
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
-        let filename = storage::text_filename_from_title(&title);
+        let filename = storage::text_filename_from_title(&title, content_format);
         let bytes = Bytes::from(content.as_bytes().to_vec());
         if bytes.len() > self.max_upload_size_bytes {
             return Err(anyhow!(
@@ -701,7 +704,7 @@ impl LibraryService {
             folder_id: request.folder_id,
             external_id: None,
             filename: filename.clone(),
-            media_type: "text/plain".to_string(),
+            media_type: storage::text_media_type(content_format).to_string(),
             size_bytes: bytes.len() as i64,
             sha256,
             storage_rel_path,

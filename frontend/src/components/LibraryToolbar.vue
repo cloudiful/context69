@@ -29,7 +29,7 @@ const { t } = useI18n();
   <AppTableToolbar
     class="library-toolbar-shell"
     :count-label="countLabel"
-    :search-placeholder="t('library.filterResourcesPlaceholder')"
+    search-enabled
     :search-query="searchQuery"
     @update:search-query="emit('update:searchQuery', $event)"
   >

@@ -405,7 +405,12 @@ onBeforeUnmount(() => {
     @update:value="sourceFolderDialogValue = $event"
   />
 
-  <Dialog v-model:visible="previewState.previewDialogVisible" modal :header="previewState.previewTitle" class="library-preview-dialog">
+  <Dialog
+    v-model:visible="previewState.previewDialogVisible"
+    modal
+    :header="previewState.previewTitle"
+    class="library-preview-dialog w-[min(96vw,58rem)]"
+  >
     <LibraryPreviewPanel
       :active-section-key="detailState.activeSectionKey"
       :detail="detailState.detail"

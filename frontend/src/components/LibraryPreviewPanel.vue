@@ -96,15 +96,8 @@ const activeSection = computed(() => {
       </template>
 
       <div v-if="selectedFileId && detail" class="space-y-4">
-        <section class="grid gap-4 rounded-xl border border-app-border/65 bg-app-surface/35 px-4 py-4">
-          <h2 class="break-all text-base font-semibold text-app-text">{{ detail.filename }}</h2>
-
-          <div class="flex items-start justify-between gap-4 border-b border-app-border/55 pb-3">
-            <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.pathLabel") }}</span>
-            <span class="min-w-0 break-all text-right text-sm text-app-text">{{ detail.folder_path }}</span>
-          </div>
-
-          <dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+        <section class="rounded-xl border border-app-border/65 bg-app-surface/35 px-4 py-4">
+          <dl class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-4 gap-y-3">
             <div class="grid gap-1">
               <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.statusLabel") }}</dt>
               <dd><Tag :value="statusLabel(detail.ingest_status)" :severity="statusSeverity(detail.ingest_status)" /></dd>
@@ -119,7 +112,7 @@ const activeSection = computed(() => {
             </div>
             <div class="grid gap-1">
               <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.ingestedAt") }}</dt>
-              <dd class="text-sm text-app-text">{{ formatTimestamp(detail.ingested_at) }}</dd>
+              <dd class="text-sm text-app-text">{{ detail.ingested_at ? formatTimestamp(detail.ingested_at) : "—" }}</dd>
             </div>
           </dl>
         </section>
@@ -138,24 +131,6 @@ const activeSection = computed(() => {
         >
           {{ detail.error_message || t("library.failedMessage") }}
         </AppStateMessage>
-
-        <section v-if="detail.jobs.length > 0" class="grid gap-3 rounded-xl border border-app-border/65 bg-app-surface/35 px-4 py-4">
-          <h2 class="text-base font-semibold text-app-text">{{ t("library.jobsTitle") }}</h2>
-
-          <div class="overflow-hidden rounded-lg border border-app-border/55 bg-app-surface-soft/18">
-            <div
-              v-for="job in detail.jobs"
-              :key="job.job_id"
-              class="flex items-center justify-between gap-3 border-b border-app-border/50 px-4 py-3 last:border-b-0"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-sm text-app-text">{{ job.job_id }}</p>
-                <p class="text-xs text-app-text-dim">{{ formatTimestamp(job.updated_at) }}</p>
-              </div>
-              <Tag :value="statusLabel(job.status)" :severity="statusSeverity(job.status)" />
-            </div>
-          </div>
-        </section>
 
         <section
           v-if="detail.sections.length > 0"
@@ -189,6 +164,24 @@ const activeSection = computed(() => {
               :content="activeSection.preview_text"
               :content-format="activeSection.content_format"
             />
+          </div>
+        </section>
+
+        <section v-if="detail.jobs.length > 0" class="grid gap-3 rounded-xl border border-app-border/65 bg-app-surface/35 px-4 py-4">
+          <h2 class="text-sm font-semibold text-app-text">{{ t("library.jobsTitle") }}</h2>
+
+          <div class="grid gap-2">
+            <div
+              v-for="job in detail.jobs"
+              :key="job.job_id"
+              class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-app-border/55 bg-app-surface-soft/18 px-3 py-2.5"
+            >
+              <div class="min-w-0">
+                <p class="truncate text-sm text-app-text">{{ job.job_id }}</p>
+                <p class="text-xs text-app-text-dim">{{ formatTimestamp(job.updated_at) }}</p>
+              </div>
+              <Tag :value="statusLabel(job.status)" :severity="statusSeverity(job.status)" />
+            </div>
           </div>
         </section>
       </div>

@@ -1298,42 +1298,6 @@
     transform: rotate(90deg);
   }
 
-  .library-resource-kind-icon {
-    @apply relative mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-app-border bg-app-surface-soft/42;
-  }
-
-  .library-resource-kind-folder::before {
-    content: "";
-    width: 0.78rem;
-    height: 0.52rem;
-    border: 1px solid color-mix(in srgb, var(--color-app-text-dim) 88%, transparent);
-    border-radius: 0.16rem;
-    background: color-mix(in srgb, var(--color-app-text-dim) 8%, transparent);
-  }
-
-  .library-resource-kind-folder::after {
-    content: "";
-    position: absolute;
-    top: 0.34rem;
-    left: 0.34rem;
-    width: 0.38rem;
-    height: 0.16rem;
-    border: 1px solid color-mix(in srgb, var(--color-app-text-dim) 88%, transparent);
-    border-bottom: 0;
-    border-radius: 0.14rem 0.14rem 0 0;
-  }
-
-  .library-resource-kind-file::before {
-    content: "";
-    width: 0.64rem;
-    height: 0.82rem;
-    border: 1px solid color-mix(in srgb, var(--color-app-text-dim) 88%, transparent);
-    border-radius: 0.12rem;
-    background:
-      linear-gradient(135deg, transparent 0 68%, color-mix(in srgb, var(--color-app-text-dim) 88%, transparent) 69% 76%, transparent 77%),
-      color-mix(in srgb, var(--color-app-text-dim) 6%, transparent);
-  }
-
   .library-resource-meta {
     @apply text-xs leading-4 text-app-text-dim;
   }

@@ -99,6 +99,7 @@ function handleRowSelect(source: SourceStatus) {
   <div class="sources-table-shell">
     <AppTableToolbar
       :count-label="t('sources.summary.total', { count: filteredSources.length })"
+      search-enabled
       :search-placeholder="t('sources.table.filterPlaceholder')"
       :search-query="searchQuery"
       @update:search-query="searchQuery = $event"

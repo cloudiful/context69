@@ -72,7 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use chrono::NaiveDate;
 use context69_sdk::{
     Context69Client,
-    contracts::{CreateTextRequest, SourceConfigInput, UpsertLibraryTextRequest},
+    contracts::{
+        CreateTextRequest, LibraryTextContentFormat, SourceConfigInput,
+        UpsertLibraryTextRequest,
+    },
 };
 use serde_json::json;
 
@@ -109,7 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create_library_text(&CreateTextRequest {
             folder_id: None,
             title: "Global Runbook".to_string(),
-            content: "step 1".to_string(),
+            content: "# Step 1\n\nFollow the checklist.".to_string(),
+            content_format: LibraryTextContentFormat::Markdown,
             source_uri: Some("https://example.test/runbooks/global".to_string()),
             summary: Some("Global reference".to_string()),
         })
@@ -125,6 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 folder_id: None,
                 title: "Incident 42".to_string(),
                 content: "full text".to_string(),
+                content_format: LibraryTextContentFormat::PlainText,
                 source_uri: Some("https://example.test/incidents/42".to_string()),
                 summary: Some("Postmortem".to_string()),
                 published_at: NaiveDate::from_ymd_opt(2026, 7, 1),
@@ -132,6 +137,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         )
         .await?;
+
+    // Multipart upload already supports Markdown files as long as the uploaded
+    // part uses a `.md` filename or `text/markdown` content type.
 
     Ok(())
 }

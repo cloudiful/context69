@@ -196,6 +196,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_groups"];
+        put?: never;
+        post: operations["create_group"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/{group_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_group"];
+        options?: never;
+        head?: never;
+        patch: operations["update_group"];
+        trace?: never;
+    };
+    "/v1/groups/{group_key}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_group_members"];
+        put?: never;
+        post: operations["upsert_group_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/{group_key}/members/{login_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_group_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/{group_key}/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_projects"];
+        put?: never;
+        post: operations["create_project"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/{group_key}/projects/{project_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_project"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_project"];
+        options?: never;
+        head?: never;
+        patch: operations["update_project"];
+        trace?: never;
+    };
     "/v1/groups/{group_key}/projects/{project_key}/library/files/upload": {
         parameters: {
             query?: never;
@@ -334,6 +446,54 @@ export interface paths {
         get: operations["get_project_library_tree"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/{group_key}/projects/{project_key}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_project_members"];
+        put?: never;
+        post: operations["upsert_project_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/{group_key}/projects/{project_key}/members/{login_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_project_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/{group_key}/projects/{project_key}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["move_project"];
         delete?: never;
         options?: never;
         head?: never;
@@ -532,6 +692,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/docling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_docling_settings"];
+        put: operations["update_docling_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/provider-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_provider_accounts"];
+        put: operations["update_provider_account"];
+        post: operations["create_provider_account"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/provider-accounts/{account_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_provider_account"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_runtime_settings"];
+        put: operations["update_runtime_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_search_settings"];
+        put: operations["update_search_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/source-connections": {
         parameters: {
             query?: never;
@@ -612,6 +868,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/user-directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_user_directory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -668,6 +940,13 @@ export interface components {
             /** Format: uuid */
             parent_folder_id?: string | null;
         };
+        CreateGroupRequest: {
+            group_key: string;
+            kind?: null | components["schemas"]["GroupKind"];
+            name: string;
+            parent_group_key?: string | null;
+            visibility: components["schemas"]["Visibility"];
+        };
         CreatePersonalAccessTokenRequest: {
             /** Format: int32 */
             expires_in_days: number;
@@ -678,6 +957,11 @@ export interface components {
             access_token: string;
             token: components["schemas"]["PersonalAccessTokenResponse"];
         };
+        CreateProjectRequest: {
+            name: string;
+            project_key: string;
+            visibility: components["schemas"]["Visibility"];
+        };
         CreateSourceFolderRequest: {
             folder_name: string;
             /** Format: uuid */
@@ -686,11 +970,89 @@ export interface components {
         };
         CreateTextRequest: {
             content: string;
+            content_format?: components["schemas"]["LibraryTextContentFormat"];
             /** Format: uuid */
             folder_id?: string | null;
             source_uri?: string | null;
             summary?: string | null;
             title: string;
+        };
+        DoclingConnectionSettingsResponse: {
+            base_url?: string | null;
+            /** Format: int64 */
+            poll_interval_secs: number;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
+        DoclingSettingsResponse: {
+            configured: boolean;
+            connection: components["schemas"]["DoclingConnectionSettingsResponse"];
+            source: components["schemas"]["DoclingSettingsSource"];
+            vlm: components["schemas"]["DoclingVlmSettingsResponse"];
+        };
+        /** @enum {string} */
+        DoclingSettingsSource: "config" | "database" | "unconfigured";
+        DoclingVlmSettingsResponse: {
+            code_formula_model?: string | null;
+            has_api_key: boolean;
+            openai_base_url?: string | null;
+            picture_description_model?: string | null;
+            provider_account_key?: string | null;
+            vlm_pipeline_model?: string | null;
+        };
+        DocumentChunkResponse: {
+            /** Format: uuid */
+            chunk_id: string;
+            /** Format: int32 */
+            chunk_index: number;
+            text: string;
+        };
+        DocumentResponse: {
+            chunks: components["schemas"]["DocumentChunkResponse"][];
+            /** Format: int64 */
+            document_id: number;
+            external_id: string;
+            group_key: string;
+            is_library_file?: boolean;
+            /** Format: uuid */
+            library_file_id?: string | null;
+            library_path?: string | null;
+            library_section_label?: string | null;
+            metadata_json?: Record<string, never>;
+            project_key: string;
+            /** Format: date */
+            published_at?: string | null;
+            record_hash: string;
+            source_key: string;
+            source_uri: string;
+            summary?: string | null;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            visibility: components["schemas"]["Visibility"];
+        };
+        /** @enum {string} */
+        GroupKind: "personal" | "shared";
+        GroupMemberResponse: {
+            display_name: string;
+            login_name: string;
+            role: components["schemas"]["MembershipRole"];
+            /** Format: int64 */
+            user_id: number;
+        };
+        GroupResponse: {
+            /** Format: date-time */
+            created_at: string;
+            current_role?: null | components["schemas"]["MembershipRole"];
+            /** Format: int64 */
+            group_id: number;
+            group_key: string;
+            kind: components["schemas"]["GroupKind"];
+            name: string;
+            parent_group_key?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            visibility: components["schemas"]["Visibility"];
         };
         HealthResponse: {
             db_ok?: boolean | null;
@@ -811,6 +1173,8 @@ export interface components {
         LibraryIngestStatus: "pending" | "running" | "succeeded" | "failed";
         /** @enum {string} */
         LibraryPreviewContentFormat: "plain_text" | "markdown";
+        /** @enum {string} */
+        LibraryTextContentFormat: "plain_text" | "markdown";
         LibraryTreeResponse: {
             root: components["schemas"]["LibraryFolderNode"];
         };
@@ -827,6 +1191,9 @@ export interface components {
         MoveFolderRequest: {
             /** Format: uuid */
             target_folder_id?: string | null;
+        };
+        MoveProjectRequest: {
+            target_group_key: string;
         };
         PersonalAccessTokenResponse: {
             /** Format: date-time */
@@ -847,11 +1214,138 @@ export interface components {
         };
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
+        ProjectMemberResponse: {
+            display_name: string;
+            login_name: string;
+            role: components["schemas"]["MembershipRole"];
+            /** Format: int64 */
+            user_id: number;
+        };
+        ProjectResponse: {
+            /** Format: date-time */
+            created_at: string;
+            current_role?: null | components["schemas"]["MembershipRole"];
+            group_key: string;
+            name: string;
+            /** Format: int64 */
+            project_id: number;
+            project_key: string;
+            /** Format: date-time */
+            updated_at: string;
+            visibility: components["schemas"]["Visibility"];
+        };
+        ProviderAccountResponse: {
+            account_key: string;
+            base_url: string;
+            /** Format: date-time */
+            disabled_at?: string | null;
+            display_name: string;
+            has_api_key: boolean;
+            provider_kind: string;
+        };
         ResetAdminUserPasswordRequest: {
             password: string;
         };
+        RuntimeChunkingSettings: {
+            max_chars: number;
+            overlap_chars: number;
+        };
+        RuntimeEmbeddingSettings: {
+            dimensions: number;
+            model: string;
+            provider_account_key: string;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
+        RuntimeFileLibrarySettings: {
+            ingest_concurrency: number;
+            max_upload_request_size_mb: number;
+            max_upload_size_mb: number;
+            /** Format: int32 */
+            pdf_pages_per_task: number;
+            storage_root: string;
+        };
+        RuntimeQdrantSettings: {
+            collection_name: string;
+            recreate_on_dimension_mismatch: boolean;
+            url: string;
+        };
+        RuntimeSchedulerSettings: {
+            /** Format: int64 */
+            interval_secs: number;
+            job_id: string;
+            max_concurrency: number;
+            run_on_start: boolean;
+            valkey_url?: string | null;
+        };
+        RuntimeSettingsResponse: {
+            chunking: components["schemas"]["RuntimeChunkingSettings"];
+            embedding: components["schemas"]["RuntimeEmbeddingSettings"];
+            file_library: components["schemas"]["RuntimeFileLibrarySettings"];
+            qdrant: components["schemas"]["RuntimeQdrantSettings"];
+            scheduler: components["schemas"]["RuntimeSchedulerSettings"];
+        };
+        SearchHit: {
+            /** Format: uuid */
+            chunk_id: string;
+            /** Format: int32 */
+            chunk_index: number;
+            chunk_text: string;
+            /** Format: int64 */
+            document_id: number;
+            external_id: string;
+            group_key: string;
+            is_library_file?: boolean;
+            /** Format: float */
+            keyword_score?: number | null;
+            /** Format: uuid */
+            library_file_id?: string | null;
+            library_path?: string | null;
+            library_section_label?: string | null;
+            match_reason?: string | null;
+            metadata_json?: Record<string, never>;
+            project_key: string;
+            /** Format: date */
+            published_at?: string | null;
+            /** Format: float */
+            rerank_score?: number | null;
+            /** Format: float */
+            score: number;
+            source_key: string;
+            source_uri: string;
+            summary?: string | null;
+            title: string;
+            /** Format: float */
+            vector_score?: number | null;
+            visibility: components["schemas"]["Visibility"];
+        };
         /** @enum {string} */
         SearchMode: "vector" | "hybrid";
+        SearchRequest: {
+            group_key?: string | null;
+            limit?: number;
+            project_key?: string | null;
+            /** Format: date */
+            published_after?: string | null;
+            /** Format: date */
+            published_before?: string | null;
+            query: string;
+            source_key?: string | null;
+        };
+        SearchResponse: {
+            hits: components["schemas"]["SearchHit"][];
+            query: string;
+        };
+        SearchSettingsResponse: {
+            candidate_limit: number;
+            has_api_key: boolean;
+            mode: components["schemas"]["SearchMode"];
+            rerank_base_url: string;
+            rerank_enabled: boolean;
+            rerank_model: string;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
         SourceConfigInput: {
             base_query: string;
             /** Format: int64 */
@@ -915,8 +1409,55 @@ export interface components {
             display_name?: string | null;
             is_admin?: boolean | null;
         };
+        UpdateDoclingConnectionSettings: {
+            base_url: string;
+            /** Format: int64 */
+            poll_interval_secs: number;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
+        UpdateDoclingSettingsRequest: {
+            connection: components["schemas"]["UpdateDoclingConnectionSettings"];
+            vlm?: components["schemas"]["UpdateDoclingVlmSettings"];
+        };
+        UpdateDoclingVlmSettings: {
+            api_key?: string | null;
+            clear_api_key?: boolean;
+            code_formula_model?: string | null;
+            openai_base_url?: string | null;
+            picture_description_model?: string | null;
+            provider_account_key?: string | null;
+            vlm_pipeline_model?: string | null;
+        };
+        UpdateGroupRequest: {
+            name?: string | null;
+            visibility?: null | components["schemas"]["Visibility"];
+        };
+        UpdateProjectRequest: {
+            name?: string | null;
+            visibility?: null | components["schemas"]["Visibility"];
+        };
+        UpdateRuntimeSettingsRequest: {
+            chunking: components["schemas"]["RuntimeChunkingSettings"];
+            embedding: components["schemas"]["RuntimeEmbeddingSettings"];
+            file_library: components["schemas"]["RuntimeFileLibrarySettings"];
+            qdrant: components["schemas"]["RuntimeQdrantSettings"];
+            scheduler: components["schemas"]["RuntimeSchedulerSettings"];
+        };
+        UpdateSearchSettingsRequest: {
+            api_key?: string | null;
+            candidate_limit: number;
+            clear_api_key?: boolean;
+            mode: components["schemas"]["SearchMode"];
+            rerank_base_url: string;
+            rerank_enabled: boolean;
+            rerank_model: string;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
         UpsertLibraryTextRequest: {
             content: string;
+            content_format?: components["schemas"]["LibraryTextContentFormat"];
             external_id: string;
             /** Format: uuid */
             folder_id?: string | null;
@@ -927,9 +1468,28 @@ export interface components {
             summary?: string | null;
             title: string;
         };
+        UpsertMembershipRequest: {
+            login_name: string;
+            role: components["schemas"]["MembershipRole"];
+        };
+        UpsertProviderAccountRequest: {
+            account_key: string;
+            api_key?: string | null;
+            base_url: string;
+            clear_api_key?: boolean;
+            disabled?: boolean;
+            display_name: string;
+            provider_kind: string;
+        };
         UpsertSourceConnectionRequest: {
             database_url?: string | null;
             name: string;
+        };
+        UserDirectoryEntryResponse: {
+            display_name: string;
+            login_name: string;
+            /** Format: int64 */
+            user_id: number;
         };
         /** @enum {string} */
         Visibility: "public" | "private";
@@ -1496,6 +2056,360 @@ export interface operations {
             };
         };
     };
+    get_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_groups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"][];
+                };
+            };
+        };
+    };
+    create_group: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_group: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_group: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_group: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_group_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupMemberResponse"][];
+                };
+            };
+        };
+    };
+    upsert_group_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertMembershipRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_group_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                login_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"][];
+                };
+            };
+        };
+    };
+    create_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProjectRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+        };
+    };
+    get_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+        };
+    };
     upload_project_library_files: {
         parameters: {
             query?: never;
@@ -1933,6 +2847,99 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_project_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberResponse"][];
+                };
+            };
+        };
+    };
+    upsert_project_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertMembershipRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_project_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                project_key: string;
+                login_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    move_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_key: string;
+                project_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveProjectRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
             };
         };
     };
@@ -2488,6 +3495,375 @@ export interface operations {
             };
         };
     };
+    search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_docling_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoclingSettingsResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_docling_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDoclingSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoclingSettingsResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_provider_accounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccountResponse"][];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_provider_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertProviderAccountRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccountResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    create_provider_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertProviderAccountRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccountResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_provider_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_runtime_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeSettingsResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_runtime_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRuntimeSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeSettingsResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_search_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchSettingsResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_search_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSearchSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchSettingsResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     list_source_connections: {
         parameters: {
             query?: never;
@@ -2854,6 +4230,40 @@ export interface operations {
             };
             /** @description Internal error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    search_user_directory: {
+        parameters: {
+            query?: {
+                /** @description Search login_name or display_name */
+                query?: string;
+                /** @description Max entries to return */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching active users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDirectoryEntryResponse"][];
+                };
+            };
+            /** @description Missing or invalid bearer token */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

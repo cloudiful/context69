@@ -17,13 +17,6 @@ function projectRowClass() {
 <template>
   <div class="workspace-overview-layout">
     <section class="workspace-overview-main">
-      <div class="workspace-section-header">
-        <p class="section-title">{{ $t("groups.projectsTitle") }}</p>
-        <Button :class="toolPrimaryButtonClass" size="small" @click="state.openCreateProjectDialog">
-          {{ $t("groups.createProject") }}
-        </Button>
-      </div>
-
       <DataTable
         class="app-data-table"
         :value="state.projects"
@@ -38,7 +31,17 @@ function projectRowClass() {
           {{ $t("groups.emptyProjects") }}
         </template>
 
-        <Column :header="$t('groups.projectName')">
+        <Column>
+          <template #header>
+            <div class="flex w-full items-center justify-between gap-3">
+              <span class="text-sm font-semibold text-app-text">
+                {{ $t("groups.projectName") }}
+              </span>
+              <Button :class="toolPrimaryButtonClass" size="small" @click="state.openCreateProjectDialog">
+                {{ $t("groups.createProject") }}
+              </Button>
+            </div>
+          </template>
           <template #body="{ data }">
             <div class="flex min-w-0 items-center gap-2">
               <span class="truncate text-sm font-semibold text-app-text">

@@ -16,10 +16,13 @@ pub(crate) fn infer_preview_content_format(
     let lower_name = filename.to_ascii_lowercase();
     let lower_media = media_type.to_ascii_lowercase();
 
+    if lower_media == "text/markdown" || lower_name.ends_with(".md") {
+        return LibraryPreviewContentFormat::Markdown;
+    }
+
     if lower_media.starts_with("text/")
         || lower_media.contains("json")
         || lower_media.contains("xml")
-        || lower_name.ends_with(".md")
         || lower_name.ends_with(".txt")
     {
         return LibraryPreviewContentFormat::PlainText;
@@ -117,5 +120,40 @@ pub fn job_to_response(job: LibraryIngestJobRecord) -> LibraryIngestJobResponse 
         started_at: job.started_at,
         finished_at: job.finished_at,
         updated_at: job.updated_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::contracts::LibraryPreviewContentFormat;
+
+    use super::infer_preview_content_format;
+
+    #[test]
+    fn markdown_extension_and_media_type_render_as_markdown() {
+        assert_eq!(
+            infer_preview_content_format("runbook.md", "text/plain"),
+            LibraryPreviewContentFormat::Markdown
+        );
+        assert_eq!(
+            infer_preview_content_format("runbook.txt", "text/markdown"),
+            LibraryPreviewContentFormat::Markdown
+        );
+    }
+
+    #[test]
+    fn plain_text_like_media_types_render_as_plain_text() {
+        assert_eq!(
+            infer_preview_content_format("runbook.txt", "text/plain"),
+            LibraryPreviewContentFormat::PlainText
+        );
+        assert_eq!(
+            infer_preview_content_format("payload.json", "application/json"),
+            LibraryPreviewContentFormat::PlainText
+        );
+        assert_eq!(
+            infer_preview_content_format("schema.xml", "application/xml"),
+            LibraryPreviewContentFormat::PlainText
+        );
     }
 }

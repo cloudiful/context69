@@ -68,6 +68,8 @@ pub struct CreateTextRequest {
     pub folder_id: Option<Uuid>,
     pub title: String,
     pub content: String,
+    #[serde(default = "default_text_content_format")]
+    pub content_format: LibraryTextContentFormat,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -81,6 +83,8 @@ pub struct UpsertLibraryTextRequest {
     pub folder_id: Option<Uuid>,
     pub title: String,
     pub content: String,
+    #[serde(default = "default_text_content_format")]
+    pub content_format: LibraryTextContentFormat,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,7 +172,14 @@ pub struct LibraryIngestJobResponse {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryTextContentFormat {
+    PlainText,
+    Markdown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryPreviewContentFormat {
     PlainText,
@@ -219,6 +230,10 @@ pub struct LibraryUploadResponse {
 
 fn default_preview_content_format() -> LibraryPreviewContentFormat {
     LibraryPreviewContentFormat::PlainText
+}
+
+fn default_text_content_format() -> LibraryTextContentFormat {
+    LibraryTextContentFormat::PlainText
 }
 
 fn default_metadata_json() -> Value {

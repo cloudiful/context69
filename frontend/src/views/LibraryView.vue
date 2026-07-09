@@ -312,10 +312,9 @@ defineExpose({
 
     <Dialog
       v-model:visible="previewState.previewDialogVisible"
-      class="library-preview-dialog"
+      class="library-preview-dialog w-[min(96vw,58rem)]"
       :modal="true"
       :header="previewState.previewTitle"
-      :style="{ width: 'min(96vw, 74rem)' }"
     >
       <LibraryPreviewShell :title="previewState.previewTitle" :show-header="false">
         <LibraryPreviewPanel

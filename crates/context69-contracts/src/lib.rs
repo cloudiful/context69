@@ -18,8 +18,8 @@ pub use library::{
     CreateFolderRequest, CreateTextRequest, LibraryDocumentSectionPreview,
     LibraryFileDetailResponse, LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse,
     LibraryIngestJobResponse, LibraryIngestStatus, LibraryPreviewContentFormat,
-    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
-    UpsertLibraryTextRequest,
+    LibraryTextContentFormat, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
+    MoveFolderRequest, UpsertLibraryTextRequest,
 };
 pub use mcp::McpDocumentArgs;
 pub use namespace::{
