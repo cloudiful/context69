@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::contracts::{LibraryIngestStatus, Visibility};
 
 pub use context69_namespace::{
-    AccessScope, GroupRecord, NamespaceMemberRecord, PersonalGroupRecord, ProjectRecord,
+    AccessScope, GroupRecord, NamespaceMemberRecord, PersonalGroupRecord,
 };
 
 #[derive(Debug, Clone)]
@@ -57,8 +57,7 @@ pub struct ChunkPayload {
     pub document_id: i64,
     pub group_id: i64,
     pub group_key: String,
-    pub project_id: i64,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub source_key: String,
     pub external_id: String,
@@ -84,8 +83,7 @@ pub struct LibraryFolderRecord {
     pub id: Uuid,
     pub group_id: i64,
     pub group_key: String,
-    pub project_id: i64,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub parent_id: Option<Uuid>,
     pub name: String,
@@ -98,8 +96,7 @@ pub struct LibraryFileRecord {
     pub id: Uuid,
     pub group_id: i64,
     pub group_key: String,
-    pub project_id: i64,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub folder_id: Option<Uuid>,
     pub external_id: Option<String>,
@@ -120,8 +117,7 @@ pub struct LibraryIngestJobRecord {
     pub id: Uuid,
     pub group_id: i64,
     pub group_key: String,
-    pub project_id: i64,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub file_id: Uuid,
     pub status: LibraryIngestStatus,
@@ -138,7 +134,6 @@ pub struct LibraryFileDocumentRecord {
     pub file_id: Uuid,
     pub document_id: i64,
     pub group_id: i64,
-    pub project_id: i64,
     pub visibility: Visibility,
     pub section_key: String,
     pub section_label: String,

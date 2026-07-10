@@ -12,8 +12,7 @@ pub trait SearchScopeResolver: Send + Sync {
     async fn access_scope(
         &self,
         user_id: Option<i64>,
-        group_key: Option<String>,
-        project_key: Option<String>,
+        group_path: Option<String>,
     ) -> Result<AccessScope>;
 }
 

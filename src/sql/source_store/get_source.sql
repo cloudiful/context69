@@ -1,8 +1,7 @@
 SELECT
     sc.group_id,
     g.group_key,
-    sc.project_id,
-    p.project_key,
+    g.full_path AS group_path,
     sc.visibility,
     sc.source_key,
     sc.display_name,
@@ -18,7 +17,6 @@ SELECT
     cp.last_success_at
 FROM context69.source_configs sc
 JOIN context69.groups g ON g.id = sc.group_id
-JOIN context69.projects p ON p.id = sc.project_id
 LEFT JOIN context69.source_checkpoints cp
     ON cp.source_key = sc.source_key
 WHERE sc.source_key = $1

@@ -15,9 +15,7 @@ pub struct SearchRequest {
     #[serde(default)]
     pub source_key: Option<String>,
     #[serde(default)]
-    pub group_key: Option<String>,
-    #[serde(default)]
-    pub project_key: Option<String>,
+    pub group_path: Option<String>,
     #[serde(default)]
     pub published_after: Option<NaiveDate>,
     #[serde(default)]
@@ -49,7 +47,7 @@ pub struct SearchHit {
     pub chunk_id: Uuid,
     pub document_id: i64,
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub source_key: String,
     pub external_id: String,
@@ -91,7 +89,7 @@ pub struct SearchResponse {
 pub struct DocumentResponse {
     pub document_id: i64,
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub source_key: String,
     pub external_id: String,

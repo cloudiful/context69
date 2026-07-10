@@ -21,7 +21,7 @@ describe("SearchForm", () => {
           {
             source_key: "gov_documents",
             group_key: "personal-admin",
-            project_key: "default",
+            group_path: "personal-admin/default",
             visibility: "private",
             display_name: "国务院/部委政策公文",
             description: "覆盖国务院及部委正式政策公文。",

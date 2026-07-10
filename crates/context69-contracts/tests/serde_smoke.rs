@@ -13,8 +13,7 @@ fn serializes_and_deserializes_core_requests() {
         query: "policy".to_string(),
         limit: 5,
         source_key: Some("gov".to_string()),
-        group_key: None,
-        project_key: None,
+        group_path: None,
         published_after: None,
         published_before: None,
     };
@@ -92,7 +91,8 @@ fn serializes_core_responses() {
     let group = GroupResponse {
         group_id: 1,
         group_key: "team".to_string(),
-        parent_group_key: None,
+        group_path: Some("team/docs".to_string()),
+        parent_group_path: Some("team".to_string()),
         name: "Team".to_string(),
         visibility: Visibility::Private,
         kind: GroupKind::Shared,
@@ -113,7 +113,7 @@ fn serializes_core_responses() {
     let sources = ListSourcesResponse {
         sources: vec![SourceStatus {
             group_key: "team".to_string(),
-            project_key: "docs".to_string(),
+            group_path: "team/docs".to_string(),
             visibility: Visibility::Public,
             source_key: "news".to_string(),
             display_name: "News".to_string(),

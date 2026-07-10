@@ -1,6 +1,5 @@
 INSERT INTO context69.source_checkpoints (
     group_id,
-    project_id,
     visibility,
     source_key,
     cursor_updated_at,
@@ -10,7 +9,6 @@ INSERT INTO context69.source_checkpoints (
 )
 SELECT
     sc.group_id,
-    sc.project_id,
     sc.visibility,
     sc.source_key,
     $2,

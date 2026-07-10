@@ -25,8 +25,7 @@ interface CreateTextDialogState {
 }
 
 interface UseProjectLibraryActionsOptions {
-  groupKey: string;
-  projectKey: string;
+  groupPath: string;
   loadTree: () => Promise<void>;
   moveOptions: Ref<Array<{ label: string; value: string | null }>>;
   replaceSelection: (folderId: string | null, fileId: string | null) => Promise<void>;
@@ -42,8 +41,7 @@ interface UseProjectLibraryActionsOptions {
 }
 
 export function useProjectLibraryActions({
-  groupKey,
-  projectKey,
+  groupPath,
   loadTree,
   moveOptions,
   replaceSelection,
@@ -87,7 +85,7 @@ export function useProjectLibraryActions({
     const parentFolderId = createDialog.value.parentFolderId;
     createFolderBusy.value = true;
     try {
-      const folder = await apiClient.createProjectLibraryFolder(groupKey, projectKey, {
+      const folder = await apiClient.createGroupLibraryFolder(groupPath, {
         parent_folder_id: parentFolderId,
         name,
       });
@@ -108,7 +106,7 @@ export function useProjectLibraryActions({
     if (!createTextDialog.value) return;
     createFolderBusy.value = true;
     try {
-      const response = await apiClient.upsertProjectLibraryText(groupKey, projectKey, {
+      const response = await apiClient.upsertGroupLibraryText(groupPath, {
         title: payload.title,
         content: payload.content,
         external_id: crypto.randomUUID(),
@@ -134,9 +132,8 @@ export function useProjectLibraryActions({
     if (files.length === 0) return;
     uploadBusy.value = true;
     try {
-      const response = await apiClient.uploadProjectLibraryFiles(
-        groupKey,
-        projectKey,
+      const response = await apiClient.uploadGroupLibraryFiles(
+        groupPath,
         selectedFolder.value?.folder_id ?? null,
         files,
       );
@@ -184,11 +181,11 @@ export function useProjectLibraryActions({
     actionBusy.value = true;
     try {
       if (moveDialog.value.kind === "folder") {
-        await apiClient.moveProjectLibraryFolder(groupKey, projectKey, moveDialog.value.id, { target_folder_id: targetFolderId });
+        await apiClient.moveGroupLibraryFolder(groupPath, moveDialog.value.id, { target_folder_id: targetFolderId });
         await loadTree();
         await replaceSelection(targetFolderId, null);
       } else {
-        await apiClient.moveProjectLibraryFile(groupKey, projectKey, moveDialog.value.id, { target_folder_id: targetFolderId });
+        await apiClient.moveGroupLibraryFile(groupPath, moveDialog.value.id, { target_folder_id: targetFolderId });
         await loadTree();
         await replaceSelection(targetFolderId, moveDialog.value.id);
       }
@@ -216,7 +213,7 @@ export function useProjectLibraryActions({
   async function deleteFolderConfirmed(folder: LibraryFolderNode) {
     actionBusy.value = true;
     try {
-      await apiClient.deleteProjectLibraryFolder(groupKey, projectKey, folder.folder_id!);
+      await apiClient.deleteGroupLibraryFolder(groupPath, folder.folder_id!);
       await loadTree();
       await replaceSelection(null, null);
       toast.add({ severity: "success", summary: t("common.delete"), detail: folder.name, life: 2500 });
@@ -241,7 +238,7 @@ export function useProjectLibraryActions({
   async function deleteFileConfirmed(file: LibraryFileSummary) {
     actionBusy.value = true;
     try {
-      await apiClient.deleteProjectLibraryFile(groupKey, projectKey, file.file_id);
+      await apiClient.deleteGroupLibraryFile(groupPath, file.file_id);
       await loadTree();
       if (selectedFileId.value === file.file_id) {
         await replaceSelection(selectedFolder.value?.folder_id ?? null, null);

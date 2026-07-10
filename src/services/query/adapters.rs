@@ -66,9 +66,8 @@ pub(super) fn to_search_scope(scope: &AccessScope) -> SearchAccessScope {
     SearchAccessScope {
         user_id: scope.user_id,
         include_public: scope.include_public,
-        private_project_ids: scope.private_project_ids.clone(),
-        group_key: scope.group_key.clone(),
-        project_key: scope.project_key.clone(),
+        private_group_ids: scope.private_group_ids.clone(),
+        group_path: scope.group_path.clone(),
     }
 }
 
@@ -76,9 +75,8 @@ fn to_root_scope(scope: &SearchAccessScope) -> AccessScope {
     AccessScope {
         user_id: scope.user_id,
         include_public: scope.include_public,
-        private_project_ids: scope.private_project_ids.clone(),
-        group_key: scope.group_key.clone(),
-        project_key: scope.project_key.clone(),
+        private_group_ids: scope.private_group_ids.clone(),
+        group_path: scope.group_path.clone(),
     }
 }
 
@@ -184,13 +182,9 @@ impl SearchScopeResolver for AuthScopeResolver {
     async fn access_scope(
         &self,
         user_id: Option<i64>,
-        group_key: Option<String>,
-        project_key: Option<String>,
+        group_path: Option<String>,
     ) -> Result<SearchAccessScope> {
-        let scope = self
-            .auth
-            .access_scope(user_id, group_key, project_key)
-            .await?;
+        let scope = self.auth.access_scope(user_id, group_path).await?;
         Ok(to_search_scope(&scope))
     }
 }

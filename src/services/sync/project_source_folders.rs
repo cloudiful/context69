@@ -23,7 +23,7 @@ use super::*;
 impl SyncService {
     pub(crate) async fn sync_project_source_folder(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         folder_path: &str,
         folder_id: Uuid,
         records_folder_id: Uuid,
@@ -48,7 +48,6 @@ impl SyncService {
         let run = self
             .db
             .start_run_in_scope(
-                project.group_id,
                 project.id,
                 project.visibility,
                 &identity,
@@ -100,11 +99,11 @@ impl SyncService {
         if let Some(legacy_source_key) = legacy_source_key
             && self
                 .source_store
-                .get_source_in_project(project_id, legacy_source_key)
+                .get_source_in_group(project_id, legacy_source_key)
                 .await?
                 .is_some()
         {
-            self.delete_source_in_project(project_id, legacy_source_key)
+            self.delete_source_in_group(project_id, legacy_source_key)
                 .await?;
         }
         Ok(())
@@ -123,7 +122,7 @@ impl SyncService {
 
     async fn sync_project_source_folder_inner(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         identity: &str,
         folder_id: Uuid,
         records_folder_id: Uuid,
@@ -223,7 +222,6 @@ impl SyncService {
         if source.sync_strategy == SyncStrategy::Cursor {
             self.db
                 .save_checkpoint_in_scope(
-                    project.group_id,
                     project.id,
                     project.visibility,
                     identity,
@@ -239,10 +237,10 @@ impl SyncService {
         if outcome.records_changed > 0 {
             let legacy = self
                 .source_store
-                .get_source_in_project(project.id, &source.key)
+                .get_source_in_group(project.id, &source.key)
                 .await?;
             if legacy.is_some() {
-                self.delete_source_in_project(project.id, &source.key)
+                self.delete_source_in_group(project.id, &source.key)
                     .await?;
             }
         }
@@ -258,7 +256,7 @@ impl SyncService {
     ) -> Result<()> {
         if self
             .source_store
-            .get_source_in_project(project_id, legacy_source_key)
+            .get_source_in_group(project_id, legacy_source_key)
             .await?
             .is_none()
         {
@@ -276,7 +274,6 @@ impl SyncService {
         self.db
             .save_checkpoint_in_scope(
                 scope.group_id,
-                scope.project_id,
                 scope.visibility,
                 identity,
                 &checkpoint,

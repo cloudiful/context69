@@ -6,7 +6,7 @@ import { createAdminUsersApi } from "./api-admin-users";
 import { createLibraryApi } from "./api-library";
 import { createNamespacesApi } from "./api-namespaces";
 import { createPersonalAccessTokensApi } from "./api-personal-access-tokens";
-import { createProjectWorkspaceApi } from "./api-project-workspace";
+import { createGroupWorkspaceApi } from "./api-group-workspace";
 import { createSearchApi } from "./api-search";
 import { createSettingsApi } from "./api-settings";
 import { createSourcesApi } from "./api-sources";
@@ -102,7 +102,7 @@ export const apiClient = {
   ...createAdminUsersApi({ openapiClient, unwrapResponse }),
   ...createNamespacesApi({ openapiClient, unwrapResponse }),
   ...createPersonalAccessTokensApi({ openapiClient, unwrapResponse }),
-  ...createProjectWorkspaceApi({
+  ...createGroupWorkspaceApi({
     authFetch,
     openapiClient,
     resolveApiUrl,

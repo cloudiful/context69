@@ -25,8 +25,7 @@ import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry, FileExplorerEntry } from "../types/library";
 
 const props = defineProps<{
-  groupKey: string;
-  projectKey: string;
+  groupPath: string;
 }>();
 
 const { t } = useI18n();
@@ -42,16 +41,14 @@ const sourceFolderDialogFolderName = ref("");
 const sourceFolderDialogValue = ref("");
 
 const tree = useProjectLibraryTree({
-  groupKey: props.groupKey,
-  projectKey: props.projectKey,
+  groupPath: props.groupPath,
   statusLabel: mapStatusLabel,
   t,
 });
 const treeState = proxyRefs(tree);
 
 const detail = useProjectLibraryDetail({
-  groupKey: props.groupKey,
-  projectKey: props.projectKey,
+  groupPath: props.groupPath,
   loadTree: tree.loadTree,
   selectedFileId: tree.selectedFileId,
   t,
@@ -68,8 +65,7 @@ const preview = useProjectLibraryPreview({
 const previewState = proxyRefs(preview);
 
 const actions = useProjectLibraryActions({
-  groupKey: props.groupKey,
-  projectKey: props.projectKey,
+  groupPath: props.groupPath,
   loadTree: tree.loadTree,
   moveOptions: tree.moveOptions,
   replaceSelection: tree.replaceSelection,
@@ -208,7 +204,7 @@ async function openSourceConfigEditor(entry: FileExplorerEntry) {
   sourceFolderDialogBusy.value = true;
   sourceFolderDialogError.value = "";
   try {
-    const detail = await apiClient.getProjectLibraryFile(props.groupKey, props.projectKey, entry.id);
+    const detail = await apiClient.getGroupLibraryFile(props.groupPath, entry.id);
     sourceFolderDialogFolderId.value = detail.folder_id ?? null;
     sourceFolderDialogFolderName.value = detail.folder_path.split("/").filter(Boolean).at(-1) ?? "";
     sourceFolderDialogTitle.value = t("library.editSourceConfig");
@@ -227,14 +223,9 @@ async function saveSourceFolderDialog(payload: { folderName: string; value: stri
   try {
     const sourceConfig = JSON.parse(payload.value);
     if (sourceFolderDialogFolderId.value) {
-      await apiClient.updateProjectSourceFolderConfig(
-        props.groupKey,
-        props.projectKey,
-        sourceFolderDialogFolderId.value,
-        sourceConfig,
-      );
+      await apiClient.updateGroupSourceFolderConfig(props.groupPath, sourceFolderDialogFolderId.value, sourceConfig);
     } else {
-      await apiClient.createProjectSourceFolder(props.groupKey, props.projectKey, {
+      await apiClient.createGroupSourceFolder(props.groupPath, {
         parent_folder_id: treeState.selectedFolder?.folder_id ?? null,
         folder_name: payload.folderName,
         source_config: sourceConfig,
@@ -260,7 +251,7 @@ async function syncSourceFolder(folderId: string | null) {
     return;
   }
   try {
-    await apiClient.syncProjectSourceFolder(props.groupKey, props.projectKey, folderId);
+    await apiClient.syncGroupSourceFolder(props.groupPath, folderId);
     await treeState.refreshLibrary(detailState.loadDetail);
     toast.add({
       severity: "success",

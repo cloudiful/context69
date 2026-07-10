@@ -16,13 +16,13 @@ mod admin_users;
 mod auth;
 mod docs;
 mod errors;
+mod group_access;
+mod group_library;
+mod group_source_folders;
 mod health;
 mod library;
 mod library_upload;
 mod personal_access_tokens;
-mod project_access;
-mod project_library;
-mod project_source_folders;
 mod router;
 mod sources;
 
@@ -83,6 +83,15 @@ pub(crate) use auth::{
     require_workspace_scope_middleware, touch_personal_access_token_middleware,
 };
 pub(crate) use docs::openapi_json;
+pub(crate) use group_library::{
+    create_group_library_folder, create_group_library_text, delete_group_library_file,
+    delete_group_library_folder, get_group_library_file, get_group_library_job,
+    get_group_library_tree, move_group_library_file, move_group_library_folder,
+    upload_group_library_files, upsert_group_library_text,
+};
+pub(crate) use group_source_folders::{
+    create_group_source_folder, sync_group_source_folder, update_group_source_folder_config,
+};
 pub(crate) use health::healthz;
 pub(crate) use library::{
     create_library_folder, create_library_text, delete_library_file, delete_library_folder,
@@ -91,15 +100,6 @@ pub(crate) use library::{
 };
 pub(crate) use personal_access_tokens::{
     create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,
-};
-pub(crate) use project_library::{
-    create_project_library_folder, create_project_library_text, delete_project_library_file,
-    delete_project_library_folder, get_project_library_file, get_project_library_job,
-    get_project_library_tree, move_project_library_file, move_project_library_folder,
-    upload_project_library_files, upsert_project_library_text,
-};
-pub(crate) use project_source_folders::{
-    create_project_source_folder, sync_project_source_folder, update_project_source_folder_config,
 };
 pub(crate) use sources::{
     create_source, create_source_connection, delete_source, delete_source_connection,

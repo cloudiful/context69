@@ -21,16 +21,11 @@ export type CreatePersonalAccessTokenResponse = components["schemas"]["CreatePer
 export type CreateFolderRequest = components["schemas"]["CreateFolderRequest"];
 export type CreateSourceFolderRequest = components["schemas"]["CreateSourceFolderRequest"];
 export type CreateGroupRequest = SchemaOr<"CreateGroupRequest", {
-  parent_group_key?: string | null;
+  parent_group_path?: string | null;
   group_key: string;
   name: string;
   visibility: Visibility;
   kind?: GroupKind | null;
-}>;
-export type CreateProjectRequest = SchemaOr<"CreateProjectRequest", {
-  project_key: string;
-  name: string;
-  visibility: Visibility;
 }>;
 export type DoclingSettingsResponse = SchemaOr<"DoclingSettingsResponse", {
   configured: boolean;
@@ -57,7 +52,7 @@ export type DocumentChunkResponse = SchemaOr<"DocumentChunkResponse", {
 export type DocumentResponse = SchemaOr<"DocumentResponse", {
   document_id: number;
   group_key: string;
-  project_key: string;
+  group_path: string;
   visibility: Visibility;
   source_key: string;
   external_id: string;
@@ -83,7 +78,8 @@ export type GroupMemberResponse = SchemaOr<"GroupMemberResponse", {
 export type GroupResponse = SchemaOr<"GroupResponse", {
   group_id: number;
   group_key: string;
-  parent_group_key?: string | null;
+  group_path?: string | null;
+  parent_group_path?: string | null;
   name: string;
   visibility: Visibility;
   kind: GroupKind;
@@ -104,24 +100,8 @@ export type LibraryTreeResponse = components["schemas"]["LibraryTreeResponse"];
 export type LibraryUploadResponse = components["schemas"]["LibraryUploadResponse"];
 export type MoveFileRequest = components["schemas"]["MoveFileRequest"];
 export type MoveFolderRequest = components["schemas"]["MoveFolderRequest"];
-export type MoveProjectRequest = SchemaOr<"MoveProjectRequest", {
-  target_group_key: string;
-}>;
-export type ProjectMemberResponse = SchemaOr<"ProjectMemberResponse", {
-  user_id: number;
-  login_name: string;
-  display_name: string;
-  role: MembershipRole;
-}>;
-export type ProjectResponse = SchemaOr<"ProjectResponse", {
-  project_id: number;
-  group_key: string;
-  project_key: string;
-  name: string;
-  visibility: Visibility;
-  current_role?: MembershipRole | null;
-  created_at: string;
-  updated_at: string;
+export type MoveGroupRequest = SchemaOr<"MoveGroupRequest", {
+  target_parent_group_path?: string | null;
 }>;
 export type PersonalAccessTokenResponse = components["schemas"]["PersonalAccessTokenResponse"];
 export type PersonalAccessTokenScope = components["schemas"]["PersonalAccessTokenScope"];
@@ -169,7 +149,7 @@ export type SearchHit = SchemaOr<"SearchHit", {
   chunk_id: string;
   document_id: number;
   group_key: string;
-  project_key: string;
+  group_path: string;
   visibility: Visibility;
   source_key: string;
   external_id: string;
@@ -194,8 +174,7 @@ export type SearchRequest = SchemaOr<"SearchRequest", {
   query: string;
   limit: number;
   source_key?: string | null;
-  group_key?: string | null;
-  project_key?: string | null;
+  group_path?: string | null;
   published_after?: string | null;
   published_before?: string | null;
 }>;
@@ -235,10 +214,6 @@ export type UpdateDoclingSettingsRequest = SchemaOr<"UpdateDoclingSettingsReques
   };
 }>;
 export type UpdateGroupRequest = SchemaOr<"UpdateGroupRequest", {
-  name?: string | null;
-  visibility?: Visibility | null;
-}>;
-export type UpdateProjectRequest = SchemaOr<"UpdateProjectRequest", {
   name?: string | null;
   visibility?: Visibility | null;
 }>;

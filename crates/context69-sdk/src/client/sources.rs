@@ -1,10 +1,11 @@
 use context69_contracts::{
-    SourceConfigInput, SourceConnectionResponse, SourceStatus, SyncOutcome,
-    UpsertSourceConnectionRequest,
+    CreateSourceFolderRequest, SourceConfigInput, SourceConnectionResponse, SourceFolderResponse,
+    SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
 };
 use reqwest::Method;
+use uuid::Uuid;
 
-use crate::{Context69Client, Error};
+use crate::{Context69Client, Error, client::encode_path_component};
 
 pub struct SourcesApi<'a> {
     client: &'a Context69Client,
@@ -119,24 +120,15 @@ impl<'a> SourcesApi<'a> {
             .await
     }
 
-    pub async fn list_project_sources(
+    pub async fn create_group_source_folder(
         &self,
-        group_key: &str,
-        project_key: &str,
-    ) -> Result<Vec<SourceStatus>, Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/sources");
-        self.client
-            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
-            .await
-    }
-
-    pub async fn create_project_source(
-        &self,
-        group_key: &str,
-        project_key: &str,
-        request: &SourceConfigInput,
-    ) -> Result<SourceStatus, Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/sources");
+        group_path: &str,
+        request: &CreateSourceFolderRequest,
+    ) -> Result<SourceFolderResponse, Error> {
+        let path = format!(
+            "/v1/groups/by-path/{}/source-folders",
+            encode_path_component(group_path)
+        );
         self.client
             .execute_json(
                 self.client
@@ -147,14 +139,16 @@ impl<'a> SourcesApi<'a> {
             .await
     }
 
-    pub async fn update_project_source(
+    pub async fn update_group_source_folder_config(
         &self,
-        group_key: &str,
-        project_key: &str,
-        source_key: &str,
+        group_path: &str,
+        folder_id: Uuid,
         request: &SourceConfigInput,
-    ) -> Result<SourceStatus, Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}");
+    ) -> Result<SourceFolderResponse, Error> {
+        let path = format!(
+            "/v1/groups/by-path/{}/source-folders/{folder_id}/config",
+            encode_path_component(group_path)
+        );
         self.client
             .execute_json(
                 self.client
@@ -165,30 +159,15 @@ impl<'a> SourcesApi<'a> {
             .await
     }
 
-    pub async fn delete_project_source(
+    pub async fn sync_group_source_folder(
         &self,
-        group_key: &str,
-        project_key: &str,
-        source_key: &str,
-    ) -> Result<(), Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}");
-        self.client
-            .execute_empty(
-                self.client
-                    .authorized_request(Method::DELETE, &path)
-                    .await?,
-            )
-            .await
-    }
-
-    pub async fn sync_project_source(
-        &self,
-        group_key: &str,
-        project_key: &str,
-        source_key: &str,
+        group_path: &str,
+        folder_id: Uuid,
     ) -> Result<SyncOutcome, Error> {
-        let path =
-            format!("/v1/groups/{group_key}/projects/{project_key}/sources/{source_key}/sync");
+        let path = format!(
+            "/v1/groups/by-path/{}/source-folders/{folder_id}/sync",
+            encode_path_component(group_path)
+        );
         self.client
             .execute_json(self.client.authorized_request(Method::POST, &path).await?)
             .await

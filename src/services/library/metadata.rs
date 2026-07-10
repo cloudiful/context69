@@ -31,9 +31,8 @@ impl LibraryService {
             let scope = AccessScope {
                 user_id: None,
                 include_public: true,
-                private_project_ids: vec![mapping.project_id],
-                group_key: None,
-                project_key: None,
+                private_group_ids: vec![mapping.group_id],
+                group_path: None,
             };
             if let Some(existing) = self.db.get_document(mapping.document_id, &scope).await? {
                 metadata["record_hash"] = json!(existing.record_hash);
@@ -97,17 +96,17 @@ impl LibraryService {
 
     pub(super) async fn descendant_file_ids_in_project(
         &self,
-        project_id: i64,
+        group_id: i64,
         folder_id: Uuid,
     ) -> Result<Vec<Uuid>> {
         let descendants = self
             .store
-            .descendant_folder_ids_in_project(project_id, folder_id)
+            .descendant_folder_ids_in_project(group_id, folder_id)
             .await?;
         let descendant_set = descendants.into_iter().collect::<HashSet<_>>();
         Ok(self
             .store
-            .list_files_in_project(project_id)
+            .list_files_in_project(group_id)
             .await?
             .into_iter()
             .filter(|file| {

@@ -12,7 +12,6 @@ impl LibraryStore {
             INSERT INTO context69.library_ingest_jobs (
                 id,
                 group_id,
-                project_id,
                 visibility,
                 file_id,
                 status
@@ -20,7 +19,6 @@ impl LibraryStore {
             SELECT
                 $1,
                 lf.group_id,
-                lf.project_id,
                 lf.visibility,
                 $2,
                 'pending'
@@ -29,8 +27,7 @@ impl LibraryStore {
             RETURNING
                 group_id,
                 (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
+                (SELECT full_path FROM context69.groups WHERE id = group_id) AS group_path,
                 visibility,
                 id,
                 file_id,
@@ -57,8 +54,7 @@ impl LibraryStore {
             SELECT
                 group_id,
                 (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
+                (SELECT full_path FROM context69.groups WHERE id = group_id) AS group_path,
                 visibility,
                 id,
                 file_id,
@@ -90,8 +86,7 @@ impl LibraryStore {
             SELECT
                 group_id,
                 (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
+                (SELECT full_path FROM context69.groups WHERE id = group_id) AS group_path,
                 visibility,
                 id,
                 file_id,
@@ -103,7 +98,7 @@ impl LibraryStore {
                 finished_at,
                 updated_at
             FROM context69.library_ingest_jobs
-            WHERE project_id = $1
+            WHERE group_id = $1
               AND id = $2
             "#,
         )
@@ -121,8 +116,7 @@ impl LibraryStore {
             SELECT
                 group_id,
                 (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
+                (SELECT full_path FROM context69.groups WHERE id = group_id) AS group_path,
                 visibility,
                 id,
                 file_id,
@@ -177,8 +171,7 @@ impl LibraryStore {
             RETURNING
                 group_id,
                 (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                project_id,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
+                (SELECT full_path FROM context69.groups WHERE id = group_id) AS group_path,
                 visibility,
                 id,
                 file_id,

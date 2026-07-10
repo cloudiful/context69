@@ -143,7 +143,7 @@ mod tests {
             chunk_id,
             document_id: 1,
             group_key: "public".to_string(),
-            project_key: "default-public".to_string(),
+            group_path: "public".to_string(),
             visibility: Visibility::Public,
             source_key: "source".to_string(),
             external_id: "external".to_string(),

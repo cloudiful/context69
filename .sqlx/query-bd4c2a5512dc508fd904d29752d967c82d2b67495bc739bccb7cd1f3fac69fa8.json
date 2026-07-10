@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE group_paths AS (\n    SELECT\n        g.id,\n        g.parent_group_id,\n        g.group_key,\n        g.group_key::text AS full_path\n    FROM context69.groups g\n    WHERE g.parent_group_id IS NULL\n\n    UNION ALL\n\n    SELECT\n        child.id,\n        child.parent_group_id,\n        child.group_key,\n        group_paths.full_path || '/' || child.group_key\n    FROM context69.groups child\n    JOIN group_paths ON child.parent_group_id = group_paths.id\n)\nUPDATE context69.groups g\nSET full_path = group_paths.full_path\nFROM group_paths\nWHERE g.id = group_paths.id\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "bd4c2a5512dc508fd904d29752d967c82d2b67495bc739bccb7cd1f3fac69fa8"
+}

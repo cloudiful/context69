@@ -5,14 +5,13 @@ import { apiClient, type LibraryFileDetailResponse } from "../../services/api";
 const POLL_INTERVAL_MS = 2000;
 
 interface UseProjectLibraryDetailOptions {
-  groupKey: string;
-  projectKey: string;
+  groupPath: string;
   loadTree: () => Promise<void>;
   selectedFileId: { value: string | null };
   t: (key: string) => string;
 }
 
-export function useProjectLibraryDetail({ groupKey, projectKey, loadTree, selectedFileId, t }: UseProjectLibraryDetailOptions) {
+export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t }: UseProjectLibraryDetailOptions) {
   const detail = ref<LibraryFileDetailResponse | null>(null);
   const detailLoading = ref(false);
   const detailError = ref("");
@@ -34,7 +33,7 @@ export function useProjectLibraryDetail({ groupKey, projectKey, loadTree, select
     detailLoading.value = true;
     detailError.value = "";
     try {
-      const nextDetail = await apiClient.getProjectLibraryFile(groupKey, projectKey, fileId, { signal: detailController.signal });
+      const nextDetail = await apiClient.getGroupLibraryFile(groupPath, fileId, { signal: detailController.signal });
       detail.value = nextDetail;
       activeSectionKey.value = nextDetail.sections[0]?.section_key ?? "";
       const runningJobs = nextDetail.jobs
@@ -64,7 +63,7 @@ export function useProjectLibraryDetail({ groupKey, projectKey, loadTree, select
     try {
       const jobs = await Promise.all(jobIds.map(async (jobId) => {
         try {
-          return await apiClient.getProjectLibraryJob(groupKey, projectKey, jobId);
+          return await apiClient.getGroupLibraryJob(groupPath, jobId);
         } catch {
           return null;
         }

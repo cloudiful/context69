@@ -5,13 +5,12 @@ import type { ExplorerEntry, FileExplorerEntry, FolderExplorerEntry, FolderSumma
 import { findFileLocation, findFolderById, findFolderTrail, flattenFolderOptions, folderKey } from "../../utils/library-tree";
 
 interface UseProjectLibraryTreeOptions {
-  groupKey: string;
-  projectKey: string;
+  groupPath: string;
   statusLabel: (status: string) => string;
   t: (key: string, params?: Record<string, unknown>) => string;
 }
 
-export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: UseProjectLibraryTreeOptions) {
+export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectLibraryTreeOptions) {
   const tree = ref<LibraryTreeResponse | null>(null);
   const treeLoading = ref(false);
   const treeError = ref("");
@@ -159,7 +158,7 @@ export function useProjectLibraryTree({ groupKey, projectKey, statusLabel, t }: 
     treeLoading.value = !tree.value;
     try {
       treeError.value = "";
-      const nextTree = await apiClient.getProjectLibraryTree(groupKey, projectKey);
+      const nextTree = await apiClient.getGroupLibraryTree(groupPath);
       tree.value = nextTree;
       if (selectedFolderId.value && !findFolderById(nextTree.root, selectedFolderId.value)) {
         await replaceSelection(null, selectedFileId.value);

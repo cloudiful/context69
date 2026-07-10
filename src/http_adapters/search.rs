@@ -30,7 +30,7 @@ impl SearchApi for SearchApiAdapter {
         user_id: Option<i64>,
         document_id: i64,
     ) -> anyhow::Result<crate::contracts::DocumentResponse> {
-        let scope = self.auth.access_scope(user_id, None, None).await?;
+        let scope = self.auth.access_scope(user_id, None).await?;
         self.query.get_document(document_id, &scope).await
     }
 }

@@ -1,15 +1,14 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use context69_contracts::{
-    CreateGroupRequest, CreateProjectRequest, GroupMemberResponse, GroupResponse,
-    MoveProjectRequest, ProjectMemberResponse, ProjectResponse, UpdateGroupRequest,
-    UpdateProjectRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
+    CreateGroupRequest, GroupMemberResponse, GroupResponse, MoveGroupRequest, UpdateGroupRequest,
+    UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use context69_http_support::AuthenticatedUser;
 use context69_namespace_http::{NamespaceApi, UserDirectoryApi};
 
 use crate::{
-    domain::{GroupRecord, NamespaceMemberRecord, ProjectRecord, UserRecord},
+    domain::{GroupRecord, NamespaceMemberRecord, UserRecord},
     services::{auth::AuthService, namespace::NamespaceService},
 };
 
@@ -36,14 +35,28 @@ impl NamespaceApi for NamespaceApiAdapter {
             .collect())
     }
 
+    async fn list_child_groups_for_user(
+        &self,
+        user_id: i64,
+        group_path: &str,
+    ) -> anyhow::Result<Vec<GroupResponse>> {
+        Ok(self
+            .service
+            .list_child_groups_for_user(user_id, group_path)
+            .await?
+            .into_iter()
+            .map(group_response)
+            .collect())
+    }
+
     async fn get_group_for_user(
         &self,
         user_id: i64,
-        group_key: &str,
+        group_path: &str,
     ) -> anyhow::Result<Option<GroupResponse>> {
         Ok(self
             .service
-            .get_group_for_user(user_id, group_key)
+            .get_group_for_user(user_id, group_path)
             .await?
             .map(group_response))
     }
@@ -62,29 +75,45 @@ impl NamespaceApi for NamespaceApiAdapter {
     async fn update_group(
         &self,
         actor: &AuthenticatedUser,
-        group_key: &str,
+        group_path: &str,
         request: &UpdateGroupRequest,
     ) -> anyhow::Result<GroupResponse> {
         self.service
-            .update_group(&to_user_record(actor), group_key, request)
+            .update_group(&to_user_record(actor), group_path, request)
             .await
             .map(group_response)
     }
 
-    async fn delete_group(&self, actor: &AuthenticatedUser, group_key: &str) -> anyhow::Result<()> {
+    async fn move_group(
+        &self,
+        actor: &AuthenticatedUser,
+        group_path: &str,
+        request: &MoveGroupRequest,
+    ) -> anyhow::Result<GroupResponse> {
         self.service
-            .delete_group(&to_user_record(actor), group_key)
+            .move_group(&to_user_record(actor), group_path, request)
+            .await
+            .map(group_response)
+    }
+
+    async fn delete_group(
+        &self,
+        actor: &AuthenticatedUser,
+        group_path: &str,
+    ) -> anyhow::Result<()> {
+        self.service
+            .delete_group(&to_user_record(actor), group_path)
             .await
     }
 
     async fn list_group_members(
         &self,
         actor: &AuthenticatedUser,
-        group_key: &str,
+        group_path: &str,
     ) -> anyhow::Result<Vec<GroupMemberResponse>> {
         Ok(self
             .service
-            .list_group_members(&to_user_record(actor), group_key)
+            .list_group_members(&to_user_record(actor), group_path)
             .await?
             .into_iter()
             .map(group_member_response)
@@ -94,137 +123,22 @@ impl NamespaceApi for NamespaceApiAdapter {
     async fn upsert_group_member(
         &self,
         actor: &AuthenticatedUser,
-        group_key: &str,
+        group_path: &str,
         request: &UpsertMembershipRequest,
     ) -> anyhow::Result<()> {
         self.service
-            .upsert_group_member(&to_user_record(actor), group_key, request)
+            .upsert_group_member(&to_user_record(actor), group_path, request)
             .await
     }
 
     async fn delete_group_member(
         &self,
         actor: &AuthenticatedUser,
-        group_key: &str,
+        group_path: &str,
         login_name: &str,
     ) -> anyhow::Result<()> {
         self.service
-            .delete_group_member(&to_user_record(actor), group_key, login_name)
-            .await
-    }
-
-    async fn list_projects_for_user_in_group(
-        &self,
-        user_id: i64,
-        group_key: &str,
-    ) -> anyhow::Result<Vec<ProjectResponse>> {
-        Ok(self
-            .service
-            .list_projects_for_user_in_group(user_id, group_key)
-            .await?
-            .into_iter()
-            .map(project_response)
-            .collect())
-    }
-
-    async fn get_project_for_user(
-        &self,
-        user_id: i64,
-        group_key: &str,
-        project_key: &str,
-    ) -> anyhow::Result<Option<ProjectResponse>> {
-        Ok(self
-            .service
-            .get_project_for_user(user_id, group_key, project_key)
-            .await?
-            .map(project_response))
-    }
-
-    async fn create_project(
-        &self,
-        actor: &AuthenticatedUser,
-        group_key: &str,
-        request: &CreateProjectRequest,
-    ) -> anyhow::Result<ProjectResponse> {
-        self.service
-            .create_project(&to_user_record(actor), group_key, request)
-            .await
-            .map(project_response)
-    }
-
-    async fn update_project(
-        &self,
-        actor: &AuthenticatedUser,
-        group_key: &str,
-        project_key: &str,
-        request: &UpdateProjectRequest,
-    ) -> anyhow::Result<ProjectResponse> {
-        self.service
-            .update_project(&to_user_record(actor), group_key, project_key, request)
-            .await
-            .map(project_response)
-    }
-
-    async fn delete_project(
-        &self,
-        actor: &AuthenticatedUser,
-        group_key: &str,
-        project_key: &str,
-    ) -> anyhow::Result<()> {
-        self.service
-            .delete_project(&to_user_record(actor), group_key, project_key)
-            .await
-    }
-
-    async fn move_project(
-        &self,
-        actor: &AuthenticatedUser,
-        group_key: &str,
-        project_key: &str,
-        request: &MoveProjectRequest,
-    ) -> anyhow::Result<ProjectResponse> {
-        self.service
-            .move_project(&to_user_record(actor), group_key, project_key, request)
-            .await
-            .map(project_response)
-    }
-
-    async fn list_project_members(
-        &self,
-        actor: &AuthenticatedUser,
-        group_key: &str,
-        project_key: &str,
-    ) -> anyhow::Result<Vec<ProjectMemberResponse>> {
-        Ok(self
-            .service
-            .list_project_members(&to_user_record(actor), group_key, project_key)
-            .await?
-            .into_iter()
-            .map(project_member_response)
-            .collect())
-    }
-
-    async fn upsert_project_member(
-        &self,
-        actor: &AuthenticatedUser,
-        group_key: &str,
-        project_key: &str,
-        request: &UpsertMembershipRequest,
-    ) -> anyhow::Result<()> {
-        self.service
-            .upsert_project_member(&to_user_record(actor), group_key, project_key, request)
-            .await
-    }
-
-    async fn delete_project_member(
-        &self,
-        actor: &AuthenticatedUser,
-        group_key: &str,
-        project_key: &str,
-        login_name: &str,
-    ) -> anyhow::Result<()> {
-        self.service
-            .delete_project_member(&to_user_record(actor), group_key, project_key, login_name)
+            .delete_group_member(&to_user_record(actor), group_path, login_name)
             .await
     }
 }
@@ -279,7 +193,8 @@ fn group_response(group: GroupRecord) -> GroupResponse {
     GroupResponse {
         group_id: group.id,
         group_key: group.group_key,
-        parent_group_key: group.parent_group_key,
+        group_path: Some(group.group_path),
+        parent_group_path: group.parent_group_path,
         name: group.name,
         visibility: group.visibility,
         kind: group.kind,
@@ -289,30 +204,8 @@ fn group_response(group: GroupRecord) -> GroupResponse {
     }
 }
 
-fn project_response(project: ProjectRecord) -> ProjectResponse {
-    ProjectResponse {
-        project_id: project.id,
-        group_key: project.group_key,
-        project_key: project.project_key,
-        name: project.name,
-        visibility: project.visibility,
-        current_role: project.current_role,
-        created_at: project.created_at,
-        updated_at: project.updated_at,
-    }
-}
-
 fn group_member_response(member: NamespaceMemberRecord) -> GroupMemberResponse {
     GroupMemberResponse {
-        user_id: member.user_id,
-        login_name: member.login_name,
-        display_name: member.display_name,
-        role: member.role,
-    }
-}
-
-fn project_member_response(member: NamespaceMemberRecord) -> ProjectMemberResponse {
-    ProjectMemberResponse {
         user_id: member.user_id,
         login_name: member.login_name,
         display_name: member.display_name,

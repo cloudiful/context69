@@ -8,4 +8,4 @@ SET title = $3,
     record_hash = $9,
     last_synced_at = now(),
     updated_at = now()
-WHERE project_id = $1 AND source_key = $2 AND external_id = $10
+WHERE group_id = $1 AND source_key = $2 AND external_id = $10

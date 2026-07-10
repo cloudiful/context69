@@ -27,7 +27,6 @@ impl Database {
     pub async fn start_run_in_scope(
         &self,
         group_id: i64,
-        project_id: i64,
         visibility: Visibility,
         source_key: &str,
         trigger_type: &str,
@@ -35,7 +34,6 @@ impl Database {
         let id = sqlx::query_file_scalar!(
             "src/sql/db/sync_runs/start_run_in_scope.sql",
             group_id,
-            project_id,
             visibility.as_str(),
             source_key,
             trigger_type
@@ -109,7 +107,6 @@ impl Database {
     pub async fn save_checkpoint_in_scope(
         &self,
         group_id: i64,
-        project_id: i64,
         visibility: Visibility,
         source_key: &str,
         checkpoint: &SyncCheckpoint,
@@ -117,7 +114,6 @@ impl Database {
         sqlx::query_file!(
             "src/sql/db/sync_runs/save_checkpoint_in_scope.sql",
             group_id,
-            project_id,
             visibility.as_str(),
             source_key,
             checkpoint.updated_at,
@@ -204,7 +200,7 @@ impl Database {
                 let checkpoint = checkpoint_map.get(&source_key);
                 SourceStatus {
                     group_key: "public".to_string(),
-                    project_key: "default-public".to_string(),
+                    group_path: "public".to_string(),
                     visibility: crate::contracts::Visibility::Public,
                     source_key: source_key.clone(),
                     display_name: source_key.clone(),

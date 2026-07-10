@@ -100,7 +100,7 @@ pub struct UpsertLibraryTextRequest {
 pub struct LibraryFileSummary {
     pub file_id: Uuid,
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     #[serde(default)]
     pub folder_id: Option<Uuid>,
@@ -119,7 +119,7 @@ pub struct LibraryFileSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryFolderNode {
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     #[serde(default)]
     pub folder_id: Option<Uuid>,
@@ -137,7 +137,7 @@ pub struct LibraryFolderNode {
 pub struct LibraryFolderResponse {
     pub folder_id: Uuid,
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     #[serde(default)]
     pub parent_folder_id: Option<Uuid>,
@@ -156,7 +156,7 @@ pub struct LibraryTreeResponse {
 pub struct LibraryIngestJobResponse {
     pub job_id: Uuid,
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub file_id: Uuid,
     pub status: LibraryIngestStatus,
@@ -202,7 +202,7 @@ pub struct LibraryDocumentSectionPreview {
 pub struct LibraryFileDetailResponse {
     pub file_id: Uuid,
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     #[serde(default)]
     pub folder_id: Option<Uuid>,

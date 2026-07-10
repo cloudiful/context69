@@ -101,7 +101,7 @@ impl std::str::FromStr for GroupKind {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateGroupRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_group_key: Option<String>,
+    pub parent_group_path: Option<String>,
     pub group_key: String,
     pub name: String,
     pub visibility: Visibility,
@@ -118,23 +118,9 @@ pub struct UpdateGroupRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateProjectRequest {
-    pub project_key: String,
-    pub name: String,
-    pub visibility: Visibility,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct UpdateProjectRequest {
+pub struct MoveGroupRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub visibility: Option<Visibility>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct MoveProjectRequest {
-    pub target_group_key: String,
+    pub target_parent_group_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -148,7 +134,9 @@ pub struct GroupResponse {
     pub group_id: i64,
     pub group_key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_group_key: Option<String>,
+    pub group_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_group_path: Option<String>,
     pub name: String,
     pub visibility: Visibility,
     pub kind: GroupKind,
@@ -159,28 +147,7 @@ pub struct GroupResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ProjectResponse {
-    pub project_id: i64,
-    pub group_key: String,
-    pub project_key: String,
-    pub name: String,
-    pub visibility: Visibility,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_role: Option<MembershipRole>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GroupMemberResponse {
-    pub user_id: i64,
-    pub login_name: String,
-    pub display_name: String,
-    pub role: MembershipRole,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ProjectMemberResponse {
     pub user_id: i64,
     pub login_name: String,
     pub display_name: String,

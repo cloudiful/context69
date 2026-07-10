@@ -19,7 +19,7 @@ pub struct AuthUserResponse {
     pub is_admin: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled_at: Option<DateTime<Utc>>,
-    pub personal_group_key: String,
+    pub personal_group_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub personal_group_role: Option<MembershipRole>,
 }

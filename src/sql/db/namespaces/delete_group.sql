@@ -1,2 +1,2 @@
 DELETE FROM context69.groups
-WHERE group_key = $1
+WHERE full_path = $1

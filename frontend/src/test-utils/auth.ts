@@ -11,7 +11,7 @@ export function setAuthenticatedUser(
     login_name: "admin",
     display_name: "Administrator",
     is_admin: true,
-    personal_group_key: "personal-admin",
+    personal_group_path: "personal-admin",
     personal_group_role: "owner",
     ...user,
   };

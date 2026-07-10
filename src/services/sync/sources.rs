@@ -6,23 +6,23 @@ impl SyncService {
             .await
     }
 
-    pub async fn list_sources_for_project(&self, project_id: i64) -> Result<Vec<SourceStatus>> {
+    pub async fn list_sources_for_group(&self, group_id: i64) -> Result<Vec<SourceStatus>> {
         self.decorate_sources(
             self.source_store
-                .list_sources_for_project(project_id)
+                .list_sources_for_group(group_id)
                 .await?,
         )
         .await
     }
 
-    pub async fn get_source_for_project(
+    pub async fn get_source_for_group(
         &self,
-        project_id: i64,
+        group_id: i64,
         source_key: &str,
     ) -> Result<Option<SourceStatus>> {
         let Some(source) = self
             .source_store
-            .get_source_in_project(project_id, source_key)
+            .get_source_in_group(group_id, source_key)
             .await?
         else {
             return Ok(None);
@@ -42,14 +42,14 @@ impl SyncService {
             .insert_source_in_scope(&source, scope)
             .await?;
         self.reload_sources().await?;
-        self.get_source_for_project(scope.project_id, &source.key)
+        self.get_source_for_group(scope.group_id, &source.key)
             .await?
             .with_context(|| format!("missing source {}", source.key))
     }
 
-    pub async fn update_source_in_project(
+    pub async fn update_source_in_group(
         &self,
-        project_id: i64,
+        group_id: i64,
         source_key: &str,
         input: &SourceConfigInput,
     ) -> Result<SourceStatus> {
@@ -61,15 +61,15 @@ impl SyncService {
         let _guard = self.acquire_lock(source_key).await?;
         let source = SourceStore::validate_source_input(input, &self.connection_names().await?)?;
         self.source_store
-            .update_source_in_project(Some(project_id), source_key, &source)
+            .update_source_in_group(Some(group_id), source_key, &source)
             .await?;
         self.reload_sources().await?;
-        self.get_source_for_project(project_id, source_key)
+        self.get_source_for_group(group_id, source_key)
             .await?
             .with_context(|| format!("missing source {source_key}"))
     }
 
-    pub async fn delete_source_in_project(&self, project_id: i64, source_key: &str) -> Result<()> {
+    pub async fn delete_source_in_group(&self, group_id: i64, source_key: &str) -> Result<()> {
         let _guard = self.acquire_lock(source_key).await?;
         let chunk_ids = self.source_store.list_source_chunk_ids(source_key).await?;
         if let Some(runtime) = &self.runtime {
@@ -77,7 +77,7 @@ impl SyncService {
         }
         let deleted = self
             .source_store
-            .delete_source_in_project(Some(project_id), source_key)
+            .delete_source_in_group(Some(group_id), source_key)
             .await?;
         if !deleted {
             return Err(anyhow!("unknown source {source_key}"));

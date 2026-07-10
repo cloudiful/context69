@@ -34,18 +34,18 @@ provide(groupWorkspaceStateKey, state);
     />
 
     <EntityDialog
-      v-model:visible="state.projectDialogVisible"
-      :busy="state.projectDialogBusy"
-      :error="state.projectError"
-      :title="state.editingProject ? $t('groups.editProject') : $t('groups.createProject')"
-      :show-key="!state.editingProject"
-      :entity-key-label="$t('groups.projectKey')"
-      :entity-name-label="$t('groups.projectName')"
-      :initial-key="state.editingProject?.project_key"
-      :initial-name="state.editingProject?.name"
-      :initial-visibility="(state.editingProject?.visibility as 'private' | 'public' | undefined)"
-      :submit-label="state.editingProject ? $t('common.save') : $t('groups.createProject')"
-      @submit="state.saveProject"
+      v-model:visible="state.childGroupDialogVisible"
+      :busy="state.childGroupDialogBusy"
+      :error="state.childGroupError"
+      :title="state.editingChildGroup ? $t('groups.editChild') : $t('groups.createChild')"
+      :show-key="!state.editingChildGroup"
+      :entity-key-label="$t('groups.groupKey')"
+      :entity-name-label="$t('groups.groupName')"
+      :initial-key="state.editingChildGroup?.group_key"
+      :initial-name="state.editingChildGroup?.name"
+      :initial-visibility="(state.editingChildGroup?.visibility as 'private' | 'public' | undefined)"
+      :submit-label="state.editingChildGroup ? $t('common.save') : $t('groups.createChild')"
+      @submit="state.saveChildGroup"
     />
 
     <MemberDialog
@@ -64,14 +64,14 @@ provide(groupWorkspaceStateKey, state);
     />
 
     <Dialog
-      v-model:visible="state.moveProjectDialogVisible"
+      v-model:visible="state.moveGroupDialogVisible"
       modal
-      :header="$t('groups.moveProject')"
+      :header="$t('groups.moveGroup')"
       :pt="appFormDialogPt"
       :style="{ width: '30rem', maxWidth: '96vw' }"
     >
       <div class="grid gap-3">
-        <Message v-if="state.projectError" severity="error" :closable="false">{{ state.projectError }}</Message>
+        <Message v-if="state.childGroupError" severity="error" :closable="false">{{ state.childGroupError }}</Message>
         <div class="grid gap-2">
           <label class="form-label">{{ $t("groups.targetGroup") }}</label>
           <AutoComplete
@@ -94,10 +94,10 @@ provide(groupWorkspaceStateKey, state);
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <Button severity="secondary" variant="outlined" @click="state.moveProjectDialogVisible = false">
+          <Button severity="secondary" variant="outlined" @click="state.moveGroupDialogVisible = false">
             {{ $t("common.cancel") }}
           </Button>
-          <Button :disabled="state.projectDialogBusy || !state.selectedTargetGroup" @click="state.submitMoveProject">
+          <Button :disabled="state.childGroupDialogBusy" @click="state.submitMoveGroup">
             {{ $t("common.move") }}
           </Button>
         </div>

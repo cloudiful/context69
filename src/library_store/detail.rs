@@ -17,9 +17,9 @@ impl LibraryStore {
         let file = sqlx::query_as::<_, FileDetailRow>(
             r#"
             SELECT
+                group_key,
+                g.full_path AS group_path,
                 id AS file_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
                 visibility,
                 folder_id,
                 filename,
@@ -31,7 +31,8 @@ impl LibraryStore {
                 created_at,
                 updated_at,
                 ingested_at
-            FROM context69.library_files
+            FROM context69.library_files lf
+            INNER JOIN context69.groups g ON g.id = lf.group_id
             WHERE id = $1
             "#,
         )
@@ -54,7 +55,7 @@ impl LibraryStore {
         Ok(Some(LibraryFileDetailResponse {
             file_id: file.file_id,
             group_key: file.group_key,
-            project_key: file.project_key,
+            group_path: file.group_path,
             visibility: file.visibility.parse().unwrap_or(Visibility::Private),
             folder_id: file.folder_id,
             folder_path,
@@ -81,9 +82,9 @@ impl LibraryStore {
         let file = sqlx::query_as::<_, FileDetailRow>(
             r#"
             SELECT
+                group_key,
+                g.full_path AS group_path,
                 id AS file_id,
-                (SELECT group_key FROM context69.groups WHERE id = group_id) AS group_key,
-                (SELECT project_key FROM context69.projects WHERE id = project_id) AS project_key,
                 visibility,
                 folder_id,
                 filename,
@@ -95,8 +96,9 @@ impl LibraryStore {
                 created_at,
                 updated_at,
                 ingested_at
-            FROM context69.library_files
-            WHERE project_id = $1
+            FROM context69.library_files lf
+            INNER JOIN context69.groups g ON g.id = lf.group_id
+            WHERE group_id = $1
               AND id = $2
             "#,
         )
@@ -120,7 +122,7 @@ impl LibraryStore {
         Ok(Some(LibraryFileDetailResponse {
             file_id: file.file_id,
             group_key: file.group_key,
-            project_key: file.project_key,
+            group_path: file.group_path,
             visibility: file.visibility.parse().unwrap_or(Visibility::Private),
             folder_id: file.folder_id,
             folder_path,

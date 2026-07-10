@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.documents\nSET title = $3,\n    summary = $4,\n    source_uri = $5,\n    published_at = $6,\n    updated_at_source = COALESCE($7, updated_at_source),\n    metadata_json = $8,\n    last_synced_at = now(),\n    updated_at = now()\nWHERE group_id = $1 AND source_key = $2 AND external_id = $9\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Date",
+        "Timestamptz",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "84e7bbb5cde1216b73a04b6c5de2d1e71f59491254d5fe5eabe2c8169f8f7f67"
+}

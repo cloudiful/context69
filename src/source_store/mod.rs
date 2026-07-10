@@ -23,8 +23,7 @@ pub struct SourceStore {
 pub struct SourceScope {
     pub group_id: i64,
     pub group_key: String,
-    pub project_id: i64,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: crate::contracts::Visibility,
 }
 
@@ -32,8 +31,7 @@ pub struct SourceScope {
 struct SourceStatusRow {
     group_id: i64,
     group_key: String,
-    project_id: i64,
-    project_key: String,
+    group_path: String,
     visibility: String,
     source_key: String,
     display_name: Option<String>,

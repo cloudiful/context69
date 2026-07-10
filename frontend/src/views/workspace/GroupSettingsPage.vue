@@ -16,6 +16,10 @@ const state = useGroupWorkspaceContext();
           <dd class="workspace-summary-value">{{ state.group?.group_key || state.groupKey }}</dd>
         </div>
         <div class="workspace-summary-row">
+          <dt class="workspace-summary-label">{{ $t("groups.groupPath") }}</dt>
+          <dd class="workspace-summary-value">{{ state.group?.group_path || state.groupPath }}</dd>
+        </div>
+        <div class="workspace-summary-row">
           <dt class="workspace-summary-label">{{ $t("groups.groupName") }}</dt>
           <dd class="workspace-summary-value">{{ state.group?.name || "--" }}</dd>
         </div>
@@ -36,10 +40,13 @@ const state = useGroupWorkspaceContext();
 
     <section class="workspace-summary-card">
       <div class="workspace-action-row">
-        <Button severity="secondary" @click="state.groupDialogVisible = true">
+        <Button v-if="state.canManageGroup" severity="secondary" @click="state.groupDialogVisible = true">
           {{ $t("common.edit") }}
         </Button>
-        <Button severity="danger" @click="state.confirmDeleteGroup">
+        <Button v-if="state.canManageGroup" severity="secondary" variant="outlined" @click="state.openMoveCurrentGroupDialog">
+          {{ $t("common.move") }}
+        </Button>
+        <Button v-if="state.canOwnGroup" severity="danger" @click="state.confirmDeleteGroup">
           {{ $t("common.delete") }}
         </Button>
       </div>

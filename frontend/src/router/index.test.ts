@@ -88,26 +88,15 @@ describe("router auth guards", () => {
     expect(router.currentRoute.value.fullPath).toBe("/groups/stock/overview");
   });
 
-  it("redirects a project root route to the project overview page", async () => {
+  it("supports encoded nested group paths", async () => {
     isAuthenticated.mockReturnValue(true);
 
     const { router } = await import("./index");
 
-    await router.push("/groups/stock/projects/alpha");
-
-    expect(router.currentRoute.value.name).toBe("project-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/projects/alpha/overview");
-  });
-
-  it("redirects the group projects route to the group overview page", async () => {
-    isAuthenticated.mockReturnValue(true);
-
-    const { router } = await import("./index");
-
-    await router.push("/groups/stock/projects");
+    await router.push("/groups/stock%2Falpha");
 
     expect(router.currentRoute.value.name).toBe("group-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/overview");
+    expect(router.currentRoute.value.fullPath).toBe("/groups/stock%2Falpha/overview");
   });
 
   it("keeps the group settings route addressable", async () => {
@@ -121,30 +110,4 @@ describe("router auth guards", () => {
     expect(router.currentRoute.value.fullPath).toBe("/groups/stock/settings");
   });
 
-  it("keeps the project settings route addressable", async () => {
-    isAuthenticated.mockReturnValue(true);
-
-    const { router } = await import("./index");
-
-    await router.push("/groups/stock/projects/alpha/settings");
-
-    expect(router.currentRoute.value.name).toBe("project-settings");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/projects/alpha/settings");
-  });
-
-  it("redirects legacy project files and sources routes to the project overview page", async () => {
-    isAuthenticated.mockReturnValue(true);
-
-    const { router } = await import("./index");
-
-    await router.push("/groups/stock/projects/alpha/files");
-
-    expect(router.currentRoute.value.name).toBe("project-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/projects/alpha/overview");
-
-    await router.push("/groups/stock/projects/alpha/sources");
-
-    expect(router.currentRoute.value.name).toBe("project-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/projects/alpha/overview");
-  });
 });

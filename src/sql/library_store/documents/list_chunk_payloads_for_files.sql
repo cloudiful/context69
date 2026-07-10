@@ -3,8 +3,7 @@ SELECT
     d.id AS document_id,
     d.group_id,
     g.group_key,
-    d.project_id,
-    p.project_key,
+    g.full_path AS group_path,
     d.visibility,
     d.source_key,
     d.external_id,
@@ -20,7 +19,6 @@ SELECT
 FROM context69.document_chunks c
 INNER JOIN context69.documents d ON d.id = c.document_id
 INNER JOIN context69.groups g ON g.id = d.group_id
-INNER JOIN context69.projects p ON p.id = d.project_id
 INNER JOIN context69.library_file_documents lfd ON lfd.document_id = d.id
 WHERE lfd.file_id = ANY($1)
 ORDER BY d.id, c.chunk_index

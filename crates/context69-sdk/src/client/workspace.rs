@@ -1,11 +1,10 @@
 use context69_contracts::{
-    CreateGroupRequest, CreateProjectRequest, GroupMemberResponse, GroupResponse,
-    MoveProjectRequest, ProjectMemberResponse, ProjectResponse, UpdateGroupRequest,
-    UpdateProjectRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
+    CreateGroupRequest, GroupMemberResponse, GroupResponse, MoveGroupRequest, UpdateGroupRequest,
+    UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use reqwest::Method;
 
-use crate::{Context69Client, Error};
+use crate::{Context69Client, Error, client::encode_path_component};
 
 pub struct WorkspaceApi<'a> {
     client: &'a Context69Client,
@@ -53,8 +52,8 @@ impl<'a> WorkspaceApi<'a> {
             .await
     }
 
-    pub async fn get_group(&self, group_key: &str) -> Result<GroupResponse, Error> {
-        let path = format!("/v1/groups/{group_key}");
+    pub async fn get_group(&self, group_path: &str) -> Result<GroupResponse, Error> {
+        let path = format!("/v1/groups/by-path/{}", encode_path_component(group_path));
         self.client
             .execute_json(self.client.authorized_request(Method::GET, &path).await?)
             .await
@@ -62,10 +61,10 @@ impl<'a> WorkspaceApi<'a> {
 
     pub async fn update_group(
         &self,
-        group_key: &str,
+        group_path: &str,
         request: &UpdateGroupRequest,
     ) -> Result<GroupResponse, Error> {
-        let path = format!("/v1/groups/{group_key}");
+        let path = format!("/v1/groups/by-path/{}", encode_path_component(group_path));
         self.client
             .execute_json(
                 self.client
@@ -76,8 +75,27 @@ impl<'a> WorkspaceApi<'a> {
             .await
     }
 
-    pub async fn delete_group(&self, group_key: &str) -> Result<(), Error> {
-        let path = format!("/v1/groups/{group_key}");
+    pub async fn move_group(
+        &self,
+        group_path: &str,
+        request: &MoveGroupRequest,
+    ) -> Result<GroupResponse, Error> {
+        let path = format!(
+            "/v1/groups/by-path/{}/move",
+            encode_path_component(group_path)
+        );
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::POST, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
+    }
+
+    pub async fn delete_group(&self, group_path: &str) -> Result<(), Error> {
+        let path = format!("/v1/groups/by-path/{}", encode_path_component(group_path));
         self.client
             .execute_empty(
                 self.client
@@ -87,11 +105,24 @@ impl<'a> WorkspaceApi<'a> {
             .await
     }
 
+    pub async fn list_child_groups(&self, group_path: &str) -> Result<Vec<GroupResponse>, Error> {
+        let path = format!(
+            "/v1/groups/by-path/{}/children",
+            encode_path_component(group_path)
+        );
+        self.client
+            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
+            .await
+    }
+
     pub async fn list_group_members(
         &self,
-        group_key: &str,
+        group_path: &str,
     ) -> Result<Vec<GroupMemberResponse>, Error> {
-        let path = format!("/v1/groups/{group_key}/members");
+        let path = format!(
+            "/v1/groups/by-path/{}/members",
+            encode_path_component(group_path)
+        );
         self.client
             .execute_json(self.client.authorized_request(Method::GET, &path).await?)
             .await
@@ -99,10 +130,13 @@ impl<'a> WorkspaceApi<'a> {
 
     pub async fn upsert_group_member(
         &self,
-        group_key: &str,
+        group_path: &str,
         request: &UpsertMembershipRequest,
     ) -> Result<(), Error> {
-        let path = format!("/v1/groups/{group_key}/members");
+        let path = format!(
+            "/v1/groups/by-path/{}/members",
+            encode_path_component(group_path)
+        );
         self.client
             .execute_empty(
                 self.client
@@ -115,133 +149,13 @@ impl<'a> WorkspaceApi<'a> {
 
     pub async fn delete_group_member(
         &self,
-        group_key: &str,
+        group_path: &str,
         login_name: &str,
     ) -> Result<(), Error> {
-        let path = format!("/v1/groups/{group_key}/members/{login_name}");
-        self.client
-            .execute_empty(
-                self.client
-                    .authorized_request(Method::DELETE, &path)
-                    .await?,
-            )
-            .await
-    }
-
-    pub async fn list_projects(&self, group_key: &str) -> Result<Vec<ProjectResponse>, Error> {
-        let path = format!("/v1/groups/{group_key}/projects");
-        self.client
-            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
-            .await
-    }
-
-    pub async fn create_project(
-        &self,
-        group_key: &str,
-        request: &CreateProjectRequest,
-    ) -> Result<ProjectResponse, Error> {
-        let path = format!("/v1/groups/{group_key}/projects");
-        self.client
-            .execute_json(
-                self.client
-                    .authorized_request(Method::POST, &path)
-                    .await?
-                    .json(request),
-            )
-            .await
-    }
-
-    pub async fn get_project(
-        &self,
-        group_key: &str,
-        project_key: &str,
-    ) -> Result<ProjectResponse, Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}");
-        self.client
-            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
-            .await
-    }
-
-    pub async fn update_project(
-        &self,
-        group_key: &str,
-        project_key: &str,
-        request: &UpdateProjectRequest,
-    ) -> Result<ProjectResponse, Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}");
-        self.client
-            .execute_json(
-                self.client
-                    .authorized_request(Method::PATCH, &path)
-                    .await?
-                    .json(request),
-            )
-            .await
-    }
-
-    pub async fn delete_project(&self, group_key: &str, project_key: &str) -> Result<(), Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}");
-        self.client
-            .execute_empty(
-                self.client
-                    .authorized_request(Method::DELETE, &path)
-                    .await?,
-            )
-            .await
-    }
-
-    pub async fn move_project(
-        &self,
-        group_key: &str,
-        project_key: &str,
-        request: &MoveProjectRequest,
-    ) -> Result<ProjectResponse, Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/move");
-        self.client
-            .execute_json(
-                self.client
-                    .authorized_request(Method::POST, &path)
-                    .await?
-                    .json(request),
-            )
-            .await
-    }
-
-    pub async fn list_project_members(
-        &self,
-        group_key: &str,
-        project_key: &str,
-    ) -> Result<Vec<ProjectMemberResponse>, Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/members");
-        self.client
-            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
-            .await
-    }
-
-    pub async fn upsert_project_member(
-        &self,
-        group_key: &str,
-        project_key: &str,
-        request: &UpsertMembershipRequest,
-    ) -> Result<(), Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/members");
-        self.client
-            .execute_empty(
-                self.client
-                    .authorized_request(Method::POST, &path)
-                    .await?
-                    .json(request),
-            )
-            .await
-    }
-
-    pub async fn delete_project_member(
-        &self,
-        group_key: &str,
-        project_key: &str,
-        login_name: &str,
-    ) -> Result<(), Error> {
-        let path = format!("/v1/groups/{group_key}/projects/{project_key}/members/{login_name}");
+        let path = format!(
+            "/v1/groups/by-path/{}/members/{login_name}",
+            encode_path_component(group_path)
+        );
         self.client
             .execute_empty(
                 self.client

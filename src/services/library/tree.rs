@@ -8,7 +8,7 @@ impl LibraryService {
         Ok(LibraryTreeResponse {
             root: build_tree(
                 "public".to_string(),
-                "default-public".to_string(),
+                "public".to_string(),
                 Visibility::Public,
                 folders,
                 files,
@@ -18,14 +18,14 @@ impl LibraryService {
 
     pub async fn list_tree_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
     ) -> Result<LibraryTreeResponse> {
         let folders = self.store.list_folders_in_project(project.id).await?;
         let files = self.store.list_files_in_project(project.id).await?;
         Ok(LibraryTreeResponse {
             root: build_tree(
                 project.group_key.clone(),
-                project.project_key.clone(),
+                project.group_path.clone(),
                 project.visibility,
                 folders,
                 files,
@@ -56,7 +56,7 @@ impl LibraryService {
 
 fn build_tree(
     root_group_key: String,
-    root_project_key: String,
+    root_group_path: String,
     root_visibility: Visibility,
     folders: Vec<LibraryFolderRecord>,
     files: Vec<crate::domain::LibraryFileRecord>,
@@ -104,7 +104,7 @@ fn build_tree(
         None,
         "/",
         &root_group_key,
-        &root_project_key,
+        &root_group_path,
         root_visibility,
         &mut seeds,
     )
@@ -114,7 +114,7 @@ fn build_folder_node(
     folder_id: Option<Uuid>,
     path: &str,
     root_group_key: &str,
-    root_project_key: &str,
+    root_group_path: &str,
     root_visibility: Visibility,
     seeds: &mut HashMap<Option<Uuid>, FolderNodeSeed>,
 ) -> LibraryFolderNode {
@@ -136,7 +136,7 @@ fn build_folder_node(
                 Some(child_id),
                 &child_path,
                 root_group_key,
-                root_project_key,
+                root_group_path,
                 root_visibility,
                 seeds,
             ))
@@ -165,7 +165,7 @@ fn build_folder_node(
     match seed.folder {
         Some(folder) => LibraryFolderNode {
             group_key: folder.group_key,
-            project_key: folder.project_key,
+            group_path: folder.group_path,
             visibility: folder.visibility,
             folder_id: Some(folder.id),
             parent_folder_id: folder.parent_id,
@@ -177,7 +177,7 @@ fn build_folder_node(
         },
         None => LibraryFolderNode {
             group_key: root_group_key.to_string(),
-            project_key: root_project_key.to_string(),
+            group_path: root_group_path.to_string(),
             visibility: root_visibility,
             folder_id: None,
             parent_folder_id: None,

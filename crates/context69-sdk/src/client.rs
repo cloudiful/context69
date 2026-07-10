@@ -255,6 +255,10 @@ pub(crate) fn file_upload_form(folder_id: Option<Uuid>, files: Vec<Part>) -> For
     form
 }
 
+pub(crate) fn encode_path_component(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
 pub(crate) fn validate_personal_access_token(token: String) -> Result<String, Error> {
     let trimmed = token.trim();
     if trimmed.is_empty() {

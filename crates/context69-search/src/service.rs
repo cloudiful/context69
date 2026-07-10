@@ -53,11 +53,7 @@ impl SearchService {
         let requested_limit = request.limit;
         let scope = self
             .scope_resolver
-            .access_scope(
-                user_id,
-                request.group_key.clone(),
-                request.project_key.clone(),
-            )
+            .access_scope(user_id, request.group_path.clone())
             .await?;
         let settings = self
             .repository

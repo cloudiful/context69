@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ProjectFilesPanel from "../../components/ProjectFilesPanel.vue";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
@@ -17,28 +18,30 @@ function projectRowClass() {
 <template>
   <div class="workspace-overview-layout">
     <section class="workspace-overview-main">
+      <ProjectFilesPanel :group-path="state.groupPath" />
+
       <DataTable
         class="app-data-table"
-        :value="state.projects"
-        data-key="project_id"
+        :value="state.childGroups"
+        data-key="group_id"
         row-hover
         scrollable
         table-style="min-width: 100%"
         :row-class="projectRowClass"
-        @row-click="state.openProject($event.data)"
+        @row-click="state.openGroup($event.data)"
       >
         <template #empty>
-          {{ $t("groups.emptyProjects") }}
+          {{ $t("groups.emptyChildren") }}
         </template>
 
         <Column>
           <template #header>
             <div class="flex w-full items-center justify-between gap-3">
               <span class="text-sm font-semibold text-app-text">
-                {{ $t("groups.projectName") }}
+                {{ $t("groups.childrenTitle") }}
               </span>
-              <Button :class="toolPrimaryButtonClass" size="small" @click="state.openCreateProjectDialog">
-                {{ $t("groups.createProject") }}
+              <Button :class="toolPrimaryButtonClass" size="small" @click="state.openCreateChildGroupDialog">
+                {{ $t("groups.createChild") }}
               </Button>
             </div>
           </template>
@@ -48,8 +51,31 @@ function projectRowClass() {
                 {{ data.name }}
               </span>
               <span class="truncate text-sm text-app-text-dim">
-                {{ data.project_key }}
+                {{ data.group_path || data.group_key }}
               </span>
+            </div>
+          </template>
+        </Column>
+        <Column field="visibility" :header="$t('groups.visibility')">
+          <template #body="{ data }">
+            <Tag :value="data.visibility" severity="secondary" />
+          </template>
+        </Column>
+        <Column :header="$t('common.edit')">
+          <template #body="{ data }">
+            <div class="flex gap-2">
+              <Button severity="secondary" variant="outlined" size="small" @click.stop="state.openGroup(data)">
+                {{ $t("common.open") }}
+              </Button>
+              <Button severity="secondary" variant="outlined" size="small" @click.stop="state.openEditChildGroupDialog(data)">
+                {{ $t("common.edit") }}
+              </Button>
+              <Button severity="secondary" variant="outlined" size="small" @click.stop="state.openMoveChildGroupDialog(data)">
+                {{ $t("common.move") }}
+              </Button>
+              <Button severity="danger" variant="outlined" size="small" @click.stop="state.confirmDeleteChildGroup(data)">
+                {{ $t("common.delete") }}
+              </Button>
             </div>
           </template>
         </Column>
@@ -63,6 +89,10 @@ function projectRowClass() {
           <div class="workspace-summary-row">
             <dt class="workspace-summary-label">{{ $t("groups.groupKey") }}</dt>
             <dd class="workspace-summary-value">{{ state.group?.group_key || state.groupKey }}</dd>
+          </div>
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.groupPath") }}</dt>
+            <dd class="workspace-summary-value">{{ state.group?.group_path || state.groupPath }}</dd>
           </div>
           <div class="workspace-summary-row">
             <dt class="workspace-summary-label">{{ $t("groups.groupName") }}</dt>
@@ -89,6 +119,10 @@ function projectRowClass() {
           <div class="workspace-summary-row">
             <dt class="workspace-summary-label">{{ $t("groups.membersTitle") }}</dt>
             <dd class="workspace-summary-value">{{ state.members.length }}</dd>
+          </div>
+          <div class="workspace-summary-row">
+            <dt class="workspace-summary-label">{{ $t("groups.childrenTitle") }}</dt>
+            <dd class="workspace-summary-value">{{ state.childGroups.length }}</dd>
           </div>
         </dl>
       </section>

@@ -16,7 +16,7 @@ const state = useGroupWorkspaceContext();
       <div>
         <p class="section-title">{{ $t("groups.membersTitle") }}</p>
       </div>
-      <Button :label="$t('members.add')" size="small" @click="state.openCreateMemberDialog" />
+      <Button v-if="state.canManageGroup" :label="$t('members.add')" size="small" @click="state.openCreateMemberDialog" />
     </div>
 
     <Message v-if="state.memberError" severity="error" :closable="false">{{ state.memberError }}</Message>
@@ -29,7 +29,7 @@ const state = useGroupWorkspaceContext();
           <Tag :value="data.role" :severity="state.roleSeverity(data.role)" />
         </template>
       </Column>
-      <Column :header="$t('common.edit')">
+      <Column v-if="state.canManageGroup" :header="$t('common.edit')">
         <template #body="{ data }">
           <div class="flex gap-2">
             <Button severity="secondary" variant="outlined" size="small" @click="state.openEditMemberDialog(data)">

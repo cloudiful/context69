@@ -31,7 +31,7 @@ pub(super) fn row_to_source_config(row: SourceConfigRow) -> Result<SourceConfig>
 pub(super) fn row_to_source_status(row: SourceStatusRow) -> SourceStatus {
     SourceStatus {
         group_key: row.group_key,
-        project_key: row.project_key,
+        group_path: row.group_path,
         visibility: row.visibility.parse().unwrap_or(Visibility::Private),
         display_name: row
             .display_name

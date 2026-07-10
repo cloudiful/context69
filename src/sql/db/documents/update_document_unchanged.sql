@@ -7,4 +7,4 @@ SET title = $3,
     metadata_json = $8,
     last_synced_at = now(),
     updated_at = now()
-WHERE project_id = $1 AND source_key = $2 AND external_id = $9
+WHERE group_id = $1 AND source_key = $2 AND external_id = $9

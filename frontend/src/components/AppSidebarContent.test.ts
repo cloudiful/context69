@@ -22,13 +22,9 @@ describe("AppSidebarContent", () => {
       routes: [
         { path: "/search", component: { template: "<div />" } },
         { path: "/groups", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/overview", name: "group-overview", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects", name: "group-projects", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/members", name: "group-members", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/settings", name: "group-settings", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/overview", name: "project-overview", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/members", name: "project-members", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/settings", name: "project-settings", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/overview", name: "group-overview", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/members", name: "group-members", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/settings", name: "group-settings", component: { template: "<div />" } },
         { path: "/settings", component: { template: "<div />" } },
         { path: "/settings/appearance", component: { template: "<div />" } },
         { path: "/settings/access-tokens", component: { template: "<div />" } },
@@ -96,10 +92,9 @@ describe("AppSidebarContent", () => {
       routes: [
         { path: "/search", component: { template: "<div />" } },
         { path: "/groups", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/overview", name: "group-overview", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects", name: "group-projects", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/members", name: "group-members", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/settings", name: "group-settings", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/overview", name: "group-overview", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/members", name: "group-members", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/settings", name: "group-settings", component: { template: "<div />" } },
         { path: "/settings", component: { template: "<div />" } },
       ],
     });
@@ -115,41 +110,7 @@ describe("AppSidebarContent", () => {
 
     expect(wrapper.find('[data-nav-key="/groups"]').classes()).toContain("is-active");
     expect(wrapper.get('[data-nav-child-key="/groups/stock/members"]').classes()).toContain("is-active");
-    expect(wrapper.text()).not.toContain("Projects");
     expect(wrapper.text()).toContain("Members");
-    expect(wrapper.text()).toContain("Settings");
-    expect(wrapper.find(".app-sidebar-subnav-heading").exists()).toBe(false);
-  });
-
-  it("renders project secondary navigation when a project route is active", async () => {
-    setAuthenticatedUser();
-
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: "/search", component: { template: "<div />" } },
-        { path: "/groups", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/overview", name: "project-overview", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/members", name: "project-members", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/settings", name: "project-settings", component: { template: "<div />" } },
-        { path: "/settings", component: { template: "<div />" } },
-      ],
-    });
-
-    router.push("/groups/stock/projects/alpha/overview");
-    await router.isReady();
-
-    const wrapper = mount(AppSidebarContent, {
-      global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
-      },
-    });
-
-    expect(wrapper.find('[data-nav-key="/groups"]').classes()).toContain("is-active");
-    expect(wrapper.get('[data-nav-key="/groups"]').text()).toContain("Project");
-    expect(wrapper.get('[data-nav-child-key="/groups/stock/projects/alpha/overview"]').classes()).toContain("is-active");
-    expect(wrapper.text()).toContain("Overview");
-    expect(wrapper.text()).not.toContain("Files");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.find(".app-sidebar-subnav-heading").exists()).toBe(false);
   });

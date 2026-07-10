@@ -4,10 +4,7 @@ import { useI18n } from "vue-i18n";
 
 import { authSessionState } from "../services/auth/session";
 import { resolveSettingsSectionNav } from "../settings/navigation";
-import {
-  resolveGroupSectionNav,
-  resolveProjectSectionNav,
-} from "../workspace/navigation";
+import { resolveGroupSectionNav } from "../workspace/navigation";
 
 export interface AppNavChildItem {
   to: string;
@@ -30,21 +27,15 @@ export function useAppNavigation() {
   const { t } = useI18n();
 
   const routeName = computed(() => String(route.name ?? ""));
-  const groupKey = computed(() => String(route.params.groupKey ?? ""));
-  const projectKey = computed(() => String(route.params.projectKey ?? ""));
-  const isProjectRoute = computed(() => routeName.value.startsWith("project-") || routeName.value === "project");
+  const groupPath = computed(() => String(route.params.groupPath ?? ""));
 
   const groupsChildren = computed(() => {
-    if (!groupKey.value) {
+    if (!groupPath.value) {
       return undefined;
     }
 
-    if (isProjectRoute.value) {
-      return resolveProjectSectionNav(t, groupKey.value, projectKey.value);
-    }
-
     if (routeName.value.startsWith("group-") || routeName.value === "group-detail") {
-      return resolveGroupSectionNav(t, groupKey.value);
+      return resolveGroupSectionNav(t, groupPath.value);
     }
 
     return undefined;
@@ -54,7 +45,7 @@ export function useAppNavigation() {
     { to: "/search", label: t("nav.search"), iconPath: mdiMagnify },
     {
       to: "/groups",
-      label: isProjectRoute.value ? t("project.summary.project") : t("nav.groups"),
+      label: t("nav.groups"),
       iconPath: mdiAccountMultipleOutline,
       children: groupsChildren.value,
     },

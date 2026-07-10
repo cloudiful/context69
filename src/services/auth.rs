@@ -307,12 +307,9 @@ impl AuthService {
     pub async fn access_scope(
         &self,
         user_id: Option<i64>,
-        group_key: Option<String>,
-        project_key: Option<String>,
+        group_path: Option<String>,
     ) -> Result<AccessScope> {
-        self.db
-            .resolve_access_scope(user_id, group_key, project_key)
-            .await
+        self.db.resolve_access_scope(user_id, group_path).await
     }
 
     pub fn cookie_name(&self) -> &str {
@@ -393,7 +390,7 @@ pub fn user_response(session: &AuthSession) -> AuthUserResponse {
         display_name: session.user.display_name.clone(),
         is_admin: session.user.is_admin,
         disabled_at: session.user.disabled_at,
-        personal_group_key: session.personal_group.group_key.clone(),
+        personal_group_path: session.personal_group.group_path.clone(),
         personal_group_role: Some(MembershipRole::Owner),
     }
 }

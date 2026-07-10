@@ -732,13 +732,13 @@
         }
       }
     },
-    "/v1/groups/{group_key}": {
+    "/v1/groups/by-path/{group_path}": {
       "get": {
         "tags": [],
         "operationId": "get_group",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -774,7 +774,7 @@
         "operationId": "delete_group",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -793,7 +793,7 @@
         "operationId": "update_group",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -835,13 +835,13 @@
         }
       }
     },
-    "/v1/groups/{group_key}/members": {
+    "/v1/groups/by-path/{group_path}/children": {
       "get": {
         "tags": [],
-        "operationId": "list_group_members",
+        "operationId": "list_child_groups",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -857,275 +857,24 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/GroupMemberResponse"
+                    "$ref": "#/components/schemas/GroupResponse"
                   }
                 }
               }
             }
           }
         }
-      },
+      }
+    },
+    "/v1/groups/by-path/{group_path}/library/files/upload": {
       "post": {
         "tags": [],
-        "operationId": "upsert_group_member",
+        "operationId": "upload_group_library_files",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpsertMembershipRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/v1/groups/{group_key}/members/{login_name}": {
-      "delete": {
-        "tags": [],
-        "operationId": "delete_group_member",
-        "parameters": [
-          {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "login_name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/v1/groups/{group_key}/projects": {
-      "get": {
-        "tags": [],
-        "operationId": "list_projects",
-        "parameters": [
-          {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [],
-        "operationId": "create_project",
-        "parameters": [
-          {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateProjectRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/groups/{group_key}/projects/{project_key}": {
-      "get": {
-        "tags": [],
-        "operationId": "get_project",
-        "parameters": [
-          {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [],
-        "operationId": "delete_project",
-        "parameters": [
-          {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        }
-      },
-      "patch": {
-        "tags": [],
-        "operationId": "update_project",
-        "parameters": [
-          {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateProjectRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/groups/{group_key}/projects/{project_key}/library/files/upload": {
-      "post": {
-        "tags": [],
-        "operationId": "upload_project_library_files",
-        "parameters": [
-          {
-            "name": "group_key",
-            "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1157,29 +906,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project not found"
+            "description": "Group not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/files/{file_id}": {
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}": {
       "get": {
         "tags": [],
-        "operationId": "get_project_library_file",
+        "operationId": "get_group_library_file",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1208,27 +948,18 @@
             }
           },
           "404": {
-            "description": "Project or file not found"
+            "description": "Group or file not found"
           }
         }
       },
       "delete": {
         "tags": [],
-        "operationId": "delete_project_library_file",
+        "operationId": "delete_group_library_file",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1253,29 +984,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project or file not found"
+            "description": "Group or file not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/files/{file_id}/move": {
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}/move": {
       "post": {
         "tags": [],
-        "operationId": "move_project_library_file",
+        "operationId": "move_group_library_file",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1317,29 +1039,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project or file not found"
+            "description": "Group or file not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/folders": {
+    "/v1/groups/by-path/{group_path}/library/folders": {
       "post": {
         "tags": [],
-        "operationId": "create_project_library_folder",
+        "operationId": "create_group_library_folder",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1371,29 +1084,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project not found"
+            "description": "Group not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}": {
+    "/v1/groups/by-path/{group_path}/library/folders/{folder_id}": {
       "delete": {
         "tags": [],
-        "operationId": "delete_project_library_folder",
+        "operationId": "delete_group_library_folder",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1418,29 +1122,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project or folder not found"
+            "description": "Group or folder not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}/move": {
+    "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move": {
       "post": {
         "tags": [],
-        "operationId": "move_project_library_folder",
+        "operationId": "move_group_library_folder",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1482,29 +1177,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project or folder not found"
+            "description": "Group or folder not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/jobs/{job_id}": {
+    "/v1/groups/by-path/{group_path}/library/jobs/{job_id}": {
       "get": {
         "tags": [],
-        "operationId": "get_project_library_job",
+        "operationId": "get_group_library_job",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1533,29 +1219,20 @@
             }
           },
           "404": {
-            "description": "Project or job not found"
+            "description": "Group or job not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/texts": {
+    "/v1/groups/by-path/{group_path}/library/texts": {
       "put": {
         "tags": [],
-        "operationId": "upsert_project_library_text",
+        "operationId": "upsert_group_library_text",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1587,27 +1264,18 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project not found"
+            "description": "Group not found"
           }
         }
       },
       "post": {
         "tags": [],
-        "operationId": "create_project_library_text",
+        "operationId": "create_group_library_text",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1639,29 +1307,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project not found"
+            "description": "Group not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/library/tree": {
+    "/v1/groups/by-path/{group_path}/library/tree": {
       "get": {
         "tags": [],
-        "operationId": "get_project_library_tree",
+        "operationId": "get_group_library_tree",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1670,7 +1329,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Project library tree",
+            "description": "Group library tree",
             "content": {
               "application/json": {
                 "schema": {
@@ -1680,26 +1339,18 @@
             }
           },
           "404": {
-            "description": "Project not found"
+            "description": "Group not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/members": {
+    "/v1/groups/by-path/{group_path}/members": {
       "get": {
         "tags": [],
-        "operationId": "list_project_members",
+        "operationId": "list_group_members",
         "parameters": [
           {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -1715,7 +1366,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ProjectMemberResponse"
+                    "$ref": "#/components/schemas/GroupMemberResponse"
                   }
                 }
               }
@@ -1725,18 +1376,10 @@
       },
       "post": {
         "tags": [],
-        "operationId": "upsert_project_member",
+        "operationId": "upsert_group_member",
         "parameters": [
           {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -1761,21 +1404,13 @@
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/members/{login_name}": {
+    "/v1/groups/by-path/{group_path}/members/{login_name}": {
       "delete": {
         "tags": [],
-        "operationId": "delete_project_member",
+        "operationId": "delete_group_member",
         "parameters": [
           {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -1798,21 +1433,13 @@
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/move": {
+    "/v1/groups/by-path/{group_path}/move": {
       "post": {
         "tags": [],
-        "operationId": "move_project",
+        "operationId": "move_group",
         "parameters": [
           {
-            "name": "group_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
+            "name": "group_path",
             "in": "path",
             "required": true,
             "schema": {
@@ -1824,7 +1451,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MoveProjectRequest"
+                "$ref": "#/components/schemas/MoveGroupRequest"
               }
             }
           },
@@ -1836,7 +1463,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectResponse"
+                  "$ref": "#/components/schemas/GroupResponse"
                 }
               }
             }
@@ -1844,24 +1471,15 @@
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/source-folders": {
+    "/v1/groups/by-path/{group_path}/source-folders": {
       "post": {
         "tags": [],
-        "operationId": "create_project_source_folder",
+        "operationId": "create_group_source_folder",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1893,29 +1511,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project not found"
+            "description": "Group not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/config": {
+    "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/config": {
       "put": {
         "tags": [],
-        "operationId": "update_project_source_folder_config",
+        "operationId": "update_group_source_folder_config",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1957,29 +1566,20 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project or source folder not found"
+            "description": "Group or source folder not found"
           }
         }
       }
     },
-    "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/sync": {
+    "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync": {
       "post": {
         "tags": [],
-        "operationId": "sync_project_source_folder",
+        "operationId": "sync_group_source_folder",
         "parameters": [
           {
-            "name": "group_key",
+            "name": "group_path",
             "in": "path",
-            "description": "Group key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "project_key",
-            "in": "path",
-            "description": "Project key",
+            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -2011,7 +1611,7 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Project or source folder not found"
+            "description": "Group or source folder not found"
           }
         }
       }
@@ -3521,7 +3121,7 @@
           "login_name",
           "display_name",
           "is_admin",
-          "personal_group_key"
+          "personal_group_path"
         ],
         "properties": {
           "disabled_at": {
@@ -3540,7 +3140,7 @@
           "login_name": {
             "type": "string"
           },
-          "personal_group_key": {
+          "personal_group_path": {
             "type": "string"
           },
           "personal_group_role": {
@@ -3624,7 +3224,7 @@
           "name": {
             "type": "string"
           },
-          "parent_group_key": {
+          "parent_group_path": {
             "type": [
               "string",
               "null"
@@ -3671,25 +3271,6 @@
           },
           "token": {
             "$ref": "#/components/schemas/PersonalAccessTokenResponse"
-          }
-        }
-      },
-      "CreateProjectRequest": {
-        "type": "object",
-        "required": [
-          "project_key",
-          "name",
-          "visibility"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "project_key": {
-            "type": "string"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility"
           }
         }
       },
@@ -3875,7 +3456,7 @@
         "required": [
           "document_id",
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "source_key",
           "external_id",
@@ -3902,6 +3483,9 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": "string"
+          },
           "is_library_file": {
             "type": "boolean"
           },
@@ -3926,9 +3510,6 @@
           },
           "metadata_json": {
             "type": "object"
-          },
-          "project_key": {
-            "type": "string"
           },
           "published_at": {
             "type": [
@@ -4028,13 +3609,19 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "kind": {
             "$ref": "#/components/schemas/GroupKind"
           },
           "name": {
             "type": "string"
           },
-          "parent_group_key": {
+          "parent_group_path": {
             "type": [
               "string",
               "null"
@@ -4128,7 +3715,7 @@
         "required": [
           "file_id",
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "folder_path",
           "filename",
@@ -4172,6 +3759,9 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": "string"
+          },
           "ingest_status": {
             "$ref": "#/components/schemas/LibraryIngestStatus"
           },
@@ -4189,9 +3779,6 @@
             }
           },
           "media_type": {
-            "type": "string"
-          },
-          "project_key": {
             "type": "string"
           },
           "sections": {
@@ -4221,7 +3808,7 @@
         "required": [
           "file_id",
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "filename",
           "media_type",
@@ -4258,6 +3845,9 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": "string"
+          },
           "ingest_status": {
             "$ref": "#/components/schemas/LibraryIngestStatus"
           },
@@ -4269,9 +3859,6 @@
             "format": "date-time"
           },
           "media_type": {
-            "type": "string"
-          },
-          "project_key": {
             "type": "string"
           },
           "size_bytes": {
@@ -4291,7 +3878,7 @@
         "type": "object",
         "required": [
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "name",
           "path",
@@ -4322,6 +3909,9 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -4339,9 +3929,6 @@
             "type": "integer",
             "minimum": 0
           },
-          "project_key": {
-            "type": "string"
-          },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
           }
@@ -4352,7 +3939,7 @@
         "required": [
           "folder_id",
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "name",
           "path",
@@ -4371,6 +3958,9 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -4382,9 +3972,6 @@
             "format": "uuid"
           },
           "path": {
-            "type": "string"
-          },
-          "project_key": {
             "type": "string"
           },
           "updated_at": {
@@ -4401,7 +3988,7 @@
         "required": [
           "job_id",
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "file_id",
           "status",
@@ -4439,12 +4026,12 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": "string"
+          },
           "job_id": {
             "type": "string",
             "format": "uuid"
-          },
-          "project_key": {
-            "type": "string"
           },
           "started_at": {
             "type": [
@@ -4552,14 +4139,14 @@
           }
         }
       },
-      "MoveProjectRequest": {
+      "MoveGroupRequest": {
         "type": "object",
-        "required": [
-          "target_group_key"
-        ],
         "properties": {
-          "target_group_key": {
-            "type": "string"
+          "target_parent_group_path": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -4629,78 +4216,6 @@
           "settings",
           "admin"
         ]
-      },
-      "ProjectMemberResponse": {
-        "type": "object",
-        "required": [
-          "user_id",
-          "login_name",
-          "display_name",
-          "role"
-        ],
-        "properties": {
-          "display_name": {
-            "type": "string"
-          },
-          "login_name": {
-            "type": "string"
-          },
-          "role": {
-            "$ref": "#/components/schemas/MembershipRole"
-          },
-          "user_id": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
-      "ProjectResponse": {
-        "type": "object",
-        "required": [
-          "project_id",
-          "group_key",
-          "project_key",
-          "name",
-          "visibility",
-          "created_at",
-          "updated_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "current_role": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/MembershipRole"
-              }
-            ]
-          },
-          "group_key": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "project_id": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "project_key": {
-            "type": "string"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility"
-          }
-        }
       },
       "ProviderAccountResponse": {
         "type": "object",
@@ -4906,7 +4421,7 @@
           "chunk_id",
           "document_id",
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "source_key",
           "external_id",
@@ -4936,6 +4451,9 @@
             "type": "string"
           },
           "group_key": {
+            "type": "string"
+          },
+          "group_path": {
             "type": "string"
           },
           "is_library_file": {
@@ -4975,9 +4493,6 @@
           },
           "metadata_json": {
             "type": "object"
-          },
-          "project_key": {
-            "type": "string"
           },
           "published_at": {
             "type": [
@@ -5037,7 +4552,7 @@
           "query"
         ],
         "properties": {
-          "group_key": {
+          "group_path": {
             "type": [
               "string",
               "null"
@@ -5046,12 +4561,6 @@
           "limit": {
             "type": "integer",
             "minimum": 0
-          },
-          "project_key": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "published_after": {
             "type": [
@@ -5264,7 +4773,7 @@
         "type": "object",
         "required": [
           "group_key",
-          "project_key",
+          "group_path",
           "visibility",
           "source_key",
           "display_name",
@@ -5308,6 +4817,9 @@
           "group_key": {
             "type": "string"
           },
+          "group_path": {
+            "type": "string"
+          },
           "has_database_url": {
             "type": "boolean"
           },
@@ -5339,9 +4851,6 @@
           },
           "origin_status": {
             "$ref": "#/components/schemas/SourceOriginStatusKind"
-          },
-          "project_key": {
-            "type": "string"
           },
           "source_key": {
             "type": "string"
@@ -5475,27 +4984,6 @@
         }
       },
       "UpdateGroupRequest": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "visibility": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Visibility"
-              }
-            ]
-          }
-        }
-      },
-      "UpdateProjectRequest": {
         "type": "object",
         "properties": {
           "name": {

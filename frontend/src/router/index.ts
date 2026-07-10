@@ -34,7 +34,7 @@ export const router = createRouter({
       },
     },
     {
-      path: "/groups/:groupKey",
+      path: "/groups/:groupPath",
       component: () => import("../views/GroupShellView.vue"),
       meta: {
         requiresAuth: true,
@@ -54,14 +54,6 @@ export const router = createRouter({
           component: () => import("../views/workspace/GroupOverviewPage.vue"),
         },
         {
-          path: "projects",
-          name: "group-projects",
-          redirect: (to) => ({
-            name: "group-overview",
-            params: to.params,
-          }),
-        },
-        {
           path: "members",
           name: "group-members",
           component: () => import("../views/workspace/GroupMembersPage.vue"),
@@ -70,52 +62,6 @@ export const router = createRouter({
           path: "settings",
           name: "group-settings",
           component: () => import("../views/workspace/GroupSettingsPage.vue"),
-        },
-      ],
-    },
-    {
-      path: "/groups/:groupKey/projects/:projectKey",
-      component: () => import("../views/ProjectShellView.vue"),
-      meta: {
-        requiresAuth: true,
-      },
-      children: [
-        {
-          path: "",
-          name: "project",
-          redirect: (to) => ({
-            name: "project-overview",
-            params: to.params,
-          }),
-        },
-        {
-          path: "overview",
-          name: "project-overview",
-          component: () => import("../views/workspace/ProjectOverviewPage.vue"),
-        },
-        {
-          path: "sources",
-          redirect: (to) => ({
-            name: "project-overview",
-            params: to.params,
-          }),
-        },
-        {
-          path: "files",
-          redirect: (to) => ({
-            name: "project-overview",
-            params: to.params,
-          }),
-        },
-        {
-          path: "members",
-          name: "project-members",
-          component: () => import("../views/workspace/ProjectMembersPage.vue"),
-        },
-        {
-          path: "settings",
-          name: "project-settings",
-          component: () => import("../views/workspace/ProjectSettingsPage.vue"),
         },
       ],
     },

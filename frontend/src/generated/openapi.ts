@@ -228,7 +228,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}": {
+    "/v1/groups/by-path/{group_path}": {
         parameters: {
             query?: never;
             header?: never;
@@ -244,7 +244,167 @@ export interface paths {
         patch: operations["update_group"];
         trace?: never;
     };
-    "/v1/groups/{group_key}/members": {
+    "/v1/groups/by-path/{group_path}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_child_groups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/files/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["upload_group_library_files"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_library_file"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_group_library_file"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["move_group_library_file"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_group_library_folder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/folders/{folder_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_group_library_folder"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["move_group_library_folder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_library_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/texts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["upsert_group_library_text"];
+        post: operations["create_group_library_text"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_library_tree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/members": {
         parameters: {
             query?: never;
             header?: never;
@@ -260,7 +420,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/members/{login_name}": {
+    "/v1/groups/by-path/{group_path}/members/{login_name}": {
         parameters: {
             query?: never;
             header?: never;
@@ -276,39 +436,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/projects": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_projects"];
-        put?: never;
-        post: operations["create_project"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_project"];
-        put?: never;
-        post?: never;
-        delete: operations["delete_project"];
-        options?: never;
-        head?: never;
-        patch: operations["update_project"];
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/library/files/upload": {
+    "/v1/groups/by-path/{group_path}/move": {
         parameters: {
             query?: never;
             header?: never;
@@ -317,30 +445,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["upload_project_library_files"];
+        post: operations["move_group"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/projects/{project_key}/library/files/{file_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_project_library_file"];
-        put?: never;
-        post?: never;
-        delete: operations["delete_project_library_file"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/library/files/{file_id}/move": {
+    "/v1/groups/by-path/{group_path}/source-folders": {
         parameters: {
             query?: never;
             header?: never;
@@ -349,14 +461,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["move_project_library_file"];
+        post: operations["create_group_source_folder"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/projects/{project_key}/library/folders": {
+    "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/config": {
         parameters: {
             query?: never;
             header?: never;
@@ -364,55 +476,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        post: operations["create_project_library_folder"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["delete_project_library_folder"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}/move": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["move_project_library_folder"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/library/jobs/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_project_library_job"];
-        put?: never;
+        put: operations["update_group_source_folder_config"];
         post?: never;
         delete?: never;
         options?: never;
@@ -420,55 +484,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/{group_key}/projects/{project_key}/library/texts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["upsert_project_library_text"];
-        post: operations["create_project_library_text"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/library/tree": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_project_library_tree"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_project_members"];
-        put?: never;
-        post: operations["upsert_project_member"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/members/{login_name}": {
+    "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync": {
         parameters: {
             query?: never;
             header?: never;
@@ -477,71 +493,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
-        delete: operations["delete_project_member"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/move": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["move_project"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/source-folders": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["create_project_source_folder"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/config": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["update_project_source_folder_config"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["sync_project_source_folder"];
+        post: operations["sync_group_source_folder"];
         delete?: never;
         options?: never;
         head?: never;
@@ -924,7 +876,7 @@ export interface components {
             display_name: string;
             is_admin: boolean;
             login_name: string;
-            personal_group_key: string;
+            personal_group_path: string;
             personal_group_role?: null | components["schemas"]["MembershipRole"];
             /** Format: int64 */
             user_id: number;
@@ -944,7 +896,7 @@ export interface components {
             group_key: string;
             kind?: null | components["schemas"]["GroupKind"];
             name: string;
-            parent_group_key?: string | null;
+            parent_group_path?: string | null;
             visibility: components["schemas"]["Visibility"];
         };
         CreatePersonalAccessTokenRequest: {
@@ -956,11 +908,6 @@ export interface components {
         CreatePersonalAccessTokenResponse: {
             access_token: string;
             token: components["schemas"]["PersonalAccessTokenResponse"];
-        };
-        CreateProjectRequest: {
-            name: string;
-            project_key: string;
-            visibility: components["schemas"]["Visibility"];
         };
         CreateSourceFolderRequest: {
             folder_name: string;
@@ -1013,13 +960,13 @@ export interface components {
             document_id: number;
             external_id: string;
             group_key: string;
+            group_path: string;
             is_library_file?: boolean;
             /** Format: uuid */
             library_file_id?: string | null;
             library_path?: string | null;
             library_section_label?: string | null;
             metadata_json?: Record<string, never>;
-            project_key: string;
             /** Format: date */
             published_at?: string | null;
             record_hash: string;
@@ -1047,9 +994,10 @@ export interface components {
             /** Format: int64 */
             group_id: number;
             group_key: string;
+            group_path?: string | null;
             kind: components["schemas"]["GroupKind"];
             name: string;
-            parent_group_key?: string | null;
+            parent_group_path?: string | null;
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
@@ -1085,12 +1033,12 @@ export interface components {
             folder_id?: string | null;
             folder_path: string;
             group_key: string;
+            group_path: string;
             ingest_status: components["schemas"]["LibraryIngestStatus"];
             /** Format: date-time */
             ingested_at?: string | null;
             jobs: components["schemas"]["LibraryIngestJobResponse"][];
             media_type: string;
-            project_key: string;
             sections: components["schemas"]["LibraryDocumentSectionPreview"][];
             sha256: string;
             /** Format: int64 */
@@ -1109,11 +1057,11 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
             group_key: string;
+            group_path: string;
             ingest_status: components["schemas"]["LibraryIngestStatus"];
             /** Format: date-time */
             ingested_at?: string | null;
             media_type: string;
-            project_key: string;
             /** Format: int64 */
             size_bytes: number;
             /** Format: date-time */
@@ -1126,12 +1074,12 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
             group_key: string;
+            group_path: string;
             name: string;
             /** Format: uuid */
             parent_folder_id?: string | null;
             path: string;
             processing_count: number;
-            project_key: string;
             visibility: components["schemas"]["Visibility"];
         };
         LibraryFolderResponse: {
@@ -1140,11 +1088,11 @@ export interface components {
             /** Format: uuid */
             folder_id: string;
             group_key: string;
+            group_path: string;
             name: string;
             /** Format: uuid */
             parent_folder_id?: string | null;
             path: string;
-            project_key: string;
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
@@ -1159,9 +1107,9 @@ export interface components {
             /** Format: date-time */
             finished_at?: string | null;
             group_key: string;
+            group_path: string;
             /** Format: uuid */
             job_id: string;
-            project_key: string;
             /** Format: date-time */
             started_at?: string | null;
             status: components["schemas"]["LibraryIngestStatus"];
@@ -1192,8 +1140,8 @@ export interface components {
             /** Format: uuid */
             target_folder_id?: string | null;
         };
-        MoveProjectRequest: {
-            target_group_key: string;
+        MoveGroupRequest: {
+            target_parent_group_path?: string | null;
         };
         PersonalAccessTokenResponse: {
             /** Format: date-time */
@@ -1214,26 +1162,6 @@ export interface components {
         };
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
-        ProjectMemberResponse: {
-            display_name: string;
-            login_name: string;
-            role: components["schemas"]["MembershipRole"];
-            /** Format: int64 */
-            user_id: number;
-        };
-        ProjectResponse: {
-            /** Format: date-time */
-            created_at: string;
-            current_role?: null | components["schemas"]["MembershipRole"];
-            group_key: string;
-            name: string;
-            /** Format: int64 */
-            project_id: number;
-            project_key: string;
-            /** Format: date-time */
-            updated_at: string;
-            visibility: components["schemas"]["Visibility"];
-        };
         ProviderAccountResponse: {
             account_key: string;
             base_url: string;
@@ -1295,6 +1223,7 @@ export interface components {
             document_id: number;
             external_id: string;
             group_key: string;
+            group_path: string;
             is_library_file?: boolean;
             /** Format: float */
             keyword_score?: number | null;
@@ -1304,7 +1233,6 @@ export interface components {
             library_section_label?: string | null;
             match_reason?: string | null;
             metadata_json?: Record<string, never>;
-            project_key: string;
             /** Format: date */
             published_at?: string | null;
             /** Format: float */
@@ -1322,9 +1250,8 @@ export interface components {
         /** @enum {string} */
         SearchMode: "vector" | "hybrid";
         SearchRequest: {
-            group_key?: string | null;
+            group_path?: string | null;
             limit?: number;
-            project_key?: string | null;
             /** Format: date */
             published_after?: string | null;
             /** Format: date */
@@ -1387,6 +1314,7 @@ export interface components {
             display_name: string;
             example_queries?: string[];
             group_key: string;
+            group_path: string;
             has_database_url: boolean;
             last_cursor_external_id?: string | null;
             /** Format: date-time */
@@ -1395,7 +1323,6 @@ export interface components {
             last_success_at?: string | null;
             origin_message?: string | null;
             origin_status: components["schemas"]["SourceOriginStatusKind"];
-            project_key: string;
             source_key: string;
             sync_strategy: string;
             visibility: components["schemas"]["Visibility"];
@@ -1430,10 +1357,6 @@ export interface components {
             vlm_pipeline_model?: string | null;
         };
         UpdateGroupRequest: {
-            name?: string | null;
-            visibility?: null | components["schemas"]["Visibility"];
-        };
-        UpdateProjectRequest: {
             name?: string | null;
             visibility?: null | components["schemas"]["Visibility"];
         };
@@ -2148,7 +2071,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2177,7 +2100,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2196,7 +2119,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2224,12 +2147,12 @@ export interface operations {
             };
         };
     };
-    list_group_members: {
+    list_child_groups: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2240,185 +2163,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GroupMemberResponse"][];
+                    "application/json": components["schemas"]["GroupResponse"][];
                 };
             };
         };
     };
-    upsert_group_member: {
+    upload_group_library_files: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpsertMembershipRequest"];
-            };
-        };
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    delete_group_member: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_key: string;
-                login_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    list_projects: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectResponse"][];
-                };
-            };
-        };
-    };
-    create_project: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateProjectRequest"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectResponse"];
-                };
-            };
-        };
-    };
-    get_project: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_key: string;
-                project_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectResponse"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    delete_project: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_key: string;
-                project_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    update_project: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_key: string;
-                project_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateProjectRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectResponse"];
-                };
-            };
-        };
-    };
-    upload_project_library_files: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2444,7 +2200,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project not found */
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2453,15 +2209,13 @@ export interface operations {
             };
         };
     };
-    get_project_library_file: {
+    get_group_library_file: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description File id */
                 file_id: string;
             };
@@ -2478,7 +2232,7 @@ export interface operations {
                     "application/json": components["schemas"]["LibraryFileDetailResponse"];
                 };
             };
-            /** @description Project or file not found */
+            /** @description Group or file not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2487,15 +2241,13 @@ export interface operations {
             };
         };
     };
-    delete_project_library_file: {
+    delete_group_library_file: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description File id */
                 file_id: string;
             };
@@ -2517,7 +2269,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or file not found */
+            /** @description Group or file not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2526,15 +2278,13 @@ export interface operations {
             };
         };
     };
-    move_project_library_file: {
+    move_group_library_file: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description File id */
                 file_id: string;
             };
@@ -2562,7 +2312,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or file not found */
+            /** @description Group or file not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2571,15 +2321,13 @@ export interface operations {
             };
         };
     };
-    create_project_library_folder: {
+    create_group_library_folder: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2605,7 +2353,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project not found */
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2614,15 +2362,13 @@ export interface operations {
             };
         };
     };
-    delete_project_library_folder: {
+    delete_group_library_folder: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description Folder id */
                 folder_id: string;
             };
@@ -2644,7 +2390,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or folder not found */
+            /** @description Group or folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2653,15 +2399,13 @@ export interface operations {
             };
         };
     };
-    move_project_library_folder: {
+    move_group_library_folder: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description Folder id */
                 folder_id: string;
             };
@@ -2689,7 +2433,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or folder not found */
+            /** @description Group or folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2698,15 +2442,13 @@ export interface operations {
             };
         };
     };
-    get_project_library_job: {
+    get_group_library_job: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description Job id */
                 job_id: string;
             };
@@ -2723,7 +2465,7 @@ export interface operations {
                     "application/json": components["schemas"]["LibraryIngestJobResponse"];
                 };
             };
-            /** @description Project or job not found */
+            /** @description Group or job not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2732,15 +2474,13 @@ export interface operations {
             };
         };
     };
-    upsert_project_library_text: {
+    upsert_group_library_text: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2766,7 +2506,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project not found */
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2775,15 +2515,13 @@ export interface operations {
             };
         };
     };
-    create_project_library_text: {
+    create_group_library_text: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2809,7 +2547,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project not found */
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2818,21 +2556,19 @@ export interface operations {
             };
         };
     };
-    get_project_library_tree: {
+    get_group_library_tree: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Project library tree */
+            /** @description Group library tree */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2841,7 +2577,7 @@ export interface operations {
                     "application/json": components["schemas"]["LibraryTreeResponse"];
                 };
             };
-            /** @description Project not found */
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2850,13 +2586,12 @@ export interface operations {
             };
         };
     };
-    list_project_members: {
+    list_group_members: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
-                project_key: string;
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2867,18 +2602,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectMemberResponse"][];
+                    "application/json": components["schemas"]["GroupMemberResponse"][];
                 };
             };
         };
     };
-    upsert_project_member: {
+    upsert_group_member: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
-                project_key: string;
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2896,13 +2630,12 @@ export interface operations {
             };
         };
     };
-    delete_project_member: {
+    delete_group_member: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
-                project_key: string;
+                group_path: string;
                 login_name: string;
             };
             cookie?: never;
@@ -2917,19 +2650,18 @@ export interface operations {
             };
         };
     };
-    move_project: {
+    move_group: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                group_key: string;
-                project_key: string;
+                group_path: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MoveProjectRequest"];
+                "application/json": components["schemas"]["MoveGroupRequest"];
             };
         };
         responses: {
@@ -2938,20 +2670,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectResponse"];
+                    "application/json": components["schemas"]["GroupResponse"];
                 };
             };
         };
     };
-    create_project_source_folder: {
+    create_group_source_folder: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
             };
             cookie?: never;
         };
@@ -2977,7 +2707,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project not found */
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2986,15 +2716,13 @@ export interface operations {
             };
         };
     };
-    update_project_source_folder_config: {
+    update_group_source_folder_config: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description Source folder id */
                 folder_id: string;
             };
@@ -3022,7 +2750,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or source folder not found */
+            /** @description Group or source folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3031,15 +2759,13 @@ export interface operations {
             };
         };
     };
-    sync_project_source_folder: {
+    sync_group_source_folder: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Group key */
-                group_key: string;
-                /** @description Project key */
-                project_key: string;
+                /** @description URL-encoded group path */
+                group_path: string;
                 /** @description Source folder id */
                 folder_id: string;
             };
@@ -3063,7 +2789,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project or source folder not found */
+            /** @description Group or source folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;

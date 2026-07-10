@@ -12,7 +12,7 @@ use crate::{
         CreateFolderRequest, CreateSourceFolderRequest, MoveFolderRequest, SourceConfigInput,
         SourceFolderResponse, SourceStatus, SyncOutcome,
     },
-    domain::{LibraryFileRecord, LibraryFolderRecord, ProjectRecord},
+    domain::{GroupRecord, LibraryFileRecord, LibraryFolderRecord},
     source_store::SourceStore,
 };
 
@@ -48,10 +48,10 @@ impl SourceFoldersService {
         }
     }
 
-    pub async fn migrate_project_sources_in_project(&self, project: &ProjectRecord) -> Result<()> {
+    pub async fn migrate_project_sources_in_project(&self, project: &GroupRecord) -> Result<()> {
         let sources = self
             .source_store
-            .list_sources_for_project(project.id)
+            .list_sources_for_group(project.id)
             .await?;
         if sources.is_empty() {
             return Ok(());
@@ -69,7 +69,7 @@ impl SourceFoldersService {
 
     pub async fn create_source_folder_in_project(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         request: &CreateSourceFolderRequest,
     ) -> Result<SourceFolderResponse> {
         self.sync
@@ -129,7 +129,7 @@ impl SourceFoldersService {
 
     pub async fn update_source_folder_config_in_project(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         folder_id: Uuid,
         request: &SourceConfigInput,
     ) -> Result<SourceFolderResponse> {
@@ -170,7 +170,7 @@ impl SourceFoldersService {
 
     pub async fn sync_source_folder_in_project(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         folder_id: Uuid,
     ) -> Result<SyncOutcome> {
         let descriptor = self.describe_source_folder(project, folder_id).await?;
@@ -200,7 +200,7 @@ impl SourceFoldersService {
 
     pub async fn move_source_aware_folder_in_project(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         folder_id: Uuid,
         request: &MoveFolderRequest,
     ) -> Result<crate::contracts::LibraryFolderResponse> {
@@ -245,7 +245,7 @@ impl SourceFoldersService {
 
     pub async fn delete_source_aware_folder_in_project(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         folder_id: Uuid,
     ) -> Result<()> {
         let descriptors = self
@@ -271,7 +271,7 @@ impl SourceFoldersService {
 
     async fn ensure_legacy_source_folder(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         sources_root: &LibraryFolderRecord,
         source: &SourceStatus,
     ) -> Result<()> {
@@ -325,7 +325,7 @@ impl SourceFoldersService {
 
     async fn ensure_folder_in_project(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         parent_folder_id: Option<Uuid>,
         name: &str,
     ) -> Result<LibraryFolderRecord> {
@@ -352,7 +352,7 @@ impl SourceFoldersService {
 
     async fn describe_source_folder(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         folder_id: Uuid,
     ) -> Result<SourceFolderDescriptor> {
         let folders = self.library.list_folder_records_in_project(project).await?;
@@ -368,7 +368,7 @@ impl SourceFoldersService {
 
     async fn describe_source_folder_subtree(
         &self,
-        project: &ProjectRecord,
+        project: &GroupRecord,
         folder_id: Uuid,
     ) -> Result<Vec<SourceFolderDescriptor>> {
         let folders = self.library.list_folder_records_in_project(project).await?;
@@ -474,8 +474,8 @@ fn folder_path_from_records(folders: &[LibraryFolderRecord], folder_id: Uuid) ->
     Ok(format!("/{}", parts.join("/")))
 }
 
-pub(crate) fn source_folder_identity(project_id: i64, folder_path: &str) -> String {
-    format!("project:{project_id}:folder:{}", folder_path.trim())
+pub(crate) fn source_folder_identity(group_id: i64, folder_path: &str) -> String {
+    format!("group:{group_id}:folder:{}", folder_path.trim())
 }
 
 pub(crate) fn source_config_file_external_id(folder_id: Uuid) -> String {

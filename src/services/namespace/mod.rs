@@ -1,17 +1,15 @@
 use anyhow::Result;
 use context69_namespace::{
-    CreateGroupInput, CreateProjectInput, MoveProjectInput, NamespaceActor,
-    NamespaceService as CoreNamespaceService, UpdateGroupInput, UpdateProjectInput,
-    UpsertMembershipInput,
+    CreateGroupInput, MoveGroupInput, NamespaceActor, NamespaceService as CoreNamespaceService,
+    UpdateGroupInput, UpsertMembershipInput,
 };
 
 use crate::{
     contracts::{
-        CreateGroupRequest, CreateProjectRequest, MoveProjectRequest, UpdateGroupRequest,
-        UpdateProjectRequest, UpsertMembershipRequest,
+        CreateGroupRequest, MoveGroupRequest, UpdateGroupRequest, UpsertMembershipRequest,
     },
     db::Database,
-    domain::{AccessScope, GroupRecord, NamespaceMemberRecord, ProjectRecord, UserRecord},
+    domain::{AccessScope, GroupRecord, NamespaceMemberRecord, UserRecord},
 };
 
 mod adapters;
@@ -37,9 +35,9 @@ impl NamespaceService {
     pub async fn get_group_for_user(
         &self,
         user_id: i64,
-        group_key: &str,
+        group_path: &str,
     ) -> Result<Option<GroupRecord>> {
-        self.inner.get_group_for_user(user_id, group_key).await
+        self.inner.get_group_for_user(user_id, group_path).await
     }
 
     pub async fn create_group(
@@ -55,44 +53,55 @@ impl NamespaceService {
     pub async fn update_group(
         &self,
         actor: &UserRecord,
-        group_key: &str,
+        group_path: &str,
         request: &UpdateGroupRequest,
     ) -> Result<GroupRecord> {
         self.inner
             .update_group(
                 &namespace_actor(actor),
-                group_key,
+                group_path,
                 &update_group_input(request),
             )
             .await
     }
 
-    pub async fn delete_group(&self, actor: &UserRecord, group_key: &str) -> Result<()> {
+    pub async fn move_group(
+        &self,
+        actor: &UserRecord,
+        group_path: &str,
+        request: &MoveGroupRequest,
+    ) -> Result<GroupRecord> {
         self.inner
-            .delete_group(&namespace_actor(actor), group_key)
+            .move_group(&namespace_actor(actor), group_path, &move_group_input(request))
+            .await
+    }
+
+    pub async fn delete_group(&self, actor: &UserRecord, group_path: &str) -> Result<()> {
+        self.inner
+            .delete_group(&namespace_actor(actor), group_path)
             .await
     }
 
     pub async fn list_group_members(
         &self,
         actor: &UserRecord,
-        group_key: &str,
+        group_path: &str,
     ) -> Result<Vec<NamespaceMemberRecord>> {
         self.inner
-            .list_group_members(&namespace_actor(actor), group_key)
+            .list_group_members(&namespace_actor(actor), group_path)
             .await
     }
 
     pub async fn upsert_group_member(
         &self,
         actor: &UserRecord,
-        group_key: &str,
+        group_path: &str,
         request: &UpsertMembershipRequest,
     ) -> Result<()> {
         self.inner
             .upsert_group_member(
                 &namespace_actor(actor),
-                group_key,
+                group_path,
                 &upsert_membership_input(request),
             )
             .await
@@ -101,144 +110,28 @@ impl NamespaceService {
     pub async fn delete_group_member(
         &self,
         actor: &UserRecord,
-        group_key: &str,
+        group_path: &str,
         login_name: &str,
     ) -> Result<()> {
         self.inner
-            .delete_group_member(&namespace_actor(actor), group_key, login_name)
+            .delete_group_member(&namespace_actor(actor), group_path, login_name)
             .await
     }
 
-    pub async fn list_projects_for_user_in_group(
+    pub async fn list_child_groups_for_user(
         &self,
         user_id: i64,
-        group_key: &str,
-    ) -> Result<Vec<ProjectRecord>> {
-        self.inner
-            .list_projects_for_user_in_group(user_id, group_key)
-            .await
-    }
-
-    pub async fn get_project_for_user(
-        &self,
-        user_id: i64,
-        group_key: &str,
-        project_key: &str,
-    ) -> Result<Option<ProjectRecord>> {
-        self.inner
-            .get_project_for_user(user_id, group_key, project_key)
-            .await
-    }
-
-    pub async fn create_project(
-        &self,
-        actor: &UserRecord,
-        group_key: &str,
-        request: &CreateProjectRequest,
-    ) -> Result<ProjectRecord> {
-        self.inner
-            .create_project(
-                &namespace_actor(actor),
-                group_key,
-                &create_project_input(request),
-            )
-            .await
-    }
-
-    pub async fn update_project(
-        &self,
-        actor: &UserRecord,
-        group_key: &str,
-        project_key: &str,
-        request: &UpdateProjectRequest,
-    ) -> Result<ProjectRecord> {
-        self.inner
-            .update_project(
-                &namespace_actor(actor),
-                group_key,
-                project_key,
-                &update_project_input(request),
-            )
-            .await
-    }
-
-    pub async fn delete_project(
-        &self,
-        actor: &UserRecord,
-        group_key: &str,
-        project_key: &str,
-    ) -> Result<()> {
-        self.inner
-            .delete_project(&namespace_actor(actor), group_key, project_key)
-            .await
-    }
-
-    pub async fn move_project(
-        &self,
-        actor: &UserRecord,
-        source_group_key: &str,
-        project_key: &str,
-        request: &MoveProjectRequest,
-    ) -> Result<ProjectRecord> {
-        self.inner
-            .move_project(
-                &namespace_actor(actor),
-                source_group_key,
-                project_key,
-                &move_project_input(request),
-            )
-            .await
-    }
-
-    pub async fn list_project_members(
-        &self,
-        actor: &UserRecord,
-        group_key: &str,
-        project_key: &str,
-    ) -> Result<Vec<NamespaceMemberRecord>> {
-        self.inner
-            .list_project_members(&namespace_actor(actor), group_key, project_key)
-            .await
-    }
-
-    pub async fn upsert_project_member(
-        &self,
-        actor: &UserRecord,
-        group_key: &str,
-        project_key: &str,
-        request: &UpsertMembershipRequest,
-    ) -> Result<()> {
-        self.inner
-            .upsert_project_member(
-                &namespace_actor(actor),
-                group_key,
-                project_key,
-                &upsert_membership_input(request),
-            )
-            .await
-    }
-
-    pub async fn delete_project_member(
-        &self,
-        actor: &UserRecord,
-        group_key: &str,
-        project_key: &str,
-        login_name: &str,
-    ) -> Result<()> {
-        self.inner
-            .delete_project_member(&namespace_actor(actor), group_key, project_key, login_name)
-            .await
+        group_path: &str,
+    ) -> Result<Vec<GroupRecord>> {
+        self.inner.list_child_groups_for_user(user_id, group_path).await
     }
 
     pub async fn resolve_access_scope(
         &self,
         user_id: Option<i64>,
-        group_key: Option<String>,
-        project_key: Option<String>,
+        group_path: Option<String>,
     ) -> Result<AccessScope> {
-        self.inner
-            .resolve_access_scope(user_id, group_key, project_key)
-            .await
+        self.inner.resolve_access_scope(user_id, group_path).await
     }
 }
 
@@ -251,7 +144,7 @@ fn namespace_actor(user: &UserRecord) -> NamespaceActor {
 
 fn create_group_input(request: &CreateGroupRequest) -> CreateGroupInput {
     CreateGroupInput {
-        parent_group_key: request.parent_group_key.clone(),
+        parent_group_path: request.parent_group_path.clone(),
         group_key: request.group_key.clone(),
         name: request.name.clone(),
         visibility: request.visibility,
@@ -266,24 +159,9 @@ fn update_group_input(request: &UpdateGroupRequest) -> UpdateGroupInput {
     }
 }
 
-fn create_project_input(request: &CreateProjectRequest) -> CreateProjectInput {
-    CreateProjectInput {
-        project_key: request.project_key.clone(),
-        name: request.name.clone(),
-        visibility: request.visibility,
-    }
-}
-
-fn update_project_input(request: &UpdateProjectRequest) -> UpdateProjectInput {
-    UpdateProjectInput {
-        name: request.name.clone(),
-        visibility: request.visibility,
-    }
-}
-
-fn move_project_input(request: &MoveProjectRequest) -> MoveProjectInput {
-    MoveProjectInput {
-        target_group_key: request.target_group_key.clone(),
+fn move_group_input(request: &MoveGroupRequest) -> MoveGroupInput {
+    MoveGroupInput {
+        target_parent_group_path: request.target_parent_group_path.clone(),
     }
 }
 

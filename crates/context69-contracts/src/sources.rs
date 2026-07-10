@@ -18,7 +18,7 @@ pub enum SourceOriginStatusKind {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct SourceStatus {
     pub group_key: String,
-    pub project_key: String,
+    pub group_path: String,
     pub visibility: Visibility,
     pub source_key: String,
     pub display_name: String,

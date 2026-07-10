@@ -22,28 +22,11 @@ group_roles AS (
     SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank
     FROM inherited_groups
     GROUP BY id
-),
-project_roles AS (
-    SELECT
-        project_id,
-        MAX(
-            CASE role
-                WHEN 'owner' THEN 3
-                WHEN 'maintainer' THEN 2
-                ELSE 1
-            END
-        )::smallint AS role_rank
-    FROM context69.project_memberships
-    WHERE user_id = $1
-    GROUP BY project_id
 )
-SELECT p.id AS "project_id!"
-FROM context69.projects p
-JOIN context69.groups g ON g.id = p.group_id
-LEFT JOIN group_roles gr ON gr.group_id = p.group_id
-LEFT JOIN project_roles pr ON pr.project_id = p.id
-WHERE p.visibility = 'private'
-  AND (gr.role_rank IS NOT NULL OR pr.role_rank IS NOT NULL)
-  AND ($2::text IS NULL OR g.group_key = $2)
-  AND ($3::text IS NULL OR p.project_key = $3)
-ORDER BY p.id
+SELECT g.id AS "group_id!"
+FROM context69.groups g
+LEFT JOIN group_roles gr ON gr.group_id = g.id
+WHERE g.visibility = 'private'
+  AND gr.role_rank IS NOT NULL
+  AND ($2::text IS NULL OR g.full_path = $2)
+ORDER BY g.id

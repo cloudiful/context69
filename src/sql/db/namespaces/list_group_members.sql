@@ -6,5 +6,5 @@ SELECT
 FROM context69.group_memberships gm
 JOIN context69.users u ON u.id = gm.user_id
 JOIN context69.groups g ON g.id = gm.group_id
-WHERE g.group_key = $1
+WHERE g.full_path = $1
 ORDER BY u.login_name

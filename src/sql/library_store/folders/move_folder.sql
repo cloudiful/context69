@@ -4,8 +4,7 @@ WHERE id = $1
 RETURNING
     group_id,
     (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",
-    project_id,
-    (SELECT project_key FROM context69.projects WHERE id = project_id) AS "project_key!",
+    (SELECT full_path FROM context69.groups WHERE id = group_id) AS "group_path!",
     visibility,
     id,
     parent_id,

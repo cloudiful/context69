@@ -57,11 +57,11 @@ impl SourceStore {
         Ok(rows.into_iter().map(row_to_source_status).collect())
     }
 
-    pub async fn list_sources_for_project(&self, project_id: i64) -> Result<Vec<SourceStatus>> {
+    pub async fn list_sources_for_group(&self, group_id: i64) -> Result<Vec<SourceStatus>> {
         let rows = sqlx::query_file_as!(
             SourceStatusRow,
             "src/sql/source_store/list_sources_for_project.sql",
-            project_id
+            group_id
         )
         .fetch_all(self.db.pool())
         .await?;
@@ -81,15 +81,15 @@ impl SourceStore {
         Ok(row.map(row_to_source_status))
     }
 
-    pub async fn get_source_in_project(
+    pub async fn get_source_in_group(
         &self,
-        project_id: i64,
+        group_id: i64,
         source_key: &str,
     ) -> Result<Option<SourceStatus>> {
         let row = sqlx::query_file_as!(
             SourceStatusRow,
             "src/sql/source_store/get_source_in_project.sql",
-            project_id,
+            group_id,
             source_key
         )
         .fetch_optional(self.db.pool())
@@ -110,8 +110,7 @@ impl SourceStore {
         Ok(row.map(|row| super::SourceScope {
             group_id: row.group_id,
             group_key: row.group_key,
-            project_id: row.project_id,
-            project_key: row.project_key,
+            group_path: row.group_path,
             visibility: row
                 .visibility
                 .parse()
@@ -152,7 +151,6 @@ impl SourceStore {
         let result = sqlx::query_file!(
             "src/sql/source_store/insert_source_in_scope.sql",
             scope.group_id,
-            scope.project_id,
             scope.visibility.as_str(),
             source.key,
             source.display_name,
@@ -177,13 +175,13 @@ impl SourceStore {
     }
 
     pub async fn update_source(&self, source_key: &str, source: &SourceConfig) -> Result<()> {
-        self.update_source_in_project(None, source_key, source)
+        self.update_source_in_group(None, source_key, source)
             .await
     }
 
-    pub async fn update_source_in_project(
+    pub async fn update_source_in_group(
         &self,
-        project_id: Option<i64>,
+        group_id: Option<i64>,
         source_key: &str,
         source: &SourceConfig,
     ) -> Result<()> {
@@ -198,7 +196,7 @@ impl SourceStore {
             source.connector_type(),
             source.connector.base_query,
             source.connector.batch_size,
-            project_id
+            group_id
         )
         .execute(self.db.pool())
         .await?;
@@ -219,18 +217,18 @@ impl SourceStore {
     }
 
     pub async fn delete_source(&self, source_key: &str) -> Result<bool> {
-        self.delete_source_in_project(None, source_key).await
+        self.delete_source_in_group(None, source_key).await
     }
 
-    pub async fn delete_source_in_project(
+    pub async fn delete_source_in_group(
         &self,
-        project_id: Option<i64>,
+        group_id: Option<i64>,
         source_key: &str,
     ) -> Result<bool> {
         let exists = sqlx::query_file_scalar!(
             "src/sql/source_store/source_exists_in_project.sql",
             source_key,
-            project_id
+            group_id
         )
         .fetch_one(self.db.pool())
         .await?;
@@ -243,28 +241,28 @@ impl SourceStore {
         sqlx::query_file!(
             "src/sql/source_store/delete_source_sync_runs.sql",
             source_key,
-            project_id
+            group_id
         )
         .execute(&mut *tx)
         .await?;
         sqlx::query_file!(
             "src/sql/source_store/delete_source_checkpoints.sql",
             source_key,
-            project_id
+            group_id
         )
         .execute(&mut *tx)
         .await?;
         sqlx::query_file!(
             "src/sql/source_store/delete_source_documents.sql",
             source_key,
-            project_id
+            group_id
         )
         .execute(&mut *tx)
         .await?;
         sqlx::query_file!(
             "src/sql/source_store/delete_source_configs.sql",
             source_key,
-            project_id
+            group_id
         )
         .execute(&mut *tx)
         .await?;

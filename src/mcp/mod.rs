@@ -66,13 +66,12 @@ impl Context69McpServer {
     async fn scope_from_context(
         &self,
         context: &RequestContext<RoleServer>,
-        group_key: Option<String>,
-        project_key: Option<String>,
+        group_path: Option<String>,
     ) -> Result<AccessScope, McpError> {
         let user_id = self.user_id_from_context(context)?;
         self.app
             .auth
-            .access_scope(user_id, group_key, project_key)
+            .access_scope(user_id, group_path)
             .await
             .map_err(internal_error)
     }
@@ -120,7 +119,7 @@ impl Context69McpServer {
         Parameters(args): Parameters<McpDocumentArgs>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<DocumentResponse>, McpError> {
-        let scope = self.scope_from_context(&context, None, None).await?;
+        let scope = self.scope_from_context(&context, None).await?;
         let response = self
             .app
             .query
@@ -238,7 +237,7 @@ impl ServerHandler for Context69McpServer {
             let document_id = document_id.parse::<i64>().map_err(|error| {
                 McpError::invalid_params(format!("invalid document id: {error}"), None)
             })?;
-            let scope = self.scope_from_context(&context, None, None).await?;
+            let scope = self.scope_from_context(&context, None).await?;
             let document = self
                 .app
                 .query

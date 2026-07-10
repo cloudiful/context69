@@ -28,7 +28,7 @@ impl LibraryService {
         Ok(LibraryFolderResponse {
             folder_id: folder.id,
             group_key: folder.group_key,
-            project_key: folder.project_key,
+            group_path: folder.group_path,
             visibility: folder.visibility,
             parent_folder_id: folder.parent_id,
             name: folder.name,
@@ -40,7 +40,7 @@ impl LibraryService {
 
     pub async fn create_folder_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         request: &CreateFolderRequest,
     ) -> Result<LibraryFolderResponse> {
         let name = request.name.trim();
@@ -66,7 +66,7 @@ impl LibraryService {
         Ok(LibraryFolderResponse {
             folder_id: folder.id,
             group_key: folder.group_key,
-            project_key: folder.project_key,
+            group_path: folder.group_path,
             visibility: folder.visibility,
             parent_folder_id: folder.parent_id,
             name: folder.name,
@@ -113,7 +113,7 @@ impl LibraryService {
         Ok(LibraryFolderResponse {
             folder_id: moved.id,
             group_key: moved.group_key,
-            project_key: moved.project_key,
+            group_path: moved.group_path,
             visibility: moved.visibility,
             parent_folder_id: moved.parent_id,
             name: moved.name,
@@ -125,7 +125,7 @@ impl LibraryService {
 
     pub async fn move_folder_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         folder_id: Uuid,
         request: &MoveFolderRequest,
     ) -> Result<LibraryFolderResponse> {
@@ -164,7 +164,7 @@ impl LibraryService {
         Ok(LibraryFolderResponse {
             folder_id: moved.id,
             group_key: moved.group_key,
-            project_key: moved.project_key,
+            group_path: moved.group_path,
             visibility: moved.visibility,
             parent_folder_id: moved.parent_id,
             name: moved.name,
@@ -188,7 +188,7 @@ impl LibraryService {
 
     pub async fn delete_folder_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         folder_id: Uuid,
     ) -> Result<()> {
         self.store

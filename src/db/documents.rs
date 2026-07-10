@@ -20,7 +20,7 @@ impl Database {
         let existing = sqlx::query_file_as!(
             ExistingDocumentRow,
             "src/sql/db/documents/get_existing_document.sql",
-            payload.project_id,
+            payload.group_id,
             payload.source_key,
             payload.external_id
         )
@@ -31,7 +31,7 @@ impl Database {
             Some(existing) if existing.record_hash == payload.record_hash => {
                 sqlx::query_file!(
                     "src/sql/db/documents/update_document_unchanged.sql",
-                    payload.project_id,
+                    payload.group_id,
                     payload.source_key,
                     payload.title,
                     payload.summary,
@@ -48,7 +48,7 @@ impl Database {
             Some(existing) => {
                 sqlx::query_file!(
                     "src/sql/db/documents/update_document_changed.sql",
-                    payload.project_id,
+                    payload.group_id,
                     payload.source_key,
                     payload.title,
                     payload.summary,
@@ -67,7 +67,6 @@ impl Database {
                 let id = sqlx::query_file_scalar!(
                     "src/sql/db/documents/insert_document.sql",
                     payload.group_id,
-                    payload.project_id,
                     payload.visibility.as_str(),
                     payload.source_key,
                     payload.external_id,
@@ -157,9 +156,8 @@ impl Database {
             SearchHitRow,
             "src/sql/db/documents/fetch_search_hits_by_chunk_ids.sql",
             chunk_ids,
-            &scope.private_project_ids,
-            scope.group_key.as_deref(),
-            scope.project_key.as_deref()
+            &scope.private_group_ids,
+            scope.group_path.as_deref()
         )
         .fetch_all(&self.pool)
         .await?;
@@ -173,7 +171,7 @@ impl Database {
                         chunk_id: row.chunk_id,
                         document_id: row.document_id,
                         group_key: row.group_key,
-                        project_key: row.project_key,
+                        group_path: row.group_path,
                         visibility: row.visibility.parse().unwrap_or(Visibility::Private),
                         source_key: row.source_key,
                         external_id: row.external_id,
@@ -220,11 +218,10 @@ impl Database {
             phrase_pattern,
             &terms,
             request.source_key,
-            request.group_key.as_deref(),
-            request.project_key.as_deref(),
+            request.group_path.as_deref(),
             request.published_after,
             request.published_before,
-            &scope.private_project_ids,
+            &scope.private_group_ids,
             keyword_limit
         )
         .fetch_all(&self.pool)
@@ -248,8 +245,7 @@ impl Database {
                 document_id: row.document_id,
                 group_id: row.group_id,
                 group_key: row.group_key,
-                project_id: row.project_id,
-                project_key: row.project_key,
+                group_path: row.group_path,
                 visibility: row.visibility.parse().unwrap_or(Visibility::Private),
                 source_key: row.source_key,
                 external_id: row.external_id,
@@ -275,9 +271,8 @@ impl Database {
             DocumentRow,
             "src/sql/db/documents/get_document.sql",
             document_id,
-            &scope.private_project_ids,
-            scope.group_key.as_deref(),
-            scope.project_key.as_deref()
+            &scope.private_group_ids,
+            scope.group_path.as_deref()
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -297,7 +292,7 @@ impl Database {
         Ok(Some(DocumentResponse {
             document_id: document.id,
             group_key: document.group_key,
-            project_key: document.project_key,
+            group_path: document.group_path,
             visibility: document.visibility.parse().unwrap_or(Visibility::Private),
             source_key: document.source_key,
             external_id: document.external_id,

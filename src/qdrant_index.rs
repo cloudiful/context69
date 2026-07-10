@@ -115,7 +115,7 @@ impl QdrantIndex {
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
                     self.collection_name.clone(),
-                    "project_key",
+                    "group_path",
                     FieldType::Keyword,
                 )
                 .wait(true),
@@ -126,7 +126,7 @@ impl QdrantIndex {
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
                     self.collection_name.clone(),
-                    "project_id",
+                    "group_id",
                     FieldType::Integer,
                 )
                 .wait(true),
@@ -281,20 +281,16 @@ impl QdrantIndex {
             conditions.push(Condition::range("published_ts", range));
         }
 
-        if let Some(group_key) = &scope.group_key {
-            conditions.push(Condition::matches("group_key", group_key.clone()));
+        if let Some(group_path) = &scope.group_path {
+            conditions.push(Condition::matches("group_path", group_path.clone()));
         }
 
-        if let Some(project_key) = &scope.project_key {
-            conditions.push(Condition::matches("project_key", project_key.clone()));
-        }
-
-        let access_condition = if scope.private_project_ids.is_empty() {
+        let access_condition = if scope.private_group_ids.is_empty() {
             Condition::matches("visibility", "public".to_string())
         } else {
             Condition::from(Filter::should(vec![
                 Condition::matches("visibility", "public".to_string()),
-                Condition::matches("project_id", scope.private_project_ids.clone()),
+                Condition::matches("group_id", scope.private_group_ids.clone()),
             ]))
         };
         conditions.push(access_condition);
@@ -357,8 +353,7 @@ fn chunk_payload_json(payload: &ChunkPayload) -> serde_json::Value {
         "document_id": payload.document_id,
         "group_id": payload.group_id,
         "group_key": payload.group_key,
-        "project_id": payload.project_id,
-        "project_key": payload.project_key,
+        "group_path": payload.group_path,
         "visibility": payload.visibility.as_str(),
         "source_key": payload.source_key,
         "external_id": payload.external_id,

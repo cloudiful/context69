@@ -5,9 +5,8 @@ use uuid::Uuid;
 pub struct AccessScope {
     pub user_id: Option<i64>,
     pub include_public: bool,
-    pub private_project_ids: Vec<i64>,
-    pub group_key: Option<String>,
-    pub project_key: Option<String>,
+    pub private_group_ids: Vec<i64>,
+    pub group_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]

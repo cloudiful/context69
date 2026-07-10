@@ -19,27 +19,16 @@ const { t } = useI18n();
 const workspaceContext = useWorkspaceNavigationContext();
 
 const routeName = computed(() => String(route.name ?? ""));
-const groupKey = computed(() => String(route.params.groupKey ?? ""));
-const projectKey = computed(() => String(route.params.projectKey ?? ""));
+const groupPath = computed(() => String(route.params.groupPath ?? ""));
+const encodedGroupPath = computed(() => encodeURIComponent(groupPath.value));
 
 const settingsSections = computed(() => resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true));
 
 const currentGroupLabel = computed(() => {
-  if (workspaceContext.groupKey === groupKey.value && workspaceContext.groupLabel) {
+  if (workspaceContext.groupPath === groupPath.value && workspaceContext.groupLabel) {
     return workspaceContext.groupLabel;
   }
-  return groupKey.value;
-});
-
-const currentProjectLabel = computed(() => {
-  if (
-    workspaceContext.projectGroupKey === groupKey.value
-    && workspaceContext.projectKey === projectKey.value
-    && workspaceContext.projectLabel
-  ) {
-    return workspaceContext.projectLabel;
-  }
-  return projectKey.value;
+  return groupPath.value;
 });
 
 const items = computed<Crumb[]>(() => {
@@ -58,29 +47,12 @@ const items = computed<Crumb[]>(() => {
     const crumbs: Crumb[] = [
       { label: t("nav.search"), to: "/search" },
       { label: t("nav.groups"), to: "/groups" },
-      { label: currentGroupLabel.value, to: `/groups/${groupKey.value}/overview` },
+      { label: currentGroupLabel.value, to: `/groups/${encodedGroupPath.value}/overview` },
     ];
 
     if (routeName.value === "group-members") {
       crumbs.push({ label: t("groups.membersTitle") });
     } else if (routeName.value === "group-settings") {
-      crumbs.push({ label: t("nav.settings") });
-    }
-
-    return crumbs;
-  }
-
-  if (routeName.value.startsWith("project-") || routeName.value === "project") {
-    const crumbs: Crumb[] = [
-      { label: t("nav.search"), to: "/search" },
-      { label: t("nav.groups"), to: "/groups" },
-      { label: currentGroupLabel.value, to: `/groups/${groupKey.value}/overview` },
-      { label: currentProjectLabel.value, to: `/groups/${groupKey.value}/projects/${projectKey.value}/overview` },
-    ];
-
-    if (routeName.value === "project-members") {
-      crumbs.push({ label: t("project.tabs.members") });
-    } else if (routeName.value === "project-settings") {
       crumbs.push({ label: t("nav.settings") });
     }
 

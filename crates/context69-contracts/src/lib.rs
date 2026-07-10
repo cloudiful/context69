@@ -23,9 +23,9 @@ pub use library::{
 };
 pub use mcp::McpDocumentArgs;
 pub use namespace::{
-    CreateGroupRequest, CreateProjectRequest, GroupKind, GroupMemberResponse, GroupResponse,
-    MembershipRole, MoveProjectRequest, ProjectMemberResponse, ProjectResponse, UpdateGroupRequest,
-    UpdateProjectRequest, UpsertMembershipRequest, UserDirectoryEntryResponse, Visibility,
+    CreateGroupRequest, GroupKind, GroupMemberResponse, GroupResponse, MembershipRole,
+    MoveGroupRequest, UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
+    Visibility,
 };
 pub use search::{
     DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse,

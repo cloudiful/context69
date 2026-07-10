@@ -1,6 +1,6 @@
 SELECT
     g.id AS "group_id!",
-    g.group_key,
+    g.full_path AS "group_path!",
     gm.role
 FROM context69.groups g
 JOIN context69.group_memberships gm

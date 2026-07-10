@@ -8,10 +8,11 @@ use axum::{
 use chrono::Utc;
 use context69_contracts::{
     ApiErrorResponse, GroupKind, GroupResponse, LibraryFolderNode, LibraryTreeResponse,
-    SearchRequest, SearchResponse, SourceOriginStatusKind, SourceStatus, Visibility,
+    SearchRequest, SearchResponse, SyncOutcome, Visibility,
 };
 use serial_test::serial;
 use tokio::net::TcpListener;
+use uuid::Uuid;
 
 use super::*;
 
@@ -23,8 +24,8 @@ async fn spawn_test_server() -> String {
         .route("/v1/groups", get(list_groups_handler))
         .route("/v1/library/tree", get(library_tree_handler))
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/sources",
-            get(list_project_sources_handler),
+            "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
+            post(sync_group_source_folder_handler),
         );
 
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -64,7 +65,8 @@ fn sample_group() -> GroupResponse {
     GroupResponse {
         group_id: 1,
         group_key: "ops".to_string(),
-        parent_group_key: None,
+        group_path: Some("ops/platform".to_string()),
+        parent_group_path: Some("ops".to_string()),
         name: "Operations".to_string(),
         visibility: Visibility::Private,
         kind: GroupKind::Shared,
@@ -78,7 +80,7 @@ fn sample_library_tree() -> LibraryTreeResponse {
     LibraryTreeResponse {
         root: LibraryFolderNode {
             group_key: "".to_string(),
-            project_key: "".to_string(),
+            group_path: "".to_string(),
             visibility: Visibility::Private,
             folder_id: None,
             parent_folder_id: None,
@@ -88,29 +90,6 @@ fn sample_library_tree() -> LibraryTreeResponse {
             children: vec![],
             files: vec![],
         },
-    }
-}
-
-fn sample_source_status() -> SourceStatus {
-    SourceStatus {
-        group_key: "ops".to_string(),
-        project_key: "runbooks".to_string(),
-        visibility: Visibility::Private,
-        source_key: "alerts".to_string(),
-        display_name: "Alerts".to_string(),
-        description: Some("Operational alerts".to_string()),
-        example_queries: vec!["recent paging incidents".to_string()],
-        connection: "warehouse".to_string(),
-        has_database_url: false,
-        origin_status: SourceOriginStatusKind::Connected,
-        origin_message: None,
-        sync_strategy: "incremental".to_string(),
-        connector_type: "postgres_sql".to_string(),
-        base_query: "select * from alerts".to_string(),
-        batch_size: 500,
-        last_cursor_updated_at: None,
-        last_cursor_external_id: None,
-        last_success_at: None,
     }
 }
 
@@ -157,18 +136,21 @@ async fn library_tree_handler(headers: HeaderMap) -> Response {
     json_response(StatusCode::OK, &sample_library_tree())
 }
 
-async fn list_project_sources_handler(
+async fn sync_group_source_folder_handler(
     headers: HeaderMap,
-    Path((group_key, project_key)): Path<(String, String)>,
+    Path((group_path, folder_id)): Path<(String, Uuid)>,
 ) -> Response {
     if let Err(response) = require_pat(&headers) {
         return response;
     }
-
-    let mut source = sample_source_status();
-    source.group_key = group_key;
-    source.project_key = project_key;
-    json_response(StatusCode::OK, &vec![source])
+    json_response(
+        StatusCode::ACCEPTED,
+        &SyncOutcome {
+            records_seen: group_path.len(),
+            records_changed: 1,
+            chunks_upserted: usize::from(!folder_id.is_nil()),
+        },
+    )
 }
 
 #[test]
@@ -262,7 +244,7 @@ async fn grouped_library_api_gets_tree() {
 
 #[tokio::test]
 #[serial]
-async fn grouped_sources_api_lists_project_sources() {
+async fn grouped_sources_api_syncs_group_source_folder() {
     let base_url = spawn_test_server().await;
     let client = Context69Client::builder()
         .base_url(&base_url)
@@ -272,14 +254,15 @@ async fn grouped_sources_api_lists_project_sources() {
         .build()
         .expect("client");
 
-    let sources = client
+    let outcome = client
         .sources()
-        .list_project_sources("ops", "runbooks")
+        .sync_group_source_folder("ops/platform", Uuid::new_v4())
         .await
-        .expect("list project sources");
+        .expect("sync group source folder");
 
-    assert_eq!(sources.len(), 1);
-    assert_eq!(sources[0].project_key, "runbooks");
+    assert_eq!(outcome.records_seen, "ops/platform".len());
+    assert_eq!(outcome.records_changed, 1);
+    assert_eq!(outcome.chunks_upserted, 1);
 }
 
 #[tokio::test]
@@ -300,8 +283,7 @@ async fn unauthorized_response_does_not_refresh() {
             query: "unauthorized".to_string(),
             limit: 8,
             source_key: None,
-            group_key: None,
-            project_key: None,
+            group_path: None,
             published_after: None,
             published_before: None,
         })
@@ -337,8 +319,7 @@ async fn surfaces_api_error_message() {
             query: "bad request".to_string(),
             limit: 8,
             source_key: None,
-            group_key: None,
-            project_key: None,
+            group_path: None,
             published_after: None,
             published_before: None,
         })

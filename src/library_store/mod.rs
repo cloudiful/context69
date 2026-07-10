@@ -51,8 +51,7 @@ pub struct UpdateLibraryTextFile {
 struct FolderRow {
     group_id: i64,
     group_key: String,
-    project_id: i64,
-    project_key: String,
+    group_path: String,
     visibility: String,
     id: Uuid,
     parent_id: Option<Uuid>,
@@ -65,8 +64,7 @@ struct FolderRow {
 struct FileRow {
     group_id: i64,
     group_key: String,
-    project_id: i64,
-    project_key: String,
+    group_path: String,
     visibility: String,
     id: Uuid,
     folder_id: Option<Uuid>,
@@ -87,8 +85,7 @@ struct FileRow {
 struct JobRow {
     group_id: i64,
     group_key: String,
-    project_id: i64,
-    project_key: String,
+    group_path: String,
     visibility: String,
     id: Uuid,
     file_id: Uuid,
@@ -106,7 +103,6 @@ struct FileDocumentRow {
     file_id: Uuid,
     document_id: i64,
     group_id: i64,
-    project_id: i64,
     visibility: String,
     section_key: String,
     section_label: String,
@@ -119,8 +115,7 @@ struct ChunkPayloadRow {
     document_id: i64,
     group_id: i64,
     group_key: String,
-    project_id: i64,
-    project_key: String,
+    group_path: String,
     visibility: String,
     source_key: String,
     external_id: String,
@@ -138,7 +133,7 @@ struct ChunkPayloadRow {
 #[derive(Debug, Clone, FromRow)]
 struct FileDetailRow {
     group_key: String,
-    project_key: String,
+    group_path: String,
     visibility: String,
     file_id: Uuid,
     folder_id: Option<Uuid>,

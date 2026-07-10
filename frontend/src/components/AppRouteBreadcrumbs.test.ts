@@ -5,10 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { createAppI18n } from "../i18n";
 import { setAuthenticatedUser } from "../test-utils/auth";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
-import {
-  setWorkspaceNavigationGroup,
-  setWorkspaceNavigationProject,
-} from "../composables/use-workspace-navigation-context";
+import { setWorkspaceNavigationGroup } from "../composables/use-workspace-navigation-context";
 import AppRouteBreadcrumbs from "./AppRouteBreadcrumbs.vue";
 
 describe("AppRouteBreadcrumbs", () => {
@@ -16,25 +13,22 @@ describe("AppRouteBreadcrumbs", () => {
     vi.restoreAllMocks();
     setAuthenticatedUser();
     setWorkspaceNavigationGroup("", "");
-    setWorkspaceNavigationProject("", "", "");
   });
 
-  it("renders group and project hierarchy and navigates back to the group", async () => {
-    setWorkspaceNavigationGroup("stock", "Stock Team");
-    setWorkspaceNavigationProject("stock", "alpha", "Alpha Project");
+  it("renders group hierarchy and navigates back to the group", async () => {
+    setWorkspaceNavigationGroup("stock/alpha", "Alpha Group");
 
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
         { path: "/search", name: "search", component: { template: "<div />" } },
         { path: "/groups", name: "groups", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/overview", name: "group-overview", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/overview", name: "project-overview", component: { template: "<div />" } },
-        { path: "/groups/:groupKey/projects/:projectKey/settings", name: "project-settings", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/overview", name: "group-overview", component: { template: "<div />" } },
+        { path: "/groups/:groupPath/settings", name: "group-settings", component: { template: "<div />" } },
       ],
     });
 
-    router.push("/groups/stock/projects/alpha/settings");
+    router.push("/groups/stock%2Falpha/settings");
     await router.isReady();
 
     const wrapper = mount(AppRouteBreadcrumbs, {
@@ -47,18 +41,17 @@ describe("AppRouteBreadcrumbs", () => {
 
     expect(wrapper.text()).toContain("Search");
     expect(wrapper.text()).toContain("Groups");
-    expect(wrapper.text()).toContain("Stock Team");
-    expect(wrapper.text()).toContain("Alpha Project");
+    expect(wrapper.text()).toContain("Alpha Group");
     expect(wrapper.text()).toContain("Settings");
 
-    const groupButton = wrapper.findAll("button").find((button) => button.text() === "Stock Team");
+    const groupButton = wrapper.findAll("button").find((button) => button.text() === "Alpha Group");
     expect(groupButton).toBeDefined();
 
     await groupButton!.trigger("click");
     await flushPromises();
 
     expect(router.currentRoute.value.name).toBe("group-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/overview");
+    expect(router.currentRoute.value.fullPath).toBe("/groups/stock%2Falpha/overview");
   });
 
   it("renders settings breadcrumbs for nested settings routes", async () => {

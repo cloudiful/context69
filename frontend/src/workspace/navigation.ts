@@ -7,37 +7,16 @@ export interface WorkspaceSectionNavItem {
 
 export function resolveGroupSectionNav(
   t: ComposerTranslation,
-  groupKey: string,
+  groupPath: string,
 ): WorkspaceSectionNavItem[] {
+  const basePath = `/groups/${encodeURIComponent(groupPath)}`;
   return [
     {
       label: t("groups.tabs.overview"),
-      to: `/groups/${groupKey}/overview`,
-    },
-    {
-      label: t("groups.membersTitle"),
-      to: `/groups/${groupKey}/members`,
-    },
-    {
-      label: t("nav.settings"),
-      to: `/groups/${groupKey}/settings`,
-    },
-  ];
-}
-
-export function resolveProjectSectionNav(
-  t: ComposerTranslation,
-  groupKey: string,
-  projectKey: string,
-): WorkspaceSectionNavItem[] {
-  const basePath = `/groups/${groupKey}/projects/${projectKey}`;
-  return [
-    {
-      label: t("project.tabs.overview"),
       to: `${basePath}/overview`,
     },
     {
-      label: t("project.tabs.members"),
+      label: t("groups.membersTitle"),
       to: `${basePath}/members`,
     },
     {

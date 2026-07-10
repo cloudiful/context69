@@ -1,8 +1,7 @@
 SELECT
     group_id,
     (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",
-    project_id,
-    (SELECT project_key FROM context69.projects WHERE id = project_id) AS "project_key!",
+    (SELECT full_path FROM context69.groups WHERE id = group_id) AS "group_path!",
     visibility,
     id,
     folder_id,
@@ -18,5 +17,5 @@ SELECT
     updated_at,
     ingested_at
 FROM context69.library_files
-WHERE project_id = $1
+WHERE group_id = $1
   AND external_id = $2

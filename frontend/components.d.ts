@@ -48,7 +48,6 @@ declare module 'vue' {
     MemberManagementSection: typeof import('./src/components/MemberManagementSection.vue')['default']
     ProjectFilesPanel: typeof import('./src/components/ProjectFilesPanel.vue')['default']
     ProjectSourceFolderDialog: typeof import('./src/components/ProjectSourceFolderDialog.vue')['default']
-    ProjectSourcesPanel: typeof import('./src/components/ProjectSourcesPanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchForm: typeof import('./src/components/SearchForm.vue')['default']

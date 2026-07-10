@@ -6,7 +6,7 @@ scored AS (
         c.id AS chunk_id,
         d.id AS document_id,
         g.group_key,
-        p.project_key,
+        g.full_path AS group_path,
         d.visibility,
         d.source_key,
         d.external_id,
@@ -22,13 +22,11 @@ scored AS (
     FROM context69.document_chunks c
     INNER JOIN context69.documents d ON d.id = c.document_id
     INNER JOIN context69.groups g ON g.id = d.group_id
-    INNER JOIN context69.projects p ON p.id = d.project_id
     WHERE ($4::text IS NULL OR d.source_key = $4)
-      AND ($5::text IS NULL OR g.group_key = $5)
-      AND ($6::text IS NULL OR p.project_key = $6)
-      AND ($7::date IS NULL OR d.published_at >= $7)
-      AND ($8::date IS NULL OR d.published_at <= $8)
-      AND (d.visibility = 'public' OR d.project_id = ANY($9))
+      AND ($5::text IS NULL OR g.full_path = $5)
+      AND ($6::date IS NULL OR d.published_at >= $6)
+      AND ($7::date IS NULL OR d.published_at <= $7)
+      AND (d.visibility = 'public' OR d.group_id = ANY($8))
       AND (
         lower(d.title) LIKE $2
         OR lower(c.chunk_text) LIKE $2
@@ -46,7 +44,7 @@ SELECT
     chunk_id,
     document_id,
     group_key,
-    project_key,
+    group_path,
     visibility,
     source_key,
     external_id,
@@ -71,4 +69,4 @@ SELECT
     END AS "match_reason!"
 FROM scored
 ORDER BY "keyword_score!" DESC, published_at DESC NULLS LAST, document_id DESC, chunk_index ASC
-LIMIT $10
+LIMIT $9

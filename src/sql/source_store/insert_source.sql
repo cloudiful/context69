@@ -1,13 +1,10 @@
 WITH default_scope AS (
-    SELECT g.id AS group_id, p.id AS project_id
-    FROM context69.groups g
-    JOIN context69.projects p ON p.group_id = g.id
-    WHERE g.group_key = 'public'
-      AND p.project_key = 'default-public'
+    SELECT id AS group_id
+    FROM context69.groups
+    WHERE full_path = 'public'
 )
 INSERT INTO context69.source_configs (
     group_id,
-    project_id,
     visibility,
     source_key,
     display_name,
@@ -21,7 +18,6 @@ INSERT INTO context69.source_configs (
 )
 SELECT
     ds.group_id,
-    ds.project_id,
     'public',
     $1,
     $2,

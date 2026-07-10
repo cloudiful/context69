@@ -20,7 +20,7 @@ pub(super) struct CheckpointRow {
 pub(super) struct DocumentRow {
     pub(super) id: i64,
     pub(super) group_key: String,
-    pub(super) project_key: String,
+    pub(super) group_path: String,
     pub(super) visibility: String,
     pub(super) source_key: String,
     pub(super) external_id: String,
@@ -45,7 +45,7 @@ pub(super) struct SearchHitRow {
     pub(super) chunk_id: Uuid,
     pub(super) document_id: i64,
     pub(super) group_key: String,
-    pub(super) project_key: String,
+    pub(super) group_path: String,
     pub(super) visibility: String,
     pub(super) source_key: String,
     pub(super) external_id: String,
@@ -64,8 +64,7 @@ pub(super) struct ReindexChunkRow {
     pub(super) document_id: i64,
     pub(super) group_id: i64,
     pub(super) group_key: String,
-    pub(super) project_id: i64,
-    pub(super) project_key: String,
+    pub(super) group_path: String,
     pub(super) visibility: String,
     pub(super) source_key: String,
     pub(super) external_id: String,
@@ -119,7 +118,7 @@ pub(super) struct KeywordSearchHitRow {
     pub(super) chunk_id: Uuid,
     pub(super) document_id: i64,
     pub(super) group_key: String,
-    pub(super) project_key: String,
+    pub(super) group_path: String,
     pub(super) visibility: String,
     pub(super) source_key: String,
     pub(super) external_id: String,
@@ -244,7 +243,7 @@ pub(super) fn search_hit_from_keyword_row(row: KeywordSearchHitRow) -> SearchHit
         chunk_id: row.chunk_id,
         document_id: row.document_id,
         group_key: row.group_key,
-        project_key: row.project_key,
+        group_path: row.group_path,
         visibility: row
             .visibility
             .parse()

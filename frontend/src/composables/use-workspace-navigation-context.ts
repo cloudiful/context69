@@ -1,24 +1,15 @@
 import { shallowReactive } from "vue";
 
 const state = shallowReactive({
-  groupKey: "",
+  groupPath: "",
   groupLabel: "",
-  projectGroupKey: "",
-  projectKey: "",
-  projectLabel: "",
 });
 
 export function useWorkspaceNavigationContext() {
   return state;
 }
 
-export function setWorkspaceNavigationGroup(groupKey: string, label = "") {
-  state.groupKey = groupKey;
+export function setWorkspaceNavigationGroup(groupPath: string, label = "") {
+  state.groupPath = groupPath;
   state.groupLabel = label;
-}
-
-export function setWorkspaceNavigationProject(groupKey: string, projectKey: string, label = "") {
-  state.projectGroupKey = groupKey;
-  state.projectKey = projectKey;
-  state.projectLabel = label;
 }

@@ -1,6 +1,5 @@
 INSERT INTO context69.sync_runs (
     group_id,
-    project_id,
     visibility,
     source_key,
     trigger_type,
@@ -8,7 +7,6 @@ INSERT INTO context69.sync_runs (
 )
 SELECT
     sc.group_id,
-    sc.project_id,
     sc.visibility,
     sc.source_key,
     $2,

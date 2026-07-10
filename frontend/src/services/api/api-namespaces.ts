@@ -1,10 +1,8 @@
 import type {
   CreateGroupRequest,
-  CreateProjectRequest,
-  MoveProjectRequest,
+  MoveGroupRequest,
   RequestOptions,
   UpdateGroupRequest,
-  UpdateProjectRequest,
   UpsertMembershipRequest,
 } from "./api-types";
 
@@ -21,99 +19,54 @@ export function createNamespacesApi({ openapiClient, unwrapResponse }: Deps) {
     createGroup(payload: CreateGroupRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/groups", { body: payload, signal: options?.signal }));
     },
-    getGroup(groupKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/{group_key}", {
-        params: { path: { group_key: groupKey } },
+    getGroup(groupPath: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}", {
+        params: { path: { group_path: groupPath } },
         signal: options?.signal,
       }));
     },
-    updateGroup(groupKey: string, payload: UpdateGroupRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.PATCH("/v1/groups/{group_key}", {
-        params: { path: { group_key: groupKey } },
+    updateGroup(groupPath: string, payload: UpdateGroupRequest, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.PATCH("/v1/groups/by-path/{group_path}", {
+        params: { path: { group_path: groupPath } },
         body: payload,
         signal: options?.signal,
       }));
     },
-    deleteGroup(groupKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.DELETE("/v1/groups/{group_key}", {
-        params: { path: { group_key: groupKey } },
-        signal: options?.signal,
-      }));
-    },
-    listGroupMembers(groupKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/{group_key}/members", {
-        params: { path: { group_key: groupKey } },
-        signal: options?.signal,
-      }));
-    },
-    upsertGroupMember(groupKey: string, payload: UpsertMembershipRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/members", {
-        params: { path: { group_key: groupKey } },
+    moveGroup(groupPath: string, payload: MoveGroupRequest, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/move", {
+        params: { path: { group_path: groupPath } },
         body: payload,
         signal: options?.signal,
       }));
     },
-    deleteGroupMember(groupKey: string, loginName: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.DELETE("/v1/groups/{group_key}/members/{login_name}", {
-        params: { path: { group_key: groupKey, login_name: loginName } },
+    deleteGroup(groupPath: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.DELETE("/v1/groups/by-path/{group_path}", {
+        params: { path: { group_path: groupPath } },
         signal: options?.signal,
       }));
     },
-    listProjects(groupKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/{group_key}/projects", {
-        params: { path: { group_key: groupKey } },
+    listChildGroups(groupPath: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/children", {
+        params: { path: { group_path: groupPath } },
         signal: options?.signal,
       }));
     },
-    createProject(groupKey: string, payload: CreateProjectRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/projects", {
-        params: { path: { group_key: groupKey } },
+    listGroupMembers(groupPath: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/members", {
+        params: { path: { group_path: groupPath } },
+        signal: options?.signal,
+      }));
+    },
+    upsertGroupMember(groupPath: string, payload: UpsertMembershipRequest, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/members", {
+        params: { path: { group_path: groupPath } },
         body: payload,
         signal: options?.signal,
       }));
     },
-    getProject(groupKey: string, projectKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/{group_key}/projects/{project_key}", {
-        params: { path: { group_key: groupKey, project_key: projectKey } },
-        signal: options?.signal,
-      }));
-    },
-    updateProject(groupKey: string, projectKey: string, payload: UpdateProjectRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.PATCH("/v1/groups/{group_key}/projects/{project_key}", {
-        params: { path: { group_key: groupKey, project_key: projectKey } },
-        body: payload,
-        signal: options?.signal,
-      }));
-    },
-    deleteProject(groupKey: string, projectKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.DELETE("/v1/groups/{group_key}/projects/{project_key}", {
-        params: { path: { group_key: groupKey, project_key: projectKey } },
-        signal: options?.signal,
-      }));
-    },
-    moveProject(groupKey: string, projectKey: string, payload: MoveProjectRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/projects/{project_key}/move", {
-        params: { path: { group_key: groupKey, project_key: projectKey } },
-        body: payload,
-        signal: options?.signal,
-      }));
-    },
-    listProjectMembers(groupKey: string, projectKey: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/{group_key}/projects/{project_key}/members", {
-        params: { path: { group_key: groupKey, project_key: projectKey } },
-        signal: options?.signal,
-      }));
-    },
-    upsertProjectMember(groupKey: string, projectKey: string, payload: UpsertMembershipRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/{group_key}/projects/{project_key}/members", {
-        params: { path: { group_key: groupKey, project_key: projectKey } },
-        body: payload,
-        signal: options?.signal,
-      }));
-    },
-    deleteProjectMember(groupKey: string, projectKey: string, loginName: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.DELETE("/v1/groups/{group_key}/projects/{project_key}/members/{login_name}", {
-        params: { path: { group_key: groupKey, project_key: projectKey, login_name: loginName } },
+    deleteGroupMember(groupPath: string, loginName: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.DELETE("/v1/groups/by-path/{group_path}/members/{login_name}", {
+        params: { path: { group_path: groupPath, login_name: loginName } },
         signal: options?.signal,
       }));
     },

@@ -31,7 +31,6 @@ impl LibraryStore {
                 file_id,
                 document.document_id,
                 document.group_id,
-                document.project_id,
                 document.visibility.as_str(),
                 document.section_key,
                 document.section_label,
@@ -63,7 +62,6 @@ impl LibraryStore {
                 file_id: row.file_id,
                 document_id: row.document_id,
                 group_id: row.group_id,
-                project_id: row.project_id,
                 visibility: row
                     .visibility
                     .parse()
@@ -124,8 +122,7 @@ impl LibraryStore {
                 document_id: row.document_id,
                 group_id: row.group_id,
                 group_key: row.group_key,
-                project_id: row.project_id,
-                project_key: row.project_key,
+                group_path: row.group_path,
                 visibility: row
                     .visibility
                     .parse()

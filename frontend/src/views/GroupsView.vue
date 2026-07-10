@@ -53,7 +53,7 @@ async function createGroup(payload: { key?: string; name: string; visibility: "p
 }
 
 function openGroup(group: GroupResponse) {
-  void router.push({ name: "group-detail", params: { groupKey: group.group_key } });
+  void router.push({ name: "group-detail", params: { groupPath: group.group_path ?? group.group_key } });
 }
 
 function roleSeverity(role?: string | null) {
@@ -94,6 +94,7 @@ onMounted(() => {
       </template>
 
       <Column field="group_key" :header="t('groups.groupKey')" sortable />
+      <Column field="group_path" :header="t('groups.groupPath')" sortable />
       <Column field="name" :header="t('groups.groupName')" sortable />
       <Column field="visibility" :header="t('groups.visibility')" sortable>
         <template #body="{ data }">

@@ -29,7 +29,7 @@ The builder rejects empty tokens and non-PAT tokens. Protected APIs return `Erro
 ```rust
 use context69_sdk::{
     Context69Client,
-    contracts::{CreateGroupRequest, CreateProjectRequest, GroupKind, Visibility},
+    contracts::{CreateGroupRequest, GroupKind, Visibility},
 };
 
 #[tokio::main]
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client
         .workspace()
         .create_group(&CreateGroupRequest {
-            parent_group_key: None,
+            parent_group_path: None,
             group_key: "ops".to_string(),
             name: "Operations".to_string(),
             visibility: Visibility::Private,
@@ -52,14 +52,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     client
         .workspace()
-        .create_project(
-            "ops",
-            &CreateProjectRequest {
-                project_key: "runbooks".to_string(),
-                name: "Runbooks".to_string(),
-                visibility: Visibility::Private,
-            },
-        )
+        .create_group(&CreateGroupRequest {
+            parent_group_path: Some("ops".to_string()),
+            group_key: "runbooks".to_string(),
+            name: "Runbooks".to_string(),
+            visibility: Visibility::Private,
+            kind: Some(GroupKind::Shared),
+        })
         .await?;
 
     Ok(())
@@ -73,11 +72,12 @@ use chrono::NaiveDate;
 use context69_sdk::{
     Context69Client,
     contracts::{
-        CreateTextRequest, LibraryTextContentFormat, SourceConfigInput,
+        CreateSourceFolderRequest, CreateTextRequest, LibraryTextContentFormat, SourceConfigInput,
         UpsertLibraryTextRequest,
     },
 };
 use serde_json::json;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -88,42 +88,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     client
         .sources()
-        .create_project_source(
-            "ops",
-            "runbooks",
-            &SourceConfigInput {
-                source_key: "alerts".to_string(),
-                display_name: Some("Alerts".to_string()),
-                description: Some("Operational alerts".to_string()),
-                example_queries: vec!["recent paging incidents".to_string()],
-                connection: "warehouse".to_string(),
-                database_url: None,
-                sync_strategy: "incremental".to_string(),
-                connector_type: "postgres_sql".to_string(),
-                base_query: "select * from alerts".to_string(),
-                batch_size: 500,
-                visibility: None,
+        .create_group_source_folder(
+            "ops/runbooks",
+            &CreateSourceFolderRequest {
+                parent_folder_id: None,
+                folder_name: "alerts".to_string(),
+                source_config: SourceConfigInput {
+                    source_key: "alerts".to_string(),
+                    display_name: Some("Alerts".to_string()),
+                    description: Some("Operational alerts".to_string()),
+                    example_queries: vec!["recent paging incidents".to_string()],
+                    connection: "warehouse".to_string(),
+                    database_url: None,
+                    sync_strategy: "incremental".to_string(),
+                    connector_type: "postgres_sql".to_string(),
+                    base_query: "select * from alerts".to_string(),
+                    batch_size: 500,
+                    visibility: None,
+                },
             },
         )
         .await?;
 
     client
         .library()
-        .create_library_text(&CreateTextRequest {
+        .create_group_library_text("ops/runbooks", &CreateTextRequest {
             folder_id: None,
-            title: "Global Runbook".to_string(),
+            title: "Runbook".to_string(),
             content: "# Step 1\n\nFollow the checklist.".to_string(),
             content_format: LibraryTextContentFormat::Markdown,
-            source_uri: Some("https://example.test/runbooks/global".to_string()),
-            summary: Some("Global reference".to_string()),
+            source_uri: Some("https://example.test/runbooks/ops".to_string()),
+            summary: Some("Ops reference".to_string()),
         })
         .await?;
 
     client
         .library()
-        .upsert_project_library_text(
-            "ops",
-            "runbooks",
+        .upsert_group_library_text(
+            "ops/runbooks",
             &UpsertLibraryTextRequest {
                 external_id: "incident-42".to_string(),
                 folder_id: None,
@@ -136,6 +138,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 metadata_json: json!({"kind":"postmortem"}),
             },
         )
+        .await?;
+
+    client
+        .sources()
+        .sync_group_source_folder("ops/runbooks", Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")?)
         .await?;
 
     // Multipart upload already supports Markdown files as long as the uploaded
@@ -165,9 +172,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## API coverage
 
-- `client.workspace()`: user directory, groups, projects, group members, project members
-- `client.sources()`: source connections, global sources, project sources, sync
-- `client.library()`: global tree/folder/file/job APIs, global library text, project library tree/folder/file/job APIs, project library text, multipart uploads
+- `client.workspace()`: user directory, groups, child groups, group members
+- `client.sources()`: source connections, global sources, group-scoped source-folder APIs
+- `client.library()`: global tree/folder/file/job APIs, global library text, group library tree/folder/file/job APIs, group library text, multipart uploads
 - `client.settings()`: runtime, provider accounts, docling, search settings
 - `client.search()`: search and document lookup
 - Root client: `me()`, `healthz()`
@@ -176,9 +183,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 PATs must include the scopes required by the APIs you call:
 
-- `workspace`: user directory, groups, projects, memberships
-- `sources`: source connections, global sources, project sources, sync
-- `library`: global library, project library, library text APIs
+- `workspace`: user directory, groups, memberships
+- `sources`: source connections, global sources, group source-folder APIs, sync
+- `library`: global library, group library, library text APIs
 - `settings`: runtime settings, provider accounts, docling settings, search settings
 - `search`: search and document APIs
 

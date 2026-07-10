@@ -3,21 +3,21 @@ use super::*;
 impl LibraryService {
     pub(crate) async fn list_file_records_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
     ) -> Result<Vec<crate::domain::LibraryFileRecord>> {
         self.store.list_files_in_project(project.id).await
     }
 
     pub(crate) async fn list_folder_records_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
     ) -> Result<Vec<crate::domain::LibraryFolderRecord>> {
         self.store.list_folders_in_project(project.id).await
     }
 
     pub(crate) async fn get_folder_record_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         folder_id: Uuid,
     ) -> Result<crate::domain::LibraryFolderRecord> {
         self.store
@@ -50,7 +50,7 @@ impl LibraryService {
 
     pub async fn create_text_file_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         request: &CreateTextRequest,
     ) -> Result<LibraryUploadResponse> {
         let (created_file, created_job) =
@@ -63,7 +63,7 @@ impl LibraryService {
 
     pub async fn upsert_text_file_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         request: &UpsertLibraryTextRequest,
     ) -> Result<LibraryUploadResponse> {
         let title = normalize_whitespace(&request.title);
@@ -226,7 +226,7 @@ impl LibraryService {
 
     pub(crate) async fn upsert_named_text_file_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         request: &UpsertNamedTextFileRequest,
     ) -> Result<LibraryUploadResponse> {
         let external_id = request.external_id.trim();
@@ -367,7 +367,7 @@ impl LibraryService {
 
     pub async fn upload_files_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         files: Vec<UploadedLibraryFile>,
     ) -> Result<LibraryUploadResponse> {
         if files.is_empty() {
@@ -453,7 +453,7 @@ impl LibraryService {
 
     pub async fn upload_file_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         upload: UploadedLibraryFile,
     ) -> Result<(LibraryFileSummary, LibraryIngestJobResponse)> {
         if let Some(folder_id) = upload.folder_id {
@@ -532,7 +532,7 @@ impl LibraryService {
 
     pub async fn get_file_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         file_id: Uuid,
     ) -> Result<LibraryFileDetailResponse> {
         let file = self
@@ -570,7 +570,7 @@ impl LibraryService {
 
     pub async fn move_file_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         file_id: Uuid,
         request: &MoveFileRequest,
     ) -> Result<LibraryFileDetailResponse> {
@@ -601,7 +601,7 @@ impl LibraryService {
 
     pub async fn delete_file_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         file_id: Uuid,
     ) -> Result<()> {
         self.delete_file_ids(&[file_id]).await?;
@@ -627,7 +627,7 @@ impl LibraryService {
 
     pub async fn get_job_in_project(
         &self,
-        project: &crate::domain::ProjectRecord,
+        project: &crate::domain::GroupRecord,
         job_id: Uuid,
     ) -> Result<LibraryIngestJobResponse> {
         let job = self
@@ -640,7 +640,7 @@ impl LibraryService {
 
     async fn create_text_file_inner(
         &self,
-        project: Option<&crate::domain::ProjectRecord>,
+        project: Option<&crate::domain::GroupRecord>,
         request: &CreateTextRequest,
     ) -> Result<(LibraryFileSummary, LibraryIngestJobResponse)> {
         let title = normalize_whitespace(&request.title);

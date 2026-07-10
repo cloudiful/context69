@@ -13,23 +13,22 @@ use crate::services::app::Context69App;
 
 use super::{
     ApiState, auth_middleware, build_api_state, create_admin_user, create_library_folder,
-    create_library_text, create_personal_access_token, create_project_library_folder,
-    create_project_library_text, create_project_source_folder, create_source,
+    create_group_library_folder, create_group_library_text, create_group_source_folder,
+    create_library_text, create_personal_access_token, create_source,
     create_source_connection, delete_library_file, delete_library_folder,
-    delete_project_library_file, delete_project_library_folder, delete_source,
+    delete_group_library_file, delete_group_library_folder, delete_source,
     delete_source_connection, disable_admin_user, enable_admin_user,
     forbid_personal_access_token_middleware, get_library_file, get_library_job, get_library_tree,
-    get_project_library_file, get_project_library_job, get_project_library_tree, healthz,
+    get_group_library_file, get_group_library_job, get_group_library_tree, healthz,
     list_admin_users, list_personal_access_tokens, list_source_connections, list_sources, login,
-    logout, me, move_library_file, move_library_folder, move_project_library_file,
-    move_project_library_folder, openapi_json, refresh, require_admin_scope_middleware,
+    logout, me, move_group_library_file, move_group_library_folder, move_library_file,
+    move_library_folder, openapi_json, refresh, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
-    sync_project_source_folder, sync_source, touch_personal_access_token_middleware,
-    update_admin_user, update_project_source_folder_config, update_source,
-    update_source_connection, upload_library_files, upload_project_library_files,
-    upsert_project_library_text,
+    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
+    update_admin_user, update_group_source_folder_config, update_source, update_source_connection,
+    upload_group_library_files, upload_library_files, upsert_group_library_text,
 };
 
 pub fn router(app: Arc<Context69App>) -> Router {
@@ -146,16 +145,16 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         )
         .route("/v1/sources/{source_key}/sync", post(sync_source))
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/source-folders",
-            post(create_project_source_folder),
+            "/v1/groups/by-path/{group_path}/source-folders",
+            post(create_group_source_folder),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/config",
-            put(update_project_source_folder_config),
+            "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/config",
+            put(update_group_source_folder_config),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/source-folders/{folder_id}/sync",
-            post(sync_project_source_folder),
+            "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
+            post(sync_group_source_folder),
         )
         .layer(from_fn_with_state(
             api_state,
@@ -194,40 +193,40 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         .route("/v1/library/files/{file_id}/move", post(move_library_file))
         .route("/v1/library/jobs/{job_id}", get(get_library_job))
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/tree",
-            get(get_project_library_tree),
+            "/v1/groups/by-path/{group_path}/library/tree",
+            get(get_group_library_tree),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/folders",
-            post(create_project_library_folder),
+            "/v1/groups/by-path/{group_path}/library/folders",
+            post(create_group_library_folder),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/texts",
-            post(create_project_library_text).put(upsert_project_library_text),
+            "/v1/groups/by-path/{group_path}/library/texts",
+            post(create_group_library_text).put(upsert_group_library_text),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}/move",
-            post(move_project_library_folder),
+            "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move",
+            post(move_group_library_folder),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/folders/{folder_id}",
-            axum::routing::delete(delete_project_library_folder),
+            "/v1/groups/by-path/{group_path}/library/folders/{folder_id}",
+            axum::routing::delete(delete_group_library_folder),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/files/upload",
-            post(upload_project_library_files).layer(DefaultBodyLimit::max(upload_body_limit)),
+            "/v1/groups/by-path/{group_path}/library/files/upload",
+            post(upload_group_library_files).layer(DefaultBodyLimit::max(upload_body_limit)),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/files/{file_id}",
-            get(get_project_library_file).delete(delete_project_library_file),
+            "/v1/groups/by-path/{group_path}/library/files/{file_id}",
+            get(get_group_library_file).delete(delete_group_library_file),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/files/{file_id}/move",
-            post(move_project_library_file),
+            "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",
+            post(move_group_library_file),
         )
         .route(
-            "/v1/groups/{group_key}/projects/{project_key}/library/jobs/{job_id}",
-            get(get_project_library_job),
+            "/v1/groups/by-path/{group_path}/library/jobs/{job_id}",
+            get(get_group_library_job),
         )
         .layer(from_fn_with_state(
             api_state,
