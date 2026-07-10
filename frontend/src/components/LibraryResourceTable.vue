@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Tag from "primevue/tag";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
+import AppStateMessage from "./AppStateMessage.vue";
 import LibraryResourceCards from "./LibraryResourceCards.vue";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
-import { libraryRowActionButtonClass, libraryRowDangerActionButtonClass } from "../ui/button-classes";
+import { libraryRowActionButtonClass, libraryRowDangerActionButtonClass, toolPrimaryButtonClass } from "../ui/button-classes";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import { formatBytes, formatTimestamp } from "../utils/format";
 
@@ -15,6 +17,7 @@ const props = withDefaults(defineProps<{
   createFolderBusy: boolean;
   createSourceFolderBusy?: boolean;
   entries: ExplorerEntry[];
+  error?: string | null;
   groupEntries?: GroupExplorerEntry[];
   expandedKeys: Record<string, boolean>;
   loading: boolean;
@@ -36,6 +39,7 @@ const emit = defineEmits<{
   "open-group": [GroupExplorerEntry];
   "open-entry": [ExplorerEntry];
   refresh: [];
+  retry: [];
   "row-click": [{ data: ExplorerEntry }];
   "row-contextmenu": [{ originalEvent: Event; data: ExplorerEntry }];
   "row-dblclick": [{ data: ExplorerEntry }];
@@ -183,10 +187,22 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
   <div class="library-pane library-pane-compact flex h-full flex-col">
     <div class="split-panel-body flex-1 overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
       <AsyncStateBlock
+        :error="props.error"
         :loading="props.loading"
         :loading-title="$t('common.loading')"
         :loading-message="$t('library.loadingFiles')"
       >
+        <template #error>
+          <div class="grid justify-items-center gap-3 py-8 text-center">
+            <AppStateMessage severity="error" :title="$t('common.error')">
+              {{ props.error }}
+            </AppStateMessage>
+            <Button :class="toolPrimaryButtonClass" size="small" @click="emit('retry')">
+              {{ $t("common.retry") }}
+            </Button>
+          </div>
+        </template>
+
         <DataTable
           class="tool-table-desktop"
           :selection="props.selection"

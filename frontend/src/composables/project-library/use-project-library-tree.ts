@@ -1,4 +1,4 @@
-import { computed, ref } from "vue";
+import { computed, ref, toValue, type MaybeRefOrGetter } from "vue";
 
 import { apiClient, type LibraryFileSummary, type LibraryFolderNode, type LibraryTreeResponse } from "../../services/api";
 import type { ExplorerEntry, FileExplorerEntry, FolderExplorerEntry, FolderSummary } from "../../types/library";
@@ -6,7 +6,7 @@ import { findFileLocation, findFolderById, findFolderTrail, flattenFolderOptions
 import { useErrorToast } from "../use-error-toast";
 
 interface UseProjectLibraryTreeOptions {
-  groupPath: string;
+  groupPath: MaybeRefOrGetter<string>;
   statusLabel: (status: string) => string;
   t: (key: string, params?: Record<string, unknown>) => string;
 }
@@ -14,6 +14,7 @@ interface UseProjectLibraryTreeOptions {
 export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectLibraryTreeOptions) {
   const showErrorToast = useErrorToast();
   const tree = ref<LibraryTreeResponse | null>(null);
+  const treeError = ref<string | null>(null);
   const treeLoading = ref(false);
   const expandedTreeKeys = ref<Record<string, boolean>>({ [folderKey(null)]: true });
   const resourceSearchQuery = ref("");
@@ -21,6 +22,7 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
   const resourceContextEntry = ref<ExplorerEntry | null>(null);
   const selectedFolderId = ref<string | null>(null);
   const selectedFileId = ref<string | null>(null);
+  let loadRequestId = 0;
 
   function updateExpandedForFolder(folderId: string | null) {
     if (!tree.value) return;
@@ -156,9 +158,12 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
   const breadcrumbItems = computed(() => selectedFolderTrail.value.slice(1).map((folder) => ({ label: folder.name, onSelect: () => { void selectFolder(folder.folder_id ?? null); } })));
 
   async function loadTree() {
+    const requestId = ++loadRequestId;
     treeLoading.value = !tree.value;
+    treeError.value = null;
     try {
-      const nextTree = await apiClient.getGroupLibraryTree(groupPath);
+      const nextTree = await apiClient.getGroupLibraryTree(toValue(groupPath));
+      if (requestId !== loadRequestId) return;
       tree.value = nextTree;
       if (selectedFolderId.value && !findFolderById(nextTree.root, selectedFolderId.value)) {
         await replaceSelection(null, selectedFileId.value);
@@ -179,10 +184,24 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
         updateExpandedForFolder(selectedFolderId.value);
       }
     } catch (error) {
+      if (requestId !== loadRequestId) return;
+      treeError.value = t("library.loadFailed");
       showErrorToast(error, t("library.loadFailed"));
     } finally {
-      treeLoading.value = false;
+      if (requestId === loadRequestId) {
+        treeLoading.value = false;
+      }
     }
+  }
+
+  function resetTree() {
+    loadRequestId += 1;
+    tree.value = null;
+    treeError.value = null;
+    selectedExplorerEntry.value = null;
+    selectedFolderId.value = null;
+    selectedFileId.value = null;
+    expandedTreeKeys.value = { [folderKey(null)]: true };
   }
 
   async function selectFolder(folderId: string | null) {
@@ -229,6 +248,7 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
     moveOptions,
     refreshLibrary,
     replaceSelection,
+    resetTree,
     resourceContextEntry,
     resourceSearchQuery,
     selectFile,
@@ -242,6 +262,7 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
     syncSelectedExplorerEntry,
     toggleFolderExpansion,
     tree,
+    treeError,
     treeLoading,
     updateExpandedForFolder,
   };

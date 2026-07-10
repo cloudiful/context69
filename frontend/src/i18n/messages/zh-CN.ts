@@ -5,6 +5,7 @@ export const zhCN = {
     open: "打开",
     close: "关闭",
     reset: "重置",
+    retry: "重试",
     create: "新增",
     save: "保存",
     cancel: "取消",

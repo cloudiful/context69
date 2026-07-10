@@ -53,7 +53,7 @@ const sourceFolderDialogFolderName = ref("");
 const sourceFolderDialogValue = ref("");
 
 const tree = useProjectLibraryTree({
-  groupPath: props.groupPath,
+  groupPath: () => props.groupPath,
   statusLabel: mapStatusLabel,
   t,
 });
@@ -314,7 +314,10 @@ watch(tree.explorerEntries, (entries) => {
   treeState.syncSelectedExplorerEntry(entries);
 }, { immediate: true });
 
-void tree.loadTree();
+watch(() => props.groupPath, () => {
+  tree.resetTree();
+  void tree.loadTree();
+}, { immediate: true });
 
 onBeforeUnmount(() => {
   detail.dispose();
@@ -351,6 +354,7 @@ onBeforeUnmount(() => {
       :create-folder-busy="actionsState.createFolderBusy"
       :create-source-folder-busy="sourceFolderDialogBusy"
       :entries="treeState.filteredExplorerEntries"
+      :error="treeState.treeError"
       :group-entries="filteredGroupEntries"
       :expanded-keys="treeState.expandedTreeKeys"
       :loading="treeState.treeLoading"
@@ -374,6 +378,7 @@ onBeforeUnmount(() => {
       @delete-group="emit('delete-child-group', $event.group)"
       @toggle-folder="treeState.toggleFolderExpansion($event.id)"
       @refresh="treeState.refreshLibrary(detailState.loadDetail)"
+      @retry="treeState.loadTree"
       @create-folder="actionsState.openCreateFolderDialog()"
       @create-source-folder="openCreateSourceFolderDialog()"
       @sync-source-folder="syncSourceFolder($event.id)"
