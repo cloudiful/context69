@@ -5,30 +5,24 @@ import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Message from "primevue/message";
 import Select from "primevue/select";
+import type { GroupMemberResponse, MembershipRole, UpsertMembershipRequest } from "../services/api";
 import { settingsDangerButtonClass, toolPrimaryButtonClass } from "../ui/button-classes";
-
-type MemberRow = {
-  user_id: number;
-  login_name: string;
-  display_name: string;
-  role: "owner" | "maintainer" | "viewer";
-};
 
 const props = defineProps<{
   busy?: boolean;
   error?: string;
-  members: MemberRow[];
+  members: GroupMemberResponse[];
   title: string;
 }>();
 
 const emit = defineEmits<{
-  add: [{ login_name: string; role: "owner" | "maintainer" | "viewer" }];
+  add: [UpsertMembershipRequest];
   remove: [string];
 }>();
 
 const { t } = useI18n();
 const loginName = ref("");
-const role = ref<"owner" | "maintainer" | "viewer">("viewer");
+const role = ref<MembershipRole>("viewer");
 
 const roleOptions = computed(() => [
   { label: "owner", value: "owner" },

@@ -5,8 +5,10 @@ import { useConfirm } from "primevue/useconfirm";
 
 import {
   apiClient,
+  type CreateGroupRequest,
   type GroupMemberResponse,
   type GroupResponse,
+  type UpsertMembershipRequest,
   type UserDirectoryEntryResponse,
 } from "../services/api";
 import { setWorkspaceNavigationGroup } from "./use-workspace-navigation-context";
@@ -84,7 +86,7 @@ export function useGroupWorkspace() {
     memberSuggestions.value = await apiClient.searchUserDirectory(query, 10);
   }
 
-  async function saveGroup(payload: { name: string; visibility: "private" | "public" }) {
+  async function saveGroup(payload: Pick<CreateGroupRequest, "name" | "visibility">) {
     groupDialogBusy.value = true;
     errorMessage.value = "";
     try {
@@ -101,7 +103,7 @@ export function useGroupWorkspace() {
     }
   }
 
-  async function saveChildGroup(payload: { key?: string; name: string; visibility: "private" | "public" }) {
+  async function saveChildGroup(payload: Pick<CreateGroupRequest, "name" | "visibility"> & { key?: string }) {
     childGroupDialogBusy.value = true;
     childGroupError.value = "";
     try {
@@ -129,7 +131,7 @@ export function useGroupWorkspace() {
     }
   }
 
-  async function saveMember(payload: { login_name: string; role: "owner" | "maintainer" | "viewer" }) {
+  async function saveMember(payload: UpsertMembershipRequest) {
     memberDialogBusy.value = true;
     memberError.value = "";
     try {

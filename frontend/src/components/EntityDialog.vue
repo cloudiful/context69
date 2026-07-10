@@ -8,8 +8,7 @@ import Message from "primevue/message";
 import Select from "primevue/select";
 
 import { appFormDialogPt } from "./app-dialog";
-
-type Visibility = "private" | "public";
+import type { Visibility } from "../services/api";
 
 const props = defineProps<{
   visible: boolean;

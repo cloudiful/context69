@@ -9,7 +9,7 @@ import Message from "primevue/message";
 import Tag from "primevue/tag";
 
 import EntityDialog from "../components/EntityDialog.vue";
-import { apiClient, type GroupResponse } from "../services/api";
+import { apiClient, type GroupResponse, type Visibility } from "../services/api";
 import { toolPrimaryButtonClass } from "../ui/button-classes";
 
 const router = useRouter();
@@ -34,7 +34,7 @@ async function loadGroups() {
   }
 }
 
-async function createGroup(payload: { key?: string; name: string; visibility: "private" | "public" }) {
+async function createGroup(payload: { key?: string; name: string; visibility: Visibility }) {
   createBusy.value = true;
   dialogError.value = "";
   try {

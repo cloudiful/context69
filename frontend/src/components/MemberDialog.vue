@@ -9,9 +9,7 @@ import Message from "primevue/message";
 import Select from "primevue/select";
 
 import { appFormDialogPt } from "./app-dialog";
-import type { UserDirectoryEntryResponse } from "../services/api";
-
-type MembershipRole = "owner" | "maintainer" | "viewer";
+import type { MembershipRole, UserDirectoryEntryResponse } from "../services/api";
 
 const props = defineProps<{
   visible: boolean;

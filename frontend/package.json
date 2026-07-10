@@ -8,6 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "generate:api": "openapi-typescript ./openapi/context69.openapi.json -o ./src/generated/openapi.ts",
+    "generate:api:from-backend": "cd .. && cargo run --bin context69 -- export-openapi && cd frontend && bun run generate:api",
+    "build:with-api": "bun run generate:api:from-backend && bun run build",
     "check": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

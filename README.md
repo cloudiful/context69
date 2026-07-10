@@ -53,6 +53,20 @@ Export OpenAPI:
 cargo run -- export-openapi
 ```
 
+Export OpenAPI and regenerate frontend types:
+
+```bash
+cd frontend
+bun run generate:api:from-backend
+```
+
+Regenerate frontend API types and run the production build:
+
+```bash
+cd frontend
+bun run build:with-api
+```
+
 Run a single sync:
 
 ```bash

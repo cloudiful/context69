@@ -1,4 +1,5 @@
 import type {
+  SearchMode,
   UpdateDoclingSettingsRequest,
   UpsertProviderAccountRequest,
 } from "../../services/api";
@@ -53,7 +54,7 @@ export type DraftDoclingSettings = {
 };
 
 export type DraftSearchSettings = {
-  mode: "vector" | "hybrid";
+  mode: SearchMode;
   rerank_enabled: boolean;
   rerank_base_url: string;
   rerank_model: string;
