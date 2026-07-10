@@ -1,20 +1,17 @@
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
-
 use crate::{
     contracts::{
         DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,
-        DoclingVlmSettingsResponse, ProviderAccountResponse, RuntimeChunkingSettings,
-        RuntimeEmbeddingSettings, RuntimeFileLibrarySettings, RuntimeQdrantSettings,
-        RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse,
-        UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+        DoclingVlmSettingsResponse, RuntimeChunkingSettings, RuntimeEmbeddingSettings,
+        RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
+        RuntimeSettingsResponse, SearchSettingsResponse, UpdateDoclingSettingsRequest,
+        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::{
-        StoredDoclingSettings, StoredProviderAccount, StoredRuntimeChunkingSettings,
-        StoredRuntimeEmbeddingSettings, StoredRuntimeFileLibrarySettings,
-        StoredRuntimeQdrantSettings, StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
-        StoredSearchSettings,
+        StoredDoclingSettings, StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
+        StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings,
+        StoredRuntimeSchedulerSettings, StoredRuntimeSettings, StoredSearchSettings,
     },
     docling::{
         DEFAULT_DOCLING_POLL_INTERVAL_SECS, DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig,
@@ -25,6 +22,7 @@ use crate::{
 
 pub(super) fn runtime_settings_from_request(
     request: &UpdateRuntimeSettingsRequest,
+    api_key: Option<String>,
 ) -> StoredRuntimeSettings {
     StoredRuntimeSettings {
         qdrant: StoredRuntimeQdrantSettings {
@@ -33,7 +31,8 @@ pub(super) fn runtime_settings_from_request(
             recreate_on_dimension_mismatch: request.qdrant.recreate_on_dimension_mismatch,
         },
         embedding: StoredRuntimeEmbeddingSettings {
-            provider_account_key: request.embedding.provider_account_key.trim().to_string(),
+            base_url: request.embedding.base_url.trim().to_string(),
+            api_key,
             model: request.embedding.model.trim().to_string(),
             dimensions: request.embedding.dimensions,
             timeout_secs: request.embedding.timeout_secs,
@@ -77,7 +76,6 @@ pub(super) fn docling_settings_from_request(
         do_code_enrichment: true,
         do_formula_enrichment: true,
         do_picture_description: true,
-        provider_account_key: normalize_optional_string(request.vlm.provider_account_key.clone()),
         openai_base_url: normalize_optional_string(request.vlm.openai_base_url.clone()),
         api_key,
         vlm_pipeline_model: normalize_optional_string(request.vlm.vlm_pipeline_model.clone()),
@@ -103,20 +101,6 @@ pub(super) fn search_settings_from_request(
     }
 }
 
-pub(super) fn provider_account_response(account: StoredProviderAccount) -> ProviderAccountResponse {
-    ProviderAccountResponse {
-        account_key: account.account_key,
-        provider_kind: account.provider_kind,
-        display_name: account.display_name,
-        base_url: account.base_url,
-        has_api_key: account
-            .api_key
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty()),
-        disabled_at: account.disabled_at,
-    }
-}
-
 pub(super) fn runtime_settings_response(
     settings: StoredRuntimeSettings,
 ) -> RuntimeSettingsResponse {
@@ -127,10 +111,15 @@ pub(super) fn runtime_settings_response(
             recreate_on_dimension_mismatch: settings.qdrant.recreate_on_dimension_mismatch,
         },
         embedding: RuntimeEmbeddingSettings {
-            provider_account_key: settings.embedding.provider_account_key,
+            base_url: settings.embedding.base_url,
             model: settings.embedding.model,
             dimensions: settings.embedding.dimensions,
             timeout_secs: settings.embedding.timeout_secs,
+            has_api_key: settings
+                .embedding
+                .api_key
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty()),
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
@@ -162,10 +151,15 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             recreate_on_dimension_mismatch: defaults.qdrant.recreate_on_dimension_mismatch,
         },
         embedding: RuntimeEmbeddingSettings {
-            provider_account_key: String::new(),
+            base_url: defaults.embedding.base_url,
             model: defaults.embedding.model,
             dimensions: defaults.embedding.dimensions,
             timeout_secs: defaults.embedding.timeout.as_secs(),
+            has_api_key: defaults
+                .embedding
+                .api_key
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty()),
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: defaults.scheduler.interval.as_secs(),
@@ -198,7 +192,6 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
             poll_interval_secs: DEFAULT_DOCLING_POLL_INTERVAL_SECS,
         },
         vlm: DoclingVlmSettingsResponse {
-            provider_account_key: None,
             openai_base_url: None,
             has_api_key: false,
             vlm_pipeline_model: None,
@@ -239,7 +232,6 @@ pub(super) fn response_from_stored(
             poll_interval_secs: settings.poll_interval_secs,
         },
         vlm: DoclingVlmSettingsResponse {
-            provider_account_key: settings.provider_account_key,
             openai_base_url: settings.openai_base_url,
             has_api_key: settings
                 .api_key
@@ -252,15 +244,7 @@ pub(super) fn response_from_stored(
     }
 }
 
-pub(super) fn config_from_stored(
-    settings: StoredDoclingSettings,
-    provider: Option<StoredProviderAccount>,
-) -> DoclingConfig {
-    let (openai_base_url, api_key) = match provider {
-        Some(account) => (Some(account.base_url), account.api_key),
-        None => (settings.openai_base_url.clone(), settings.api_key.clone()),
-    };
-
+pub(super) fn config_from_stored(settings: StoredDoclingSettings) -> DoclingConfig {
     DoclingConfig {
         connection: DoclingConnectionConfig {
             base_url: settings.base_url,
@@ -268,29 +252,11 @@ pub(super) fn config_from_stored(
             poll_interval: Duration::from_secs(settings.poll_interval_secs),
         },
         vlm: DoclingVlmConfig {
-            openai_base_url,
-            api_key,
+            openai_base_url: settings.openai_base_url,
+            api_key: settings.api_key,
             vlm_pipeline_model: settings.vlm_pipeline_model,
             picture_description_model: settings.picture_description_model,
             code_formula_model: settings.code_formula_model,
         },
-    }
-}
-
-pub(super) fn provider_account_from_parts(
-    account_key: &str,
-    provider_kind: &str,
-    display_name: &str,
-    base_url: &str,
-    api_key: Option<String>,
-    disabled_at: Option<DateTime<Utc>>,
-) -> StoredProviderAccount {
-    StoredProviderAccount {
-        account_key: account_key.to_string(),
-        provider_kind: provider_kind.to_string(),
-        display_name: display_name.to_string(),
-        base_url: base_url.to_string(),
-        api_key,
-        disabled_at,
     }
 }

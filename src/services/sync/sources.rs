@@ -7,12 +7,8 @@ impl SyncService {
     }
 
     pub async fn list_sources_for_group(&self, group_id: i64) -> Result<Vec<SourceStatus>> {
-        self.decorate_sources(
-            self.source_store
-                .list_sources_for_group(group_id)
-                .await?,
-        )
-        .await
+        self.decorate_sources(self.source_store.list_sources_for_group(group_id).await?)
+            .await
     }
 
     pub async fn get_source_for_group(

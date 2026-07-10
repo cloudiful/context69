@@ -163,7 +163,7 @@ impl LibraryService {
 
 fn library_runtime_unavailable() -> anyhow::Error {
     anyhow!(
-        "library ingest runtime is not configured; save runtime/provider/docling settings and restart the service"
+        "library ingest runtime is not configured; save runtime and docling settings and restart the service"
     )
 }
 

@@ -144,7 +144,7 @@ docker run --rm \
   context69:latest
 ```
 
-Then open the frontend settings page and save runtime/provider/docling settings.
+Then open the frontend settings page and save runtime and Docling settings.
 Until that happens, `/healthz` is expected to report a degraded state.
 
 More details:

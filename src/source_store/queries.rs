@@ -175,8 +175,7 @@ impl SourceStore {
     }
 
     pub async fn update_source(&self, source_key: &str, source: &SourceConfig) -> Result<()> {
-        self.update_source_in_group(None, source_key, source)
-            .await
+        self.update_source_in_group(None, source_key, source).await
     }
 
     pub async fn update_source_in_group(

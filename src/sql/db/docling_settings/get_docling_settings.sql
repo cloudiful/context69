@@ -12,7 +12,6 @@ SELECT
     do_code_enrichment,
     do_formula_enrichment,
     do_picture_description,
-    provider_account_key,
     openai_base_url,
     api_key,
     vlm_pipeline_model,

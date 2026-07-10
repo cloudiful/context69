@@ -2,27 +2,13 @@ import type {
   DraftDoclingSettings,
   DraftRuntimeSettings,
   DraftSearchSettings,
-  ProviderAccountDraft,
 } from "./settings-types";
 import type {
   UpdateDoclingSettingsRequest,
   UpdateRuntimeSettingsRequest,
   UpdateSearchSettingsRequest,
-  UpsertProviderAccountRequest,
 } from "../../services/api";
 import { normalizeDoclingPayload, normalizeRuntimePayload } from "./settings-normalize";
-import { buildProviderAccountComparablePayload } from "./settings-compare";
-
-export function buildProviderAccountPayload(
-  draft: ProviderAccountDraft,
-): UpsertProviderAccountRequest {
-  const payload = buildProviderAccountComparablePayload(draft);
-  const apiKey = draft.api_key.trim();
-  if (apiKey) {
-    payload.api_key = apiKey;
-  }
-  return payload;
-}
 
 export function buildRuntimePayload(
   draft: DraftRuntimeSettings,
@@ -34,7 +20,9 @@ export function buildRuntimePayload(
       recreate_on_dimension_mismatch: draft.qdrant.recreate_on_dimension_mismatch,
     },
     embedding: {
-      provider_account_key: draft.embedding.provider_account_key,
+      base_url: draft.embedding.base_url,
+      api_key: draft.embedding.api_key,
+      clear_api_key: draft.embedding.clear_api_key,
       model: draft.embedding.model,
       dimensions: draft.embedding.dimensions,
       timeout_secs: draft.embedding.timeout_secs,
@@ -70,7 +58,6 @@ export function buildDoclingPayload(
       poll_interval_secs: draft.connection.poll_interval_secs,
     },
     vlm: {
-      provider_account_key: draft.vlm.provider_account_key,
       openai_base_url: draft.vlm.openai_base_url,
       api_key: draft.vlm.api_key,
       clear_api_key: draft.vlm.clear_api_key,

@@ -47,12 +47,7 @@ impl SyncService {
         let connector = self.project_source_connector(source).await?;
         let run = self
             .db
-            .start_run_in_scope(
-                project.id,
-                project.visibility,
-                &identity,
-                "api",
-            )
+            .start_run_in_scope(project.id, project.visibility, &identity, "api")
             .await?;
 
         match self
@@ -240,8 +235,7 @@ impl SyncService {
                 .get_source_in_group(project.id, &source.key)
                 .await?;
             if legacy.is_some() {
-                self.delete_source_in_group(project.id, &source.key)
-                    .await?;
+                self.delete_source_in_group(project.id, &source.key).await?;
             }
         }
 
@@ -272,12 +266,7 @@ impl SyncService {
             .await?
             .with_context(|| format!("missing source scope for {legacy_source_key}"))?;
         self.db
-            .save_checkpoint_in_scope(
-                scope.group_id,
-                scope.visibility,
-                identity,
-                &checkpoint,
-            )
+            .save_checkpoint_in_scope(scope.group_id, scope.visibility, identity, &checkpoint)
             .await
     }
 

@@ -27,10 +27,12 @@ export function normalizeRuntimePayload(
       recreate_on_dimension_mismatch: value.qdrant.recreate_on_dimension_mismatch,
     },
     embedding: {
-      provider_account_key: value.embedding.provider_account_key.trim(),
+      base_url: value.embedding.base_url.trim(),
       model: value.embedding.model.trim(),
       dimensions: Number(value.embedding.dimensions),
       timeout_secs: Number(value.embedding.timeout_secs),
+      api_key: cleanOptional("api_key" in value.embedding ? value.embedding.api_key : undefined),
+      clear_api_key: "clear_api_key" in value.embedding && !!value.embedding.clear_api_key,
     },
     scheduler: {
       interval_secs: Number(value.scheduler.interval_secs),
@@ -72,7 +74,6 @@ export function normalizeDoclingPayload(
       poll_interval_secs: Number(payload.connection.poll_interval_secs),
     },
     vlm: {
-      provider_account_key: cleanOptional(vlm.provider_account_key),
       openai_base_url: cleanOptional(vlm.openai_base_url),
       api_key: cleanOptional(vlm.api_key),
       clear_api_key: !!vlm.clear_api_key,

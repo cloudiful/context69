@@ -134,7 +134,7 @@ let document = client.document(result.hits[0].document_id).get().await?;
 - `client.library()`: personal library folders, texts, files, and jobs
 - `client.group(path).library()`: group-scoped library resources
 - `client.group(path).source_folders()` / `source_folder(id)`: group source folders
-- `client.settings()`: runtime, provider accounts, Docling, and search settings
+- `client.settings()`: runtime, Docling, and search settings
 - `client.search()` / `client.document(id)`: search and document lookup
 - root client: `me()` and `healthz()`
 
@@ -143,7 +143,7 @@ let document = client.document(result.hits[0].document_id).get().await?;
 - `workspace`: user directory, groups, memberships
 - `sources`: source connections, sources, group source folders, sync
 - `library`: personal and group library resources
-- `settings`: runtime, provider accounts, Docling, search settings
+- `settings`: runtime, Docling, search settings
 - `search`: search and document APIs
 
 ## Migrating from 0.4

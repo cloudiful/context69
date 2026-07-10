@@ -11,6 +11,7 @@ import { AuthError } from "../services/auth/session";
 import LoginView from "./LoginView.vue";
 
 async function mountView(path = "/login") {
+  const addToast = vi.fn();
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -24,11 +25,20 @@ async function mountView(path = "/login") {
 
   const wrapper = mount(LoginView, {
     global: {
-      plugins: [testPrimeVuePlugin, router, createTestI18n()],
+      plugins: [
+        testPrimeVuePlugin,
+        {
+          install(app) {
+            app.config.globalProperties.$toast.add = addToast;
+          },
+        },
+        router,
+        createTestI18n(),
+      ],
     },
   });
 
-  return { router, wrapper };
+  return { addToast, router, wrapper };
 }
 
 describe("LoginView", () => {
@@ -64,14 +74,19 @@ describe("LoginView", () => {
   it("shows an invalid credential message when login fails", async () => {
     vi.spyOn(authService, "login").mockRejectedValue(new AuthError("invalid login or password", 401, "invalid_credentials"));
 
-    const { wrapper } = await mountView();
+    const { addToast, wrapper } = await mountView();
 
     await wrapper.get("#login-name").setValue("admin");
     await wrapper.get("#login-password").setValue("bad");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Invalid login name or password.");
+    expect(addToast).toHaveBeenCalledWith({
+      severity: "error",
+      summary: "Error",
+      detail: "Invalid login name or password.",
+      life: 5000,
+    });
   });
 
   it("shows field validation before submit", async () => {

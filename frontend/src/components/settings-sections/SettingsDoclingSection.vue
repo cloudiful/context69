@@ -2,17 +2,23 @@
 import { useI18n } from "vue-i18n";
 
 import AppNumberField from "../AppNumberField.vue";
-import AppSelectField from "../AppSelectField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
+import AppToggleGroup from "../AppToggleGroup.vue";
 import type { DraftDoclingSettings } from "../../utils/settings";
 
-defineProps<{
+const props = defineProps<{
   doclingDraft: DraftDoclingSettings;
-  doclingProviderOptions: Array<{ label: string; value: string }>;
 }>();
 
 const { t } = useI18n();
+
+function updateApiKeyClear(value: Record<string, boolean>) {
+  props.doclingDraft.vlm.clear_api_key = !!value.clear_api_key;
+  if (props.doclingDraft.vlm.clear_api_key) {
+    props.doclingDraft.vlm.api_key = "";
+  }
+}
 </script>
 
 <template>
@@ -52,13 +58,6 @@ const { t } = useI18n();
         <h3 class="text-sm font-semibold text-app-text">{{ t('settings.docling.vlmTitle') }}</h3>
         <div class="grid gap-3">
           <div class="settings-compact-grid settings-compact-grid-vlm-main">
-            <AppSelectField
-              float-label
-              input-id="docling-provider-account"
-              v-model="doclingDraft.vlm.provider_account_key"
-              :label="t('settings.docling.providerAccount')"
-              :options="doclingProviderOptions"
-            />
             <AppTextField
               float-label
               input-id="docling-openai-base-url"
@@ -78,6 +77,15 @@ const { t } = useI18n();
               type="password"
               autocomplete="new-password"
               placeholder="sk-..."
+            />
+            <AppToggleGroup
+              v-if="doclingDraft.vlm.has_api_key"
+              :model-value="{ clear_api_key: doclingDraft.vlm.clear_api_key }"
+              columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+              :items="[
+                { key: 'clear_api_key', inputId: 'docling-clear-api-key', label: t('settings.docling.clearStoredApiKey'), testId: 'docling-clear-api-key' },
+              ]"
+              @update:model-value="updateApiKeyClear"
             />
             <AppTextField
               float-label

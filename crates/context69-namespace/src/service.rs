@@ -26,7 +26,9 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         user_id: i64,
         group_path: &str,
     ) -> Result<Option<GroupRecord>> {
-        self.repository.get_group_for_user(user_id, group_path).await
+        self.repository
+            .get_group_for_user(user_id, group_path)
+            .await
     }
 
     pub async fn create_group(
@@ -106,6 +108,8 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         user_id: Option<i64>,
         group_path: Option<String>,
     ) -> Result<AccessScope> {
-        self.repository.resolve_access_scope(user_id, group_path).await
+        self.repository
+            .resolve_access_scope(user_id, group_path)
+            .await
     }
 }

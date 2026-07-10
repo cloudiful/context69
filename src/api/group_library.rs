@@ -76,7 +76,12 @@ pub(crate) async fn create_group_library_folder(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state.app.library.create_folder_in_project(&group, &request).await {
+    match state
+        .app
+        .library
+        .create_folder_in_project(&group, &request)
+        .await
+    {
         Ok(folder) => (StatusCode::CREATED, Json(folder)).into_response(),
         Err(error) => library_management_error_response(error),
     }
@@ -106,7 +111,12 @@ pub(crate) async fn create_group_library_text(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state.app.library.create_text_file_in_project(&group, &request).await {
+    match state
+        .app
+        .library
+        .create_text_file_in_project(&group, &request)
+        .await
+    {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
         Err(error) => library_management_error_response(error),
     }
@@ -136,7 +146,12 @@ pub(crate) async fn upsert_group_library_text(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state.app.library.upsert_text_file_in_project(&group, &request).await {
+    match state
+        .app
+        .library
+        .upsert_text_file_in_project(&group, &request)
+        .await
+    {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => library_management_error_response(error),
     }
@@ -244,7 +259,12 @@ pub(crate) async fn upload_group_library_files(
         Ok(uploads) => uploads,
         Err(response) => return response,
     };
-    match state.app.library.upload_files_in_project(&group, uploads).await {
+    match state
+        .app
+        .library
+        .upload_files_in_project(&group, uploads)
+        .await
+    {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
         Err(error) => library_management_error_response(error),
     }
@@ -304,7 +324,12 @@ pub(crate) async fn move_group_library_file(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state.app.library.move_file_in_project(&group, file_id, &request).await {
+    match state
+        .app
+        .library
+        .move_file_in_project(&group, file_id, &request)
+        .await
+    {
         Ok(file) => (StatusCode::OK, Json(file)).into_response(),
         Err(error) => library_management_error_response(error),
     }
@@ -335,7 +360,12 @@ pub(crate) async fn delete_group_library_file(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state.app.library.delete_file_in_project(&group, file_id).await {
+    match state
+        .app
+        .library
+        .delete_file_in_project(&group, file_id)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => library_management_error_response(error),
     }

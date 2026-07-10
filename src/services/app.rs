@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tracing::warn;
 
 use crate::{
@@ -8,10 +8,7 @@ use crate::{
     config::{
         Config, ConnectionConfig, EmbeddingConfig, FileLibraryConfig, QdrantConfig, SchedulerConfig,
     },
-    db::{
-        Database, StoredDoclingSettings, StoredProviderAccount, StoredRuntimeSettings,
-        StoredSourceConnection,
-    },
+    db::{Database, StoredDoclingSettings, StoredRuntimeSettings, StoredSourceConnection},
     embedding::{EmbeddingProvider, OpenAiCompatibleEmbeddingProvider},
     qdrant_index::QdrantIndex,
     services::{
@@ -71,43 +68,23 @@ impl Context69App {
         let mut index: Option<QdrantIndex> = None;
         let mut recreated_collection = false;
 
-        if let Some(runtime) = &runtime {
-            match settings
-                .ensure_provider_account_active(&runtime.embedding.provider_account_key, false)
-                .await
-            {
-                Ok(embedding_account) => {
-                    config.embedding = EmbeddingConfig {
-                        base_url: embedding_account.base_url,
-                        api_key: embedding_account.api_key,
-                        model: runtime.embedding.model.clone(),
-                        dimensions: runtime.embedding.dimensions,
-                        timeout: Duration::from_secs(runtime.embedding.timeout_secs),
-                    };
-
-                    match OpenAiCompatibleEmbeddingProvider::new(config.embedding.clone()) {
-                        Ok(provider) => {
-                            let provider: Arc<dyn EmbeddingProvider> = Arc::new(provider);
-                            match QdrantIndex::connect(&config.qdrant, config.embedding.dimensions)
-                                .await
-                            {
-                                Ok((connected_index, recreated)) => {
-                                    embedding = Some(provider);
-                                    index = Some(connected_index);
-                                    recreated_collection = recreated;
-                                }
-                                Err(error) => {
-                                    warn!(error = %error, "qdrant runtime is unavailable; continuing in degraded mode");
-                                }
-                            }
+        if runtime.is_some() {
+            match OpenAiCompatibleEmbeddingProvider::new(config.embedding.clone()) {
+                Ok(provider) => {
+                    let provider: Arc<dyn EmbeddingProvider> = Arc::new(provider);
+                    match QdrantIndex::connect(&config.qdrant, config.embedding.dimensions).await {
+                        Ok((connected_index, recreated)) => {
+                            embedding = Some(provider);
+                            index = Some(connected_index);
+                            recreated_collection = recreated;
                         }
                         Err(error) => {
-                            warn!(error = %error, "embedding runtime is unavailable; continuing in degraded mode");
+                            warn!(error = %error, "qdrant runtime is unavailable; continuing in degraded mode");
                         }
                     }
                 }
                 Err(error) => {
-                    warn!(error = %error, "embedding provider settings are invalid; continuing in degraded mode");
+                    warn!(error = %error, "embedding runtime is unavailable; continuing in degraded mode");
                 }
             }
         }
@@ -178,52 +155,6 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
         return Ok(());
     }
 
-    let embedding_provider_key = "embedding-default".to_string();
-    let docling_provider_key = if let Some(docling) = &config.docling {
-        if same_provider(
-            &config.embedding.base_url,
-            config.embedding.api_key.as_deref(),
-            docling.vlm.openai_base_url.as_deref(),
-            docling.vlm.api_key.as_deref(),
-        ) {
-            Some(embedding_provider_key.clone())
-        } else if docling.vlm.openai_base_url.is_some() || docling.vlm.api_key.is_some() {
-            Some("docling-vlm".to_string())
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    db.save_provider_account(&StoredProviderAccount {
-        account_key: embedding_provider_key.clone(),
-        provider_kind: "openai_compatible".to_string(),
-        display_name: "Embedding Provider".to_string(),
-        base_url: config.embedding.base_url.clone(),
-        api_key: config.embedding.api_key.clone(),
-        disabled_at: None,
-    })
-    .await?;
-
-    if let (Some(docling), Some(account_key)) = (&config.docling, &docling_provider_key)
-        && account_key != &embedding_provider_key
-    {
-        db.save_provider_account(&StoredProviderAccount {
-            account_key: account_key.clone(),
-            provider_kind: "openai_compatible".to_string(),
-            display_name: "Docling VLM Provider".to_string(),
-            base_url: docling
-                .vlm
-                .openai_base_url
-                .clone()
-                .context("docling legacy openai_base_url is required for import")?,
-            api_key: docling.vlm.api_key.clone(),
-            disabled_at: None,
-        })
-        .await?;
-    }
-
     db.save_runtime_settings(&StoredRuntimeSettings {
         qdrant: crate::db::StoredRuntimeQdrantSettings {
             url: config.qdrant.url.clone(),
@@ -231,7 +162,8 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             recreate_on_dimension_mismatch: config.qdrant.recreate_on_dimension_mismatch,
         },
         embedding: crate::db::StoredRuntimeEmbeddingSettings {
-            provider_account_key: embedding_provider_key,
+            base_url: config.embedding.base_url.clone(),
+            api_key: config.embedding.api_key.clone(),
             model: config.embedding.model.clone(),
             dimensions: config.embedding.dimensions,
             timeout_secs: config.embedding.timeout.as_secs(),
@@ -280,7 +212,6 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             do_code_enrichment: true,
             do_formula_enrichment: true,
             do_picture_description: true,
-            provider_account_key: docling_provider_key,
             openai_base_url: docling.vlm.openai_base_url.clone(),
             api_key: docling.vlm.api_key.clone(),
             vlm_pipeline_model: docling.vlm.vlm_pipeline_model.clone(),
@@ -320,6 +251,13 @@ fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) 
         collection_name: runtime.qdrant.collection_name.clone(),
         recreate_on_dimension_mismatch: runtime.qdrant.recreate_on_dimension_mismatch,
     };
+    config.embedding = EmbeddingConfig {
+        base_url: runtime.embedding.base_url.clone(),
+        api_key: runtime.embedding.api_key.clone(),
+        model: runtime.embedding.model.clone(),
+        dimensions: runtime.embedding.dimensions,
+        timeout: Duration::from_secs(runtime.embedding.timeout_secs),
+    };
     config.scheduler = SchedulerConfig {
         interval: Duration::from_secs(runtime.scheduler.interval_secs),
         run_on_start: runtime.scheduler.run_on_start,
@@ -348,23 +286,6 @@ fn qdrant_grpc_url_from_rest_port(url: &str) -> Option<String> {
     without_trailing_slash
         .strip_suffix(":6333")
         .map(|prefix| format!("{prefix}:6334"))
-}
-
-fn same_provider(
-    embedding_base_url: &str,
-    embedding_api_key: Option<&str>,
-    docling_base_url: Option<&str>,
-    docling_api_key: Option<&str>,
-) -> bool {
-    let Some(docling_base_url) = docling_base_url else {
-        return false;
-    };
-    embedding_base_url.trim() == docling_base_url.trim()
-        && normalize_optional_str(embedding_api_key) == normalize_optional_str(docling_api_key)
-}
-
-fn normalize_optional_str(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 #[cfg(test)]

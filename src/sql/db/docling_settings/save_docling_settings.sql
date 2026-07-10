@@ -13,7 +13,6 @@ INSERT INTO context69.docling_settings (
     do_code_enrichment,
     do_formula_enrichment,
     do_picture_description,
-    provider_account_key,
     openai_base_url,
     api_key,
     vlm_pipeline_model,
@@ -41,7 +40,6 @@ VALUES (
     $16,
     $17,
     $18,
-    $19,
     now()
 )
 ON CONFLICT (singleton) DO UPDATE
@@ -58,7 +56,6 @@ SET base_url = EXCLUDED.base_url,
     do_code_enrichment = EXCLUDED.do_code_enrichment,
     do_formula_enrichment = EXCLUDED.do_formula_enrichment,
     do_picture_description = EXCLUDED.do_picture_description,
-    provider_account_key = EXCLUDED.provider_account_key,
     openai_base_url = EXCLUDED.openai_base_url,
     api_key = EXCLUDED.api_key,
     vlm_pipeline_model = EXCLUDED.vlm_pipeline_model,
@@ -79,7 +76,6 @@ RETURNING
     do_code_enrichment,
     do_formula_enrichment,
     do_picture_description,
-    provider_account_key,
     openai_base_url,
     api_key,
     vlm_pipeline_model,

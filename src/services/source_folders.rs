@@ -49,10 +49,7 @@ impl SourceFoldersService {
     }
 
     pub async fn migrate_project_sources_in_project(&self, project: &GroupRecord) -> Result<()> {
-        let sources = self
-            .source_store
-            .list_sources_for_group(project.id)
-            .await?;
+        let sources = self.source_store.list_sources_for_group(project.id).await?;
         if sources.is_empty() {
             return Ok(());
         }

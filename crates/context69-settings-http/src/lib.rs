@@ -4,15 +4,14 @@ use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     Router,
-    extract::{FromRef, Path, State},
+    extract::{FromRef, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get},
+    routing::get,
 };
 use context69_contracts::{
-    ApiErrorResponse, DoclingSettingsResponse, ProviderAccountResponse, RuntimeSettingsResponse,
-    SearchSettingsResponse, UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest,
-    UpdateSearchSettingsRequest, UpsertProviderAccountRequest,
+    ApiErrorResponse, DoclingSettingsResponse, RuntimeSettingsResponse, SearchSettingsResponse,
+    UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
 };
 use context69_http_support::{internal_error_response, json_error_response, runtime_aware_status};
 use utoipa::OpenApi;
@@ -24,12 +23,6 @@ pub trait SettingsApi: Send + Sync {
         &self,
         request: &UpdateRuntimeSettingsRequest,
     ) -> Result<RuntimeSettingsResponse>;
-    async fn list_provider_accounts(&self) -> Result<Vec<ProviderAccountResponse>>;
-    async fn upsert_provider_account(
-        &self,
-        request: &UpsertProviderAccountRequest,
-    ) -> Result<ProviderAccountResponse>;
-    async fn delete_provider_account(&self, account_key: &str) -> Result<()>;
     async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse>;
     async fn update_docling_settings(
         &self,
@@ -58,16 +51,6 @@ where
             get(get_runtime_settings).put(update_runtime_settings),
         )
         .route(
-            "/v1/settings/provider-accounts",
-            get(list_provider_accounts)
-                .post(create_provider_account)
-                .put(update_provider_account),
-        )
-        .route(
-            "/v1/settings/provider-accounts/{account_key}",
-            delete(delete_provider_account),
-        )
-        .route(
             "/v1/settings/docling",
             get(get_docling_settings).put(update_docling_settings),
         )
@@ -82,10 +65,6 @@ where
     paths(
         get_runtime_settings,
         update_runtime_settings,
-        list_provider_accounts,
-        create_provider_account,
-        update_provider_account,
-        delete_provider_account,
         get_docling_settings,
         update_docling_settings,
         get_search_settings,
@@ -94,14 +73,12 @@ where
     components(
         schemas(
             ApiErrorResponse,
-            ProviderAccountResponse,
             RuntimeSettingsResponse,
             UpdateRuntimeSettingsRequest,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
             SearchSettingsResponse,
-            UpdateSearchSettingsRequest,
-            UpsertProviderAccountRequest
+            UpdateSearchSettingsRequest
         )
     ),
     tags((name = "settings", description = "Runtime settings transport"))
@@ -127,51 +104,6 @@ async fn update_runtime_settings(
 ) -> impl IntoResponse {
     match state.settings.update_runtime_settings(&request).await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
-        Err(error) => settings_management_error_response(error),
-    }
-}
-
-#[utoipa::path(get, path = "/v1/settings/provider-accounts", responses((status = 200, body = [ProviderAccountResponse]), (status = 500, body = ApiErrorResponse)))]
-async fn list_provider_accounts(State(state): State<SettingsHttpState>) -> impl IntoResponse {
-    match state.settings.list_provider_accounts().await {
-        Ok(accounts) => (StatusCode::OK, axum::Json(accounts)).into_response(),
-        Err(error) => settings_management_error_response(error),
-    }
-}
-
-#[utoipa::path(post, path = "/v1/settings/provider-accounts", request_body = UpsertProviderAccountRequest, responses((status = 200, body = ProviderAccountResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
-async fn create_provider_account(
-    State(state): State<SettingsHttpState>,
-    axum::Json(request): axum::Json<UpsertProviderAccountRequest>,
-) -> impl IntoResponse {
-    save_provider_account(state, request).await
-}
-
-#[utoipa::path(put, path = "/v1/settings/provider-accounts", request_body = UpsertProviderAccountRequest, responses((status = 200, body = ProviderAccountResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
-async fn update_provider_account(
-    State(state): State<SettingsHttpState>,
-    axum::Json(request): axum::Json<UpsertProviderAccountRequest>,
-) -> impl IntoResponse {
-    save_provider_account(state, request).await
-}
-
-async fn save_provider_account(
-    state: SettingsHttpState,
-    request: UpsertProviderAccountRequest,
-) -> axum::response::Response {
-    match state.settings.upsert_provider_account(&request).await {
-        Ok(account) => (StatusCode::OK, axum::Json(account)).into_response(),
-        Err(error) => settings_management_error_response(error),
-    }
-}
-
-#[utoipa::path(delete, path = "/v1/settings/provider-accounts/{account_key}", params(("account_key" = String, Path)), responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
-async fn delete_provider_account(
-    State(state): State<SettingsHttpState>,
-    Path(account_key): Path<String>,
-) -> impl IntoResponse {
-    match state.settings.delete_provider_account(&account_key).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => settings_management_error_response(error),
     }
 }

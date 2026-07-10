@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -30,31 +29,6 @@ pub struct UpdateSearchSettingsRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ProviderAccountResponse {
-    pub account_key: String,
-    pub provider_kind: String,
-    pub display_name: String,
-    pub base_url: String,
-    pub has_api_key: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disabled_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct UpsertProviderAccountRequest {
-    pub account_key: String,
-    pub provider_kind: String,
-    pub display_name: String,
-    pub base_url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
-    #[serde(default)]
-    pub clear_api_key: bool,
-    #[serde(default)]
-    pub disabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeSettingsResponse {
     pub qdrant: RuntimeQdrantSettings,
     pub embedding: RuntimeEmbeddingSettings,
@@ -66,7 +40,7 @@ pub struct RuntimeSettingsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateRuntimeSettingsRequest {
     pub qdrant: RuntimeQdrantSettings,
-    pub embedding: RuntimeEmbeddingSettings,
+    pub embedding: UpdateRuntimeEmbeddingSettings,
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
     pub file_library: RuntimeFileLibrarySettings,
@@ -81,10 +55,23 @@ pub struct RuntimeQdrantSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeEmbeddingSettings {
-    pub provider_account_key: String,
+    pub base_url: String,
     pub model: String,
     pub dimensions: usize,
     pub timeout_secs: u64,
+    pub has_api_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateRuntimeEmbeddingSettings {
+    pub base_url: String,
+    pub model: String,
+    pub dimensions: usize,
+    pub timeout_secs: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub clear_api_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -153,8 +140,6 @@ pub struct UpdateDoclingConnectionSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DoclingVlmSettingsResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_account_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openai_base_url: Option<String>,
     pub has_api_key: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,8 +152,6 @@ pub struct DoclingVlmSettingsResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
 pub struct UpdateDoclingVlmSettings {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_account_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openai_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

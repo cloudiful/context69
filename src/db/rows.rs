@@ -94,7 +94,6 @@ pub(super) struct DoclingSettingsRow {
     pub(super) do_code_enrichment: bool,
     pub(super) do_formula_enrichment: bool,
     pub(super) do_picture_description: bool,
-    pub(super) provider_account_key: Option<String>,
     pub(super) openai_base_url: Option<String>,
     pub(super) api_key: Option<String>,
     pub(super) vlm_pipeline_model: Option<String>,
@@ -134,16 +133,6 @@ pub(super) struct KeywordSearchHitRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(super) struct ProviderAccountRow {
-    pub(super) account_key: String,
-    pub(super) provider_kind: String,
-    pub(super) display_name: String,
-    pub(super) base_url: String,
-    pub(super) api_key: Option<String>,
-    pub(super) disabled_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub(super) struct RuntimeQdrantSettingsRow {
     pub(super) url: String,
     pub(super) collection_name: String,
@@ -152,7 +141,8 @@ pub(super) struct RuntimeQdrantSettingsRow {
 
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct RuntimeEmbeddingSettingsRow {
-    pub(super) provider_account_key: String,
+    pub(super) base_url: String,
+    pub(super) api_key: Option<String>,
     pub(super) model: String,
     pub(super) dimensions: i64,
     pub(super) timeout_secs: i64,

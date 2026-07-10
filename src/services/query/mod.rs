@@ -71,7 +71,5 @@ impl QueryService {
 }
 
 fn search_runtime_unavailable() -> anyhow::Error {
-    anyhow!(
-        "search runtime is not configured; save runtime/provider settings and restart the service"
-    )
+    anyhow!("search runtime is not configured; save runtime settings and restart the service")
 }

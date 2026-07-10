@@ -32,11 +32,11 @@ pub use search::{
 };
 pub use settings::{
     DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,
-    DoclingVlmSettingsResponse, ProviderAccountResponse, RuntimeChunkingSettings,
-    RuntimeEmbeddingSettings, RuntimeFileLibrarySettings, RuntimeQdrantSettings,
-    RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse,
-    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings,
-    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, UpsertProviderAccountRequest,
+    DoclingVlmSettingsResponse, RuntimeChunkingSettings, RuntimeEmbeddingSettings,
+    RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
+    RuntimeSettingsResponse, SearchSettingsResponse, UpdateDoclingConnectionSettings,
+    UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings,
+    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
 };
 pub use sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,

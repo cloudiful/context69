@@ -184,7 +184,7 @@ describe("SearchView", () => {
     const addToast = vi.fn();
     vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
     vi.spyOn(apiClient, "search").mockRejectedValue(new Error(
-      "search runtime is not configured; save runtime/provider settings and restart the service",
+      "search runtime is not configured; save runtime settings and restart the service",
     ));
 
     const router = createRouter({
@@ -218,10 +218,10 @@ describe("SearchView", () => {
     expect(addToast).toHaveBeenCalledWith({
       severity: "error",
       summary: "错误",
-      detail: "搜索运行时未配置。请先保存运行时或提供商设置，然后重启服务。",
+      detail: "搜索运行时未配置。请先保存运行时设置，然后重启服务。",
       life: 5000,
     });
-    expect(wrapper.text()).not.toContain("搜索运行时未配置。请先保存运行时或提供商设置，然后重启服务。");
+    expect(wrapper.text()).not.toContain("搜索运行时未配置。请先保存运行时设置，然后重启服务。");
     expect(wrapper.text()).not.toContain("search runtime is not configured");
   });
 });

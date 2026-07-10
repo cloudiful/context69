@@ -23,7 +23,6 @@
 At runtime, the database is the source of truth for:
 
 - runtime settings
-- provider accounts
 - docling settings
 - source connections
 - source definitions
@@ -71,9 +70,8 @@ If you use raw Docling VLM config, set all five raw VLM fields together:
 - `docling.vlm.picture_description_model`
 - `docling.vlm.code_formula_model`
 
-In the frontend settings page, Docling VLM can be configured either with a provider account
-plus the three model fields, or with the raw `openai_base_url` and `api_key` fields plus the
-same three model fields.
+In the frontend settings page, configure Docling VLM directly with `openai_base_url`, `api_key`,
+and the three model fields.
 
 Legacy OCR, PDF backend, image export, and enrichment toggle fields are no longer used.
 

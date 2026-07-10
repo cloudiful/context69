@@ -14,10 +14,8 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
     if request.qdrant.collection_name.trim().is_empty() {
         return Err(anyhow!("runtime.qdrant.collection_name must not be empty"));
     }
-    if request.embedding.provider_account_key.trim().is_empty() {
-        return Err(anyhow!(
-            "runtime.embedding.provider_account_key must not be empty"
-        ));
+    if request.embedding.base_url.trim().is_empty() {
+        return Err(anyhow!("runtime.embedding.base_url must not be empty"));
     }
     if request.embedding.model.trim().is_empty() {
         return Err(anyhow!("runtime.embedding.model must not be empty"));

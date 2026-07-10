@@ -29,23 +29,6 @@ impl SettingsApi for SettingsApiAdapter {
         self.service.update_runtime_settings(request).await
     }
 
-    async fn list_provider_accounts(
-        &self,
-    ) -> anyhow::Result<Vec<crate::contracts::ProviderAccountResponse>> {
-        self.service.list_provider_accounts().await
-    }
-
-    async fn upsert_provider_account(
-        &self,
-        request: &crate::contracts::UpsertProviderAccountRequest,
-    ) -> anyhow::Result<crate::contracts::ProviderAccountResponse> {
-        self.service.upsert_provider_account(request).await
-    }
-
-    async fn delete_provider_account(&self, account_key: &str) -> anyhow::Result<()> {
-        self.service.delete_provider_account(account_key).await
-    }
-
     async fn get_docling_settings(
         &self,
     ) -> anyhow::Result<crate::contracts::DoclingSettingsResponse> {

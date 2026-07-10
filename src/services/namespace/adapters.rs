@@ -74,7 +74,9 @@ impl NamespaceRepository for DbNamespaceRepository {
         group_path: &str,
         request: &UpsertMembershipInput,
     ) -> Result<()> {
-        self.db.upsert_group_member(actor, group_path, request).await
+        self.db
+            .upsert_group_member(actor, group_path, request)
+            .await
     }
 
     async fn delete_group_member(
@@ -83,7 +85,9 @@ impl NamespaceRepository for DbNamespaceRepository {
         group_path: &str,
         login_name: &str,
     ) -> Result<()> {
-        self.db.delete_group_member(actor, group_path, login_name).await
+        self.db
+            .delete_group_member(actor, group_path, login_name)
+            .await
     }
 
     async fn list_child_groups_for_user(
@@ -91,7 +95,9 @@ impl NamespaceRepository for DbNamespaceRepository {
         user_id: i64,
         group_path: &str,
     ) -> Result<Vec<GroupRecord>> {
-        self.db.list_child_groups_for_user(user_id, group_path).await
+        self.db
+            .list_child_groups_for_user(user_id, group_path)
+            .await
     }
 
     async fn resolve_access_scope(

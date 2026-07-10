@@ -8,6 +8,7 @@ import AppMobileNav from "./components/AppMobileNav.vue";
 import AppRouteBreadcrumbs from "./components/AppRouteBreadcrumbs.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import { appConfirmDialogPt } from "./components/app-dialog";
+import { appToastPt } from "./components/app-toast";
 import { useUiPreferences } from "./composables/use-ui-preferences";
 import { authSessionState } from "./services/auth/session";
 
@@ -31,7 +32,7 @@ onMounted(() => {
     }"
   >
     <ConfirmDialog :draggable="false" :pt="appConfirmDialogPt" />
-    <Toast position="bottom-right" />
+    <Toast position="bottom-right" :pt="appToastPt" />
     <AppSidebar />
 
     <main class="app-main-shell" :class="{ 'is-login-route': isLoginRoute }">

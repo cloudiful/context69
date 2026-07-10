@@ -253,7 +253,11 @@ async fn move_group(
     Path(group_path): Path<String>,
     axum::Json(request): axum::Json<MoveGroupRequest>,
 ) -> impl IntoResponse {
-    match state.namespace.move_group(&user, &group_path, &request).await {
+    match state
+        .namespace
+        .move_group(&user, &group_path, &request)
+        .await
+    {
         Ok(group) => (StatusCode::OK, axum::Json(group)).into_response(),
         Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
     }

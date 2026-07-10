@@ -110,7 +110,8 @@ describe("apiClient", () => {
           poll_interval_secs: 2,
         },
         vlm: {
-          provider_account_key: null,
+          openai_base_url: null,
+          has_api_key: false,
         },
       },
       response: {
@@ -128,7 +129,8 @@ describe("apiClient", () => {
           poll_interval_secs: 3,
         },
         vlm: {
-          provider_account_key: "openrouter-default",
+          openai_base_url: "https://openrouter.ai/api/v1",
+          has_api_key: true,
           vlm_pipeline_model: "gemini-3-flash",
           picture_description_model: "gpt-4o-mini",
           code_formula_model: "gpt-4o-mini",
@@ -153,7 +155,8 @@ describe("apiClient", () => {
           poll_interval_secs: 3,
         },
         vlm: {
-          provider_account_key: "openrouter-default",
+          openai_base_url: "https://openrouter.ai/api/v1",
+          api_key: "secret",
           vlm_pipeline_model: "gemini-3-flash",
           picture_description_model: "gpt-4o-mini",
           code_formula_model: "gpt-4o-mini",
@@ -176,7 +179,8 @@ describe("apiClient", () => {
           poll_interval_secs: 3,
         },
         vlm: {
-          provider_account_key: "openrouter-default",
+          openai_base_url: "https://openrouter.ai/api/v1",
+          api_key: "secret",
           vlm_pipeline_model: "gemini-3-flash",
           picture_description_model: "gpt-4o-mini",
           code_formula_model: "gpt-4o-mini",

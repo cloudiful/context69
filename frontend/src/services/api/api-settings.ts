@@ -3,7 +3,6 @@ import type {
   UpdateDoclingSettingsRequest,
   UpdateRuntimeSettingsRequest,
   UpdateSearchSettingsRequest,
-  UpsertProviderAccountRequest,
 } from "./api-types";
 
 type Deps = {
@@ -24,41 +23,6 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
       return unwrapResponse(
         openapiClient.PUT("/v1/settings/runtime", {
           body: payload,
-          signal: options?.signal,
-        }),
-      );
-    },
-    listProviderAccounts(options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.GET("/v1/settings/provider-accounts", {
-          signal: options?.signal,
-        }),
-      );
-    },
-    createProviderAccount(payload: UpsertProviderAccountRequest, options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.POST("/v1/settings/provider-accounts", {
-          body: payload,
-          signal: options?.signal,
-        }),
-      );
-    },
-    updateProviderAccount(payload: UpsertProviderAccountRequest, options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.PUT("/v1/settings/provider-accounts", {
-          body: payload,
-          signal: options?.signal,
-        }),
-      );
-    },
-    deleteProviderAccount(accountKey: string, options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.DELETE("/v1/settings/provider-accounts/{account_key}", {
-          params: {
-            path: {
-              account_key: accountKey,
-            },
-          },
           signal: options?.signal,
         }),
       );

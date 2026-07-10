@@ -1,5 +1,5 @@
 const SEARCH_RUNTIME_NOT_CONFIGURED_MESSAGE =
-  "search runtime is not configured; save runtime/provider settings and restart the service";
+  "search runtime is not configured; save runtime settings and restart the service";
 
 type Translate = (key: string) => string;
 

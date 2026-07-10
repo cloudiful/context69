@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
 use db_init::{DbInitOptions, connect_pool, run_migrations};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -12,7 +11,6 @@ mod docling_settings;
 mod documents;
 mod namespaces;
 mod personal_access_tokens;
-mod provider_accounts;
 mod rows;
 mod runtime_settings;
 mod search_cache;
@@ -57,7 +55,6 @@ pub struct StoredDoclingSettings {
     pub do_code_enrichment: bool,
     pub do_formula_enrichment: bool,
     pub do_picture_description: bool,
-    pub provider_account_key: Option<String>,
     pub openai_base_url: Option<String>,
     pub api_key: Option<String>,
     pub vlm_pipeline_model: Option<String>,
@@ -89,16 +86,6 @@ pub fn default_search_settings() -> StoredSearchSettings {
 }
 
 #[derive(Debug, Clone)]
-pub struct StoredProviderAccount {
-    pub account_key: String,
-    pub provider_kind: String,
-    pub display_name: String,
-    pub base_url: String,
-    pub api_key: Option<String>,
-    pub disabled_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone)]
 pub struct StoredRuntimeQdrantSettings {
     pub url: String,
     pub collection_name: String,
@@ -107,7 +94,8 @@ pub struct StoredRuntimeQdrantSettings {
 
 #[derive(Debug, Clone)]
 pub struct StoredRuntimeEmbeddingSettings {
-    pub provider_account_key: String,
+    pub base_url: String,
+    pub api_key: Option<String>,
     pub model: String,
     pub dimensions: usize,
     pub timeout_secs: u64,

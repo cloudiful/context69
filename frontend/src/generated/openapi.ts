@@ -676,38 +676,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/settings/provider-accounts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_provider_accounts"];
-        put: operations["update_provider_account"];
-        post: operations["create_provider_account"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/settings/provider-accounts/{account_key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["delete_provider_account"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/settings/runtime": {
         parameters: {
             query?: never;
@@ -944,7 +912,6 @@ export interface components {
             has_api_key: boolean;
             openai_base_url?: string | null;
             picture_description_model?: string | null;
-            provider_account_key?: string | null;
             vlm_pipeline_model?: string | null;
         };
         DocumentChunkResponse: {
@@ -1162,15 +1129,6 @@ export interface components {
         };
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
-        ProviderAccountResponse: {
-            account_key: string;
-            base_url: string;
-            /** Format: date-time */
-            disabled_at?: string | null;
-            display_name: string;
-            has_api_key: boolean;
-            provider_kind: string;
-        };
         ResetAdminUserPasswordRequest: {
             password: string;
         };
@@ -1179,9 +1137,10 @@ export interface components {
             overlap_chars: number;
         };
         RuntimeEmbeddingSettings: {
+            base_url: string;
             dimensions: number;
+            has_api_key: boolean;
             model: string;
-            provider_account_key: string;
             /** Format: int64 */
             timeout_secs: number;
         };
@@ -1353,16 +1312,24 @@ export interface components {
             code_formula_model?: string | null;
             openai_base_url?: string | null;
             picture_description_model?: string | null;
-            provider_account_key?: string | null;
             vlm_pipeline_model?: string | null;
         };
         UpdateGroupRequest: {
             name?: string | null;
             visibility?: null | components["schemas"]["Visibility"];
         };
+        UpdateRuntimeEmbeddingSettings: {
+            api_key?: string | null;
+            base_url: string;
+            clear_api_key?: boolean;
+            dimensions: number;
+            model: string;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
         UpdateRuntimeSettingsRequest: {
             chunking: components["schemas"]["RuntimeChunkingSettings"];
-            embedding: components["schemas"]["RuntimeEmbeddingSettings"];
+            embedding: components["schemas"]["UpdateRuntimeEmbeddingSettings"];
             file_library: components["schemas"]["RuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
@@ -1394,15 +1361,6 @@ export interface components {
         UpsertMembershipRequest: {
             login_name: string;
             role: components["schemas"]["MembershipRole"];
-        };
-        UpsertProviderAccountRequest: {
-            account_key: string;
-            api_key?: string | null;
-            base_url: string;
-            clear_api_key?: boolean;
-            disabled?: boolean;
-            display_name: string;
-            provider_kind: string;
         };
         UpsertSourceConnectionRequest: {
             database_url?: string | null;
@@ -3299,146 +3257,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DoclingSettingsResponse"];
                 };
-            };
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    list_provider_accounts: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderAccountResponse"][];
-                };
-            };
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    update_provider_account: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpsertProviderAccountRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderAccountResponse"];
-                };
-            };
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    create_provider_account: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpsertProviderAccountRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderAccountResponse"];
-                };
-            };
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    delete_provider_account: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             400: {
                 headers: {

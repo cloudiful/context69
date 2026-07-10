@@ -1,58 +1,27 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Message from "primevue/message";
-import Tag from "primevue/tag";
 
 import AppNumberField from "../AppNumberField.vue";
-import AppSelectField from "../AppSelectField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
-import type { ProviderAccountResponse } from "../../services/api";
-import {
-  settingsDangerButtonClass,
-  settingsSecondaryButtonClass,
-} from "../../ui/button-classes";
-import type { DraftRuntimeSettings, ProviderAccountDraft } from "../../utils/settings";
+import type { DraftRuntimeSettings } from "../../utils/settings";
 
-type ProviderToggleModel = { disabled: boolean };
 type QdrantToggleModel = { recreate_on_dimension_mismatch: boolean };
 type SchedulerToggleModel = { run_on_start: boolean };
 
-defineProps<{
-  deleteProviderAccount: () => void;
-  providerAccountOptions: Array<{ label: string; value: string }>;
-  providerDraft: ProviderAccountDraft;
-  providerKindOptions: Array<{ label: string; value: string }>;
-  providerMessage: string;
-  providerSaving: boolean;
-  providerStatusLabel: string;
-  providerToggleModel: ProviderToggleModel;
+const props = defineProps<{
   qdrantToggleModel: QdrantToggleModel;
   runtimeDraft: DraftRuntimeSettings;
-  saving: boolean;
   schedulerToggleModel: SchedulerToggleModel;
-  selectedProviderAccount: ProviderAccountResponse | null;
-  selectedProviderAccountKey: string;
-  startNewProviderAccount: () => void;
-  toggleClearProviderApiKey: () => void;
 }>();
 
 const emit = defineEmits<{
-  "update:selectedProviderAccountKey": [value: string];
-  "update:providerToggleModel": [value: ProviderToggleModel];
   "update:qdrantToggleModel": [value: QdrantToggleModel];
   "update:schedulerToggleModel": [value: SchedulerToggleModel];
 }>();
 
 const { t } = useI18n();
-
-function updateProviderToggleModel(value: Record<string, boolean>) {
-  emit("update:providerToggleModel", {
-    disabled: !!value.disabled,
-  });
-}
 
 function updateQdrantToggleModel(value: Record<string, boolean>) {
   emit("update:qdrantToggleModel", {
@@ -65,153 +34,72 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
     run_on_start: !!value.run_on_start,
   });
 }
+
+function updateEmbeddingApiKeyClear(value: Record<string, boolean>) {
+  props.runtimeDraft.embedding.clear_api_key = !!value.clear_api_key;
+  if (props.runtimeDraft.embedding.clear_api_key) {
+    props.runtimeDraft.embedding.api_key = "";
+  }
+}
 </script>
 
 <template>
   <AppSettingsSection :legend="t('settings.runtime.title')">
     <div class="grid gap-6">
-      <section id="settings-provider-accounts" class="settings-block">
-        <div class="settings-block-header">
-          <h3 class="settings-block-title">{{ t("settings.runtime.providerAccountsTitle") }}</h3>
-          <Button
-            :class="settingsSecondaryButtonClass"
-            type="button"
-            @click="startNewProviderAccount"
-          >
-            {{ t("common.create") }}
-          </Button>
-        </div>
-
+      <section id="settings-embedding" class="settings-block">
+        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.embeddingTitle") }}</h3>
         <div class="grid gap-3">
-          <AppSelectField
-            float-label
-            input-id="settings-provider-account-select"
-            :model-value="selectedProviderAccountKey"
-            :label="t('settings.runtime.selectProviderAccount')"
-            :options="providerAccountOptions"
-            @update:model-value="typeof $event === 'string' && emit('update:selectedProviderAccountKey', $event)"
-          />
-
-          <div class="settings-compact-grid settings-compact-grid-models">
-            <AppTextField
-              float-label
-              input-id="provider-account-key"
-              v-model="providerDraft.account_key"
-              :label="t('settings.runtime.accountKey')"
-              :readonly="!!selectedProviderAccount"
-            />
-            <AppSelectField
-              float-label
-              input-id="provider-kind"
-              v-model="providerDraft.provider_kind"
-              :label="t('settings.runtime.providerKind')"
-              :options="providerKindOptions"
-            />
-            <AppTextField
-              float-label
-              input-id="provider-display-name"
-              v-model="providerDraft.display_name"
-              :label="t('settings.runtime.displayName')"
-            />
-          </div>
-
           <div class="settings-compact-grid settings-compact-grid-vlm-main">
             <AppTextField
               float-label
-              input-id="provider-base-url"
-              v-model="providerDraft.base_url"
-              :label="t('settings.runtime.baseUrl')"
+              input-id="runtime-embedding-base-url"
+              v-model="runtimeDraft.embedding.base_url"
+              :label="t('settings.runtime.embeddingBaseUrl')"
               type="url"
               placeholder="https://openrouter.ai/api/v1"
             />
-
-            <div class="settings-api-key-shell">
-              <AppTextField
-                float-label
-                input-id="provider-api-key"
-                v-model="providerDraft.api_key"
-                :label="t('settings.runtime.apiKey')"
-                type="password"
-                autocomplete="new-password"
-                placeholder="sk-..."
-              />
-              <div class="settings-api-key-side">
-                <Tag
-                  class="settings-status-tag"
-                  :severity="providerDraft.clear_api_key ? 'warn' : (selectedProviderAccount?.has_api_key ? 'success' : 'secondary')"
-                  :value="providerStatusLabel"
-                />
-                <Button
-                  id="provider-clear-api-key"
-                  :class="providerDraft.clear_api_key ? settingsSecondaryButtonClass : settingsDangerButtonClass"
-                  type="button"
-                  :disabled="!selectedProviderAccount?.has_api_key && !providerDraft.clear_api_key"
-                  @click="toggleClearProviderApiKey"
-                >
-                  {{ providerDraft.clear_api_key ? t("settings.runtime.cancelClearApiKey") : t("settings.runtime.clearApiKey") }}
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings-toggle-grid-inline settings-toggle-grid-inline-single">
-            <AppToggleGroup
-              :model-value="providerToggleModel"
-              columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
-              :items="[
-                { key: 'disabled', inputId: 'provider-disabled', label: t('settings.runtime.disableProvider'), testId: 'provider-disabled' },
-              ]"
-              @update:model-value="updateProviderToggleModel"
+            <AppTextField
+              float-label
+              input-id="runtime-embedding-api-key"
+              v-model="runtimeDraft.embedding.api_key"
+              :label="t('settings.runtime.embeddingApiKey')"
+              type="password"
+              autocomplete="new-password"
+              placeholder="sk-..."
             />
           </div>
-
-          <div class="settings-inline-actions">
-            <Button
-              :class="settingsDangerButtonClass"
-              type="button"
-              :disabled="saving || providerSaving || !selectedProviderAccount"
-              @click="deleteProviderAccount"
-            >
-              {{ t("common.delete") }}
-            </Button>
-            <Message v-if="providerMessage" severity="success" :closable="false">
-              {{ providerMessage }}
-            </Message>
+          <div class="settings-compact-grid settings-compact-grid-conversion">
+            <AppTextField
+            float-label
+              input-id="runtime-embedding-model"
+              v-model="runtimeDraft.embedding.model"
+              :label="t('settings.runtime.embeddingModel')"
+            />
+            <AppNumberField
+              float-label
+              input-id="runtime-embedding-dimensions"
+              v-model="runtimeDraft.embedding.dimensions"
+              :label="t('settings.runtime.embeddingDimensions')"
+              :min="1"
+              :step="1"
+            />
+            <AppNumberField
+              float-label
+              input-id="runtime-embedding-timeout"
+              v-model="runtimeDraft.embedding.timeout_secs"
+              :label="t('settings.runtime.embeddingTimeout')"
+              :min="1"
+              :step="1"
+            />
           </div>
-        </div>
-      </section>
-
-      <section id="settings-embedding" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.embeddingTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-conversion">
-          <AppSelectField
-            float-label
-            input-id="runtime-embedding-provider"
-            v-model="runtimeDraft.embedding.provider_account_key"
-            :label="t('settings.runtime.embeddingProvider')"
-            :options="providerAccountOptions.filter((option) => option.value)"
-          />
-          <AppTextField
-            float-label
-            input-id="runtime-embedding-model"
-            v-model="runtimeDraft.embedding.model"
-            :label="t('settings.runtime.embeddingModel')"
-          />
-          <AppNumberField
-            float-label
-            input-id="runtime-embedding-dimensions"
-            v-model="runtimeDraft.embedding.dimensions"
-            :label="t('settings.runtime.embeddingDimensions')"
-            :min="1"
-            :step="1"
-          />
-          <AppNumberField
-            float-label
-            input-id="runtime-embedding-timeout"
-            v-model="runtimeDraft.embedding.timeout_secs"
-            :label="t('settings.runtime.embeddingTimeout')"
-            :min="1"
-            :step="1"
+          <AppToggleGroup
+            v-if="runtimeDraft.embedding.has_api_key"
+            :model-value="{ clear_api_key: runtimeDraft.embedding.clear_api_key }"
+            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+            :items="[
+              { key: 'clear_api_key', inputId: 'runtime-embedding-clear-api-key', label: t('settings.runtime.clearStoredEmbeddingApiKey'), testId: 'runtime-embedding-clear-api-key' },
+            ]"
+            @update:model-value="updateEmbeddingApiKeyClear"
           />
         </div>
       </section>

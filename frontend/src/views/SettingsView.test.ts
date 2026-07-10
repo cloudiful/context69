@@ -19,7 +19,8 @@ const runtimeResponse = {
     recreate_on_dimension_mismatch: false,
   },
   embedding: {
-    provider_account_key: "openrouter-default",
+    base_url: "https://openrouter.ai/api/v1",
+    has_api_key: true,
     model: "text-embedding-3-large",
     dimensions: 3072,
     timeout_secs: 30,
@@ -53,7 +54,6 @@ const doclingResponse = {
     poll_interval_secs: 2,
   },
   vlm: {
-    provider_account_key: "openrouter-default",
     openai_base_url: "https://openrouter.ai/api/v1",
     has_api_key: true,
     vlm_pipeline_model: "gemini-3-flash",
@@ -71,17 +71,6 @@ const searchSettingsResponse = {
   timeout_secs: 10,
   has_api_key: false,
 };
-
-const providerAccountsResponse = [
-  {
-    account_key: "openrouter-default",
-    provider_kind: "openai_compatible",
-    display_name: "OpenRouter",
-    base_url: "https://openrouter.ai/api/v1",
-    has_api_key: true,
-    disabled_at: null,
-  },
-];
 
 const personalAccessTokensResponse = [
   {
@@ -108,10 +97,6 @@ function createApiSpies() {
       ...searchSettingsResponse,
       has_api_key: true,
     } as never),
-    listProviderAccounts: vi.spyOn(apiClient, "listProviderAccounts").mockResolvedValue(providerAccountsResponse as never),
-    createProviderAccount: vi.spyOn(apiClient, "createProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never),
-    updateProviderAccount: vi.spyOn(apiClient, "updateProviderAccount").mockResolvedValue(providerAccountsResponse[0] as never),
-    deleteProviderAccount: vi.spyOn(apiClient, "deleteProviderAccount").mockResolvedValue(undefined as never),
     listPersonalAccessTokens: vi.spyOn(apiClient, "listPersonalAccessTokens").mockResolvedValue(personalAccessTokensResponse as never),
     createPersonalAccessToken: vi.spyOn(apiClient, "createPersonalAccessToken").mockResolvedValue({
       access_token: "ctx_pat_secret",
@@ -177,13 +162,13 @@ describe("SettingsView", () => {
     });
 
     expect(wrapper.get("#runtime-scheduler-valkey-url").attributes("placeholder")).toBe("redis://valkey:6379/0");
-    expect(wrapper.text()).toContain("Provider Accounts");
+    expect(wrapper.get("#runtime-embedding-base-url").element).toBeTruthy();
     await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
 
     await router.push("/settings/docling");
     await flushPromises();
     expect(wrapper.find("#docling-base-url").exists()).toBe(true);
-    expect(wrapper.find("#docling-clear-api-key").exists()).toBe(false);
+    expect(wrapper.find("#docling-clear-api-key").exists()).toBe(true);
     expect(wrapper.text()).not.toContain("Stored key");
     expect(wrapper.text()).not.toContain("No key stored");
     await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
@@ -196,8 +181,9 @@ describe("SettingsView", () => {
 
     expect(apiSpies.updateRuntimeSettings).toHaveBeenCalledWith(expect.objectContaining({
       embedding: expect.objectContaining({
+        base_url: "https://openrouter.ai/api/v1",
         model: "text-embedding-3-small",
-        provider_account_key: "openrouter-default",
+        clear_api_key: false,
       }),
       scheduler: expect.objectContaining({
         valkey_url: "redis://valkey:6379/0",
@@ -208,7 +194,6 @@ describe("SettingsView", () => {
         base_url: "http://docling.internal:5001",
       }),
       vlm: expect.objectContaining({
-        provider_account_key: "openrouter-default",
         openai_base_url: "https://openrouter.ai/api/v1",
         clear_api_key: false,
       }),
@@ -249,16 +234,19 @@ describe("SettingsView", () => {
     expect(wrapper.get("#settings-locale-select").text()).toContain("简体中文");
   });
 
-  it("saves provider account changes through the single page save action", async () => {
+  it("saves direct embedding credentials through the single page save action", async () => {
     const { wrapper } = await mountSettingsView("/settings/runtime");
-    await wrapper.get("#provider-clear-api-key").trigger("click");
-    expect(wrapper.find("#provider-save-account").exists()).toBe(false);
+    await wrapper.get("#runtime-embedding-base-url").setValue("https://embedding.internal/v1");
+    await wrapper.get("#runtime-embedding-api-key").setValue("embedding-secret");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
-    expect(apiSpies.updateProviderAccount).toHaveBeenCalledWith(expect.objectContaining({
-      account_key: "openrouter-default",
-      clear_api_key: true,
+    expect(apiSpies.updateRuntimeSettings).toHaveBeenCalledWith(expect.objectContaining({
+      embedding: expect.objectContaining({
+        base_url: "https://embedding.internal/v1",
+        api_key: "embedding-secret",
+        clear_api_key: false,
+      }),
     }));
   });
 

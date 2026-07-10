@@ -85,7 +85,7 @@ pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response:
 
 fn runtime_aware_status(message: &str) -> Option<StatusCode> {
     if message.contains("runtime is not configured")
-        || message.contains("save runtime/provider settings and restart the service")
+        || message.contains("save runtime settings and restart the service")
     {
         Some(StatusCode::SERVICE_UNAVAILABLE)
     } else {

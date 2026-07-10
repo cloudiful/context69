@@ -184,9 +184,7 @@ impl SyncService {
 }
 
 fn sync_runtime_unavailable() -> anyhow::Error {
-    anyhow!(
-        "sync runtime is not configured; save runtime/provider settings and restart the service"
-    )
+    anyhow!("sync runtime is not configured; save runtime settings and restart the service")
 }
 
 async fn build_source_pools(

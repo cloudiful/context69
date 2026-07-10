@@ -1,6 +1,5 @@
 import type {
   DoclingSettingsResponse,
-  ProviderAccountResponse,
   RuntimeSettingsResponse,
   SearchSettingsResponse,
 } from "../../services/api";
@@ -8,7 +7,6 @@ import type {
   DraftDoclingSettings,
   DraftRuntimeSettings,
   DraftSearchSettings,
-  ProviderAccountDraft,
 } from "./settings-types";
 
 export function createRuntimeDraft(): DraftRuntimeSettings {
@@ -19,7 +17,10 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       recreate_on_dimension_mismatch: false,
     },
     embedding: {
-      provider_account_key: "",
+      base_url: "",
+      api_key: "",
+      clear_api_key: false,
+      has_api_key: false,
       model: "",
       dimensions: 768,
       timeout_secs: 30,
@@ -53,10 +54,10 @@ export function createDoclingDraft(): DraftDoclingSettings {
       poll_interval_secs: 2,
     },
     vlm: {
-      provider_account_key: "",
       openai_base_url: "",
       api_key: "",
       clear_api_key: false,
+      has_api_key: false,
       vlm_pipeline_model: "",
       picture_description_model: "",
       code_formula_model: "",
@@ -75,18 +76,6 @@ export function createSearchDraft(): DraftSearchSettings {
   };
 }
 
-export function createProviderAccountDraft(): ProviderAccountDraft {
-  return {
-    account_key: "",
-    provider_kind: "openai_compatible",
-    display_name: "",
-    base_url: "",
-    api_key: "",
-    clear_api_key: false,
-    disabled: false,
-  };
-}
-
 export function runtimeResponseToDraft(
   response: RuntimeSettingsResponse,
 ): DraftRuntimeSettings {
@@ -97,7 +86,10 @@ export function runtimeResponseToDraft(
       recreate_on_dimension_mismatch: response.qdrant.recreate_on_dimension_mismatch,
     },
     embedding: {
-      provider_account_key: response.embedding.provider_account_key,
+      base_url: response.embedding.base_url,
+      api_key: "",
+      clear_api_key: false,
+      has_api_key: response.embedding.has_api_key,
       model: response.embedding.model,
       dimensions: response.embedding.dimensions,
       timeout_secs: response.embedding.timeout_secs,
@@ -133,10 +125,10 @@ export function doclingResponseToDraft(
       poll_interval_secs: response.connection.poll_interval_secs,
     },
     vlm: {
-      provider_account_key: response.vlm.provider_account_key ?? "",
       openai_base_url: response.vlm.openai_base_url ?? "",
       api_key: "",
       clear_api_key: false,
+      has_api_key: response.vlm.has_api_key,
       vlm_pipeline_model: response.vlm.vlm_pipeline_model ?? "",
       picture_description_model: response.vlm.picture_description_model ?? "",
       code_formula_model: response.vlm.code_formula_model ?? "",
@@ -152,17 +144,5 @@ export function searchResponseToPayload(response: SearchSettingsResponse): Draft
     rerank_model: response.rerank_model,
     candidate_limit: response.candidate_limit,
     timeout_secs: response.timeout_secs,
-  };
-}
-
-export function providerResponseToDraft(response: ProviderAccountResponse): ProviderAccountDraft {
-  return {
-    account_key: response.account_key,
-    provider_kind: response.provider_kind,
-    display_name: response.display_name,
-    base_url: response.base_url,
-    api_key: "",
-    clear_api_key: false,
-    disabled: !!response.disabled_at,
   };
 }

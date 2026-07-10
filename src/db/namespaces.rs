@@ -271,7 +271,8 @@ impl Database {
             return Err(anyhow!("personal groups cannot be moved"));
         }
 
-        let target_parent = if let Some(target_parent_path) = request.target_parent_group_path.as_deref()
+        let target_parent = if let Some(target_parent_path) =
+            request.target_parent_group_path.as_deref()
         {
             let target = self
                 .get_group_for_user(actor.user_id, target_parent_path)
@@ -285,7 +286,8 @@ impl Database {
             {
                 return Err(anyhow!("group cannot be moved into its descendant"));
             }
-            if target.visibility == Visibility::Private && existing.visibility == Visibility::Public {
+            if target.visibility == Visibility::Private && existing.visibility == Visibility::Public
+            {
                 return Err(anyhow!(
                     "group visibility cannot be broader than parent group visibility"
                 ));

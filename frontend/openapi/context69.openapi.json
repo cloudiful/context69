@@ -2224,170 +2224,6 @@
         }
       }
     },
-    "/v1/settings/provider-accounts": {
-      "get": {
-        "tags": [],
-        "operationId": "list_provider_accounts",
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ProviderAccountResponse"
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [],
-        "operationId": "update_provider_account",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpsertProviderAccountRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProviderAccountResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [],
-        "operationId": "create_provider_account",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpsertProviderAccountRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProviderAccountResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/settings/provider-accounts/{account_key}": {
-      "delete": {
-        "tags": [],
-        "operationId": "delete_provider_account",
-        "parameters": [
-          {
-            "name": "account_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          },
-          "400": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/settings/runtime": {
       "get": {
         "tags": [],
@@ -3416,12 +3252,6 @@
               "null"
             ]
           },
-          "provider_account_key": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "vlm_pipeline_model": {
             "type": [
               "string",
@@ -4217,40 +4047,6 @@
           "admin"
         ]
       },
-      "ProviderAccountResponse": {
-        "type": "object",
-        "required": [
-          "account_key",
-          "provider_kind",
-          "display_name",
-          "base_url",
-          "has_api_key"
-        ],
-        "properties": {
-          "account_key": {
-            "type": "string"
-          },
-          "base_url": {
-            "type": "string"
-          },
-          "disabled_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "display_name": {
-            "type": "string"
-          },
-          "has_api_key": {
-            "type": "boolean"
-          },
-          "provider_kind": {
-            "type": "string"
-          }
-        }
-      },
       "ResetAdminUserPasswordRequest": {
         "type": "object",
         "required": [
@@ -4282,20 +4078,24 @@
       "RuntimeEmbeddingSettings": {
         "type": "object",
         "required": [
-          "provider_account_key",
+          "base_url",
           "model",
           "dimensions",
-          "timeout_secs"
+          "timeout_secs",
+          "has_api_key"
         ],
         "properties": {
+          "base_url": {
+            "type": "string"
+          },
           "dimensions": {
             "type": "integer",
             "minimum": 0
           },
-          "model": {
-            "type": "string"
+          "has_api_key": {
+            "type": "boolean"
           },
-          "provider_account_key": {
+          "model": {
             "type": "string"
           },
           "timeout_secs": {
@@ -4969,12 +4769,6 @@
               "null"
             ]
           },
-          "provider_account_key": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "vlm_pipeline_model": {
             "type": [
               "string",
@@ -5004,6 +4798,41 @@
           }
         }
       },
+      "UpdateRuntimeEmbeddingSettings": {
+        "type": "object",
+        "required": [
+          "base_url",
+          "model",
+          "dimensions",
+          "timeout_secs"
+        ],
+        "properties": {
+          "api_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "clear_api_key": {
+            "type": "boolean"
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "model": {
+            "type": "string"
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "UpdateRuntimeSettingsRequest": {
         "type": "object",
         "required": [
@@ -5018,7 +4847,7 @@
             "$ref": "#/components/schemas/RuntimeChunkingSettings"
           },
           "embedding": {
-            "$ref": "#/components/schemas/RuntimeEmbeddingSettings"
+            "$ref": "#/components/schemas/UpdateRuntimeEmbeddingSettings"
           },
           "file_library": {
             "$ref": "#/components/schemas/RuntimeFileLibrarySettings"
@@ -5137,41 +4966,6 @@
           },
           "role": {
             "$ref": "#/components/schemas/MembershipRole"
-          }
-        }
-      },
-      "UpsertProviderAccountRequest": {
-        "type": "object",
-        "required": [
-          "account_key",
-          "provider_kind",
-          "display_name",
-          "base_url"
-        ],
-        "properties": {
-          "account_key": {
-            "type": "string"
-          },
-          "api_key": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "base_url": {
-            "type": "string"
-          },
-          "clear_api_key": {
-            "type": "boolean"
-          },
-          "disabled": {
-            "type": "boolean"
-          },
-          "display_name": {
-            "type": "string"
-          },
-          "provider_kind": {
-            "type": "string"
           }
         }
       },

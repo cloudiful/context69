@@ -72,7 +72,11 @@ impl NamespaceService {
         request: &MoveGroupRequest,
     ) -> Result<GroupRecord> {
         self.inner
-            .move_group(&namespace_actor(actor), group_path, &move_group_input(request))
+            .move_group(
+                &namespace_actor(actor),
+                group_path,
+                &move_group_input(request),
+            )
             .await
     }
 
@@ -123,7 +127,9 @@ impl NamespaceService {
         user_id: i64,
         group_path: &str,
     ) -> Result<Vec<GroupRecord>> {
-        self.inner.list_child_groups_for_user(user_id, group_path).await
+        self.inner
+            .list_child_groups_for_user(user_id, group_path)
+            .await
     }
 
     pub async fn resolve_access_scope(

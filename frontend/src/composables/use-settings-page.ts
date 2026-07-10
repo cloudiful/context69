@@ -1,6 +1,5 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import { useErrorToast } from "./use-error-toast";
 
@@ -8,7 +7,6 @@ import {
   apiClient,
   type AdminUserResponse,
   type DoclingSettingsResponse,
-  type ProviderAccountResponse,
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
 } from "../services/api";
@@ -17,72 +15,41 @@ import {
   type DraftDoclingSettings,
   type DraftSearchSettings,
   type DraftRuntimeSettings,
-  type ProviderAccountDraft,
   buildDoclingPayload,
-  buildProviderAccountComparablePayload,
-  buildProviderAccountPayload,
   buildRuntimePayload,
   buildSearchSettingsComparablePayload,
   buildSearchSettingsPayload,
   createDoclingDraft,
-  createProviderAccountDraft,
   createRuntimeDraft,
   createSearchDraft,
   doclingResponseToDraft,
   doclingResponseToPayload,
-  isProviderDraftBlank,
-  providerResponseToDraft,
-  providerResponseToPayload,
   runtimeResponseToDraft,
   runtimeResponseToPayload,
   searchResponseToPayload,
 } from "../utils/settings";
 import { useSettingsPersonalAccessTokens } from "./use-settings-personal-access-tokens";
 
-const providerKindOptions = [{ label: "openai_compatible", value: "openai_compatible" }];
-
 export function useSettingsPage() {
   const { t } = useI18n();
-  const confirm = useConfirm();
   const toast = useToast();
   const showErrorToast = useErrorToast();
   const personalAccessTokens = useSettingsPersonalAccessTokens();
 
   const loading = ref(false);
   const saving = ref(false);
-  const providerSaving = ref(false);
   const saveMessage = ref("");
-  const providerMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
   const searchSettings = ref<SearchSettingsResponse | null>(null);
-  const providerAccounts = ref<ProviderAccountResponse[]>([]);
   const adminUsers = ref<AdminUserResponse[]>([]);
   const adminUsersBusy = ref(false);
   const adminUsersCreateBusy = ref(false);
-  const selectedProviderAccountKey = ref("");
   const rerankApiKeyDraft = ref("");
 
   const runtimeDraft = reactive<DraftRuntimeSettings>(createRuntimeDraft());
   const doclingDraft = reactive<DraftDoclingSettings>(createDoclingDraft());
   const searchDraft = reactive<DraftSearchSettings>(createSearchDraft());
-  const providerDraft = reactive<ProviderAccountDraft>(createProviderAccountDraft());
-
-  const providerAccountOptions = computed(() => [
-    { label: t("settings.runtime.noneSelected"), value: "" },
-    ...providerAccounts.value.map((account) => ({
-      label: `${account.display_name} (${account.account_key})`,
-      value: account.account_key,
-    })),
-  ]);
-
-  const doclingProviderOptions = computed(() => [
-    { label: t("settings.docling.providerOptional"), value: "" },
-    ...providerAccounts.value.map((account) => ({
-      label: `${account.display_name} (${account.account_key})`,
-      value: account.account_key,
-    })),
-  ]);
 
   const searchModeOptions = computed(() => [
     { label: t("settings.search.modeHybrid"), value: "hybrid" },
@@ -102,42 +69,11 @@ export function useSettingsPage() {
     },
   });
 
-  const providerToggleModel = computed({
-    get: () => ({ disabled: providerDraft.disabled }),
-    set: (value: Record<string, boolean>) => {
-      providerDraft.disabled = !!value.disabled;
-    },
-  });
-
   const rerankToggleModel = computed({
     get: () => ({ rerank_enabled: searchDraft.rerank_enabled }),
     set: (value: Record<string, boolean>) => {
       searchDraft.rerank_enabled = !!value.rerank_enabled;
     },
-  });
-
-  const selectedProviderAccount = computed(() => (
-    providerAccounts.value.find((account) => account.account_key === selectedProviderAccountKey.value) ?? null
-  ));
-
-  const providerStatusLabel = computed(() => {
-    if (providerDraft.clear_api_key) {
-      return t("settings.runtime.providerApiKeyPendingClear");
-    }
-    if (selectedProviderAccount.value?.has_api_key) {
-      return t("settings.runtime.providerApiKeyStored");
-    }
-    return t("settings.runtime.providerApiKeyMissing");
-  });
-
-  const providerHasChanges = computed(() => {
-    if (!selectedProviderAccount.value) {
-      return !isProviderDraftBlank(providerDraft);
-    }
-
-    return JSON.stringify(buildProviderAccountComparablePayload(providerDraft))
-      !== JSON.stringify(providerResponseToPayload(selectedProviderAccount.value))
-      || providerDraft.api_key.trim().length > 0;
   });
 
   const runtimeHasChanges = computed(() => (
@@ -160,8 +96,7 @@ export function useSettingsPage() {
   });
 
   const hasChanges = computed(() => !!(
-    providerHasChanges.value
-      || runtimeHasChanges.value
+    runtimeHasChanges.value
       || doclingHasChanges.value
       || searchHasChanges.value
   ));
@@ -172,20 +107,15 @@ export function useSettingsPage() {
     }
   });
 
-  watch(selectedProviderAccountKey, (accountKey) => {
-    const account = providerAccounts.value.find((item) => item.account_key === accountKey);
-    if (!account) {
-      Object.assign(providerDraft, createProviderAccountDraft());
-      return;
+  watch(() => runtimeDraft.embedding.api_key, (value) => {
+    if (value.trim()) {
+      runtimeDraft.embedding.clear_api_key = false;
     }
-
-    Object.assign(providerDraft, providerResponseToDraft(account));
-    providerMessage.value = "";
   });
 
-  watch(() => providerDraft.api_key, (value) => {
+  watch(() => doclingDraft.vlm.api_key, (value) => {
     if (value.trim()) {
-      providerDraft.clear_api_key = false;
+      doclingDraft.vlm.clear_api_key = false;
     }
   });
 
@@ -210,24 +140,19 @@ export function useSettingsPage() {
 
     try {
       saveMessage.value = "";
-      const [runtime, docling, search, providers] = await Promise.all([
+      const [runtime, docling, search] = await Promise.all([
         apiClient.getRuntimeSettings(),
         apiClient.getDoclingSettings(),
         apiClient.getSearchSettings(),
-        apiClient.listProviderAccounts(),
       ]);
       runtimeSettings.value = runtime;
       doclingSettings.value = docling;
       searchSettings.value = search;
-      providerAccounts.value = providers;
 
       assignRuntimeDraft(runtime);
       assignDoclingDraft(docling);
       assignSearchDraft(search);
 
-      if (!selectedProviderAccountKey.value && providers[0]) {
-        selectedProviderAccountKey.value = providers[0].account_key;
-      }
     } catch (error) {
       showErrorToast(error, t("settings.loadFailed"));
     } finally {
@@ -244,12 +169,6 @@ export function useSettingsPage() {
 
     try {
       saveMessage.value = "";
-      providerMessage.value = "";
-
-      if (providerHasChanges.value) {
-        await persistProviderAccount();
-      }
-
       const [runtime, docling, search] = await Promise.all([
         runtimeHasChanges.value ? apiClient.updateRuntimeSettings(buildRuntimePayload(runtimeDraft)) : Promise.resolve(runtimeSettings.value),
         doclingHasChanges.value
@@ -290,82 +209,6 @@ export function useSettingsPage() {
     } finally {
       saving.value = false;
     }
-  }
-
-  function deleteProviderAccount() {
-    if (!selectedProviderAccount.value) {
-      return;
-    }
-
-    const accountKey = selectedProviderAccount.value.account_key;
-    confirm.require({
-      header: t("common.delete"),
-      message: t("settings.runtime.providerDeleteConfirm", { key: accountKey }),
-      icon: "pi pi-exclamation-triangle",
-      rejectProps: {
-        label: t("common.cancel"),
-        severity: "secondary",
-        outlined: true,
-      },
-      acceptProps: {
-        label: t("common.delete"),
-        severity: "danger",
-      },
-      accept: () => {
-        void deleteProviderAccountConfirmed(accountKey);
-      },
-    });
-  }
-
-  async function deleteProviderAccountConfirmed(accountKey: string) {
-    providerSaving.value = true;
-    try {
-      await apiClient.deleteProviderAccount(accountKey);
-      providerAccounts.value = await apiClient.listProviderAccounts();
-      selectedProviderAccountKey.value = providerAccounts.value[0]?.account_key ?? "";
-      if (!selectedProviderAccountKey.value) {
-        Object.assign(providerDraft, createProviderAccountDraft());
-      }
-      providerMessage.value = t("settings.runtime.providerDeleteSuccess");
-      toast.add({
-        severity: "success",
-        summary: t("settings.runtime.providerDeleteSuccess"),
-        detail: accountKey,
-        life: 2500,
-      });
-    } catch (error) {
-      showErrorToast(error, t("settings.saveFailed"));
-    } finally {
-      providerSaving.value = false;
-    }
-  }
-
-  function startNewProviderAccount() {
-    selectedProviderAccountKey.value = "";
-    Object.assign(providerDraft, createProviderAccountDraft());
-    providerMessage.value = "";
-  }
-
-  function toggleClearProviderApiKey() {
-    if (!selectedProviderAccount.value?.has_api_key && !providerDraft.clear_api_key) {
-      return;
-    }
-    providerDraft.clear_api_key = !providerDraft.clear_api_key;
-    if (providerDraft.clear_api_key) {
-      providerDraft.api_key = "";
-    }
-  }
-
-  async function persistProviderAccount() {
-    const payload = buildProviderAccountPayload(providerDraft);
-    const exists = !!selectedProviderAccount.value;
-    const saved = exists
-      ? await apiClient.updateProviderAccount(payload)
-      : await apiClient.createProviderAccount(payload);
-    providerAccounts.value = await apiClient.listProviderAccounts();
-    selectedProviderAccountKey.value = saved.account_key;
-    Object.assign(providerDraft, providerResponseToDraft(saved));
-    return saved;
   }
 
   async function createAdminUser(payload: {
@@ -469,20 +312,11 @@ export function useSettingsPage() {
     adminUsersBusy,
     adminUsersCreateBusy,
     createAdminUser,
-    deleteProviderAccount,
     doclingDraft,
     disableAdminUser,
     enableAdminUser,
-    doclingProviderOptions,
     hasChanges,
     loading,
-    providerAccountOptions,
-    providerDraft,
-    providerKindOptions,
-    providerMessage,
-    providerSaving,
-    providerStatusLabel,
-    providerToggleModel,
     qdrantToggleModel,
     rerankApiKeyDraft,
     rerankToggleModel,
@@ -494,11 +328,7 @@ export function useSettingsPage() {
     schedulerToggleModel,
     searchDraft,
     searchModeOptions,
-    selectedProviderAccount,
-    selectedProviderAccountKey,
-    startNewProviderAccount,
     runtimeDraft,
-    toggleClearProviderApiKey,
     updateAdminUser,
   };
 }

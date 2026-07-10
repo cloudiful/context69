@@ -62,7 +62,8 @@ impl Database {
                 recreate_on_dimension_mismatch: qdrant.recreate_on_dimension_mismatch,
             },
             embedding: StoredRuntimeEmbeddingSettings {
-                provider_account_key: embedding.provider_account_key,
+                base_url: embedding.base_url,
+                api_key: embedding.api_key,
                 model: embedding.model,
                 dimensions: usize::try_from(embedding.dimensions)
                     .context("runtime embedding dimensions must be non-negative")?,
@@ -138,7 +139,8 @@ impl Database {
 
         sqlx::query_file!(
             "src/sql/db/runtime_settings/save_runtime_embedding_settings.sql",
-            settings.embedding.provider_account_key,
+            settings.embedding.base_url,
+            settings.embedding.api_key,
             settings.embedding.model,
             embedding_dimensions,
             embedding_timeout_secs

@@ -54,7 +54,7 @@ pub fn internal_error_response(error: Error) -> Response {
 
 pub fn runtime_aware_status(message: &str) -> Option<StatusCode> {
     if message.contains("runtime is not configured")
-        || message.contains("save runtime/provider settings and restart the service")
+        || message.contains("save runtime settings and restart the service")
     {
         Some(StatusCode::SERVICE_UNAVAILABLE)
     } else {

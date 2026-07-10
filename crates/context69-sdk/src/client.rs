@@ -23,10 +23,7 @@ pub use library::{
     LibraryFolderApi, LibraryFoldersApi, LibraryJobApi, LibraryTextsApi,
 };
 pub use search::{DocumentApi, SearchApi};
-pub use settings::{
-    DoclingSettingsApi, ProviderAccountApi, ProviderAccountsApi, RuntimeSettingsApi,
-    SearchSettingsApi, SettingsApi,
-};
+pub use settings::{DoclingSettingsApi, RuntimeSettingsApi, SearchSettingsApi, SettingsApi};
 pub use sources::{SourceApi, SourceConnectionApi, SourceConnectionsApi, SourcesApi};
 pub use user_directory::UserDirectoryApi;
 

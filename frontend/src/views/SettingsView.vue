@@ -47,7 +47,6 @@ const currentSection = computed<SettingsSectionKey>(() => {
 
 const hasChanges = computed(() => unref(state.hasChanges));
 const loading = computed(() => unref(state.loading));
-const providerSaving = computed(() => unref(state.providerSaving));
 const saveMessage = computed(() => unref(state.saveMessage));
 const saving = computed(() => unref(state.saving));
 const currentLocale = computed<AppLocale>(() => normalizeAppLocale(String(locale.value)) ?? "en");
@@ -101,7 +100,7 @@ function switchLocale(nextLocale: AppLocale) {
             :class="settingsFloatingSaveButtonClass"
             data-testid="settings-save"
             type="submit"
-            :disabled="saving || providerSaving || !hasChanges"
+            :disabled="saving || !hasChanges"
             :label="saving ? t('common.loading') : t('common.save')"
           />
         </div>
