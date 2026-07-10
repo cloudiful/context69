@@ -23,6 +23,4 @@ uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
 
 [dev-dependencies]
 axum = { workspace = true, features = [ "json" ] }
-chrono = { workspace = true, features = ["clock"] }
-serial_test = "3.2.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

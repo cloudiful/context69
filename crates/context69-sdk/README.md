@@ -2,9 +2,9 @@
 
 Async Rust SDK for the Context69 HTTP API.
 
-`context69-sdk` is a PAT-only client. Initialize it with a personal access token that starts with `ctx_pat_`, then call the scoped HTTP APIs directly.
+`context69-sdk` is a PAT-only client. Initialize it with a personal access token that starts with `ctx_pat_`, then navigate the resource tree to call an API.
 
-## PAT-only initialization
+## Initialization
 
 ```rust
 use context69_sdk::Context69Client;
@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The builder rejects empty tokens and non-PAT tokens. Protected APIs return `Error::AuthenticationRequired` if no PAT is configured.
 
-## Workspace example
+## Groups and nested resources
 
 ```rust
 use context69_sdk::{
@@ -32,167 +32,134 @@ use context69_sdk::{
     contracts::{CreateGroupRequest, GroupKind, Visibility},
 };
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Context69Client::builder()
-        .base_url("http://127.0.0.1:8096")?
-        .with_personal_access_token("ctx_pat_example_token")?
-        .build()?;
+# async fn example(client: Context69Client) -> Result<(), context69_sdk::Error> {
+client.groups().create(&CreateGroupRequest {
+    parent_group_path: None,
+    group_key: "ops".to_string(),
+    name: "Operations".to_string(),
+    visibility: Visibility::Private,
+    kind: Some(GroupKind::Shared),
+}).await?;
 
-    client
-        .workspace()
-        .create_group(&CreateGroupRequest {
-            parent_group_path: None,
-            group_key: "ops".to_string(),
-            name: "Operations".to_string(),
-            visibility: Visibility::Private,
-            kind: Some(GroupKind::Shared),
-        })
-        .await?;
-
-    client
-        .workspace()
-        .create_group(&CreateGroupRequest {
-            parent_group_path: Some("ops".to_string()),
-            group_key: "runbooks".to_string(),
-            name: "Runbooks".to_string(),
-            visibility: Visibility::Private,
-            kind: Some(GroupKind::Shared),
-        })
-        .await?;
-
-    Ok(())
-}
+let group = client.group("ops").get().await?;
+let members = client.group("ops").members().list().await?;
+let tree = client.group("ops").library().tree().await?;
+# Ok(())
+# }
 ```
 
-## Source and library example
+Group handles own the group path, so nested calls do not repeat it:
 
 ```rust
-use chrono::NaiveDate;
+# use context69_sdk::Context69Client;
+# async fn example(client: Context69Client, folder_id: uuid::Uuid, file_id: uuid::Uuid) -> Result<(), context69_sdk::Error> {
+let group = client.group("ops/runbooks");
+group.source_folder(folder_id).sync().await?;
+let file = group.library().file(file_id).get().await?;
+# Ok(())
+# }
+```
+
+## Sources
+
+```rust
+# use context69_sdk::{Context69Client, contracts::SourceConfigInput};
+# async fn example(client: Context69Client, request: SourceConfigInput) -> Result<(), context69_sdk::Error> {
+client.sources().create(&request).await?;
+client.source(&request.source_key).sync().await?;
+
+let connections = client.source_connections().list().await?;
+client.source_connection("warehouse").delete().await?;
+# Ok(())
+# }
+```
+
+## Library
+
+```rust
 use context69_sdk::{
     Context69Client,
-    contracts::{
-        CreateSourceFolderRequest, CreateTextRequest, LibraryTextContentFormat, SourceConfigInput,
-        UpsertLibraryTextRequest,
-    },
+    contracts::{CreateTextRequest, LibraryTextContentFormat},
 };
-use serde_json::json;
-use uuid::Uuid;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Context69Client::builder()
-        .base_url("http://127.0.0.1:8096")?
-        .with_personal_access_token("ctx_pat_example_token")?
-        .build()?;
+# async fn example(client: Context69Client) -> Result<(), context69_sdk::Error> {
+let upload = client.library().texts().create(&CreateTextRequest {
+    folder_id: None,
+    title: "Runbook".to_string(),
+    content: "# Step 1".to_string(),
+    content_format: LibraryTextContentFormat::Markdown,
+    source_uri: None,
+    summary: None,
+}).await?;
 
-    client
-        .sources()
-        .create_group_source_folder(
-            "ops/runbooks",
-            &CreateSourceFolderRequest {
-                parent_folder_id: None,
-                folder_name: "alerts".to_string(),
-                source_config: SourceConfigInput {
-                    source_key: "alerts".to_string(),
-                    display_name: Some("Alerts".to_string()),
-                    description: Some("Operational alerts".to_string()),
-                    example_queries: vec!["recent paging incidents".to_string()],
-                    connection: "warehouse".to_string(),
-                    database_url: None,
-                    sync_strategy: "incremental".to_string(),
-                    connector_type: "postgres_sql".to_string(),
-                    base_query: "select * from alerts".to_string(),
-                    batch_size: 500,
-                    visibility: None,
-                },
-            },
-        )
-        .await?;
-
-    client
-        .library()
-        .create_group_library_text("ops/runbooks", &CreateTextRequest {
-            folder_id: None,
-            title: "Runbook".to_string(),
-            content: "# Step 1\n\nFollow the checklist.".to_string(),
-            content_format: LibraryTextContentFormat::Markdown,
-            source_uri: Some("https://example.test/runbooks/ops".to_string()),
-            summary: Some("Ops reference".to_string()),
-        })
-        .await?;
-
-    client
-        .library()
-        .upsert_group_library_text(
-            "ops/runbooks",
-            &UpsertLibraryTextRequest {
-                external_id: "incident-42".to_string(),
-                folder_id: None,
-                title: "Incident 42".to_string(),
-                content: "full text".to_string(),
-                content_format: LibraryTextContentFormat::PlainText,
-                source_uri: Some("https://example.test/incidents/42".to_string()),
-                summary: Some("Postmortem".to_string()),
-                published_at: NaiveDate::from_ymd_opt(2026, 7, 1),
-                metadata_json: json!({"kind":"postmortem"}),
-            },
-        )
-        .await?;
-
-    client
-        .sources()
-        .sync_group_source_folder("ops/runbooks", Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")?)
-        .await?;
-
-    // Multipart upload already supports Markdown files as long as the uploaded
-    // part uses a `.md` filename or `text/markdown` content type.
-
-    Ok(())
-}
+let tree = client.group("ops/runbooks").library().tree().await?;
+# Ok(())
+# }
 ```
 
-## Settings example
+Multipart uploads use `reqwest::multipart::Part`:
 
 ```rust
-use context69_sdk::Context69Client;
+# use context69_sdk::Context69Client;
+use reqwest::multipart::Part;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Context69Client::builder()
-        .base_url("http://127.0.0.1:8096")?
-        .with_personal_access_token("ctx_pat_example_token")?
-        .build()?;
-
-    let docling = client.settings().get_docling_settings().await?;
-    println!("docling configured: {}", docling.configured);
-    Ok(())
-}
+# async fn example(client: Context69Client) -> Result<(), context69_sdk::Error> {
+client.library().files().upload(
+    None,
+    vec![Part::text("# Notes").file_name("notes.md")],
+).await?;
+# Ok(())
+# }
 ```
 
-## API coverage
+## Settings and search
 
-- `client.workspace()`: user directory, groups, child groups, group members
-- `client.sources()`: source connections, global sources, group-scoped source-folder APIs
-- `client.library()`: global tree/folder/file/job APIs, global library text, group library tree/folder/file/job APIs, group library text, multipart uploads
-- `client.settings()`: runtime, provider accounts, docling, search settings
-- `client.search()`: search and document lookup
-- Root client: `me()`, `healthz()`
+```rust
+# use context69_sdk::{Context69Client, contracts::SearchRequest};
+# async fn example(client: Context69Client, request: SearchRequest) -> Result<(), context69_sdk::Error> {
+let runtime = client.settings().runtime().get().await?;
+let docling = client.settings().docling().get().await?;
+let result = client.search().execute(&request).await?;
+let document = client.document(result.hits[0].document_id).get().await?;
+# Ok(())
+# }
+```
 
-## Scope requirements
+## Resource tree
 
-PATs must include the scopes required by the APIs you call:
+- `client.user_directory()`: user search
+- `client.groups()` / `client.group(path)`: groups, children, members
+- `client.sources()` / `client.source(key)`: source collection and item operations
+- `client.source_connections()` / `client.source_connection(name)`: connection operations
+- `client.library()`: personal library folders, texts, files, and jobs
+- `client.group(path).library()`: group-scoped library resources
+- `client.group(path).source_folders()` / `source_folder(id)`: group source folders
+- `client.settings()`: runtime, provider accounts, Docling, and search settings
+- `client.search()` / `client.document(id)`: search and document lookup
+- root client: `me()` and `healthz()`
+
+## PAT scopes
 
 - `workspace`: user directory, groups, memberships
-- `sources`: source connections, global sources, group source-folder APIs, sync
-- `library`: global library, group library, library text APIs
-- `settings`: runtime settings, provider accounts, docling settings, search settings
+- `sources`: source connections, sources, group source folders, sync
+- `library`: personal and group library resources
+- `settings`: runtime, provider accounts, Docling, search settings
 - `search`: search and document APIs
 
-## Breaking changes
+## Migrating from 0.4
 
-- `with_access_token()` was replaced by `with_personal_access_token()`
-- `login()`, `refresh()`, and `logout()` were removed from the main client
-- `401 Unauthorized` responses are returned directly; the SDK no longer retries with refresh-cookie logic
-- JWT-only APIs are intentionally excluded from this client, including login/refresh/logout, PAT management, and admin-user APIs
-- Flat methods like `client.create_group(...)` were replaced by grouped APIs such as `client.workspace().create_group(...)`
+Version 0.5 removes the old grouped service methods. Common replacements:
+
+```text
+client.workspace().list_groups()                         -> client.groups().list()
+client.workspace().get_group(path)                      -> client.group(path).get()
+client.sources().sync_source(key)                       -> client.source(key).sync()
+client.sources().sync_group_source_folder(path, id)     -> client.group(path).source_folder(id).sync()
+client.library().get_library_tree()                     -> client.library().tree()
+client.library().get_group_library_file(path, id)       -> client.group(path).library().file(id).get()
+client.settings().get_docling_settings()                -> client.settings().docling().get()
+client.search().search(request)                         -> client.search().execute(&request)
+client.search().get_document(id)                        -> client.document(id).get()
+```
+
+Login, refresh, logout, PAT management, and admin-user APIs remain intentionally excluded. HTTP `401 Unauthorized` responses are returned directly; the SDK does not retry with refresh-cookie logic.
