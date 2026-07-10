@@ -1,3 +1,6 @@
+DO $migration$
+BEGIN
+IF to_regclass('context69.projects') IS NOT NULL THEN
 ALTER TABLE context69.groups
     ADD COLUMN IF NOT EXISTS full_path TEXT;
 
@@ -222,3 +225,41 @@ ALTER TABLE context69.library_file_documents
 
 DROP TABLE IF EXISTS context69.project_memberships;
 DROP TABLE IF EXISTS context69.projects;
+ELSIF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'context69'
+      AND table_name = 'groups'
+      AND column_name = 'full_path'
+      AND is_nullable = 'NO'
+)
+AND (
+    SELECT count(*)
+    FROM information_schema.columns
+    WHERE table_schema = 'context69'
+      AND table_name IN (
+          'source_configs',
+          'source_checkpoints',
+          'sync_runs',
+          'documents',
+          'library_folders',
+          'library_files',
+          'library_ingest_jobs',
+          'library_file_documents'
+      )
+      AND column_name = 'group_id'
+) = 8
+AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'context69'
+      AND column_name = 'project_id'
+) THEN
+    -- The conversion completed previously, but its SQLx ledger row was not recorded.
+    NULL;
+ELSE
+    RAISE EXCEPTION
+        'cannot unify projects into groups: legacy projects are absent but the converted schema is incomplete';
+END IF;
+END
+$migration$;
