@@ -1061,10 +1061,6 @@
     @apply gap-3;
   }
 
-  .app-table-inline-error {
-    @apply text-sm leading-6 text-red-300;
-  }
-
   .app-table-meta-stack {
     @apply grid gap-3;
   }

@@ -189,12 +189,6 @@ function handleRowSelect(source: SourceStatus) {
                   </dd>
                 </div>
               </dl>
-              <p
-                v-if="errorMap[data.source_key]"
-                class="app-table-inline-error"
-              >
-                {{ errorMap[data.source_key] }}
-              </p>
             </div>
           </template>
         </Column>
@@ -337,10 +331,6 @@ function handleRowSelect(source: SourceStatus) {
 
           <p v-if="source.origin_message" class="tool-card-snippet">
             {{ source.origin_message }}
-          </p>
-
-          <p v-if="errorMap[source.source_key]" class="app-table-inline-error">
-            {{ errorMap[source.source_key] }}
           </p>
 
           <div v-if="props.canManage" class="tool-card-actions">
