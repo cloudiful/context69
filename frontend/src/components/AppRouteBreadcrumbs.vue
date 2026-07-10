@@ -93,10 +93,10 @@ function navigate(to?: string) {
 </script>
 
 <template>
-  <div class="min-w-0 rounded-[1rem] border border-app-border/60 bg-app-surface-muted/18 px-3 py-2">
+  <div class="flex min-w-0 items-center gap-3 rounded-[1rem] border border-app-border/60 bg-app-surface-muted/18 px-3 py-2">
     <Breadcrumb
       :model="items"
-      class="min-w-0 [&.p-breadcrumb]:border-0 [&.p-breadcrumb]:bg-transparent [&.p-breadcrumb]:p-0"
+      class="min-w-0 flex-1 [&.p-breadcrumb]:border-0 [&.p-breadcrumb]:bg-transparent [&.p-breadcrumb]:p-0"
     >
       <template #item="{ item }">
         <button
@@ -112,5 +112,6 @@ function navigate(to?: string) {
         </span>
       </template>
     </Breadcrumb>
+    <div id="app-route-actions" class="flex shrink-0 items-center justify-end" />
   </div>
 </template>

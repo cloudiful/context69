@@ -29,8 +29,12 @@ const { t } = useI18n();
       :selection="selectedHit"
       data-key="chunk_id"
       selection-mode="single"
+      resizable-columns
+      column-resize-mode="expand"
       size="small"
       scrollable
+      state-storage="local"
+      state-key="context69:table:search-results:v2"
       table-style="min-width: 44rem"
       class="search-results-table tool-table-desktop"
       @update:selection="emit('select', $event)"
@@ -54,7 +58,7 @@ const { t } = useI18n();
                 <Tag class="tool-chip" :value="formatScore(hit.score)" severity="secondary" />
               </div>
             </div>
-            <p v-if="hit.library_path" class="app-record-header-note">
+            <p v-if="hit.library_path" class="break-words">
               {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
             </p>
             <p class="text-[0.88rem] leading-[1.55rem] text-app-text-muted [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">

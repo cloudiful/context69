@@ -108,8 +108,8 @@ onBeforeUnmount(() => {
       :loading-title="t('common.loading')"
       :loading-message="t('document.loadingMessage')"
     >
-      <div v-if="documentData" class="document-layout">
-        <div class="document-main">
+      <div v-if="documentData" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <div class="grid gap-2">
           <AppRecordCard
             :title="documentData.title"
             :subtitle="formatDate(documentData.published_at)"
@@ -122,24 +122,24 @@ onBeforeUnmount(() => {
             </template>
 
             <template #meta>
-              <p v-if="documentData.library_path" class="app-record-header-note">
+              <p v-if="documentData.library_path" class="break-words">
                 {{ documentData.library_path }}
                 <span v-if="documentData.library_section_label"> · {{ documentData.library_section_label }}</span>
               </p>
             </template>
           </AppRecordCard>
 
-          <div class="document-chunks">
+          <div class="grid gap-2">
             <Card
               v-for="chunk in visibleChunks"
               :key="chunk.chunk_id"
               class="document-chunk-card"
             >
               <template #content>
-                <p class="document-chunk-label">
+                <p class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">
                   {{ t("document.chunkLabel", { index: chunk.chunk_index }) }}
                 </p>
-                <pre class="content-pre">{{ chunk.text }}</pre>
+                <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-app-surface-soft/72 px-3 py-2 text-sm leading-6 text-app-text-muted">{{ chunk.text }}</pre>
               </template>
             </Card>
 
@@ -161,7 +161,7 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <aside class="document-sidebar">
+        <aside class="grid gap-2">
           <AppInfoCard :label="t('document.published')" :value="formatDate(documentData.published_at)" />
           <AppInfoCard :label="t('document.updated')" :value="formatTimestamp(documentData.updated_at)" />
           <AppInfoCard :label="t('document.sourceLink')">
@@ -178,7 +178,7 @@ onBeforeUnmount(() => {
             :meta="documentData.library_section_label"
           />
           <AppInfoCard :label="t('document.metadata')">
-            <pre class="content-pre">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
+            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-app-surface-soft/72 px-3 py-2 text-sm leading-6 text-app-text-muted">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
           </AppInfoCard>
         </aside>
       </div>

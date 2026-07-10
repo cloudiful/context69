@@ -75,7 +75,7 @@ async function signOut() {
 
       <div
         v-if="!collapsed && hasActiveChildren(item)"
-        class="ml-4 grid gap-1 border-l border-app-border/45 pl-3"
+        class="ml-4 grid gap-1 pl-3"
       >
         <RouterLink
           v-for="child in item.children"

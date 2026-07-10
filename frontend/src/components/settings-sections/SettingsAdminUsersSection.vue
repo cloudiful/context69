@@ -126,7 +126,17 @@ function confirmEnable(loginNameValue: string) {
       <Button :label="t('adminUsers.create')" size="small" :disabled="createBusy" @click="openCreate" />
     </div>
 
-    <DataTable class="app-data-table" :value="users" data-key="user_id" scrollable table-style="min-width: 100%">
+    <DataTable
+      class="app-data-table"
+      :value="users"
+      data-key="user_id"
+      resizable-columns
+      column-resize-mode="expand"
+      scrollable
+      state-storage="local"
+      state-key="context69:table:admin-users:v2"
+      table-style="min-width: 100%"
+    >
       <Column field="login_name" :header="t('adminUsers.loginName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
       <Column field="display_name" :header="t('adminUsers.displayName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
       <Column :header="t('adminUsers.isAdmin')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">

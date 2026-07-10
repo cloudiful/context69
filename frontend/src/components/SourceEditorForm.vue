@@ -121,15 +121,15 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
   <Fluid>
     <Form
       :key="formKey"
-      class="source-editor-form"
+      class="grid min-h-0 gap-4 [grid-template-rows:minmax(0,1fr)_auto]"
       :initial-values="initialValues"
       :resolver="resolver"
       @submit="handleSubmit"
     >
-      <div class="source-editor-grid">
-        <section class="source-editor-sidebar">
-          <div class="app-form-block">
-            <div class="source-editor-section-header">
+      <div class="grid min-h-0 gap-4 [grid-template-columns:minmax(19rem,22rem)_minmax(0,1fr)] max-md:grid-cols-1">
+        <section class="min-h-0 min-w-0">
+          <div class="rounded-[1.1rem] border border-app-border/80 bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div class="mb-4 grid gap-1">
               <p class="section-title">{{ t("sources.form.sourceSectionTitle") }}</p>
               <p class="app-form-field-help">{{ t("sources.form.sourceSectionDescription") }}</p>
             </div>
@@ -294,9 +294,9 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
           </div>
         </section>
 
-        <section class="source-editor-main">
-          <div class="app-form-block source-query-block">
-            <div class="source-query-header">
+        <section class="min-h-0 min-w-0">
+          <div class="grid h-full min-h-0 gap-3 p-3">
+            <div class="grid gap-1">
               <div>
                 <p class="section-title">{{ t("sources.form.queryTitle") }}</p>
                 <p class="app-form-field-help">{{ t("sources.form.queryDescription") }}</p>
@@ -322,7 +322,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
         </section>
       </div>
 
-      <div class="source-editor-footer">
+      <div class="flex flex-wrap items-center gap-3 border-t border-app-border/70 pt-4">
         <Button class="min-w-32" type="submit" :disabled="busy">
           {{ props.source ? t("sources.form.save") : t("sources.form.create") }}
         </Button>

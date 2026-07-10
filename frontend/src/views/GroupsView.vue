@@ -81,7 +81,11 @@ onMounted(() => {
       data-key="group_id"
       removable-sort
       row-hover
+      resizable-columns
+      column-resize-mode="expand"
       scrollable
+      state-storage="local"
+      state-key="context69:table:groups:v2"
       table-style="min-width: 100%"
       @row-click="openGroup($event.data)"
     >

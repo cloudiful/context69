@@ -95,28 +95,14 @@
     @apply text-base font-semibold text-app-text;
   }
 
-  .app-surface-frame,
   .library-workspace {
     border: 1px solid color-mix(in srgb, var(--color-app-border) 78%, transparent);
     border-radius: 1.1rem;
     background: color-mix(in srgb, var(--color-app-surface) 92%, transparent);
   }
 
-  .app-muted-frame,
-  .app-form-block,
-  .utility-toolbar {
-    border: 1px solid color-mix(in srgb, var(--color-app-border) 78%, transparent);
-    border-radius: 1.1rem;
-    background: color-mix(in srgb, var(--color-app-surface-muted) 36%, transparent);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
-
   .form-label {
     @apply mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
-  .app-form-block {
-    @apply p-3;
   }
 
   .app-form-field {
@@ -151,18 +137,6 @@
     @apply text-xs leading-6 text-app-text-dim;
   }
 
-  .app-number-preset-row {
-    @apply grid gap-3 sm:grid-cols-[minmax(0,10rem)_auto] sm:items-center;
-  }
-
-  .search-results-layout {
-    @apply grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start;
-  }
-
-  .search-selection-panel {
-    @apply min-w-0 rounded-[1.1rem] border border-app-border bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] xl:sticky xl:top-3 xl:max-h-[calc(100vh-6rem)] xl:overflow-auto;
-  }
-
   .search-results-panel.p-card {
     border-radius: 1.1rem;
   }
@@ -177,26 +151,6 @@
 
   .search-history-panel > .p-card-body {
     padding: 0.75rem;
-  }
-
-  .search-history-cloud {
-    @apply flex flex-wrap gap-2;
-  }
-
-  .search-history-chip {
-    @apply inline-flex max-w-full items-center gap-2 rounded-full border border-app-border/70 bg-app-surface-muted/30 px-3 py-2 text-left transition;
-  }
-
-  .search-history-chip:hover {
-    @apply border-app-border-strong bg-app-surface-soft/60;
-  }
-
-  .search-history-chip-query {
-    @apply truncate text-sm font-semibold text-app-text;
-  }
-
-  .search-history-chip-meta {
-    @apply truncate text-xs text-app-text-dim;
   }
 
   .search-results-table .p-datatable-table-container {
@@ -223,151 +177,8 @@
     background: color-mix(in srgb, var(--color-app-success) 14%, var(--color-app-surface) 86%);
   }
 
-  .app-record-header-note {
-    @apply break-words;
-  }
-
-  .content-pre {
-    @apply mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-app-surface-soft/72 px-3 py-2 text-sm leading-6 text-app-text-muted;
-  }
-
-  .document-layout {
-    @apply grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem];
-  }
-
-  .document-main,
-  .document-chunks,
-  .document-sidebar {
-    @apply grid gap-2;
-  }
-
   .document-chunk-card.p-card > .p-card-body {
     padding: 0.75rem;
-  }
-
-  .document-chunk-label {
-    @apply text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
-  .sources-page {
-    @apply grid gap-2;
-  }
-
-  .sources-console {
-    @apply grid;
-  }
-
-  .sources-shell {
-    @apply grid gap-2;
-  }
-
-  .sources-page-toolbar {
-    @apply items-center gap-4;
-  }
-
-  .sources-page-toolbar-copy {
-    @apply grid gap-1;
-  }
-
-  .sources-page-toolbar-meta {
-    @apply text-sm text-app-text-dim;
-  }
-
-  .sources-section {
-    @apply grid gap-2;
-  }
-
-  .sources-table-section,
-  .sources-editor-section {
-    min-width: 0;
-  }
-
-  .sources-editor-screen {
-    min-height: calc(100vh - 8.25rem);
-  }
-
-  .sources-editor-panel {
-    @apply grid h-full gap-4;
-    border-radius: 0.8rem;
-  }
-
-  .sources-editor-actions {
-    @apply flex flex-wrap items-start justify-between gap-3;
-  }
-
-  .sources-editor-note {
-    @apply text-sm text-app-text-dim;
-  }
-
-  .source-editor-form {
-    @apply grid min-h-0 gap-4;
-    grid-template-rows: minmax(0, 1fr) auto;
-  }
-
-  .source-editor-grid {
-    @apply grid min-h-0 gap-4;
-    grid-template-columns: minmax(19rem, 22rem) minmax(0, 1fr);
-  }
-
-  .source-editor-sidebar,
-  .source-editor-main {
-    min-width: 0;
-    min-height: 0;
-  }
-
-  .source-editor-section-header {
-    @apply mb-4 grid gap-1;
-  }
-
-  .source-editor-footer {
-    @apply flex flex-wrap items-center gap-3 border-t border-app-border/70 pt-4;
-  }
-
-  .source-native-select {
-    @apply w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text outline-none transition;
-  }
-
-  .source-native-select:focus {
-    border-color: var(--color-app-border-strong);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-app-border-strong) 18%, transparent);
-  }
-
-  .source-query-block {
-    @apply grid h-full min-h-0 gap-3;
-  }
-
-  .source-query-header {
-    @apply grid gap-1;
-  }
-
-  .app-monaco-shell {
-    @apply min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface-soft/40;
-    height: min(72vh, 44rem);
-  }
-
-  .app-monaco-editor {
-    @apply h-full min-h-0 w-full;
-  }
-
-  .source-origin-message {
-    @apply text-xs text-app-text-dim;
-  }
-
-  .utility-toolbar {
-    @apply flex flex-wrap items-center justify-between gap-2 px-2 py-1.5;
-  }
-
-  .sources-toolbar {
-    @apply rounded-[1.4rem] border-app-border/80 bg-app-surface-muted/18 px-4 py-3;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
-
-  .sources-total-tag.p-tag {
-    @apply rounded-xl px-3 py-1 text-sm font-semibold;
-  }
-
-  .utility-toolbar-group {
-    @apply flex flex-wrap items-center gap-1.5;
   }
 
   .settings-block {
@@ -454,26 +265,6 @@
     @apply grid-cols-1;
   }
 
-  .settings-sections {
-    @apply grid gap-2;
-  }
-
-  .settings-api-key-shell {
-    @apply grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start;
-  }
-
-  .settings-api-key-side {
-    @apply flex flex-wrap items-center gap-2 lg:justify-end;
-  }
-
-  .settings-inline-actions {
-    @apply flex flex-wrap items-center gap-3;
-  }
-
-  .settings-status-tag.p-tag {
-    @apply rounded-xl px-3 py-1 text-sm font-medium;
-  }
-
   @media (min-width: 1280px) {
     .settings-compact-grid-two {
       grid-template-columns: repeat(2, minmax(18rem, 24rem));
@@ -526,73 +317,10 @@
     }
   }
 
-  .sources-table-shell {
-    @apply grid gap-2;
-  }
-
-  .sources-table-frame {
-    border: 1px solid color-mix(in srgb, var(--color-app-border) 88%, transparent);
-    border-radius: 0.8rem;
-    overflow: hidden;
-    background: var(--color-app-surface);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
-
   .source-data-table .p-datatable-tbody > tr {
     cursor: pointer;
   }
 
-  .app-table-record {
-    @apply grid gap-3 py-1.5;
-  }
-
-  .app-table-record-title {
-    @apply font-semibold text-app-text;
-  }
-
-  .app-settings-section {
-    @apply min-w-0;
-  }
-
-  .app-settings-section-body {
-    @apply grid gap-4;
-  }
-
-  .app-table-record-query {
-    @apply text-sm leading-6 text-app-text-muted;
-  }
-
-  .source-record {
-    @apply gap-3;
-  }
-
-  .app-table-meta-stack {
-    @apply grid gap-3;
-  }
-
-  .app-table-meta-stack-tight {
-    @apply gap-1.5;
-  }
-
-  .app-table-meta-label {
-    @apply text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
-  .app-table-meta-value {
-    @apply text-sm text-app-text-muted;
-  }
-
-  .app-table-meta-break {
-    @apply break-all text-sm leading-6 text-app-text-muted;
-  }
-
-  .app-table-mono {
-    @apply whitespace-nowrap tabular-nums text-sm text-app-text;
-  }
-
-  .source-table-actions {
-    @apply flex flex-wrap justify-start gap-1 text-sm xl:justify-end;
-  }
 
   .tool-table-desktop {
     display: block;
@@ -669,18 +397,6 @@
     @apply px-3 py-8 text-center text-sm text-app-text-dim;
   }
 
-  .split-panel {
-    @apply h-full rounded-[1.75rem] border border-app-border bg-app-surface-muted/35 p-4;
-  }
-
-  .split-panel-header {
-    @apply mb-4 flex flex-wrap items-start justify-between gap-3;
-  }
-
-  .split-panel-body {
-    @apply min-h-0;
-  }
-
   .library-layout {
     @apply grid gap-2;
     min-height: calc(100vh - 4.75rem);
@@ -702,10 +418,6 @@
     @apply text-left text-sm font-medium text-app-text transition hover:text-app-text-muted;
   }
 
-  .library-pane-count.p-tag {
-    @apply rounded-xl px-3 py-1 text-sm font-semibold;
-  }
-
   .library-workspace {
     @apply min-h-0 overflow-hidden;
     height: calc(100dvh - var(--library-workspace-offset, 9.25rem));
@@ -714,11 +426,7 @@
   }
 
   .library-workspace-embedded {
-    --library-workspace-offset: 13rem;
-  }
-
-  .library-browser-main {
-    @apply h-full min-h-[30rem];
+    height: 100%;
   }
 
   .library-pane {
@@ -727,22 +435,6 @@
 
   .library-pane-compact {
     @apply h-full min-h-0 gap-2 px-2 py-2;
-  }
-
-  .library-pane-header {
-    @apply mb-3 flex flex-wrap items-center justify-between gap-2;
-  }
-
-  .library-browser-actions {
-    @apply mb-1.5 flex flex-wrap items-center justify-end gap-1.5;
-  }
-
-  .library-tree-node {
-    @apply min-w-0 rounded-xl px-2 py-1 transition hover:bg-app-surface-soft/70;
-  }
-
-  .library-tree-entry {
-    @apply rounded-2xl px-2.5 py-2;
   }
 
   .library-entry-button {
@@ -755,21 +447,9 @@
     border-radius: 0.65rem;
   }
 
-  .library-card {
-    @apply rounded-2xl bg-app-surface-soft/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)];
-  }
-
   .library-resource-record {
     padding-left: calc(var(--library-entry-depth, 0) * 0.9rem);
     @apply py-0;
-  }
-
-  .library-resource-main {
-    @apply flex min-w-0 items-start gap-1.5;
-  }
-
-  .library-resource-copy {
-    @apply min-w-0 grid gap-1;
   }
 
   .library-folder-toggle {
@@ -797,10 +477,6 @@
 
   .library-folder-toggle-icon-expanded {
     transform: rotate(90deg);
-  }
-
-  .library-resource-meta {
-    @apply text-xs leading-4 text-app-text-dim;
   }
 
   .library-preview-dialog .p-dialog-header {
@@ -892,10 +568,6 @@
     @apply bg-transparent p-0;
   }
 
-  .library-row-actions {
-    @apply flex flex-nowrap items-center justify-start gap-1 whitespace-nowrap;
-  }
-
   .library-pane-compact .p-datatable {
     @apply flex min-h-0 flex-1 flex-col;
   }
@@ -911,23 +583,4 @@
     background: color-mix(in srgb, var(--color-app-surface) 98%, transparent);
   }
 
-  .app-topbar-brand {
-    @apply flex min-w-0 items-center gap-3 pr-4;
-  }
-
-  .app-topbar-brand-copy {
-    @apply grid gap-0.5;
-  }
-
-  .app-topbar-title {
-    @apply text-sm font-semibold tracking-[0.01em] text-app-text;
-  }
-
-  .app-topbar-link {
-    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-app-text-muted transition hover:bg-app-surface-soft/60 hover:text-app-text;
-  }
-
-  .app-topbar-link-active {
-    @apply bg-app-surface-soft/75 text-app-text ring-1 ring-inset ring-app-border-strong;
-  }
 }

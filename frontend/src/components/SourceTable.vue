@@ -95,7 +95,7 @@ function handleRowSelect(source: SourceStatus) {
 </script>
 
 <template>
-  <div class="sources-table-shell">
+  <div class="grid gap-2">
     <AppTableToolbar
       :count-label="t('sources.summary.total', { count: filteredSources.length })"
       search-enabled
@@ -113,16 +113,20 @@ function handleRowSelect(source: SourceStatus) {
       </template>
     </AppTableToolbar>
 
-    <div class="sources-table-frame">
+    <div class="overflow-hidden rounded-[0.8rem] border border-app-border/90 bg-app-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <DataTable
         :value="filteredSources"
         class="source-data-table tool-table-desktop"
         data-key="source_key"
         removable-sort
+        resizable-columns
+        column-resize-mode="expand"
         scrollable
         size="small"
         sort-field="source_key"
         :sort-order="1"
+        state-storage="local"
+        state-key="context69:table:sources:v2"
         table-style="width: 100%"
         @row-click="handleRowSelect($event.data)"
       >
@@ -141,9 +145,9 @@ function handleRowSelect(source: SourceStatus) {
           style="min-width: 22rem"
         >
           <template #body="{ data }">
-            <div class="app-table-record gap-3">
+            <div class="grid gap-3 py-1.5">
               <div class="grid gap-2">
-                <span class="app-table-record-title text-base leading-6">{{ data.display_name }}</span>
+                <span class="text-base leading-6 font-semibold text-app-text">{{ data.display_name }}</span>
                 <span v-if="data.display_name !== data.source_key" class="text-xs leading-5 text-app-text-dim">
                   {{ data.source_key }}
                 </span>
@@ -176,7 +180,7 @@ function handleRowSelect(source: SourceStatus) {
               <dl class="grid gap-2 text-xs text-app-text-dim lg:hidden">
                 <div class="flex items-start justify-between gap-3">
                   <dt>{{ t("sources.table.batchSize") }}</dt>
-                  <dd class="app-table-mono">{{ data.batch_size }}</dd>
+                  <dd class="whitespace-nowrap tabular-nums text-sm text-app-text">{{ data.batch_size }}</dd>
                 </div>
                 <div class="flex items-start justify-between gap-3">
                   <dt>{{ t("sources.table.lastSuccess") }}</dt>
@@ -184,7 +188,7 @@ function handleRowSelect(source: SourceStatus) {
                 </div>
                 <div class="grid gap-1">
                   <dt>{{ t("sources.table.cursor") }}</dt>
-                  <dd class="app-table-meta-break">
+                  <dd class="break-all text-sm leading-6 text-app-text-muted">
                     {{ data.last_cursor_external_id ?? formatTimestamp(data.last_cursor_updated_at) }}
                   </dd>
                 </div>
@@ -202,18 +206,18 @@ function handleRowSelect(source: SourceStatus) {
           style="min-width: 14rem"
         >
           <template #body="{ data }">
-            <div class="app-table-meta-stack">
+            <div class="grid gap-3">
               <div class="flex items-start justify-between gap-3">
-                <span class="app-table-meta-label">
+                <span class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">
                   {{ t("sources.table.batchSize") }}
                 </span>
-                <span class="app-table-mono">{{ data.batch_size }}</span>
+                <span class="whitespace-nowrap tabular-nums text-sm text-app-text">{{ data.batch_size }}</span>
               </div>
               <div class="grid gap-0.5">
-                <span class="app-table-meta-label">
+                <span class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">
                   {{ t("sources.table.lastSuccess") }}
                 </span>
-                <span class="app-table-meta-value whitespace-nowrap">
+                <span class="whitespace-nowrap text-sm text-app-text-muted">
                   {{ formatTimestamp(data.last_success_at) }}
                 </span>
               </div>
@@ -230,11 +234,11 @@ function handleRowSelect(source: SourceStatus) {
           style="min-width: 18rem"
         >
           <template #body="{ data }">
-            <div class="app-table-meta-stack app-table-meta-stack-tight">
-              <p class="app-table-meta-value whitespace-nowrap">
+            <div class="grid gap-1.5">
+              <p class="whitespace-nowrap text-sm text-app-text-muted">
                 {{ formatTimestamp(data.last_cursor_updated_at) }}
               </p>
-              <p class="app-table-meta-break">
+              <p class="break-all text-sm leading-6 text-app-text-muted">
                 {{ data.last_cursor_external_id ?? "--" }}
               </p>
             </div>
@@ -250,7 +254,7 @@ function handleRowSelect(source: SourceStatus) {
           style="min-width: 12rem"
         >
           <template #body="{ data }">
-            <div class="source-table-actions">
+            <div class="flex flex-wrap justify-start gap-1 text-sm xl:justify-end">
               <Button :class="compactTableActionButtonClass" type="button" @click.stop="emit('edit', data)">
                 {{ t("common.edit") }}
               </Button>

@@ -643,10 +643,6 @@
       border-radius: 0.8rem;
     }
 
-    .library-workspace-embedded {
-      --library-workspace-offset: 12rem;
-    }
-
     .library-pane {
       padding: 1rem;
     }
@@ -657,10 +653,6 @@
   }
 
   @media (max-width: 767px) {
-    .utility-toolbar {
-      align-items: stretch;
-    }
-
     .tool-card {
       gap: 0.45rem;
       padding: 0.65rem 0.75rem;
@@ -700,28 +692,9 @@
       display: grid;
     }
 
-    .sources-table-frame {
-      border-radius: 0.8rem;
-    }
-
-    .sources-shell,
-    .source-editor-grid,
-    .sources-table-shell,
     .library-layout,
     .search-page-layout {
       gap: 0.5rem;
-    }
-
-    .source-editor-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .sources-editor-screen {
-      min-height: auto;
-    }
-
-    .app-monaco-shell {
-      height: 26rem;
     }
 
     .library-workspace {
@@ -729,12 +702,12 @@
       min-height: calc(100vh - 8.5rem);
     }
 
-    .library-pane {
-      padding: 0.5rem;
+    .library-workspace-embedded {
+      height: auto;
     }
 
-    .library-browser-actions {
-      justify-content: flex-start;
+    .library-pane {
+      padding: 0.5rem;
     }
 
     .search-form-layout {
@@ -804,9 +777,4 @@
     }
   }
 
-  @media (min-width: 1280px) {
-    .sources-editor-screen {
-      min-height: calc(100vh - 8.5rem);
-    }
-  }
 }

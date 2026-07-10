@@ -14,8 +14,10 @@ withDefaults(defineProps<{
   breadcrumbItems: BreadcrumbItem[];
   countLabel?: string;
   searchQuery: string;
+  showSearch?: boolean;
 }>(), {
   countLabel: "",
+  showSearch: true,
 });
 
 const emit = defineEmits<{
@@ -29,7 +31,7 @@ const { t } = useI18n();
   <AppTableToolbar
     class="library-toolbar-shell"
     :count-label="countLabel"
-    search-enabled
+    :search-enabled="showSearch"
     :search-query="searchQuery"
     @update:search-query="emit('update:searchQuery', $event)"
   >

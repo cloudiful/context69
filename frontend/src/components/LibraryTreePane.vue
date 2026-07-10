@@ -22,7 +22,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="library-pane flex h-full min-h-[42rem] flex-col">
-    <div class="split-panel-body flex-1 overflow-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       <AsyncStateBlock
         :loading="props.treeLoading"
         :loading-title="$t('common.loading')"
@@ -44,7 +44,7 @@ const emit = defineEmits<{
         >
           <template #default="{ node }">
             <div
-              class="library-tree-node library-tree-entry"
+              class="min-w-0 rounded-2xl px-2.5 py-2 transition hover:bg-app-surface-soft/70"
               @contextmenu.prevent.stop="emit('node-contextmenu', $event, node.data.folder)"
             >
               <div class="min-w-0">

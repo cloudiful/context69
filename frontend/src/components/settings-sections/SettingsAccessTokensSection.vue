@@ -145,7 +145,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             data-testid="personal-access-token-secret"
             class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-(--p-content-background) p-3 font-mono text-xs text-app-text"
           >{{ personalAccessTokensReveal.access_token }}</pre>
-          <div class="settings-inline-actions">
+          <div class="flex flex-wrap items-center gap-3">
             <Button :class="settingsSecondaryButtonClass" type="button" @click="copyPersonalAccessToken">
               {{ t("settings.personalAccessTokens.copyAction") }}
             </Button>

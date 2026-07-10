@@ -16,9 +16,12 @@ import { formatBytes, formatTimestamp } from "../utils/format";
 const props = withDefaults(defineProps<{
   createFolderBusy: boolean;
   createSourceFolderBusy?: boolean;
+  compact?: boolean;
   entries: ExplorerEntry[];
   error?: string | null;
   groupEntries?: GroupExplorerEntry[];
+  hideActions?: boolean;
+  hideGroupPaths?: boolean;
   expandedKeys: Record<string, boolean>;
   loading: boolean;
   resourceSearchQuery: string;
@@ -28,6 +31,9 @@ const props = withDefaults(defineProps<{
   uploadBusy: boolean;
 }>(), {
   groupEntries: () => [],
+  hideActions: false,
+  hideGroupPaths: false,
+  compact: false,
 });
 
 const emit = defineEmits<{
@@ -35,6 +41,7 @@ const emit = defineEmits<{
   "create-source-folder": [];
   "delete-group": [GroupExplorerEntry];
   "edit-group": [GroupExplorerEntry];
+  "group-contextmenu": [{ originalEvent: Event; data: GroupExplorerEntry }];
   "move-group": [GroupExplorerEntry];
   "open-group": [GroupExplorerEntry];
   "open-entry": [ExplorerEntry];
@@ -168,9 +175,11 @@ function handleRowDoubleClick(event: { data: LibraryBrowserEntry }) {
 }
 
 function handleRowContextMenu(event: { originalEvent: Event; data: LibraryBrowserEntry }) {
-  if (event.data.kind !== "group") {
-    emit("row-contextmenu", { originalEvent: event.originalEvent, data: event.data });
+  if (event.data.kind === "group") {
+    emit("group-contextmenu", { originalEvent: event.originalEvent, data: event.data });
+    return;
   }
+  emit("row-contextmenu", { originalEvent: event.originalEvent, data: event.data });
 }
 
 function handleSelectionUpdate(entry: LibraryBrowserEntry | null) {
@@ -185,7 +194,7 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
 
 <template>
   <div class="library-pane library-pane-compact flex h-full flex-col">
-    <div class="split-panel-body flex-1 overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
+    <div class="min-h-0 flex-1 overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
       <AsyncStateBlock
         :error="props.error"
         :loading="props.loading"
@@ -211,10 +220,14 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
           data-key="key"
           selection-mode="single"
           context-menu
+          resizable-columns
+          column-resize-mode="expand"
           size="small"
           scrollable
           scroll-height="flex"
-          table-style="min-width: 52rem"
+          state-storage="local"
+          :state-key="props.compact ? 'context69:table:group-library:v3' : 'context69:table:library:v2'"
+          :table-style="props.compact ? 'width: 100%; table-layout: fixed' : 'min-width: 52rem'"
           @update:selection="handleSelectionUpdate"
           @update:contextMenuSelection="handleContextSelectionUpdate"
           @row-click="handleRowClick"
@@ -227,16 +240,16 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
             </div>
           </template>
 
-          <Column :header="$t('library.filename')" field="name" style="min-width: 18rem">
+          <Column :header="$t('library.filename')" field="name" :style="props.compact ? 'width: 36%' : 'min-width: 18rem'">
             <template #body="{ data }">
               <div class="library-resource-record" :style="entryIndentStyle(data)">
-                <div class="library-resource-main">
+                <div class="flex min-w-0 items-start gap-1.5">
                   <button
-                    v-if="data.kind !== 'file'"
+                    v-if="data.kind === 'folder'"
                     class="library-folder-toggle"
                     type="button"
-                    :aria-label="data.kind === 'group' ? $t('common.open') : isFolderExpanded(data) ? 'Collapse folder' : 'Expand folder'"
-                    @click.stop="data.kind === 'group' ? openEntry(data) : emit('toggle-folder', data)"
+                    :aria-label="isFolderExpanded(data) ? 'Collapse folder' : 'Expand folder'"
+                    @click.stop="emit('toggle-folder', data)"
                   >
                     <span
                       class="library-folder-toggle-icon"
@@ -245,9 +258,9 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
                       &gt;
                     </span>
                   </button>
-                  <span v-else class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
+                  <span v-else-if="data.kind === 'file'" class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
 
-                  <div class="library-resource-copy">
+                  <div class="grid min-w-0 gap-1">
                     <button
                       class="library-entry-button"
                       type="button"
@@ -256,10 +269,10 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
                     >
                       {{ data.name }}
                     </button>
-                    <p v-if="data.kind === 'folder'" class="library-resource-meta">
+                    <p v-if="data.kind === 'folder'" class="text-xs leading-4 text-app-text-dim">
                       {{ $t("library.treeCounts", { folders: data.childFolderCount, files: data.fileCount }) }}
                     </p>
-                    <p v-else-if="data.kind === 'group'" class="library-resource-meta">
+                    <p v-else-if="data.kind === 'group' && !props.hideGroupPaths" class="text-xs leading-4 text-app-text-dim">
                       {{ data.path }}
                     </p>
                   </div>
@@ -268,13 +281,13 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
             </template>
           </Column>
 
-          <Column :header="$t('library.typeLabel')" class="w-24">
+          <Column :header="$t('library.typeLabel')" :style="props.compact ? 'width: 11%' : undefined" class="w-24">
             <template #body="{ data }">
               <span class="text-sm text-app-text-muted">{{ $t(resourceTypeLabel(data)) }}</span>
             </template>
           </Column>
 
-          <Column :header="$t('library.statusLabel')" class="w-32">
+          <Column :header="$t('library.statusLabel')" :style="props.compact ? 'width: 16%' : undefined" class="w-32">
             <template #body="{ data }">
               <Tag v-if="data.kind === 'group'" :value="data.visibility" severity="secondary" />
               <span v-else-if="data.kind === 'file'" :class="statusTooltip(data) ? 'inline-flex cursor-help' : 'inline-flex'" :title="statusTooltip(data)">
@@ -293,13 +306,13 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
             </template>
           </Column>
 
-          <Column :header="$t('library.sizeLabel')" class="w-24">
+          <Column :header="$t('library.sizeLabel')" :style="props.compact ? 'width: 12%' : undefined" class="w-24">
             <template #body="{ data }">
               <span class="tabular-nums text-sm text-app-text-muted">{{ resourceSizeLabel(data) }}</span>
             </template>
           </Column>
 
-          <Column :header="$t('library.updatedColumn')" class="w-36">
+          <Column :header="$t('library.updatedColumn')" :style="props.compact ? 'width: 25%' : undefined" class="w-36">
             <template #body="{ data }">
               <span class="whitespace-nowrap text-sm text-app-text-muted">
                 {{ data.updatedAt ? formatTimestamp(data.updatedAt) : "—" }}
@@ -307,9 +320,9 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
             </template>
           </Column>
 
-          <Column :header="$t('sources.table.action')" class="w-32">
+          <Column v-if="!props.hideActions" :header="$t('sources.table.action')" class="w-32">
             <template #body="{ data }">
-              <div class="library-row-actions">
+              <div class="flex flex-nowrap items-center justify-start gap-1 whitespace-nowrap">
                 <Button
                   v-if="data.kind === 'folder' && data.isSourceFolder"
                   unstyled
@@ -367,6 +380,7 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
         <LibraryResourceCards
           :entries="displayEntries"
           :expanded-keys="props.expandedKeys"
+          :hide-group-paths="props.hideGroupPaths"
           :resource-search-query="props.resourceSearchQuery"
           :selection="props.selection"
           @delete="deleteEntry"

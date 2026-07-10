@@ -177,14 +177,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="sources-page">
+  <div class="grid gap-2">
     <AsyncStateBlock
       :loading="loading"
       :loading-title="t('sources.pollingTitle')"
       :loading-message="t('sources.pollingMessage')"
     >
-      <div v-if="!editorOpen" class="sources-shell">
-        <section class="sources-section sources-table-section">
+      <div v-if="!editorOpen" class="grid gap-2">
+        <section class="grid min-w-0 gap-2">
           <SourceTable
             :sources="sources"
             :syncing-map="syncingMap"
@@ -203,14 +203,14 @@ onMounted(async () => {
         </AppStateMessage>
       </div>
 
-      <section v-else class="sources-editor-screen">
-        <div class="sources-editor-panel app-form-block">
-          <div class="sources-editor-actions">
+      <section v-else class="min-h-[calc(100vh-8.25rem)] max-md:min-h-0 xl:min-h-[calc(100vh-8.5rem)]">
+        <div class="grid h-full gap-4 rounded-[0.8rem] border border-app-border/80 bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p class="section-title">
                 {{ editingSource ? t("sources.editSource") : t("sources.newSource") }}
               </p>
-              <p class="sources-editor-note">
+              <p class="text-sm text-app-text-dim">
                 {{ t("sources.editorDescription") }}
               </p>
             </div>

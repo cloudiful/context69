@@ -171,7 +171,7 @@ onBeforeUnmount(() => {
           </AppStateMessage>
         </template>
 
-        <div v-if="results" class="search-results-layout">
+        <div v-if="results" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start">
           <SearchResultList
             class="min-w-0"
             :hits="results.hits"

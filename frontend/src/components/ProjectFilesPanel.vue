@@ -3,8 +3,10 @@ import { computed, onBeforeUnmount, watch } from "vue";
 import { proxyRefs, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import ContextMenu from "primevue/contextmenu";
-import Button from "primevue/button";
 import Dialog from "primevue/dialog";
+import IconField from "primevue/iconfield";
+import InputIcon from "primevue/inputicon";
+import InputText from "primevue/inputtext";
 import { useToast } from "primevue/usetoast";
 
 import { appContextMenuPt } from "./app-context-menu";
@@ -14,7 +16,6 @@ import LibraryMoveDialog from "./LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 import LibraryPreviewShell from "./LibraryPreviewShell.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
-import LibraryToolbar from "./LibraryToolbar.vue";
 import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
@@ -23,8 +24,7 @@ import { useLibraryPreview as useProjectLibraryPreview } from "../composables/li
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
 import { apiClient, type GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
-import type { ExplorerEntry, FileExplorerEntry } from "../types/library";
-import { toolPrimaryButtonClass } from "../ui/button-classes";
+import type { ExplorerEntry, FileExplorerEntry, GroupExplorerEntry } from "../types/library";
 import { useErrorToast } from "../composables/use-error-toast";
 
 const props = defineProps<{
@@ -92,7 +92,7 @@ const actions = useProjectLibraryActions({
 });
 const actionsState = proxyRefs(actions);
 
-const { filteredGroupEntries, resourceCountLabel } = useGroupBrowserEntries({
+const { filteredGroupEntries } = useGroupBrowserEntries({
   childGroups: () => props.childGroups,
   libraryEntryCount: () => treeState.filteredExplorerEntries.length,
   query: () => treeState.resourceSearchQuery,
@@ -100,6 +100,8 @@ const { filteredGroupEntries, resourceCountLabel } = useGroupBrowserEntries({
 });
 
 const resourceContextMenu = ref();
+const groupContextMenu = ref();
+const groupContextEntry = ref<GroupExplorerEntry | null>(null);
 const surfaceContextMenu = ref();
 const uploadInput = ref<HTMLInputElement | null>(null);
 const resourceMenuItems = computed(() => {
@@ -129,11 +131,27 @@ const resourceMenuItems = computed(() => {
   return items;
 });
 
+const groupMenuItems = computed(() => {
+  const group = groupContextEntry.value;
+  if (!group) return [];
+  return [
+    { label: t("common.open"), icon: "pi pi-folder-open", command: () => { emit("open-child-group", group.group); } },
+    { label: t("common.edit"), icon: "pi pi-pencil", command: () => { emit("edit-child-group", group.group); } },
+    { label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { emit("move-child-group", group.group); } },
+    { label: t("common.delete"), icon: "pi pi-trash", command: () => { emit("delete-child-group", group.group); } },
+  ];
+});
+
 const surfaceMenuItems = computed(() => [
   {
     label: t("common.create"),
     icon: "pi pi-plus",
     items: [
+      {
+        label: t("groups.createChild"),
+        icon: "pi pi-sitemap",
+        command: () => { emit("create-child-group"); },
+      },
       {
         label: t("library.newFolder"),
         icon: "pi pi-folder-plus",
@@ -284,6 +302,11 @@ function handleExplorerRowContextMenu(event: { originalEvent: Event; data: Explo
   resourceContextMenu.value?.show(event.originalEvent);
 }
 
+function handleGroupRowContextMenu(event: { originalEvent: Event; data: GroupExplorerEntry }) {
+  groupContextEntry.value = event.data;
+  groupContextMenu.value?.show(event.originalEvent);
+}
+
 function handleSurfaceContextMenu(event: { originalEvent: MouseEvent }) {
   treeState.resourceContextEntry = null;
   surfaceContextMenu.value?.show(event.originalEvent);
@@ -326,6 +349,7 @@ onBeforeUnmount(() => {
 
 <template>
   <ContextMenu ref="resourceContextMenu" unstyled :pt="appContextMenuPt" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
+  <ContextMenu ref="groupContextMenu" unstyled :pt="appContextMenuPt" :model="groupMenuItems" @hide="groupContextEntry = null" />
   <ContextMenu ref="surfaceContextMenu" unstyled :pt="appContextMenuPt" :model="surfaceMenuItems" />
   <input
     ref="uploadInput"
@@ -335,27 +359,27 @@ onBeforeUnmount(() => {
     accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
     @change="handleUploadInputChange"
   >
-  <LibraryToolbar
-    :breadcrumb-home="treeState.breadcrumbHome"
-    :breadcrumb-items="treeState.breadcrumbItems"
-    :count-label="resourceCountLabel"
-    :search-query="treeState.resourceSearchQuery"
-    @update:search-query="treeState.resourceSearchQuery = $event"
-  >
-    <template #actions>
-      <Button :class="toolPrimaryButtonClass" size="small" @click="emit('create-child-group')">
-        {{ t("groups.createChild") }}
-      </Button>
-    </template>
-  </LibraryToolbar>
+  <Teleport to="#app-route-actions">
+    <IconField class="relative w-56 [&.p-iconfield]:w-full">
+      <InputIcon class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-dim" />
+      <InputText
+        v-model="treeState.resourceSearchQuery"
+        class="w-full !pl-10"
+        :placeholder="t('nav.search')"
+      />
+    </IconField>
+  </Teleport>
 
-  <section class="library-workspace library-workspace-embedded">
+  <section class="library-workspace library-workspace-embedded h-full">
     <LibraryResourceTable
       :create-folder-busy="actionsState.createFolderBusy"
       :create-source-folder-busy="sourceFolderDialogBusy"
       :entries="treeState.filteredExplorerEntries"
       :error="treeState.treeError"
       :group-entries="filteredGroupEntries"
+      hide-actions
+      hide-group-paths
+      compact
       :expanded-keys="treeState.expandedTreeKeys"
       :loading="treeState.treeLoading"
       :resource-search-query="treeState.resourceSearchQuery"
@@ -368,6 +392,7 @@ onBeforeUnmount(() => {
       @row-click="handleExplorerRowClick"
       @row-dblclick="handleExplorerRowDoubleClick"
       @row-contextmenu="handleExplorerRowContextMenu"
+      @group-contextmenu="handleGroupRowContextMenu"
       @surface-contextmenu="handleSurfaceContextMenu"
       @open-entry="openExplorerEntry"
       @move-entry="actionsState.moveExplorerEntry"

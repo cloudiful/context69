@@ -9,7 +9,7 @@ withDefaults(defineProps<{
 
 <template>
   <div class="library-pane flex h-full min-h-[42rem] flex-col">
-    <div v-if="showHeader" class="library-pane-header">
+    <div v-if="showHeader" class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <div>
         <h2 class="section-title">{{ title }}</h2>
         <p class="library-pane-description">{{ $t("library.previewLabel") }}</p>
@@ -17,7 +17,7 @@ withDefaults(defineProps<{
       <slot name="header-actions" />
     </div>
 
-    <div class="split-panel-body flex-1 overflow-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       <slot />
     </div>
   </div>

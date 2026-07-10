@@ -25,13 +25,13 @@ const showSearchIcon = computed(() => !(props.searchQuery ?? "").trim());
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-app-border/80 bg-app-surface px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+  <div class="grid gap-2 rounded-lg border border-app-border/80 bg-app-surface px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
     <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
       <slot name="main" />
       <Tag v-if="countLabel" class="rounded-md px-2 py-1 text-xs font-semibold" :value="countLabel" severity="secondary" />
     </div>
 
-    <div class="flex w-full flex-wrap items-center gap-1.5 md:w-auto md:justify-end">
+    <div class="flex flex-wrap items-center gap-1.5 max-md:w-full md:justify-end">
       <IconField v-if="searchEnabled" class="relative min-w-0 md:w-72 [&.p-iconfield]:w-full">
         <InputIcon
           v-if="showSearchIcon"

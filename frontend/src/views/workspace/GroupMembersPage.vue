@@ -10,15 +10,23 @@ const state = useGroupWorkspaceContext();
 </script>
 
 <template>
-  <section class="grid gap-3 rounded-[1.1rem] border border-app-border/70 bg-app-surface-muted/20 p-3">
+  <section class="grid gap-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <p class="section-title">{{ $t("groups.membersTitle") }}</p>
-      </div>
+      <p class="section-title">{{ $t("groups.membersTitle") }}</p>
       <Button v-if="state.canManageGroup" :label="$t('members.add')" size="small" @click="state.openCreateMemberDialog" />
     </div>
 
-    <DataTable class="app-data-table" :value="state.members" data-key="user_id" scrollable table-style="min-width: 100%">
+    <DataTable
+      class="app-data-table"
+      :value="state.members"
+      data-key="user_id"
+      resizable-columns
+      column-resize-mode="expand"
+      scrollable
+      state-storage="local"
+      state-key="context69:table:group-members:v2"
+      table-style="min-width: 100%"
+    >
       <Column field="login_name" :header="$t('adminUsers.loginName')" />
       <Column field="display_name" :header="$t('adminUsers.displayName')" />
       <Column field="role" :header="$t('members.role')">

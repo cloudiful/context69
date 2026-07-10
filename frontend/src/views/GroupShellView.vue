@@ -16,7 +16,7 @@ provide(groupWorkspaceStateKey, state);
 </script>
 
 <template>
-  <div class="grid gap-2">
+  <div class="grid h-full min-h-0 grid-rows-[minmax(0,1fr)] gap-2">
     <RouterView />
 
     <EntityDialog

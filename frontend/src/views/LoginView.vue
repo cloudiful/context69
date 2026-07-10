@@ -95,7 +95,7 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
 
 <template>
   <div class="flex min-h-[calc(100vh-5rem)] w-full items-center justify-center px-3 py-6">
-    <AppPanel class="w-full max-w-[27rem]" :title="t('auth.title')">
+    <AppPanel class="w-full max-w-[28rem]" :title="t('auth.title')">
       <div v-if="authSessionState.user" class="grid gap-1 rounded-xl border border-app-border/70 bg-app-surface-soft/25 px-3 py-2">
         <span class="text-sm font-semibold text-app-text">{{ authSessionState.user.display_name }}</span>
         <span class="text-xs text-app-text-dim">{{ authSessionState.user.login_name }}</span>
@@ -109,14 +109,14 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
           @submit="submit"
         >
           <FormField v-slot="$field" name="login_name" :initial-value="initialValues.login_name">
-            <label class="grid min-w-0 content-start self-start gap-2">
-              <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("auth.loginName") }}</span>
+            <div class="grid min-w-0 content-start self-start gap-2">
               <InputText
                 id="login-name"
                 v-bind="$field.props"
                 :model-value="$field.value"
                 :disabled="busy"
                 :placeholder="t('auth.loginNamePlaceholder')"
+                :aria-label="t('auth.loginName')"
                 autocomplete="username"
                 fluid
                 @update:model-value="$field.props.onInput({ value: $event })"
@@ -124,12 +124,11 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
               <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
                 {{ $field.error?.message }}
               </Message>
-            </label>
+            </div>
           </FormField>
 
           <FormField v-slot="$field" name="password" :initial-value="initialValues.password">
-            <label class="grid min-w-0 content-start self-start gap-2">
-              <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("auth.password") }}</span>
+            <div class="grid min-w-0 content-start self-start gap-2">
               <InputText
                 id="login-password"
                 v-bind="$field.props"
@@ -137,6 +136,7 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
                 type="password"
                 :disabled="busy"
                 :placeholder="t('auth.passwordPlaceholder')"
+                :aria-label="t('auth.password')"
                 autocomplete="current-password"
                 fluid
                 @update:model-value="$field.props.onInput({ value: $event })"
@@ -144,7 +144,7 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
               <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
                 {{ $field.error?.message }}
               </Message>
-            </label>
+            </div>
           </FormField>
 
           <div class="pt-1">

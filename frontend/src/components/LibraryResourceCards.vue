@@ -9,6 +9,7 @@ import { createLibraryStatusHelpers } from "../utils/library-status";
 const props = defineProps<{
   entries: LibraryBrowserEntry[];
   expandedKeys: Record<string, boolean>;
+  hideGroupPaths?: boolean;
   resourceSearchQuery: string;
   selection: ExplorerEntry | null;
 }>();
@@ -52,13 +53,13 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
       @contextmenu.prevent="emit('row-contextmenu', { originalEvent: $event, data: entry })"
     >
       <div class="tool-card-header">
-        <div class="library-resource-main">
+        <div class="flex min-w-0 items-start gap-1.5">
           <button
-            v-if="entry.kind !== 'file'"
+            v-if="entry.kind === 'folder'"
             class="library-folder-toggle"
             type="button"
-            :aria-label="entry.kind === 'group' ? $t('common.open') : isFolderExpanded(entry) ? 'Collapse folder' : 'Expand folder'"
-            @click.stop="entry.kind === 'group' ? emit('open', entry) : emit('toggle-folder', entry)"
+            :aria-label="isFolderExpanded(entry) ? 'Collapse folder' : 'Expand folder'"
+            @click.stop="emit('toggle-folder', entry)"
           >
             <span
               class="library-folder-toggle-icon"
@@ -67,7 +68,7 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
               &gt;
             </span>
           </button>
-          <span v-else class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
+          <span v-else-if="entry.kind === 'file'" class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
           <div class="min-w-0">
             <button
               class="tool-card-title library-entry-button"
@@ -80,7 +81,7 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
             <p v-if="entry.kind === 'folder'" class="tool-card-subtitle">
               {{ $t("library.treeCounts", { folders: entry.childFolderCount, files: entry.fileCount }) }}
             </p>
-            <p v-else-if="entry.kind === 'group'" class="tool-card-subtitle">{{ entry.path }}</p>
+            <p v-else-if="entry.kind === 'group' && !props.hideGroupPaths" class="tool-card-subtitle">{{ entry.path }}</p>
           </div>
         </div>
         <Tag v-if="entry.kind === 'group'" class="tool-chip" :value="entry.visibility" severity="secondary" />

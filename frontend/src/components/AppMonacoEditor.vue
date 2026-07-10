@@ -112,7 +112,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-monaco-shell">
-    <div :id="inputId" ref="containerRef" class="app-monaco-editor" />
+  <div class="h-[min(72vh,44rem)] min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface-soft/40 max-md:h-[26rem]">
+    <div :id="inputId" ref="containerRef" class="h-full min-h-0 w-full" />
   </div>
 </template>
