@@ -2,7 +2,6 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
-import Message from "primevue/message";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 
@@ -17,36 +16,34 @@ import {
   type SourceStatus,
 } from "../services/api";
 import { toolSecondaryButtonClass } from "../ui/button-classes";
+import { useErrorToast } from "../composables/use-error-toast";
 
 const { t } = useI18n();
 const confirm = useConfirm();
 const toast = useToast();
+const showErrorToast = useErrorToast();
 
 const sources = ref<SourceStatus[]>([]);
 const connections = ref<SourceConnectionResponse[]>([]);
 const loading = ref(false);
 const formBusy = ref(false);
-const pageError = ref("");
-const formError = ref("");
 const editingSource = ref<SourceStatus | null>(null);
 const editorOpen = ref(false);
 const editorRevision = ref(0);
 const syncingMap = ref<Record<string, boolean>>({});
 const deletingMap = ref<Record<string, boolean>>({});
-const errorMap = ref<Record<string, string>>({});
 
 async function loadSources() {
   loading.value = true;
 
   try {
-    pageError.value = "";
     await loadConnections();
     sources.value = await apiClient.listSources();
     if (sources.value.length === 0) {
       editorOpen.value = true;
     }
   } catch (error) {
-    pageError.value = error instanceof Error ? error.message : t("sources.pageLoadFailed");
+    showErrorToast(error, t("sources.pageLoadFailed"));
   } finally {
     loading.value = false;
   }
@@ -56,13 +53,12 @@ async function loadConnections() {
   try {
     connections.value = await apiClient.listSourceConnections();
   } catch (error) {
-    pageError.value = error instanceof Error ? error.message : t("sources.loadConnectionsFailed");
+    showErrorToast(error, t("sources.loadConnectionsFailed"));
   }
 }
 
 async function saveSource(payload: SourceConfigInput) {
   formBusy.value = true;
-  formError.value = "";
 
   try {
     if (editingSource.value) {
@@ -79,11 +75,7 @@ async function saveSource(payload: SourceConfigInput) {
     });
     resetEditor();
   } catch (error) {
-    formError.value = error instanceof Error
-      ? error.message
-      : editingSource.value
-        ? t("sources.updateFailed")
-        : t("sources.createFailed");
+    showErrorToast(error, editingSource.value ? t("sources.updateFailed") : t("sources.createFailed"));
   } finally {
     formBusy.value = false;
   }
@@ -93,11 +85,6 @@ async function syncSource(sourceKey: string) {
   syncingMap.value = {
     ...syncingMap.value,
     [sourceKey]: true,
-  };
-
-  errorMap.value = {
-    ...errorMap.value,
-    [sourceKey]: "",
   };
 
   try {
@@ -110,10 +97,7 @@ async function syncSource(sourceKey: string) {
       life: 2500,
     });
   } catch (error) {
-    errorMap.value = {
-      ...errorMap.value,
-      [sourceKey]: error instanceof Error ? error.message : t("sources.syncFailed"),
-    };
+    showErrorToast(error, t("sources.syncFailed"));
   } finally {
     syncingMap.value = {
       ...syncingMap.value,
@@ -125,20 +109,17 @@ async function syncSource(sourceKey: string) {
 function startCreate() {
   editingSource.value = null;
   editorOpen.value = true;
-  formError.value = "";
   editorRevision.value += 1;
 }
 
 function startEdit(source: SourceStatus) {
   editingSource.value = source;
   editorOpen.value = true;
-  formError.value = "";
 }
 
 function resetEditor() {
   editingSource.value = null;
   editorOpen.value = sources.value.length === 0;
-  formError.value = "";
   editorRevision.value += 1;
 }
 
@@ -167,10 +148,6 @@ async function deleteSourceConfirmed(sourceKey: string) {
     ...deletingMap.value,
     [sourceKey]: true,
   };
-  errorMap.value = {
-    ...errorMap.value,
-    [sourceKey]: "",
-  };
 
   try {
     await apiClient.deleteSource(sourceKey);
@@ -185,10 +162,7 @@ async function deleteSourceConfirmed(sourceKey: string) {
       life: 2500,
     });
   } catch (error) {
-    errorMap.value = {
-      ...errorMap.value,
-      [sourceKey]: error instanceof Error ? error.message : t("sources.deleteFailed"),
-    };
+    showErrorToast(error, t("sources.deleteFailed"));
   } finally {
     deletingMap.value = {
       ...deletingMap.value,
@@ -208,7 +182,6 @@ onMounted(async () => {
       :loading="loading"
       :loading-title="t('sources.pollingTitle')"
       :loading-message="t('sources.pollingMessage')"
-      :error="pageError"
     >
       <div v-if="!editorOpen" class="sources-shell">
         <section class="sources-section sources-table-section">
@@ -216,7 +189,6 @@ onMounted(async () => {
             :sources="sources"
             :syncing-map="syncingMap"
             :deleting-map="deletingMap"
-            :error-map="errorMap"
             @create="startCreate"
             @delete="deleteSource"
             @edit="startEdit"
@@ -252,10 +224,6 @@ onMounted(async () => {
               {{ t("common.close") }}
             </Button>
           </div>
-
-          <Message v-if="formError" severity="error" :closable="false">
-            {{ formError }}
-          </Message>
 
           <SourceEditorForm
             :key="editingSource?.source_key ?? `new-${editorRevision}`"

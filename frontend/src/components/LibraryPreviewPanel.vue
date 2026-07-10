@@ -16,7 +16,6 @@ import EmptyState from "./EmptyState.vue";
 const props = defineProps<{
   activeSectionKey: string;
   detail: LibraryFileDetailResponse | null;
-  detailError: string;
   detailLoading: boolean;
   selectedFileId: string | null;
   selectedFolderSummary: FolderSummary | null;
@@ -46,8 +45,6 @@ const activeSection = computed(() => {
       :loading="!!selectedFileId && detailLoading"
       :loading-title="t('common.loading')"
       :loading-message="t('library.loadingDetail')"
-      :error="selectedFileId ? detailError : ''"
-      :error-title="t('library.previewUnavailableTitle')"
       :empty="!selectedFileId"
     >
       <template #empty>

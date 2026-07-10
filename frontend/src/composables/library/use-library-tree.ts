@@ -3,6 +3,7 @@ import type { Router, RouteLocationNormalizedLoadedGeneric } from "vue-router";
 
 import { apiClient, type LibraryFileSummary, type LibraryFolderNode, type LibraryTreeResponse } from "../../services/api";
 import type { ExplorerEntry, FileExplorerEntry, FolderExplorerEntry, FolderSummary } from "../../types/library";
+import { useErrorToast } from "../use-error-toast";
 import {
   findFileLocation,
   findFolderById,
@@ -20,9 +21,9 @@ interface UseLibraryTreeOptions {
 }
 
 export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTreeOptions) {
+  const showErrorToast = useErrorToast();
   const tree = ref<LibraryTreeResponse | null>(null);
   const treeLoading = ref(false);
-  const treeError = ref("");
   const expandedTreeKeys = ref<Record<string, boolean>>({
     [folderKey(null)]: true,
   });
@@ -233,7 +234,6 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
     treeLoading.value = !tree.value;
 
     try {
-      treeError.value = "";
       const nextTree = await apiClient.getLibraryTree();
       tree.value = nextTree;
 
@@ -258,7 +258,7 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
         updateExpandedForFolder(selectedFolderId.value);
       }
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.loadFailed");
+      showErrorToast(error, t("library.loadFailed"));
     } finally {
       treeLoading.value = false;
     }
@@ -330,7 +330,6 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
     syncSelectedExplorerEntry,
     toggleFolderExpansion,
     tree,
-    treeError,
     treeLoading,
     updateExpandedForFolder,
   };

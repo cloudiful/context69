@@ -2,6 +2,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
+import { useErrorToast } from "./use-error-toast";
 
 import {
   apiClient,
@@ -44,12 +45,12 @@ export function useSettingsPage() {
   const { t } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
+  const showErrorToast = useErrorToast();
   const personalAccessTokens = useSettingsPersonalAccessTokens();
 
   const loading = ref(false);
   const saving = ref(false);
   const providerSaving = ref(false);
-  const pageError = ref("");
   const saveMessage = ref("");
   const providerMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
@@ -57,7 +58,6 @@ export function useSettingsPage() {
   const searchSettings = ref<SearchSettingsResponse | null>(null);
   const providerAccounts = ref<ProviderAccountResponse[]>([]);
   const adminUsers = ref<AdminUserResponse[]>([]);
-  const adminUsersError = ref("");
   const adminUsersBusy = ref(false);
   const adminUsersCreateBusy = ref(false);
   const selectedProviderAccountKey = ref("");
@@ -192,16 +192,14 @@ export function useSettingsPage() {
   async function loadAdminUsers() {
     if (!authSessionState.user?.is_admin) {
       adminUsers.value = [];
-      adminUsersError.value = "";
       return;
     }
 
     adminUsersBusy.value = true;
     try {
-      adminUsersError.value = "";
       adminUsers.value = await apiClient.listAdminUsers();
     } catch (error) {
-      adminUsersError.value = error instanceof Error ? error.message : t("adminUsers.loadFailed");
+      showErrorToast(error, t("adminUsers.loadFailed"));
     } finally {
       adminUsersBusy.value = false;
     }
@@ -211,7 +209,6 @@ export function useSettingsPage() {
     loading.value = true;
 
     try {
-      pageError.value = "";
       saveMessage.value = "";
       const [runtime, docling, search, providers] = await Promise.all([
         apiClient.getRuntimeSettings(),
@@ -232,7 +229,7 @@ export function useSettingsPage() {
         selectedProviderAccountKey.value = providers[0].account_key;
       }
     } catch (error) {
-      pageError.value = error instanceof Error ? error.message : t("settings.loadFailed");
+      showErrorToast(error, t("settings.loadFailed"));
     } finally {
       loading.value = false;
     }
@@ -246,7 +243,6 @@ export function useSettingsPage() {
     saving.value = true;
 
     try {
-      pageError.value = "";
       saveMessage.value = "";
       providerMessage.value = "";
 
@@ -290,7 +286,7 @@ export function useSettingsPage() {
         life: 2500,
       });
     } catch (error) {
-      pageError.value = error instanceof Error ? error.message : t("settings.saveFailed");
+      showErrorToast(error, t("settings.saveFailed"));
     } finally {
       saving.value = false;
     }
@@ -338,7 +334,7 @@ export function useSettingsPage() {
         life: 2500,
       });
     } catch (error) {
-      pageError.value = error instanceof Error ? error.message : t("settings.saveFailed");
+      showErrorToast(error, t("settings.saveFailed"));
     } finally {
       providerSaving.value = false;
     }
@@ -380,11 +376,10 @@ export function useSettingsPage() {
   }) {
     adminUsersCreateBusy.value = true;
     try {
-      adminUsersError.value = "";
       await apiClient.createAdminUser(payload);
       await loadAdminUsers();
     } catch (error) {
-      adminUsersError.value = error instanceof Error ? error.message : t("adminUsers.createFailed");
+      showErrorToast(error, t("adminUsers.createFailed"));
     } finally {
       adminUsersCreateBusy.value = false;
     }
@@ -397,14 +392,13 @@ export function useSettingsPage() {
   }) {
     adminUsersBusy.value = true;
     try {
-      adminUsersError.value = "";
       await apiClient.updateAdminUser(payload.login_name, {
         display_name: payload.display_name,
         is_admin: payload.is_admin,
       });
       await loadAdminUsers();
     } catch (error) {
-      adminUsersError.value = error instanceof Error ? error.message : t("adminUsers.updateFailed");
+      showErrorToast(error, t("adminUsers.updateFailed"));
     } finally {
       adminUsersBusy.value = false;
     }
@@ -416,13 +410,12 @@ export function useSettingsPage() {
   }) {
     adminUsersBusy.value = true;
     try {
-      adminUsersError.value = "";
       await apiClient.resetAdminUserPassword(payload.login_name, {
         password: payload.password,
       });
       await loadAdminUsers();
     } catch (error) {
-      adminUsersError.value = error instanceof Error ? error.message : t("adminUsers.resetFailed");
+      showErrorToast(error, t("adminUsers.resetFailed"));
     } finally {
       adminUsersBusy.value = false;
     }
@@ -431,11 +424,10 @@ export function useSettingsPage() {
   async function disableAdminUser(loginName: string) {
     adminUsersBusy.value = true;
     try {
-      adminUsersError.value = "";
       await apiClient.disableAdminUser(loginName);
       await loadAdminUsers();
     } catch (error) {
-      adminUsersError.value = error instanceof Error ? error.message : t("adminUsers.disableFailed");
+      showErrorToast(error, t("adminUsers.disableFailed"));
     } finally {
       adminUsersBusy.value = false;
     }
@@ -444,11 +436,10 @@ export function useSettingsPage() {
   async function enableAdminUser(loginName: string) {
     adminUsersBusy.value = true;
     try {
-      adminUsersError.value = "";
       await apiClient.enableAdminUser(loginName);
       await loadAdminUsers();
     } catch (error) {
-      adminUsersError.value = error instanceof Error ? error.message : t("adminUsers.enableFailed");
+      showErrorToast(error, t("adminUsers.enableFailed"));
     } finally {
       adminUsersBusy.value = false;
     }
@@ -477,7 +468,6 @@ export function useSettingsPage() {
     adminUsers,
     adminUsersBusy,
     adminUsersCreateBusy,
-    adminUsersError,
     createAdminUser,
     deleteProviderAccount,
     doclingDraft,
@@ -486,7 +476,6 @@ export function useSettingsPage() {
     doclingProviderOptions,
     hasChanges,
     loading,
-    pageError,
     providerAccountOptions,
     providerDraft,
     providerKindOptions,

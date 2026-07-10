@@ -79,6 +79,7 @@ export const zhCN = {
     editGroup: "编辑群组",
     createFailed: "创建群组失败。",
     updateFailed: "更新群组失败。",
+    deleteFailed: "删除群组失败。",
     moveFailed: "移动群组失败。",
     loadFailed: "加载群组失败。",
     emptyTitle: "暂无群组",

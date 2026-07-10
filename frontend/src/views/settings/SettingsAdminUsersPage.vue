@@ -8,15 +8,13 @@ const state = useSettingsPageContext();
 const adminUsers = computed(() => unref(state.adminUsers));
 const adminUsersBusy = computed(() => unref(state.adminUsersBusy));
 const adminUsersCreateBusy = computed(() => unref(state.adminUsersCreateBusy));
-const adminUsersError = computed(() => unref(state.adminUsersError));
 </script>
 
 <template>
   <SettingsAdminUsersSection
-    v-if="adminUsers.length > 0 || adminUsersBusy || adminUsersError"
+    v-if="adminUsers.length > 0 || adminUsersBusy"
     :busy="adminUsersBusy"
     :create-busy="adminUsersCreateBusy"
-    :error="adminUsersError"
     :users="adminUsers"
     @create="state.createAdminUser"
     @disable="state.disableAdminUser"

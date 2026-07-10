@@ -3,7 +3,6 @@ import { provide, proxyRefs } from "vue";
 import AutoComplete from "primevue/autocomplete";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
-import Message from "primevue/message";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import MemberDialog from "../components/MemberDialog.vue";
@@ -18,14 +17,11 @@ provide(groupWorkspaceStateKey, state);
 
 <template>
   <div class="workspace-page">
-    <Message v-if="state.errorMessage" severity="error" :closable="false">{{ state.errorMessage }}</Message>
-
     <RouterView />
 
     <EntityDialog
       v-model:visible="state.groupDialogVisible"
       :busy="state.groupDialogBusy"
-      :error="state.errorMessage"
       :title="$t('groups.editGroup')"
       :entity-name-label="$t('groups.groupName')"
       :initial-name="state.group?.name"
@@ -36,7 +32,6 @@ provide(groupWorkspaceStateKey, state);
     <EntityDialog
       v-model:visible="state.childGroupDialogVisible"
       :busy="state.childGroupDialogBusy"
-      :error="state.childGroupError"
       :title="state.editingChildGroup ? $t('groups.editChild') : $t('groups.createChild')"
       :show-key="!state.editingChildGroup"
       :entity-key-label="$t('groups.groupKey')"
@@ -51,7 +46,6 @@ provide(groupWorkspaceStateKey, state);
     <MemberDialog
       v-model:visible="state.memberDialogVisible"
       :busy="state.memberDialogBusy"
-      :error="state.memberError"
       :title="state.editingMember ? $t('members.editTitle') : $t('members.addTitle')"
       :selected-user="state.selectedMemberUser"
       :initial-login-name="state.editingMember?.login_name"
@@ -71,7 +65,6 @@ provide(groupWorkspaceStateKey, state);
       :style="{ width: '30rem', maxWidth: '96vw' }"
     >
       <div class="grid gap-3">
-        <Message v-if="state.childGroupError" severity="error" :closable="false">{{ state.childGroupError }}</Message>
         <div class="grid gap-2">
           <label class="form-label">{{ $t("groups.targetGroup") }}</label>
           <AutoComplete

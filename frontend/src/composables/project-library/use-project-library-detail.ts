@@ -1,6 +1,7 @@
 import { onBeforeUnmount, ref } from "vue";
 
 import { apiClient, type LibraryFileDetailResponse } from "../../services/api";
+import { useErrorToast } from "../use-error-toast";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -12,9 +13,9 @@ interface UseProjectLibraryDetailOptions {
 }
 
 export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t }: UseProjectLibraryDetailOptions) {
+  const showErrorToast = useErrorToast();
   const detail = ref<LibraryFileDetailResponse | null>(null);
   const detailLoading = ref(false);
-  const detailError = ref("");
   const activeSectionKey = ref("");
   const activeJobs = new Set<string>();
   let pollingTimer: number | null = null;
@@ -24,14 +25,12 @@ export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t
     detailController?.abort();
     if (!fileId) {
       detail.value = null;
-      detailError.value = "";
       detailLoading.value = false;
       activeSectionKey.value = "";
       return;
     }
     detailController = new AbortController();
     detailLoading.value = true;
-    detailError.value = "";
     try {
       const nextDetail = await apiClient.getGroupLibraryFile(groupPath, fileId, { signal: detailController.signal });
       detail.value = nextDetail;
@@ -43,7 +42,7 @@ export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       detail.value = null;
-      detailError.value = error instanceof Error ? error.message : t("library.detailLoadFailed");
+      showErrorToast(error, t("library.detailLoadFailed"));
     } finally {
       detailLoading.value = false;
     }
@@ -98,7 +97,6 @@ export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t
   return {
     activeSectionKey,
     detail,
-    detailError,
     detailLoading,
     dispose,
     loadDetail,

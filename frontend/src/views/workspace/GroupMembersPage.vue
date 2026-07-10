@@ -2,7 +2,6 @@
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Message from "primevue/message";
 import Tag from "primevue/tag";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
@@ -18,8 +17,6 @@ const state = useGroupWorkspaceContext();
       </div>
       <Button v-if="state.canManageGroup" :label="$t('members.add')" size="small" @click="state.openCreateMemberDialog" />
     </div>
-
-    <Message v-if="state.memberError" severity="error" :closable="false">{{ state.memberError }}</Message>
 
     <DataTable class="app-data-table" :value="state.members" data-key="user_id" scrollable table-style="min-width: 100%">
       <Column field="login_name" :header="$t('adminUsers.loginName')" />

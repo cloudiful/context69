@@ -35,7 +35,6 @@ const props = defineProps<{
   personalAccessTokenScopeToggleModel: Record<string, boolean>;
   personalAccessTokens: PersonalAccessTokenResponse[];
   personalAccessTokensCreating: boolean;
-  personalAccessTokensError: string;
   personalAccessTokensLoading: boolean;
   personalAccessTokensReveal: CreatePersonalAccessTokenResponse | null;
 }>();
@@ -133,10 +132,6 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
           </div>
         </div>
       </section>
-
-      <Message v-if="personalAccessTokensError" severity="error" :closable="false">
-        {{ personalAccessTokensError }}
-      </Message>
 
       <section v-if="personalAccessTokensReveal" class="settings-block">
         <div class="settings-block-header">

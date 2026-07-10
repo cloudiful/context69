@@ -5,6 +5,7 @@ import { useToast } from "primevue/usetoast";
 import { apiClient, type LibraryFileSummary, type LibraryFolderNode } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
 import { collectDescendantFolderIds } from "../../utils/library-tree";
+import { useErrorToast } from "../use-error-toast";
 
 interface MoveDialogState {
   kind: "file" | "folder";
@@ -34,7 +35,6 @@ interface UseProjectLibraryActionsOptions {
   selectedFolder: Ref<LibraryFolderNode | null>;
   selectedFileId: Ref<string | null>;
   t: (key: string, params?: Record<string, unknown>) => string;
-  treeError: Ref<string>;
   updateExpandedForFolder: (folderId: string | null) => void;
   previewDocked: Ref<boolean>;
   previewDialogVisible: Ref<boolean>;
@@ -50,13 +50,13 @@ export function useProjectLibraryActions({
   selectedFolder,
   selectedFileId,
   t,
-  treeError,
   updateExpandedForFolder,
   previewDocked,
   previewDialogVisible,
 }: UseProjectLibraryActionsOptions) {
   const confirm = useConfirm();
   const toast = useToast();
+  const showErrorToast = useErrorToast();
   const createFolderBusy = ref(false);
   const uploadBusy = ref(false);
   const actionBusy = ref(false);
@@ -96,7 +96,7 @@ export function useProjectLibraryActions({
       await replaceSelection(folder.folder_id, null);
       toast.add({ severity: "success", summary: t("library.newFolder"), detail: folder.name, life: 2500 });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.createFolderFailed");
+      showErrorToast(error, t("library.createFolderFailed"));
     } finally {
       createFolderBusy.value = false;
     }
@@ -121,7 +121,7 @@ export function useProjectLibraryActions({
       schedulePolling(response.jobs.map((job: { job_id: string }) => job.job_id));
       toast.add({ severity: "success", summary: t("library.newTextFile"), detail: payload.title, life: 2500 });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.createTextFileFailed");
+      showErrorToast(error, t("library.createTextFileFailed"));
     } finally {
       createFolderBusy.value = false;
     }
@@ -144,7 +144,7 @@ export function useProjectLibraryActions({
       schedulePolling(response.jobs.map((job) => job.job_id));
       toast.add({ severity: "success", summary: t("common.upload"), detail: t("library.uploadSuccess"), life: 2500 });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.uploadFailed");
+      showErrorToast(error, t("library.uploadFailed"));
     } finally {
       uploadBusy.value = false;
     }
@@ -192,7 +192,7 @@ export function useProjectLibraryActions({
       toast.add({ severity: "success", summary: t("common.move"), detail: moveDialog.value.name, life: 2500 });
       moveDialog.value = null;
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.moveFailed");
+      showErrorToast(error, t("library.moveFailed"));
     } finally {
       actionBusy.value = false;
     }
@@ -218,7 +218,7 @@ export function useProjectLibraryActions({
       await replaceSelection(null, null);
       toast.add({ severity: "success", summary: t("common.delete"), detail: folder.name, life: 2500 });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.deleteFolderFailed");
+      showErrorToast(error, t("library.deleteFolderFailed"));
     } finally {
       actionBusy.value = false;
     }
@@ -245,7 +245,7 @@ export function useProjectLibraryActions({
       }
       toast.add({ severity: "success", summary: t("common.delete"), detail: file.filename, life: 2500 });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.deleteFileFailed");
+      showErrorToast(error, t("library.deleteFileFailed"));
     } finally {
       actionBusy.value = false;
     }

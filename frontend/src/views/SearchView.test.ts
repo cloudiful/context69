@@ -181,6 +181,7 @@ describe("SearchView", () => {
   });
 
   it("localizes the runtime-not-configured search error", async () => {
+    const addToast = vi.fn();
     vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
     vi.spyOn(apiClient, "search").mockRejectedValue(new Error(
       "search runtime is not configured; save runtime/provider settings and restart the service",
@@ -199,13 +200,28 @@ describe("SearchView", () => {
 
     const wrapper = mount(SearchView, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n("zh-CN")],
+        plugins: [
+          testPrimeVuePlugin,
+          {
+            install(app) {
+              app.config.globalProperties.$toast.add = addToast;
+            },
+          },
+          router,
+          createTestI18n("zh-CN"),
+        ],
       },
     });
 
     await flushPromises();
 
-    expect(wrapper.text()).toContain("搜索运行时未配置。请先保存运行时或提供商设置，然后重启服务。");
+    expect(addToast).toHaveBeenCalledWith({
+      severity: "error",
+      summary: "错误",
+      detail: "搜索运行时未配置。请先保存运行时或提供商设置，然后重启服务。",
+      life: 5000,
+    });
+    expect(wrapper.text()).not.toContain("搜索运行时未配置。请先保存运行时或提供商设置，然后重启服务。");
     expect(wrapper.text()).not.toContain("search runtime is not configured");
   });
 });

@@ -5,7 +5,6 @@ import AutoComplete from "primevue/autocomplete";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
-import Message from "primevue/message";
 import Select from "primevue/select";
 
 import { appFormDialogPt } from "./app-dialog";
@@ -14,7 +13,6 @@ import type { MembershipRole, UserDirectoryEntryResponse } from "../services/api
 const props = defineProps<{
   visible: boolean;
   busy?: boolean;
-  error?: string;
   title: string;
   initialLoginName?: string;
   initialRole?: MembershipRole;
@@ -107,8 +105,6 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
     @update:visible="emit('update:visible', $event)"
   >
     <div class="grid gap-3">
-      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-
       <div v-if="allowUserSearch !== false" class="grid gap-2">
         <label class="form-label">{{ t("members.user") }}</label>
         <AutoComplete

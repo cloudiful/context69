@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { apiClient, type LibraryFileSummary, type LibraryFolderNode, type LibraryTreeResponse } from "../../services/api";
 import type { ExplorerEntry, FileExplorerEntry, FolderExplorerEntry, FolderSummary } from "../../types/library";
 import { findFileLocation, findFolderById, findFolderTrail, flattenFolderOptions, folderKey } from "../../utils/library-tree";
+import { useErrorToast } from "../use-error-toast";
 
 interface UseProjectLibraryTreeOptions {
   groupPath: string;
@@ -11,9 +12,9 @@ interface UseProjectLibraryTreeOptions {
 }
 
 export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectLibraryTreeOptions) {
+  const showErrorToast = useErrorToast();
   const tree = ref<LibraryTreeResponse | null>(null);
   const treeLoading = ref(false);
-  const treeError = ref("");
   const expandedTreeKeys = ref<Record<string, boolean>>({ [folderKey(null)]: true });
   const resourceSearchQuery = ref("");
   const selectedExplorerEntry = ref<ExplorerEntry | null>(null);
@@ -157,7 +158,6 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
   async function loadTree() {
     treeLoading.value = !tree.value;
     try {
-      treeError.value = "";
       const nextTree = await apiClient.getGroupLibraryTree(groupPath);
       tree.value = nextTree;
       if (selectedFolderId.value && !findFolderById(nextTree.root, selectedFolderId.value)) {
@@ -179,7 +179,7 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
         updateExpandedForFolder(selectedFolderId.value);
       }
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.loadFailed");
+      showErrorToast(error, t("library.loadFailed"));
     } finally {
       treeLoading.value = false;
     }
@@ -242,7 +242,6 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
     syncSelectedExplorerEntry,
     toggleFolderExpansion,
     tree,
-    treeError,
     treeLoading,
     updateExpandedForFolder,
   };

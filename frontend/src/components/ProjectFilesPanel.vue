@@ -5,7 +5,6 @@ import { useI18n } from "vue-i18n";
 import ContextMenu from "primevue/contextmenu";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
-import Message from "primevue/message";
 import { useToast } from "primevue/usetoast";
 
 import { appContextMenuPt } from "./app-context-menu";
@@ -26,6 +25,7 @@ import { apiClient, type GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry, FileExplorerEntry } from "../types/library";
 import { toolPrimaryButtonClass } from "../ui/button-classes";
+import { useErrorToast } from "../composables/use-error-toast";
 
 const props = defineProps<{
   childGroups: GroupResponse[];
@@ -42,10 +42,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const toast = useToast();
+const showErrorToast = useErrorToast();
 const { statusLabel } = createLibraryStatusHelpers();
 const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed");
 const sourceFolderDialogBusy = ref(false);
-const sourceFolderDialogError = ref("");
 const sourceFolderDialogOpen = ref(false);
 const sourceFolderDialogTitle = ref("");
 const sourceFolderDialogFolderId = ref<string | null>(null);
@@ -86,7 +86,6 @@ const actions = useProjectLibraryActions({
   selectedFolder: tree.selectedFolder,
   selectedFileId: tree.selectedFileId,
   t,
-  treeError: tree.treeError,
   updateExpandedForFolder: tree.updateExpandedForFolder,
   previewDocked: preview.previewDocked,
   previewDialogVisible: preview.previewDialogVisible,
@@ -211,7 +210,6 @@ function defaultSourceConfigTemplate(folderName = "") {
 }
 
 function openCreateSourceFolderDialog() {
-  sourceFolderDialogError.value = "";
   sourceFolderDialogFolderId.value = null;
   sourceFolderDialogFolderName.value = "";
   sourceFolderDialogTitle.value = t("library.newSourceFolder");
@@ -221,7 +219,6 @@ function openCreateSourceFolderDialog() {
 
 async function openSourceConfigEditor(entry: FileExplorerEntry) {
   sourceFolderDialogBusy.value = true;
-  sourceFolderDialogError.value = "";
   try {
     const detail = await apiClient.getGroupLibraryFile(props.groupPath, entry.id);
     sourceFolderDialogFolderId.value = detail.folder_id ?? null;
@@ -230,7 +227,7 @@ async function openSourceConfigEditor(entry: FileExplorerEntry) {
     sourceFolderDialogValue.value = detail.sections[0]?.preview_text || defaultSourceConfigTemplate(sourceFolderDialogFolderName.value);
     sourceFolderDialogOpen.value = true;
   } catch (error) {
-    sourceFolderDialogError.value = error instanceof Error ? error.message : t("library.detailLoadFailed");
+    showErrorToast(error, t("library.detailLoadFailed"));
   } finally {
     sourceFolderDialogBusy.value = false;
   }
@@ -238,7 +235,6 @@ async function openSourceConfigEditor(entry: FileExplorerEntry) {
 
 async function saveSourceFolderDialog(payload: { folderName: string; value: string }) {
   sourceFolderDialogBusy.value = true;
-  sourceFolderDialogError.value = "";
   try {
     const sourceConfig = JSON.parse(payload.value);
     if (sourceFolderDialogFolderId.value) {
@@ -259,7 +255,7 @@ async function saveSourceFolderDialog(payload: { folderName: string; value: stri
       life: 2500,
     });
   } catch (error) {
-    sourceFolderDialogError.value = error instanceof Error ? error.message : t("common.save");
+    showErrorToast(error, t("common.save"));
   } finally {
     sourceFolderDialogBusy.value = false;
   }
@@ -279,7 +275,7 @@ async function syncSourceFolder(folderId: string | null) {
       life: 2500,
     });
   } catch (error) {
-    treeState.treeError = error instanceof Error ? error.message : t("sources.syncFailed");
+    showErrorToast(error, t("sources.syncFailed"));
   }
 }
 
@@ -349,7 +345,6 @@ onBeforeUnmount(() => {
       </Button>
     </template>
   </LibraryToolbar>
-  <Message v-if="treeState.treeError" severity="error" :closable="false">{{ treeState.treeError }}</Message>
 
   <section class="library-workspace library-workspace-embedded">
     <LibraryResourceTable
@@ -416,7 +411,6 @@ onBeforeUnmount(() => {
   <ProjectSourceFolderDialog
     :open="sourceFolderDialogOpen"
     :busy="sourceFolderDialogBusy"
-    :error="sourceFolderDialogError"
     :folder-name="sourceFolderDialogFolderName"
     :folder-name-readonly="!!sourceFolderDialogFolderId"
     :title="sourceFolderDialogTitle"
@@ -435,7 +429,6 @@ onBeforeUnmount(() => {
     <LibraryPreviewPanel
       :active-section-key="detailState.activeSectionKey"
       :detail="detailState.detail"
-      :detail-error="detailState.detailError"
       :detail-loading="detailState.detailLoading"
       :selected-file-id="treeState.selectedFileId"
       :selected-folder-summary="treeState.selectedFolderSummary"

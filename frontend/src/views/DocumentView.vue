@@ -11,18 +11,18 @@ import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import AppInfoCard from "../components/AppInfoCard.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
-import { ApiError, apiClient, type DocumentResponse } from "../services/api";
+import { apiClient, type DocumentResponse } from "../services/api";
 import { toolSecondaryButtonClass } from "../ui/button-classes";
 import { formatDate, formatJson, formatTimestamp } from "../utils/format";
+import { useErrorToast } from "../composables/use-error-toast";
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
+const showErrorToast = useErrorToast();
 
 const documentData = ref<DocumentResponse | null>(null);
 const loading = ref(false);
-const errorMessage = ref("");
-const notFound = ref(false);
 const expanded = ref(false);
 
 let controller: AbortController | null = null;
@@ -52,16 +52,13 @@ async function loadDocument() {
   const documentId = Number.parseInt(String(route.params.id), 10);
 
   if (!Number.isFinite(documentId)) {
-    notFound.value = true;
-    errorMessage.value = t("document.invalidId");
+    showErrorToast(null, t("document.invalidId"));
     return;
   }
 
   controller?.abort();
   controller = new AbortController();
   loading.value = true;
-  notFound.value = false;
-  errorMessage.value = "";
 
   try {
     documentData.value = await apiClient.getDocument(documentId, {
@@ -69,8 +66,7 @@ async function loadDocument() {
     });
   } catch (error) {
     documentData.value = null;
-    notFound.value = error instanceof ApiError && error.status === 404;
-    errorMessage.value = error instanceof Error ? error.message : t("document.loadFailed");
+    showErrorToast(error, t("document.loadFailed"));
   } finally {
     loading.value = false;
   }
@@ -111,8 +107,6 @@ onBeforeUnmount(() => {
       loading-test-id="document-loading"
       :loading-title="t('common.loading')"
       :loading-message="t('document.loadingMessage')"
-      :error="errorMessage"
-      :error-title="notFound ? '404' : t('common.error')"
     >
       <div v-if="documentData" class="document-layout">
         <div class="document-main">

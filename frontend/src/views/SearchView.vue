@@ -15,21 +15,21 @@ import { resolveSearchErrorMessage } from "../utils/search-errors";
 import { addSearchHistoryEntry, clearSearchHistory, readSearchHistory, type SearchHistoryEntry } from "../utils/search-history";
 import { createDefaultFilters, filtersFromQuery, filtersToQuery, buildSearchPayload } from "../utils/search";
 import { buildSearchTarget } from "../utils/search-target";
+import { useErrorToast } from "../composables/use-error-toast";
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
+const showErrorToast = useErrorToast();
 
 const filters = ref(createDefaultFilters());
 const results = ref<SearchResponse | null>(null);
 const sources = ref<SourceStatus[]>([]);
 const loading = ref(false);
-const sourceError = ref("");
-const searchError = ref("");
 const searched = ref(false);
 const selectedHit = ref<SearchHit | null>(null);
 const historyEntries = ref<SearchHistoryEntry[]>([]);
-const showResultsPanel = computed(() => loading.value || !!searchError.value || searched.value);
+const showResultsPanel = computed(() => loading.value || searched.value);
 const visibleHistoryEntries = computed(() => historyEntries.value.slice(0, 8));
 const searchConsoleClass = computed(() => [
   "grid",
@@ -49,10 +49,9 @@ function loadHistory() {
 
 async function loadSources() {
   try {
-    sourceError.value = "";
     sources.value = await apiClient.listSources();
   } catch (error) {
-    sourceError.value = error instanceof Error ? error.message : t("search.sourceLoadFailed");
+    showErrorToast(error, t("search.sourceLoadFailed"));
   }
 }
 
@@ -60,7 +59,7 @@ async function runSearch(options: { persistHistory?: boolean } = {}) {
   const payload = buildSearchPayload(filters.value);
 
   if (!payload.query) {
-    searchError.value = t("search.emptyQuery");
+    showErrorToast(null, t("search.emptyQuery"));
     results.value = null;
     searched.value = false;
     return;
@@ -69,7 +68,6 @@ async function runSearch(options: { persistHistory?: boolean } = {}) {
   controller?.abort();
   controller = new AbortController();
   loading.value = true;
-  searchError.value = "";
   searched.value = true;
 
   await router.replace({
@@ -92,7 +90,7 @@ async function runSearch(options: { persistHistory?: boolean } = {}) {
 
     results.value = null;
     selectedHit.value = null;
-    searchError.value = resolveSearchErrorMessage(error, t);
+    showErrorToast(null, resolveSearchErrorMessage(error, t));
   } finally {
     loading.value = false;
   }
@@ -140,14 +138,6 @@ onBeforeUnmount(() => {
 <template>
   <div class="grid gap-2 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
     <section :class="searchConsoleClass">
-      <AppStateMessage
-        v-if="sourceError"
-        severity="error"
-        :title="t('search.sourceErrorTitle')"
-      >
-        {{ sourceError }}
-      </AppStateMessage>
-
       <SearchForm
         :filters="filters"
         :sources="sources"
@@ -173,8 +163,7 @@ onBeforeUnmount(() => {
         :loading-title="t('search.scanningTitle')"
         :loading-message="t('search.scanningMessage')"
         loading-test-id="search-loading"
-        :error="searchError"
-        :empty="!searchError && searched && !!results && results.hits.length === 0"
+        :empty="searched && !!results && results.hits.length === 0"
       >
         <template #empty>
           <AppStateMessage :title="t('search.noMatchesTitle')">

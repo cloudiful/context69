@@ -4,7 +4,6 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
-import Message from "primevue/message";
 import Select from "primevue/select";
 
 import { appFormDialogPt } from "./app-dialog";
@@ -13,7 +12,6 @@ import type { Visibility } from "../services/api";
 const props = defineProps<{
   visible: boolean;
   title: string;
-  error?: string;
   busy?: boolean;
   submitLabel?: string;
   showKey?: boolean;
@@ -78,8 +76,6 @@ function handleSubmit() {
     @update:visible="emit('update:visible', $event)"
   >
     <div class="grid gap-3">
-      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-
       <div v-if="showKey" class="grid gap-2">
         <label class="form-label">{{ entityKeyLabel || t("groups.groupKey") }}</label>
         <InputText

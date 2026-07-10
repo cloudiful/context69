@@ -12,6 +12,7 @@ import {
   type UserDirectoryEntryResponse,
 } from "../services/api";
 import { setWorkspaceNavigationGroup } from "./use-workspace-navigation-context";
+import { useErrorToast } from "./use-error-toast";
 
 function roleRank(role?: string | null) {
   if (role === "owner") return 3;
@@ -29,14 +30,12 @@ export function useGroupWorkspace() {
   const router = useRouter();
   const { t } = useI18n();
   const confirm = useConfirm();
+  const showErrorToast = useErrorToast();
 
   const groupPath = computed(() => String(route.params.groupPath ?? ""));
   const group = ref<GroupResponse | null>(null);
   const members = ref<GroupMemberResponse[]>([]);
   const childGroups = ref<GroupResponse[]>([]);
-  const errorMessage = ref("");
-  const memberError = ref("");
-  const childGroupError = ref("");
   const loading = ref(false);
 
   const groupDialogVisible = ref(false);
@@ -62,7 +61,6 @@ export function useGroupWorkspace() {
   async function loadPage() {
     loading.value = true;
     try {
-      errorMessage.value = "";
       const [nextGroup, nextMembers, nextChildren, nextGroups] = await Promise.all([
         apiClient.getGroup(groupPath.value),
         apiClient.listGroupMembers(groupPath.value),
@@ -75,7 +73,7 @@ export function useGroupWorkspace() {
       groupSuggestions.value = nextGroups.filter((item: GroupResponse) => !isDescendantPath(item.group_path, nextGroup.group_path ?? groupPath.value));
       setWorkspaceNavigationGroup(nextGroup.group_path ?? groupPath.value, nextGroup.name);
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : t("groups.loadFailed");
+      showErrorToast(error, t("groups.loadFailed"));
       setWorkspaceNavigationGroup(groupPath.value);
     } finally {
       loading.value = false;
@@ -83,12 +81,15 @@ export function useGroupWorkspace() {
   }
 
   async function searchUsers(query: string) {
-    memberSuggestions.value = await apiClient.searchUserDirectory(query, 10);
+    try {
+      memberSuggestions.value = await apiClient.searchUserDirectory(query, 10);
+    } catch (error) {
+      showErrorToast(error, t("adminUsers.loadFailed"));
+    }
   }
 
   async function saveGroup(payload: Pick<CreateGroupRequest, "name" | "visibility">) {
     groupDialogBusy.value = true;
-    errorMessage.value = "";
     try {
       await apiClient.updateGroup(groupPath.value, {
         name: payload.name,
@@ -97,7 +98,7 @@ export function useGroupWorkspace() {
       groupDialogVisible.value = false;
       await loadPage();
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : t("groups.updateFailed");
+      showErrorToast(error, t("groups.updateFailed"));
     } finally {
       groupDialogBusy.value = false;
     }
@@ -105,7 +106,6 @@ export function useGroupWorkspace() {
 
   async function saveChildGroup(payload: Pick<CreateGroupRequest, "name" | "visibility"> & { key?: string }) {
     childGroupDialogBusy.value = true;
-    childGroupError.value = "";
     try {
       if (editingChildGroup.value?.group_path) {
         await apiClient.updateGroup(editingChildGroup.value.group_path, {
@@ -125,7 +125,7 @@ export function useGroupWorkspace() {
       editingChildGroup.value = null;
       await loadPage();
     } catch (error) {
-      childGroupError.value = error instanceof Error ? error.message : t("groups.childCreateFailed");
+      showErrorToast(error, t("groups.childCreateFailed"));
     } finally {
       childGroupDialogBusy.value = false;
     }
@@ -133,7 +133,6 @@ export function useGroupWorkspace() {
 
   async function saveMember(payload: UpsertMembershipRequest) {
     memberDialogBusy.value = true;
-    memberError.value = "";
     try {
       await apiClient.upsertGroupMember(groupPath.value, payload);
       memberDialogVisible.value = false;
@@ -141,7 +140,7 @@ export function useGroupWorkspace() {
       selectedMemberUser.value = null;
       members.value = await apiClient.listGroupMembers(groupPath.value);
     } catch (error) {
-      memberError.value = error instanceof Error ? error.message : t("groups.membersFailed");
+      showErrorToast(error, t("groups.membersFailed"));
     } finally {
       memberDialogBusy.value = false;
     }
@@ -150,7 +149,6 @@ export function useGroupWorkspace() {
   async function submitMoveGroup() {
     if (!movingGroup.value?.group_path) return;
     childGroupDialogBusy.value = true;
-    childGroupError.value = "";
     try {
       const moved = await apiClient.moveGroup(movingGroup.value.group_path, {
         target_parent_group_path: selectedTargetGroup.value?.group_path ?? null,
@@ -167,7 +165,7 @@ export function useGroupWorkspace() {
         });
       }
     } catch (error) {
-      childGroupError.value = error instanceof Error ? error.message : t("groups.moveFailed");
+      showErrorToast(error, t("groups.moveFailed"));
     } finally {
       childGroupDialogBusy.value = false;
     }
@@ -192,8 +190,12 @@ export function useGroupWorkspace() {
   }
 
   async function deleteGroup() {
-    await apiClient.deleteGroup(groupPath.value);
-    void router.push({ name: "groups" });
+    try {
+      await apiClient.deleteGroup(groupPath.value);
+      void router.push({ name: "groups" });
+    } catch (error) {
+      showErrorToast(error, t("groups.deleteFailed"));
+    }
   }
 
   function confirmDeleteChildGroup(childGroup: GroupResponse) {
@@ -209,8 +211,12 @@ export function useGroupWorkspace() {
 
   async function deleteChildGroup(childGroup: GroupResponse) {
     if (!childGroup.group_path) return;
-    await apiClient.deleteGroup(childGroup.group_path);
-    await loadPage();
+    try {
+      await apiClient.deleteGroup(childGroup.group_path);
+      await loadPage();
+    } catch (error) {
+      showErrorToast(error, t("groups.deleteFailed"));
+    }
   }
 
   function confirmRemoveMember(member: GroupMemberResponse) {
@@ -225,26 +231,27 @@ export function useGroupWorkspace() {
   }
 
   async function removeMember(loginName: string) {
-    await apiClient.deleteGroupMember(groupPath.value, loginName);
-    members.value = await apiClient.listGroupMembers(groupPath.value);
+    try {
+      await apiClient.deleteGroupMember(groupPath.value, loginName);
+      members.value = await apiClient.listGroupMembers(groupPath.value);
+    } catch (error) {
+      showErrorToast(error, t("groups.membersFailed"));
+    }
   }
 
   function openCreateChildGroupDialog() {
     editingChildGroup.value = null;
-    childGroupError.value = "";
     childGroupDialogVisible.value = true;
   }
 
   function openEditChildGroupDialog(childGroup: GroupResponse) {
     editingChildGroup.value = childGroup;
-    childGroupError.value = "";
     childGroupDialogVisible.value = true;
   }
 
   function openMoveChildGroupDialog(childGroup: GroupResponse) {
     movingGroup.value = childGroup;
     selectedTargetGroup.value = null;
-    childGroupError.value = "";
     moveGroupDialogVisible.value = true;
   }
 
@@ -252,14 +259,12 @@ export function useGroupWorkspace() {
     if (!group.value) return;
     movingGroup.value = group.value;
     selectedTargetGroup.value = null;
-    childGroupError.value = "";
     moveGroupDialogVisible.value = true;
   }
 
   function openCreateMemberDialog() {
     editingMember.value = null;
     selectedMemberUser.value = null;
-    memberError.value = "";
     memberDialogVisible.value = true;
   }
 
@@ -270,7 +275,6 @@ export function useGroupWorkspace() {
       login_name: member.login_name,
       display_name: member.display_name,
     };
-    memberError.value = "";
     memberDialogVisible.value = true;
   }
 
@@ -294,14 +298,12 @@ export function useGroupWorkspace() {
     canOwnGroup,
     childGroupDialogBusy,
     childGroupDialogVisible,
-    childGroupError,
     childGroups,
     confirmDeleteChildGroup,
     confirmDeleteGroup,
     confirmRemoveMember,
     editingChildGroup,
     editingMember,
-    errorMessage,
     group,
     groupDialogBusy,
     groupDialogVisible,
@@ -312,7 +314,6 @@ export function useGroupWorkspace() {
     loading,
     memberDialogBusy,
     memberDialogVisible,
-    memberError,
     memberSuggestions,
     members,
     moveGroupDialogVisible,

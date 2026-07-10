@@ -6,7 +6,6 @@ import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
-import Message from "primevue/message";
 import Password from "primevue/password";
 import Tag from "primevue/tag";
 import ToggleSwitch from "primevue/toggleswitch";
@@ -18,7 +17,6 @@ import type { AdminUserResponse } from "../../services/api";
 const props = defineProps<{
   busy?: boolean;
   createBusy?: boolean;
-  error?: string;
   users: AdminUserResponse[];
 }>();
 
@@ -127,8 +125,6 @@ function confirmEnable(loginNameValue: string) {
       <p class="settings-block-title">{{ t("adminUsers.title") }}</p>
       <Button :label="t('adminUsers.create')" size="small" :disabled="createBusy" @click="openCreate" />
     </div>
-
-    <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
     <DataTable class="app-data-table" :value="users" data-key="user_id" scrollable table-style="min-width: 100%">
       <Column field="login_name" :header="t('adminUsers.loginName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />

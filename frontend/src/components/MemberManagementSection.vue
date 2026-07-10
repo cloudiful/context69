@@ -3,14 +3,12 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
-import Message from "primevue/message";
 import Select from "primevue/select";
 import type { GroupMemberResponse, MembershipRole, UpsertMembershipRequest } from "../services/api";
 import { settingsDangerButtonClass, toolPrimaryButtonClass } from "../ui/button-classes";
 
 const props = defineProps<{
   busy?: boolean;
-  error?: string;
   members: GroupMemberResponse[];
   title: string;
 }>();
@@ -46,8 +44,6 @@ function submit() {
         <p class="section-title">{{ title }}</p>
       </div>
     </div>
-
-    <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
     <form class="workspace-inline-form" @submit.prevent="submit">
       <InputText v-model="loginName" :placeholder="t('members.loginName')" />

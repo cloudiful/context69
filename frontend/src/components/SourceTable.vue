@@ -19,7 +19,6 @@ const props = withDefaults(defineProps<{
   sources: SourceStatus[];
   syncingMap: Record<string, boolean>;
   deletingMap: Record<string, boolean>;
-  errorMap: Record<string, string>;
   canManage?: boolean;
 }>(), {
   canManage: true,

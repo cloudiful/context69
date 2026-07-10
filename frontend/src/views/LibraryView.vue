@@ -4,7 +4,6 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import ContextMenu from "primevue/contextmenu";
 import Dialog from "primevue/dialog";
-import Message from "primevue/message";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
@@ -66,7 +65,6 @@ const actions = useLibraryActions({
   selectedFolder: tree.selectedFolder,
   selectedFileId: tree.selectedFileId,
   t,
-  treeError: tree.treeError,
   updateExpandedForFolder: tree.updateExpandedForFolder,
   previewDocked: preview.previewDocked,
   previewDialogVisible: preview.previewDialogVisible,
@@ -237,10 +235,6 @@ defineExpose({
       @update:search-query="treeState.resourceSearchQuery = $event"
     />
 
-    <Message v-if="treeState.treeError" severity="error" :closable="false">
-      {{ treeState.treeError }}
-    </Message>
-
     <section class="library-workspace" :class="{ 'library-workspace-docked': previewState.showDockedPreview }">
       <Splitter v-if="previewState.showDockedPreview" class="library-splitter">
         <SplitterPanel :size="62" :min-size="42">
@@ -274,7 +268,6 @@ defineExpose({
             <LibraryPreviewPanel
               :active-section-key="detailState.activeSectionKey"
               :detail="detailState.detail"
-              :detail-error="detailState.detailError"
               :detail-loading="detailState.detailLoading"
               :selected-file-id="treeState.selectedFileId"
               :selected-folder-summary="treeState.selectedFolderSummary"
@@ -320,7 +313,6 @@ defineExpose({
         <LibraryPreviewPanel
           :active-section-key="detailState.activeSectionKey"
           :detail="detailState.detail"
-          :detail-error="detailState.detailError"
           :detail-loading="detailState.detailLoading"
           :selected-file-id="treeState.selectedFileId"
           :selected-folder-summary="treeState.selectedFolderSummary"

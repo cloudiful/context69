@@ -5,30 +5,28 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Message from "primevue/message";
 import Tag from "primevue/tag";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import { apiClient, type GroupResponse, type Visibility } from "../services/api";
 import { toolPrimaryButtonClass } from "../ui/button-classes";
+import { useErrorToast } from "../composables/use-error-toast";
 
 const router = useRouter();
 const { t } = useI18n();
+const showErrorToast = useErrorToast();
 const groups = ref<GroupResponse[]>([]);
 const loading = ref(false);
-const errorMessage = ref("");
-const dialogError = ref("");
 const createDialogVisible = ref(false);
 const createBusy = ref(false);
 
 async function loadGroups() {
   loading.value = true;
   try {
-    errorMessage.value = "";
     const nextGroups = await apiClient.listGroups();
     groups.value = nextGroups.filter((group) => !group.parent_group_path);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : t("groups.loadFailed");
+    showErrorToast(error, t("groups.loadFailed"));
   } finally {
     loading.value = false;
   }
@@ -36,7 +34,6 @@ async function loadGroups() {
 
 async function createGroup(payload: { key?: string; name: string; visibility: Visibility }) {
   createBusy.value = true;
-  dialogError.value = "";
   try {
     await apiClient.createGroup({
       group_key: payload.key?.trim() ?? "",
@@ -47,7 +44,7 @@ async function createGroup(payload: { key?: string; name: string; visibility: Vi
     createDialogVisible.value = false;
     await loadGroups();
   } catch (error) {
-    dialogError.value = error instanceof Error ? error.message : t("groups.createFailed");
+    showErrorToast(error, t("groups.createFailed"));
   } finally {
     createBusy.value = false;
   }
@@ -76,8 +73,6 @@ onMounted(() => {
         {{ t("groups.create") }}
       </Button>
     </div>
-
-    <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
 
     <DataTable
       class="app-data-table"
@@ -116,7 +111,6 @@ onMounted(() => {
     <EntityDialog
       v-model:visible="createDialogVisible"
       :busy="createBusy"
-      :error="dialogError"
       :show-key="true"
       :title="t('groups.create')"
       :entity-key-label="t('groups.groupKey')"

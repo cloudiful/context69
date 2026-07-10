@@ -11,7 +11,6 @@ const personalAccessTokenScopeOptions = computed(() => unref(state.personalAcces
 const personalAccessTokenScopeToggleModel = computed(() => unref(state.personalAccessTokenScopeToggleModel));
 const personalAccessTokens = computed(() => unref(state.personalAccessTokens));
 const personalAccessTokensCreating = computed(() => unref(state.personalAccessTokensCreating));
-const personalAccessTokensError = computed(() => unref(state.personalAccessTokensError));
 const personalAccessTokensLoading = computed(() => unref(state.personalAccessTokensLoading));
 const personalAccessTokensReveal = computed(() => unref(state.personalAccessTokensReveal));
 </script>
@@ -29,7 +28,6 @@ const personalAccessTokensReveal = computed(() => unref(state.personalAccessToke
     :personal-access-token-scope-toggle-model="personalAccessTokenScopeToggleModel"
     :personal-access-tokens="personalAccessTokens"
     :personal-access-tokens-creating="personalAccessTokensCreating"
-    :personal-access-tokens-error="personalAccessTokensError"
     :personal-access-tokens-loading="personalAccessTokensLoading"
     :personal-access-tokens-reveal="personalAccessTokensReveal"
     @update:personal-access-token-scope-toggle-model="state.personalAccessTokenScopeToggleModel.value = $event"

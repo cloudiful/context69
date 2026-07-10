@@ -47,7 +47,6 @@ const currentSection = computed<SettingsSectionKey>(() => {
 
 const hasChanges = computed(() => unref(state.hasChanges));
 const loading = computed(() => unref(state.loading));
-const pageError = computed(() => unref(state.pageError));
 const providerSaving = computed(() => unref(state.providerSaving));
 const saveMessage = computed(() => unref(state.saveMessage));
 const saving = computed(() => unref(state.saving));
@@ -80,7 +79,6 @@ function switchLocale(nextLocale: AppLocale) {
       :loading="loading"
       :loading-title="t('settings.loadingTitle')"
       :loading-message="t('settings.loadingMessage')"
-      :error="pageError"
     >
       <form class="grid gap-2" @submit.prevent="state.saveSettings">
         <div class="grid gap-4">

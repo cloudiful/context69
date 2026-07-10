@@ -79,6 +79,7 @@ export const en = {
     editGroup: "Edit Group",
     createFailed: "Failed to create group.",
     updateFailed: "Failed to update group.",
+    deleteFailed: "Failed to delete group.",
     moveFailed: "Failed to move group.",
     loadFailed: "Failed to load groups.",
     emptyTitle: "No Groups",

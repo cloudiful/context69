@@ -9,6 +9,7 @@ import {
   type PersonalAccessTokenResponse,
   type PersonalAccessTokenScope,
 } from "../services/api";
+import { useErrorToast } from "./use-error-toast";
 
 const DEFAULT_SCOPES: PersonalAccessTokenScope[] = ["search"];
 const DEFAULT_EXPIRY_DAYS = 30;
@@ -17,11 +18,11 @@ export function useSettingsPersonalAccessTokens() {
   const { t } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
+  const showErrorToast = useErrorToast();
 
   const personalAccessTokens = ref<PersonalAccessTokenResponse[]>([]);
   const personalAccessTokensLoading = ref(false);
   const personalAccessTokensCreating = ref(false);
-  const personalAccessTokensError = ref("");
   const personalAccessTokensReveal = ref<CreatePersonalAccessTokenResponse | null>(null);
 
   const personalAccessTokenDraft = reactive<{
@@ -79,12 +80,9 @@ export function useSettingsPersonalAccessTokens() {
   async function loadPersonalAccessTokens() {
     personalAccessTokensLoading.value = true;
     try {
-      personalAccessTokensError.value = "";
       personalAccessTokens.value = await apiClient.listPersonalAccessTokens();
     } catch (error) {
-      personalAccessTokensError.value = error instanceof Error
-        ? error.message
-        : t("settings.personalAccessTokens.loadFailed");
+      showErrorToast(error, t("settings.personalAccessTokens.loadFailed"));
     } finally {
       personalAccessTokensLoading.value = false;
     }
@@ -92,13 +90,12 @@ export function useSettingsPersonalAccessTokens() {
 
   async function createPersonalAccessToken() {
     if (personalAccessTokenValidationError.value) {
-      personalAccessTokensError.value = personalAccessTokenValidationError.value;
+      showErrorToast(null, personalAccessTokenValidationError.value);
       return;
     }
 
     personalAccessTokensCreating.value = true;
     try {
-      personalAccessTokensError.value = "";
       personalAccessTokensReveal.value = await apiClient.createPersonalAccessToken({
         name: personalAccessTokenDraft.name.trim(),
         scopes: personalAccessTokenDraft.scopes,
@@ -112,9 +109,7 @@ export function useSettingsPersonalAccessTokens() {
         life: 2500,
       });
     } catch (error) {
-      personalAccessTokensError.value = error instanceof Error
-        ? error.message
-        : t("settings.personalAccessTokens.createFailed");
+      showErrorToast(error, t("settings.personalAccessTokens.createFailed"));
     } finally {
       personalAccessTokensCreating.value = false;
     }
@@ -142,7 +137,6 @@ export function useSettingsPersonalAccessTokens() {
 
   async function revokePersonalAccessToken(tokenId: string) {
     try {
-      personalAccessTokensError.value = "";
       await apiClient.revokePersonalAccessToken(tokenId);
       personalAccessTokens.value = await apiClient.listPersonalAccessTokens();
       toast.add({
@@ -151,9 +145,7 @@ export function useSettingsPersonalAccessTokens() {
         life: 2500,
       });
     } catch (error) {
-      personalAccessTokensError.value = error instanceof Error
-        ? error.message
-        : t("settings.personalAccessTokens.revokeFailed");
+      showErrorToast(error, t("settings.personalAccessTokens.revokeFailed"));
     }
   }
 
@@ -174,9 +166,7 @@ export function useSettingsPersonalAccessTokens() {
         life: 2500,
       });
     } catch (error) {
-      personalAccessTokensError.value = error instanceof Error
-        ? error.message
-        : t("settings.personalAccessTokens.copyFailed");
+      showErrorToast(error, t("settings.personalAccessTokens.copyFailed"));
     }
   }
 
@@ -203,7 +193,6 @@ export function useSettingsPersonalAccessTokens() {
     personalAccessTokenValidationError,
     personalAccessTokens,
     personalAccessTokensCreating,
-    personalAccessTokensError,
     personalAccessTokensLoading,
     personalAccessTokensReveal,
     confirmRevokePersonalAccessToken,

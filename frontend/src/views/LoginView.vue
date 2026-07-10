@@ -11,15 +11,15 @@ import Message from "primevue/message";
 import * as z from "zod";
 
 import AppPanel from "../components/AppPanel.vue";
-import AppStateMessage from "../components/AppStateMessage.vue";
+import { useErrorToast } from "../composables/use-error-toast";
 import { AuthError, authSessionState, login } from "../services/auth/session";
 import { authSubmitButtonClass } from "../ui/button-classes";
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
+const showErrorToast = useErrorToast();
 
-const errorMessage = ref("");
 const busy = ref(false);
 
 const initialValues = {
@@ -66,7 +66,6 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
     return;
   }
 
-  errorMessage.value = "";
   busy.value = true;
 
   try {
@@ -79,14 +78,14 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
     const authError = readAuthError(error);
     if (authError) {
       if (authError.reason === "invalid_credentials") {
-        errorMessage.value = t("auth.invalidCredentials");
+        showErrorToast(null, t("auth.invalidCredentials"));
       } else if (authError.reason === "network") {
-        errorMessage.value = t("auth.networkError");
+        showErrorToast(null, t("auth.networkError"));
       } else {
-        errorMessage.value = authError.message || t("auth.loginFailed");
+        showErrorToast(authError, t("auth.loginFailed"));
       }
     } else {
-      errorMessage.value = t("auth.loginFailed");
+      showErrorToast(error, t("auth.loginFailed"));
     }
   } finally {
     busy.value = false;
@@ -101,14 +100,6 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
         <span class="auth-session-inline-name">{{ authSessionState.user.display_name }}</span>
         <span class="text-xs text-app-text-dim">{{ authSessionState.user.login_name }}</span>
       </div>
-
-      <AppStateMessage
-        v-if="errorMessage"
-        severity="error"
-        :title="t('auth.loginFailedTitle')"
-      >
-        {{ errorMessage }}
-      </AppStateMessage>
 
       <Fluid>
         <Form

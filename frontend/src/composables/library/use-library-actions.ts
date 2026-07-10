@@ -5,6 +5,7 @@ import { useToast } from "primevue/usetoast";
 import { apiClient, type LibraryFileSummary, type LibraryFolderNode } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
 import { collectDescendantFolderIds } from "../../utils/library-tree";
+import { useErrorToast } from "../use-error-toast";
 
 interface MoveDialogState {
   kind: "file" | "folder";
@@ -35,7 +36,6 @@ interface UseLibraryActionsOptions {
   selectedFolder: Ref<LibraryFolderNode | null>;
   selectedFileId: Ref<string | null>;
   t: (key: string, params?: Record<string, unknown>) => string;
-  treeError: Ref<string>;
   updateExpandedForFolder: (folderId: string | null) => void;
   previewDocked: Ref<boolean>;
   previewDialogVisible: Ref<boolean>;
@@ -50,13 +50,13 @@ export function useLibraryActions({
   selectedFolder,
   selectedFileId,
   t,
-  treeError,
   updateExpandedForFolder,
   previewDocked,
   previewDialogVisible,
 }: UseLibraryActionsOptions) {
   const confirm = useConfirm();
   const toast = useToast();
+  const showErrorToast = useErrorToast();
 
   const createFolderBusy = ref(false);
   const uploadBusy = ref(false);
@@ -100,7 +100,7 @@ export function useLibraryActions({
         life: 2500,
       });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.createFolderFailed");
+      showErrorToast(error, t("library.createFolderFailed"));
     } finally {
       createFolderBusy.value = false;
     }
@@ -130,7 +130,7 @@ export function useLibraryActions({
         life: 2500,
       });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.uploadFailed");
+      showErrorToast(error, t("library.uploadFailed"));
     } finally {
       uploadBusy.value = false;
     }
@@ -194,7 +194,7 @@ export function useLibraryActions({
       });
       moveDialog.value = null;
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.moveFailed");
+      showErrorToast(error, t("library.moveFailed"));
     } finally {
       actionBusy.value = false;
     }
@@ -238,7 +238,7 @@ export function useLibraryActions({
         life: 2500,
       });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.deleteFolderFailed");
+      showErrorToast(error, t("library.deleteFolderFailed"));
     } finally {
       actionBusy.value = false;
     }
@@ -281,7 +281,7 @@ export function useLibraryActions({
         life: 2500,
       });
     } catch (error) {
-      treeError.value = error instanceof Error ? error.message : t("library.deleteFileFailed");
+      showErrorToast(error, t("library.deleteFileFailed"));
     } finally {
       actionBusy.value = false;
     }

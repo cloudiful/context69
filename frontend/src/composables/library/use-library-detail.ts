@@ -1,6 +1,7 @@
 import { onBeforeUnmount, ref } from "vue";
 
 import { apiClient, type LibraryFileDetailResponse } from "../../services/api";
+import { useErrorToast } from "../use-error-toast";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -11,9 +12,9 @@ interface UseLibraryDetailOptions {
 }
 
 export function useLibraryDetail({ loadTree, selectedFileId, t }: UseLibraryDetailOptions) {
+  const showErrorToast = useErrorToast();
   const detail = ref<LibraryFileDetailResponse | null>(null);
   const detailLoading = ref(false);
-  const detailError = ref("");
   const activeSectionKey = ref("");
 
   const activeJobs = new Set<string>();
@@ -25,7 +26,6 @@ export function useLibraryDetail({ loadTree, selectedFileId, t }: UseLibraryDeta
 
     if (!fileId) {
       detail.value = null;
-      detailError.value = "";
       detailLoading.value = false;
       activeSectionKey.value = "";
       return;
@@ -33,7 +33,6 @@ export function useLibraryDetail({ loadTree, selectedFileId, t }: UseLibraryDeta
 
     detailController = new AbortController();
     detailLoading.value = true;
-    detailError.value = "";
 
     try {
       const nextDetail = await apiClient.getLibraryFile(fileId, {
@@ -55,7 +54,7 @@ export function useLibraryDetail({ loadTree, selectedFileId, t }: UseLibraryDeta
       }
 
       detail.value = null;
-      detailError.value = error instanceof Error ? error.message : t("library.detailLoadFailed");
+      showErrorToast(error, t("library.detailLoadFailed"));
     } finally {
       detailLoading.value = false;
     }
@@ -123,7 +122,6 @@ export function useLibraryDetail({ loadTree, selectedFileId, t }: UseLibraryDeta
   return {
     activeSectionKey,
     detail,
-    detailError,
     detailLoading,
     loadDetail,
     schedulePolling,

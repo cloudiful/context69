@@ -3,13 +3,11 @@ import { ref, watch } from "vue";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
-import Message from "primevue/message";
 
 import AppMonacoEditor from "./AppMonacoEditor.vue";
 
 const props = defineProps<{
   busy: boolean;
-  error: string;
   folderName?: string;
   folderNameReadonly?: boolean;
   open: boolean;
@@ -68,9 +66,6 @@ watch(
         </div>
       </label>
 
-      <Message v-if="error" severity="error" :closable="false">
-        {{ error }}
-      </Message>
     </div>
 
     <template #footer>
