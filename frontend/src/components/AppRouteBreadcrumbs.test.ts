@@ -40,7 +40,8 @@ describe("AppRouteBreadcrumbs", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Search");
-    expect(wrapper.text()).toContain("Groups");
+    expect(wrapper.text()).toContain("Browser");
+    expect(wrapper.text()).toContain("stock");
     expect(wrapper.text()).toContain("Alpha Group");
     expect(wrapper.text()).toContain("Settings");
 
@@ -52,6 +53,14 @@ describe("AppRouteBreadcrumbs", () => {
 
     expect(router.currentRoute.value.name).toBe("group-overview");
     expect(router.currentRoute.value.fullPath).toBe("/groups/stock%2Falpha/overview");
+
+    const parentGroupButton = wrapper.findAll("button").find((button) => button.text() === "stock");
+    expect(parentGroupButton).toBeDefined();
+
+    await parentGroupButton!.trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/overview");
   });
 
   it("renders settings breadcrumbs for nested settings routes", async () => {

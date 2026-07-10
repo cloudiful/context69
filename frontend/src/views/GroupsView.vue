@@ -25,7 +25,8 @@ async function loadGroups() {
   loading.value = true;
   try {
     errorMessage.value = "";
-    groups.value = await apiClient.listGroups();
+    const nextGroups = await apiClient.listGroups();
+    groups.value = nextGroups.filter((group) => !group.parent_group_path);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : t("groups.loadFailed");
   } finally {
@@ -94,7 +95,6 @@ onMounted(() => {
       </template>
 
       <Column field="group_key" :header="t('groups.groupKey')" sortable />
-      <Column field="group_path" :header="t('groups.groupPath')" sortable />
       <Column field="name" :header="t('groups.groupName')" sortable />
       <Column field="visibility" :header="t('groups.visibility')" sortable>
         <template #body="{ data }">

@@ -20,7 +20,7 @@ export const en = {
   },
   nav: {
     search: "Search",
-    groups: "Groups",
+    groups: "Browser",
     settings: "Settings",
   },
   auth: {
@@ -67,10 +67,11 @@ export const en = {
     searchUserPlaceholder: "Search by login name or display name",
   },
   groups: {
-    title: "Groups",
+    title: "Browser",
     groupKey: "Group Key",
     groupPath: "Group Path",
     groupName: "Group Name",
+    groupType: "Group",
     visibility: "Visibility",
     kind: "Kind",
     currentRole: "Current Role",

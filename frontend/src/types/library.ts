@@ -1,4 +1,4 @@
-import type { LibraryFileSummary, LibraryFolderNode, LibraryIngestStatus } from "../services/api";
+import type { GroupResponse, LibraryFileSummary, LibraryFolderNode, LibraryIngestStatus } from "../services/api";
 
 export interface FolderTreeNode {
   key: string;
@@ -44,6 +44,15 @@ export interface FileExplorerEntry extends ExplorerBaseEntry {
 }
 
 export type ExplorerEntry = FolderExplorerEntry | FileExplorerEntry;
+
+export interface GroupExplorerEntry extends ExplorerBaseEntry {
+  kind: "group";
+  id: number;
+  group: GroupResponse;
+  visibility: GroupResponse["visibility"];
+}
+
+export type LibraryBrowserEntry = ExplorerEntry | GroupExplorerEntry;
 
 export interface FolderSummary {
   childFolderCount: number;

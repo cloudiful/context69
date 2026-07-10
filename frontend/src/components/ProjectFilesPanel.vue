@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, watch } from "vue";
 import { proxyRefs, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import ContextMenu from "primevue/contextmenu";
+import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import Message from "primevue/message";
 import { useToast } from "primevue/usetoast";
@@ -18,14 +19,25 @@ import LibraryToolbar from "./LibraryToolbar.vue";
 import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
+import { useGroupBrowserEntries } from "../composables/project-library/use-group-browser-entries";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
-import { apiClient } from "../services/api";
+import { apiClient, type GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry, FileExplorerEntry } from "../types/library";
+import { toolPrimaryButtonClass } from "../ui/button-classes";
 
 const props = defineProps<{
+  childGroups: GroupResponse[];
   groupPath: string;
+}>();
+
+const emit = defineEmits<{
+  "create-child-group": [];
+  "delete-child-group": [GroupResponse];
+  "edit-child-group": [GroupResponse];
+  "move-child-group": [GroupResponse];
+  "open-child-group": [GroupResponse];
 }>();
 
 const { t } = useI18n();
@@ -80,6 +92,13 @@ const actions = useProjectLibraryActions({
   previewDialogVisible: preview.previewDialogVisible,
 });
 const actionsState = proxyRefs(actions);
+
+const { filteredGroupEntries, resourceCountLabel } = useGroupBrowserEntries({
+  childGroups: () => props.childGroups,
+  libraryEntryCount: () => treeState.filteredExplorerEntries.length,
+  query: () => treeState.resourceSearchQuery,
+  t,
+});
 
 const resourceContextMenu = ref();
 const surfaceContextMenu = ref();
@@ -320,10 +339,16 @@ onBeforeUnmount(() => {
   <LibraryToolbar
     :breadcrumb-home="treeState.breadcrumbHome"
     :breadcrumb-items="treeState.breadcrumbItems"
-    :count-label="treeState.filteredResourceCountLabel"
+    :count-label="resourceCountLabel"
     :search-query="treeState.resourceSearchQuery"
     @update:search-query="treeState.resourceSearchQuery = $event"
-  />
+  >
+    <template #actions>
+      <Button :class="toolPrimaryButtonClass" size="small" @click="emit('create-child-group')">
+        {{ t("groups.createChild") }}
+      </Button>
+    </template>
+  </LibraryToolbar>
   <Message v-if="treeState.treeError" severity="error" :closable="false">{{ treeState.treeError }}</Message>
 
   <section class="library-workspace library-workspace-embedded">
@@ -331,6 +356,7 @@ onBeforeUnmount(() => {
       :create-folder-busy="actionsState.createFolderBusy"
       :create-source-folder-busy="sourceFolderDialogBusy"
       :entries="treeState.filteredExplorerEntries"
+      :group-entries="filteredGroupEntries"
       :expanded-keys="treeState.expandedTreeKeys"
       :loading="treeState.treeLoading"
       :resource-search-query="treeState.resourceSearchQuery"
@@ -347,6 +373,10 @@ onBeforeUnmount(() => {
       @open-entry="openExplorerEntry"
       @move-entry="actionsState.moveExplorerEntry"
       @delete-entry="actionsState.deleteExplorerEntry"
+      @open-group="emit('open-child-group', $event.group)"
+      @edit-group="emit('edit-child-group', $event.group)"
+      @move-group="emit('move-child-group', $event.group)"
+      @delete-group="emit('delete-child-group', $event.group)"
       @toggle-folder="treeState.toggleFolderExpansion($event.id)"
       @refresh="treeState.refreshLibrary(detailState.loadDetail)"
       @create-folder="actionsState.openCreateFolderDialog()"

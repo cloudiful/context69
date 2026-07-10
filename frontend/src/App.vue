@@ -7,6 +7,7 @@ import Toast from "primevue/toast";
 import AppMobileNav from "./components/AppMobileNav.vue";
 import AppRouteBreadcrumbs from "./components/AppRouteBreadcrumbs.vue";
 import AppSidebar from "./components/AppSidebar.vue";
+import { appConfirmDialogPt } from "./components/app-dialog";
 import { useUiPreferences } from "./composables/use-ui-preferences";
 import { authSessionState } from "./services/auth/session";
 
@@ -29,7 +30,7 @@ onMounted(() => {
       'is-sidebar-collapsed': preferences.state.sidebarCollapsed,
     }"
   >
-    <ConfirmDialog />
+    <ConfirmDialog :draggable="false" :pt="appConfirmDialogPt" />
     <Toast position="bottom-right" />
     <AppSidebar />
 

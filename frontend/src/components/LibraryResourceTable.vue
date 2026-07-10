@@ -1,18 +1,21 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Tag from "primevue/tag";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
-import type { ExplorerEntry } from "../types/library";
+import LibraryResourceCards from "./LibraryResourceCards.vue";
+import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
 import { libraryRowActionButtonClass, libraryRowDangerActionButtonClass } from "../ui/button-classes";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import { formatBytes, formatTimestamp } from "../utils/format";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   createFolderBusy: boolean;
   createSourceFolderBusy?: boolean;
   entries: ExplorerEntry[];
+  groupEntries?: GroupExplorerEntry[];
   expandedKeys: Record<string, boolean>;
   loading: boolean;
   resourceSearchQuery: string;
@@ -20,11 +23,17 @@ const props = defineProps<{
   selection: ExplorerEntry | null;
   tableContextSelection: ExplorerEntry | null;
   uploadBusy: boolean;
-}>();
+}>(), {
+  groupEntries: () => [],
+});
 
 const emit = defineEmits<{
   "create-folder": [];
   "create-source-folder": [];
+  "delete-group": [GroupExplorerEntry];
+  "edit-group": [GroupExplorerEntry];
+  "move-group": [GroupExplorerEntry];
+  "open-group": [GroupExplorerEntry];
   "open-entry": [ExplorerEntry];
   refresh: [];
   "row-click": [{ data: ExplorerEntry }];
@@ -41,12 +50,15 @@ const emit = defineEmits<{
 }>();
 
 const { statusLabel, statusSeverity } = createLibraryStatusHelpers();
+const displayEntries = computed<LibraryBrowserEntry[]>(() => [...props.groupEntries, ...props.entries]);
 
-function resourceTypeLabel(entry: ExplorerEntry): string {
+function resourceTypeLabel(entry: LibraryBrowserEntry): string {
+  if (entry.kind === "group") return "groups.groupType";
   return entry.kind === "folder" ? "library.folderType" : "library.fileType";
 }
 
-function resourceStatusLabel(entry: ExplorerEntry): string {
+function resourceStatusLabel(entry: LibraryBrowserEntry): string {
+  if (entry.kind === "group") return entry.visibility;
   if (entry.kind === "folder") {
     return entry.processingCount > 0
       ? `library.folderProcessing`
@@ -56,15 +68,15 @@ function resourceStatusLabel(entry: ExplorerEntry): string {
   return statusLabel(entry.ingestStatus);
 }
 
-function resourceSizeLabel(entry: ExplorerEntry): string {
-  if (entry.kind === "folder") {
+function resourceSizeLabel(entry: LibraryBrowserEntry): string {
+  if (entry.kind !== "file") {
     return "—";
   }
 
   return formatBytes(entry.sizeBytes);
 }
 
-function statusTooltip(entry: ExplorerEntry): string | undefined {
+function statusTooltip(entry: LibraryBrowserEntry): string | undefined {
   if (entry.kind !== "file" || entry.ingestStatus !== "failed") {
     return undefined;
   }
@@ -72,13 +84,13 @@ function statusTooltip(entry: ExplorerEntry): string | undefined {
   return entry.errorMessage || undefined;
 }
 
-function entryIndentStyle(entry: ExplorerEntry) {
+function entryIndentStyle(entry: LibraryBrowserEntry) {
   return {
     "--library-entry-depth": String(entry.depth),
   };
 }
 
-function isFolderExpanded(entry: ExplorerEntry): boolean {
+function isFolderExpanded(entry: LibraryBrowserEntry): boolean {
   return entry.kind === "folder" && !!props.expandedKeys[entry.id ?? "__root__"];
 }
 
@@ -95,18 +107,74 @@ function handleSurfaceContextMenu(event: MouseEvent) {
   emit("surface-contextmenu", { originalEvent: event });
 }
 
-function canMoveEntry(entry: ExplorerEntry): boolean {
+function canMoveEntry(entry: LibraryBrowserEntry): boolean {
+  if (entry.kind === "group") return true;
   if (entry.kind === "folder") {
     return !entry.isSourceRecordsFolder;
   }
   return !entry.isSourceConfigFile && !entry.isSourceRecordFile;
 }
 
-function canDeleteEntry(entry: ExplorerEntry): boolean {
+function canDeleteEntry(entry: LibraryBrowserEntry): boolean {
+  if (entry.kind === "group") return true;
   if (entry.kind === "folder") {
     return !entry.isSourceRecordsFolder;
   }
   return !entry.isSourceConfigFile && !entry.isSourceRecordFile;
+}
+
+function openEntry(entry: LibraryBrowserEntry) {
+  if (entry.kind === "group") {
+    emit("open-group", entry);
+    return;
+  }
+  emit("open-entry", entry);
+}
+
+function moveEntry(entry: LibraryBrowserEntry) {
+  if (entry.kind === "group") {
+    emit("move-group", entry);
+    return;
+  }
+  emit("move-entry", entry);
+}
+
+function deleteEntry(entry: LibraryBrowserEntry) {
+  if (entry.kind === "group") {
+    emit("delete-group", entry);
+    return;
+  }
+  emit("delete-entry", entry);
+}
+
+function handleRowClick(event: { data: LibraryBrowserEntry }) {
+  if (event.data.kind === "group") {
+    emit("open-group", event.data);
+    return;
+  }
+  emit("row-click", { data: event.data });
+}
+
+function handleRowDoubleClick(event: { data: LibraryBrowserEntry }) {
+  if (event.data.kind === "group") {
+    emit("open-group", event.data);
+    return;
+  }
+  emit("row-dblclick", { data: event.data });
+}
+
+function handleRowContextMenu(event: { originalEvent: Event; data: LibraryBrowserEntry }) {
+  if (event.data.kind !== "group") {
+    emit("row-contextmenu", { originalEvent: event.originalEvent, data: event.data });
+  }
+}
+
+function handleSelectionUpdate(entry: LibraryBrowserEntry | null) {
+  emit("update:selection", entry?.kind === "group" ? null : entry);
+}
+
+function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
+  emit("update:tableContextSelection", entry?.kind === "group" ? null : entry);
 }
 
 </script>
@@ -123,7 +191,7 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
           class="tool-table-desktop"
           :selection="props.selection"
           :contextMenuSelection="props.tableContextSelection"
-          :value="props.entries"
+          :value="displayEntries"
           data-key="key"
           selection-mode="single"
           context-menu
@@ -131,11 +199,11 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
           scrollable
           scroll-height="flex"
           table-style="min-width: 52rem"
-          @update:selection="emit('update:selection', $event)"
-          @update:contextMenuSelection="emit('update:tableContextSelection', $event)"
-          @row-click="emit('row-click', $event)"
-          @row-dblclick="emit('row-dblclick', $event)"
-          @row-contextmenu="emit('row-contextmenu', $event)"
+          @update:selection="handleSelectionUpdate"
+          @update:contextMenuSelection="handleContextSelectionUpdate"
+          @row-click="handleRowClick"
+          @row-dblclick="handleRowDoubleClick"
+          @row-contextmenu="handleRowContextMenu"
         >
           <template #empty>
             <div class="py-8 text-center text-sm text-app-text-dim">
@@ -148,11 +216,11 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
               <div class="library-resource-record" :style="entryIndentStyle(data)">
                 <div class="library-resource-main">
                   <button
-                    v-if="data.kind === 'folder'"
+                    v-if="data.kind !== 'file'"
                     class="library-folder-toggle"
                     type="button"
-                    :aria-label="isFolderExpanded(data) ? 'Collapse folder' : 'Expand folder'"
-                    @click.stop="emit('toggle-folder', data)"
+                    :aria-label="data.kind === 'group' ? $t('common.open') : isFolderExpanded(data) ? 'Collapse folder' : 'Expand folder'"
+                    @click.stop="data.kind === 'group' ? openEntry(data) : emit('toggle-folder', data)"
                   >
                     <span
                       class="library-folder-toggle-icon"
@@ -168,12 +236,15 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
                       class="library-entry-button"
                       type="button"
                       :data-entry-key="data.key"
-                      @click.stop="emit('open-entry', data)"
+                      @click.stop="openEntry(data)"
                     >
                       {{ data.name }}
                     </button>
                     <p v-if="data.kind === 'folder'" class="library-resource-meta">
                       {{ $t("library.treeCounts", { folders: data.childFolderCount, files: data.fileCount }) }}
+                    </p>
+                    <p v-else-if="data.kind === 'group'" class="library-resource-meta">
+                      {{ data.path }}
                     </p>
                   </div>
                 </div>
@@ -189,7 +260,8 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
 
           <Column :header="$t('library.statusLabel')" class="w-32">
             <template #body="{ data }">
-              <span v-if="data.kind === 'file'" :class="statusTooltip(data) ? 'inline-flex cursor-help' : 'inline-flex'" :title="statusTooltip(data)">
+              <Tag v-if="data.kind === 'group'" :value="data.visibility" severity="secondary" />
+              <span v-else-if="data.kind === 'file'" :class="statusTooltip(data) ? 'inline-flex cursor-help' : 'inline-flex'" :title="statusTooltip(data)">
                 <Tag
                   :value="statusLabel(data.ingestStatus)"
                   :severity="statusSeverity(data.ingestStatus)"
@@ -235,11 +307,21 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
                 <Button
                   unstyled
                   :class="libraryRowActionButtonClass"
-                  :aria-label="data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
-                  :title="data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
-                  @click.stop="emit('open-entry', data)"
+                  :aria-label="data.kind === 'group' ? $t('common.open') : data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
+                  :title="data.kind === 'group' ? $t('common.open') : data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
+                  @click.stop="openEntry(data)"
                 >
                   {{ $t("common.open") }}
+                </Button>
+                <Button
+                  v-if="data.kind === 'group'"
+                  unstyled
+                  :class="libraryRowActionButtonClass"
+                  :aria-label="$t('common.edit')"
+                  :title="$t('common.edit')"
+                  @click.stop="emit('edit-group', data)"
+                >
+                  {{ $t("common.edit") }}
                 </Button>
                 <Button
                   v-if="canMoveEntry(data)"
@@ -247,7 +329,7 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
                   :class="libraryRowActionButtonClass"
                   :aria-label="$t('common.move')"
                   :title="$t('common.move')"
-                  @click.stop="emit('move-entry', data)"
+                  @click.stop="moveEntry(data)"
                 >
                   {{ $t("common.move") }}
                 </Button>
@@ -257,7 +339,7 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
                   :class="libraryRowDangerActionButtonClass"
                   :aria-label="$t('common.delete')"
                   :title="$t('common.delete')"
-                  @click.stop="emit('delete-entry', data)"
+                  @click.stop="deleteEntry(data)"
                 >
                   {{ $t("common.delete") }}
                 </Button>
@@ -266,92 +348,20 @@ function canDeleteEntry(entry: ExplorerEntry): boolean {
           </Column>
         </DataTable>
 
-        <div class="tool-card-list library-card-list">
-          <div v-if="props.entries.length === 0" class="tool-empty">
-            {{ props.resourceSearchQuery ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
-          </div>
-
-          <article
-            v-for="entry in props.entries"
-            :key="entry.key"
-            class="tool-card"
-            :class="{ 'tool-card-selected': props.selection?.key === entry.key }"
-            :style="entryIndentStyle(entry)"
-            @click="emit('row-click', { data: entry })"
-            @dblclick="emit('row-dblclick', { data: entry })"
-            @contextmenu.prevent="emit('row-contextmenu', { originalEvent: $event, data: entry })"
-          >
-            <div class="tool-card-header">
-              <div class="library-resource-main">
-                <button
-                  v-if="entry.kind === 'folder'"
-                  class="library-folder-toggle"
-                  type="button"
-                  :aria-label="isFolderExpanded(entry) ? 'Collapse folder' : 'Expand folder'"
-                  @click.stop="emit('toggle-folder', entry)"
-                >
-                  <span
-                    class="library-folder-toggle-icon"
-                    :class="{ 'library-folder-toggle-icon-expanded': isFolderExpanded(entry) }"
-                  >
-                    &gt;
-                  </span>
-                </button>
-                <span v-else class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
-                <div class="min-w-0">
-                  <button
-                    class="tool-card-title library-entry-button"
-                    type="button"
-                    :data-entry-key="entry.key"
-                    @click.stop="emit('open-entry', entry)"
-                  >
-                    {{ entry.name }}
-                  </button>
-                  <p v-if="entry.kind === 'folder'" class="tool-card-subtitle">
-                    {{ $t("library.treeCounts", { folders: entry.childFolderCount, files: entry.fileCount }) }}
-                  </p>
-                </div>
-              </div>
-              <span
-                v-if="entry.kind === 'file'"
-                :class="statusTooltip(entry) ? 'inline-flex cursor-help' : 'inline-flex'"
-                :title="statusTooltip(entry)"
-              >
-                <Tag
-                  class="tool-chip"
-                  :value="statusLabel(entry.ingestStatus)"
-                  :severity="statusSeverity(entry.ingestStatus)"
-                />
-              </span>
-            </div>
-
-            <dl v-if="entry.kind === 'file'" class="tool-meta-grid">
-              <div>
-                <dt>{{ $t("library.typeLabel") }}</dt>
-                <dd>{{ $t(resourceTypeLabel(entry)) }}</dd>
-              </div>
-              <div>
-                <dt>{{ $t("library.sizeLabel") }}</dt>
-                <dd>{{ resourceSizeLabel(entry) }}</dd>
-              </div>
-              <div>
-                <dt>{{ $t("library.updatedColumn") }}</dt>
-                <dd>{{ entry.updatedAt ? formatTimestamp(entry.updatedAt) : "—" }}</dd>
-              </div>
-            </dl>
-            <div class="tool-card-actions">
-              <Button unstyled :class="libraryRowActionButtonClass" @click.stop="emit('open-entry', entry)">
-                {{ $t("common.open") }}
-              </Button>
-              <Button unstyled :class="libraryRowActionButtonClass" @click.stop="emit('move-entry', entry)">
-                {{ $t("common.move") }}
-              </Button>
-              <Button unstyled :class="libraryRowDangerActionButtonClass" @click.stop="emit('delete-entry', entry)">
-                {{ $t("common.delete") }}
-              </Button>
-            </div>
-          </article>
-        </div>
+        <LibraryResourceCards
+          :entries="displayEntries"
+          :expanded-keys="props.expandedKeys"
+          :resource-search-query="props.resourceSearchQuery"
+          :selection="props.selection"
+          @delete="deleteEntry"
+          @edit-group="emit('edit-group', $event)"
+          @move="moveEntry"
+          @open="openEntry"
+          @row-click="handleRowClick({ data: $event })"
+          @row-contextmenu="handleRowContextMenu"
+          @row-dblclick="handleRowDoubleClick({ data: $event })"
+          @toggle-folder="emit('toggle-folder', $event)"
+        />
       </AsyncStateBlock>
     </div>
   </div>

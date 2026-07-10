@@ -20,7 +20,6 @@ const workspaceContext = useWorkspaceNavigationContext();
 
 const routeName = computed(() => String(route.name ?? ""));
 const groupPath = computed(() => String(route.params.groupPath ?? ""));
-const encodedGroupPath = computed(() => encodeURIComponent(groupPath.value));
 
 const settingsSections = computed(() => resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true));
 
@@ -29,6 +28,17 @@ const currentGroupLabel = computed(() => {
     return workspaceContext.groupLabel;
   }
   return groupPath.value;
+});
+
+const groupCrumbs = computed<Crumb[]>(() => {
+  const segments = groupPath.value.split("/").filter(Boolean);
+  return segments.map((segment, index) => {
+    const path = segments.slice(0, index + 1).join("/");
+    return {
+      label: index === segments.length - 1 ? currentGroupLabel.value : segment,
+      to: `/groups/${encodeURIComponent(path)}/overview`,
+    };
+  });
 });
 
 const items = computed<Crumb[]>(() => {
@@ -47,7 +57,7 @@ const items = computed<Crumb[]>(() => {
     const crumbs: Crumb[] = [
       { label: t("nav.search"), to: "/search" },
       { label: t("nav.groups"), to: "/groups" },
-      { label: currentGroupLabel.value, to: `/groups/${encodedGroupPath.value}/overview` },
+      ...groupCrumbs.value,
     ];
 
     if (routeName.value === "group-members") {

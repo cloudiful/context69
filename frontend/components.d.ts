@@ -41,6 +41,7 @@ declare module 'vue' {
     LibraryPreviewContent: typeof import('./src/components/LibraryPreviewContent.vue')['default']
     LibraryPreviewPanel: typeof import('./src/components/LibraryPreviewPanel.vue')['default']
     LibraryPreviewShell: typeof import('./src/components/LibraryPreviewShell.vue')['default']
+    LibraryResourceCards: typeof import('./src/components/LibraryResourceCards.vue')['default']
     LibraryResourceTable: typeof import('./src/components/LibraryResourceTable.vue')['default']
     LibraryToolbar: typeof import('./src/components/LibraryToolbar.vue')['default']
     LibraryTreePane: typeof import('./src/components/LibraryTreePane.vue')['default']

@@ -20,7 +20,7 @@ export const zhCN = {
   },
   nav: {
     search: "搜索",
-    groups: "群组",
+    groups: "浏览器",
     settings: "设置",
   },
   auth: {
@@ -67,10 +67,11 @@ export const zhCN = {
     searchUserPlaceholder: "按登录名或显示名搜索用户",
   },
   groups: {
-    title: "群组",
+    title: "浏览器",
     groupKey: "群组键",
     groupPath: "群组路径",
     groupName: "群组名称",
+    groupType: "群组",
     visibility: "可见性",
     kind: "类型",
     currentRole: "当前角色",

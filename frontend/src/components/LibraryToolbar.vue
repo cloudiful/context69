@@ -53,5 +53,8 @@ const { t } = useI18n();
         </Breadcrumb>
       </div>
     </template>
+    <template #actions>
+      <slot name="actions" />
+    </template>
   </AppTableToolbar>
 </template>
