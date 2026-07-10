@@ -20,7 +20,7 @@ const showSidebar = computed(() => route.name !== "login");
 
 const desktopSidebarPt = {
   mask: {
-    class: "app-sidebar-shell-mask app-sidebar-shell-mask-desktop hidden md:flex",
+    class: "hidden !pointer-events-none md:flex",
   },
 };
 </script>
@@ -35,26 +35,30 @@ const desktopSidebarPt = {
       :show-close-icon="false"
       :close-on-escape="false"
       :auto-z-index="false"
-      class="app-sidebar-shell app-sidebar-shell-desktop hidden md:flex"
-      :class="{ 'is-collapsed': preferences.state.sidebarCollapsed }"
+      :class="[
+        'hidden !h-screen !border-0 !bg-transparent !shadow-none md:flex motion-reduce:!transition-none',
+        preferences.state.sidebarCollapsed
+          ? '!w-[4.75rem] !transition-[width] !duration-[220ms] !ease-[cubic-bezier(0.22,1,0.36,1)]'
+          : '!w-[14rem] !transition-[width] !duration-[220ms] !ease-[cubic-bezier(0.22,1,0.36,1)]',
+      ]"
       :pt="desktopSidebarPt"
     >
       <template #container>
-        <div class="app-sidebar-panel">
-          <div class="app-sidebar-head">
+        <div class="flex h-full flex-col border-r border-app-border/70 bg-app-bg/98 px-2.5 py-3 md:bg-app-surface-muted/20">
+          <div class="border-b border-app-border/50 pb-3">
             <div
               class="flex items-center gap-2"
               :class="preferences.state.sidebarCollapsed ? 'justify-center' : 'justify-between'"
             >
               <Transition name="sidebar-brand">
-                <div v-if="!preferences.state.sidebarCollapsed" class="app-sidebar-brand">
-                  <span class="app-sidebar-brand-mark">C</span>
-                  <span class="app-sidebar-brand-text">Context69</span>
+                <div v-if="!preferences.state.sidebarCollapsed" class="flex items-center gap-2">
+                  <span class="flex h-9 w-9 items-center justify-center rounded-xl border border-app-border bg-app-surface-soft/60 text-sm font-bold">C</span>
+                  <span class="text-[0.98rem] font-semibold">Context69</span>
                 </div>
               </Transition>
               <Button
                 data-testid="sidebar-collapse-toggle"
-                :class="[controlButtonClass, 'app-sidebar-icon-button']"
+                :class="[controlButtonClass, 'inline-flex h-9 w-9 shrink-0 items-center justify-center px-0']"
                 type="button"
                 :aria-label="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
                 :title="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
@@ -63,7 +67,7 @@ const desktopSidebarPt = {
                 <AppMdiIcon
                   :path="preferences.state.sidebarCollapsed ? mdiChevronRight : mdiChevronLeft"
                   :title="preferences.state.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')"
-                  class="app-sidebar-link-icon"
+                  class="app-sidebar-link-icon h-4 w-4"
                 />
               </Button>
             </div>

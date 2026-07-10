@@ -8,38 +8,38 @@ const state = useGroupWorkspaceContext();
 </script>
 
 <template>
-  <div class="workspace-settings-layout">
-    <section class="workspace-summary-card">
-      <dl class="workspace-summary-list">
-        <div class="workspace-summary-row">
-          <dt class="workspace-summary-label">{{ $t("groups.groupKey") }}</dt>
-          <dd class="workspace-summary-value">{{ state.group?.group_key || state.groupKey }}</dd>
+  <div class="grid gap-3 xl:max-w-[28rem]">
+    <section class="grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4">
+      <dl class="grid gap-2">
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupKey") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.group_key || state.groupKey }}</dd>
         </div>
-        <div class="workspace-summary-row">
-          <dt class="workspace-summary-label">{{ $t("groups.groupPath") }}</dt>
-          <dd class="workspace-summary-value">{{ state.group?.group_path || state.groupPath }}</dd>
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupPath") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.group_path || state.groupPath }}</dd>
         </div>
-        <div class="workspace-summary-row">
-          <dt class="workspace-summary-label">{{ $t("groups.groupName") }}</dt>
-          <dd class="workspace-summary-value">{{ state.group?.name || "--" }}</dd>
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupName") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.name || "--" }}</dd>
         </div>
-        <div class="workspace-summary-row">
-          <dt class="workspace-summary-label">{{ $t("groups.visibility") }}</dt>
-          <dd class="workspace-summary-value">
-            <Tag :value="state.group?.visibility || '--'" severity="secondary" />
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.visibility") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">
+            <Tag class="justify-self-end" :value="state.group?.visibility || '--'" severity="secondary" />
           </dd>
         </div>
-        <div class="workspace-summary-row">
-          <dt class="workspace-summary-label">{{ $t("groups.kind") }}</dt>
-          <dd class="workspace-summary-value">
-            <Tag :value="state.group?.kind || '--'" severity="contrast" />
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.kind") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">
+            <Tag class="justify-self-end" :value="state.group?.kind || '--'" severity="contrast" />
           </dd>
         </div>
       </dl>
     </section>
 
-    <section class="workspace-summary-card">
-      <div class="workspace-action-row">
+    <section class="grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4">
+      <div class="flex flex-wrap items-center gap-2">
         <Button v-if="state.canManageGroup" severity="secondary" @click="state.groupDialogVisible = true">
           {{ $t("common.edit") }}
         </Button>

@@ -8,8 +8,8 @@ const state = useGroupWorkspaceContext();
 </script>
 
 <template>
-  <div class="workspace-overview-layout">
-    <section class="workspace-overview-main">
+  <div class="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_18rem] xl:items-start">
+    <section class="grid min-w-0 gap-3">
       <ProjectFilesPanel
         :child-groups="state.childGroups"
         :group-path="state.groupPath"
@@ -21,47 +21,47 @@ const state = useGroupWorkspaceContext();
       />
     </section>
 
-    <aside class="workspace-overview-side">
-      <section class="workspace-summary-card">
+    <aside class="grid gap-3">
+      <section class="grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4">
         <p class="section-title">{{ $t("groups.tabs.overview") }}</p>
-        <dl class="workspace-summary-list">
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.groupKey") }}</dt>
-            <dd class="workspace-summary-value">{{ state.group?.group_key || state.groupKey }}</dd>
+        <dl class="grid gap-2">
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupKey") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.group_key || state.groupKey }}</dd>
           </div>
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.groupPath") }}</dt>
-            <dd class="workspace-summary-value">{{ state.group?.group_path || state.groupPath }}</dd>
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupPath") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.group_path || state.groupPath }}</dd>
           </div>
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.groupName") }}</dt>
-            <dd class="workspace-summary-value">{{ state.group?.name || "--" }}</dd>
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupName") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.name || "--" }}</dd>
           </div>
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.visibility") }}</dt>
-            <dd class="workspace-summary-value">
-              <Tag :value="state.group?.visibility || '--'" severity="secondary" />
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.visibility") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">
+              <Tag class="justify-self-end" :value="state.group?.visibility || '--'" severity="secondary" />
             </dd>
           </div>
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.kind") }}</dt>
-            <dd class="workspace-summary-value">
-              <Tag :value="state.group?.kind || '--'" severity="contrast" />
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.kind") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">
+              <Tag class="justify-self-end" :value="state.group?.kind || '--'" severity="contrast" />
             </dd>
           </div>
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.currentRole") }}</dt>
-            <dd class="workspace-summary-value">
-              <Tag :value="state.group?.current_role || '--'" :severity="state.roleSeverity(state.group?.current_role)" />
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.currentRole") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">
+              <Tag class="justify-self-end" :value="state.group?.current_role || '--'" :severity="state.roleSeverity(state.group?.current_role)" />
             </dd>
           </div>
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.membersTitle") }}</dt>
-            <dd class="workspace-summary-value">{{ state.members.length }}</dd>
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.membersTitle") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.members.length }}</dd>
           </div>
-          <div class="workspace-summary-row">
-            <dt class="workspace-summary-label">{{ $t("groups.childrenTitle") }}</dt>
-            <dd class="workspace-summary-value">{{ state.childGroups.length }}</dd>
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
+            <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.childrenTitle") }}</dt>
+            <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.childGroups.length }}</dd>
           </div>
         </dl>
       </section>

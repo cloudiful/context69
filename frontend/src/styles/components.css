@@ -1,128 +1,4 @@
 @layer components {
-  .app-shell {
-    @apply grid min-h-screen items-start bg-app-bg text-app-text md:grid-cols-[auto_minmax(0,1fr)];
-  }
-
-  @media (min-width: 768px) {
-    .app-shell {
-      padding-left: 14rem;
-      transition: padding-left 220ms cubic-bezier(0.22, 1, 0.36, 1);
-    }
-
-    .app-shell.is-sidebar-collapsed {
-      padding-left: 4.75rem;
-    }
-  }
-
-  .app-shell.is-login-route {
-    @apply block md:pl-0;
-  }
-
-  .app-main-shell {
-    @apply flex min-h-screen min-w-0 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3;
-  }
-
-  .app-main-content {
-    @apply grid min-h-0 flex-1 content-start gap-2;
-  }
-
-  .app-main-shell.is-login-route {
-    @apply px-0 py-0 pb-0;
-  }
-
-  .app-sidebar-shell-mask-desktop {
-    pointer-events: none !important;
-  }
-
-  .app-sidebar-shell.p-drawer {
-    @apply border-0 bg-transparent shadow-none;
-  }
-
-  .app-sidebar-shell-desktop.p-drawer {
-    @apply h-screen w-[14rem];
-    transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .app-sidebar-shell-desktop.p-drawer.is-collapsed {
-    @apply w-[4.75rem];
-  }
-
-  .app-sidebar-panel {
-    @apply flex h-full flex-col border-r border-app-border/70 bg-app-bg/98 px-2.5 py-3 md:bg-app-surface-muted/20;
-  }
-
-  .app-sidebar-head {
-    @apply border-b border-app-border/50 pb-3;
-  }
-
-  .app-sidebar-brand {
-    @apply flex items-center gap-2;
-  }
-
-  .app-sidebar-brand-mark {
-    @apply flex h-9 w-9 items-center justify-center rounded-xl border border-app-border bg-app-surface-soft/60 text-sm font-bold;
-  }
-
-  .app-sidebar-brand-text {
-    @apply text-[0.98rem] font-semibold;
-  }
-
-  .app-sidebar-nav {
-    @apply grid flex-1 content-start gap-1 overflow-y-auto py-3;
-  }
-
-  .app-sidebar-nav-item {
-    @apply grid gap-1;
-  }
-
-  .app-sidebar-link {
-    @apply flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm text-app-text-muted transition hover:bg-app-surface-soft/40 hover:text-app-text;
-  }
-
-  .app-sidebar-link.is-active {
-    @apply bg-app-surface-soft/70 text-app-text;
-  }
-
-  .app-sidebar-link-mark {
-    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-app-border/60 bg-app-surface-soft/45 text-app-text-dim transition-colors;
-  }
-
-  .app-sidebar-link-icon {
-    @apply h-4 w-4;
-  }
-
-  .app-sidebar-link.is-active .app-sidebar-link-mark {
-    @apply border-app-border-strong bg-app-surface-soft text-app-text;
-  }
-
-  .app-sidebar-link:hover .app-sidebar-link-mark {
-    @apply text-app-text;
-  }
-
-  .app-sidebar-subnav {
-    @apply ml-4 grid gap-1 border-l border-app-border/45 pl-3;
-  }
-
-  .app-sidebar-sublink {
-    @apply flex min-w-0 items-center rounded-lg px-2.5 py-1.5 text-xs text-app-text-dim transition hover:bg-app-surface-soft/35 hover:text-app-text;
-  }
-
-  .app-sidebar-sublink.is-active {
-    @apply bg-app-surface-soft/55 text-app-text;
-  }
-
-  .app-sidebar-footer {
-    @apply mt-auto shrink-0 border-t border-app-border/50 pt-3;
-  }
-
-  .app-sidebar-icon-button {
-    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center px-0;
-  }
-
-  .app-sidebar-user {
-    @apply grid gap-1 rounded-xl border border-app-border/70 bg-app-surface-muted/35 px-3 py-2.5;
-  }
-
   .sidebar-brand-enter-active,
   .sidebar-brand-leave-active,
   .sidebar-label-enter-active,
@@ -201,8 +77,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .app-shell,
-    .app-sidebar-shell-desktop.p-drawer,
     .sidebar-brand-enter-active,
     .sidebar-brand-leave-active,
     .sidebar-label-enter-active,
@@ -213,158 +87,6 @@
     }
   }
 
-  .app-contextbar-user {
-    @apply flex items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-muted/35 px-2.5 py-1.5;
-  }
-
-  .app-contextbar-user-copy {
-    @apply flex min-w-0 flex-col text-right;
-  }
-
-  .app-contextbar-user-name {
-    @apply truncate text-sm font-semibold text-app-text;
-  }
-
-  .app-contextbar-user-meta {
-    @apply truncate text-xs text-app-text-dim;
-  }
-
-  .workspace-page {
-    @apply grid gap-2;
-  }
-
-  .workspace-block {
-    @apply grid gap-3 rounded-[1.1rem] border border-app-border/70 bg-app-surface-muted/20 p-3;
-  }
-
-  .workspace-block-header {
-    @apply flex flex-wrap items-start justify-between gap-3;
-  }
-
-  .workspace-section-header {
-    @apply flex flex-wrap items-center justify-between gap-3;
-  }
-
-  .workspace-inline-form {
-    @apply grid gap-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto] lg:items-center;
-  }
-
-  .workspace-list {
-    @apply grid gap-2;
-  }
-
-  .workspace-list-card {
-    @apply grid gap-2 rounded-xl border border-app-border/60 bg-app-surface-soft/25 p-3;
-  }
-
-  .workspace-link-card {
-    @apply text-left transition hover:border-app-border-strong hover:bg-app-surface-soft/42;
-  }
-
-  .workspace-list-row {
-    @apply flex flex-wrap items-center justify-between gap-3;
-  }
-
-  .workspace-list-copy {
-    @apply grid gap-0.5 text-sm;
-  }
-
-  .workspace-list-copy span {
-    @apply text-app-text-dim;
-  }
-
-  .workspace-overview-pairs {
-    @apply grid gap-2 rounded-xl border border-app-border/60 bg-app-surface-soft/20 p-2.5 md:grid-cols-2 xl:grid-cols-3;
-  }
-
-  .workspace-overview-pair {
-    @apply grid gap-1 rounded-lg border border-app-border/45 bg-app-surface-soft/18 px-3 py-2;
-    grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr);
-    align-items: center;
-  }
-
-  .workspace-overview-key {
-    @apply text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim;
-  }
-
-  .workspace-overview-value {
-    @apply min-w-0 text-sm font-semibold text-app-text;
-  }
-
-  .workspace-overview-value .p-tag {
-    @apply justify-self-start;
-  }
-
-  .workspace-overview-layout {
-    @apply grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_18rem] xl:items-start;
-  }
-
-  .workspace-overview-main {
-    @apply grid min-w-0 gap-3;
-  }
-
-  .workspace-overview-side {
-    @apply grid gap-3;
-  }
-
-  .workspace-summary-card {
-    @apply grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4;
-  }
-
-  .workspace-summary-list {
-    @apply grid gap-2;
-  }
-
-  .workspace-summary-row {
-    @apply grid gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-  }
-
-  .workspace-summary-label {
-    @apply text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim;
-  }
-
-  .workspace-summary-value {
-    @apply min-w-0 text-right text-sm font-semibold text-app-text;
-  }
-
-  .workspace-summary-value .p-tag {
-    @apply justify-self-end;
-  }
-
-  .workspace-empty-inline {
-    @apply rounded-[1rem] border border-dashed border-app-border/65 bg-app-surface-muted/15 px-4 py-6 text-sm text-app-text-dim;
-  }
-
-  .workspace-settings-layout {
-    @apply grid gap-3 xl:max-w-[28rem];
-  }
-
-  .workspace-action-row {
-    @apply flex flex-wrap items-center gap-2;
-  }
-
-  .workspace-tabbar {
-    @apply flex flex-wrap gap-1 rounded-xl border border-app-border/60 bg-app-surface-muted/25 p-1;
-  }
-
-  .workspace-tab-button.p-button {
-    @apply rounded-lg px-3 py-2 text-sm text-app-text-muted;
-  }
-
-  .workspace-tab-button.is-active.p-button {
-    @apply bg-app-surface-soft/72 text-app-text;
-  }
-
-  .workspace-muted {
-    @apply text-sm text-app-text-dim;
-  }
-
-  .workspace-switch {
-    @apply flex items-center gap-2 text-sm text-app-text;
-  }
-
   .section-label {
     @apply text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim;
   }
@@ -373,36 +95,7 @@
     @apply text-base font-semibold text-app-text;
   }
 
-  .app-panel-header {
-    @apply flex items-start justify-between gap-3;
-  }
-
-  .app-panel {
-    min-width: 0;
-  }
-
-  .app-panel-plain {
-    @apply grid gap-3;
-  }
-
-  .app-panel-actions {
-    @apply flex shrink-0 items-center gap-2;
-  }
-
-  .app-panel-content {
-    @apply grid min-w-0 gap-4;
-  }
-
-  .app-panel-plain .app-panel-content {
-    @apply gap-3;
-  }
-
-  .app-info-card .p-card-body {
-    gap: 0.5rem;
-  }
-
   .app-surface-frame,
-  .search-form-layout,
   .library-workspace {
     border: 1px solid color-mix(in srgb, var(--color-app-border) 78%, transparent);
     border-radius: 1.1rem;
@@ -462,58 +155,6 @@
     @apply grid gap-3 sm:grid-cols-[minmax(0,10rem)_auto] sm:items-center;
   }
 
-  .search-form-layout {
-    @apply grid gap-2 p-2;
-  }
-
-  .search-form-query {
-    min-height: 2.35rem;
-  }
-
-  .search-form-query.p-inputtext {
-    @apply rounded-xl px-3 text-sm;
-  }
-
-  .search-form-topline {
-    @apply grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto];
-  }
-
-  .search-form-query-shell {
-    @apply min-w-0;
-  }
-
-  .search-form-grid {
-    @apply grid gap-2 sm:grid-cols-2;
-  }
-
-  .search-form-grid-primary {
-    @apply lg:grid-cols-[minmax(0,1fr)_8rem];
-  }
-
-  .search-form-grid-secondary {
-    @apply sm:grid-cols-2 lg:grid-cols-[minmax(0,12rem)_minmax(0,12rem)];
-  }
-
-  .search-form-actions {
-    @apply flex items-stretch justify-end gap-1.5;
-  }
-
-  .search-form-action {
-    @apply justify-center;
-  }
-
-  .search-form-advanced {
-    @apply grid gap-2 border-t border-app-border/70 pt-2;
-  }
-
-  .search-form-advanced-actions {
-    @apply flex justify-end;
-  }
-
-  .search-form-toolbar {
-    @apply flex justify-end;
-  }
-
   .search-results-layout {
     @apply grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start;
   }
@@ -521,48 +162,6 @@
   .search-selection-panel {
     @apply min-w-0 rounded-[1.1rem] border border-app-border bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] xl:sticky xl:top-3 xl:max-h-[calc(100vh-6rem)] xl:overflow-auto;
   }
-
-  .auth-page-shell {
-    @apply flex min-h-[calc(100vh-5rem)] w-full items-center justify-center px-3 py-6;
-  }
-
-  .auth-panel {
-    @apply w-full max-w-[27rem];
-  }
-
-  .auth-panel > .p-card-body {
-    @apply gap-4 p-4 md:gap-4 md:p-5;
-  }
-
-  .auth-session-inline {
-    @apply grid gap-1 rounded-xl border border-app-border/70 bg-app-surface-soft/25 px-3 py-2;
-  }
-
-  .auth-session-inline-name {
-    @apply text-sm font-semibold text-app-text;
-  }
-
-  .auth-form {
-    @apply grid gap-3;
-  }
-
-  .auth-field {
-    @apply gap-2;
-  }
-
-  .auth-field .p-inputtext {
-    @apply min-h-12 rounded-2xl border-app-border/80 bg-app-surface-soft/34 px-4 text-sm text-app-text shadow-none;
-  }
-
-  .auth-field .p-inputtext:enabled:focus {
-    @apply border-app-border-strong;
-    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.08);
-  }
-
-  .auth-form-actions {
-    @apply pt-1;
-  }
-
 
   .search-results-panel.p-card {
     border-radius: 1.1rem;
@@ -586,23 +185,6 @@
 
   .search-history-chip {
     @apply inline-flex max-w-full items-center gap-2 rounded-full border border-app-border/70 bg-app-surface-muted/30 px-3 py-2 text-left transition;
-  }
-
-  .app-mobile-nav {
-    @apply fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 gap-1 border-t border-app-border/70 bg-app-bg/94 px-2 py-2 backdrop-blur-xl md:hidden;
-  }
-
-  .app-mobile-nav-link {
-    @apply grid justify-items-center gap-1 rounded-xl px-2 py-2 text-[0.72rem] font-medium text-app-text-dim transition;
-  }
-
-  .app-mobile-nav-link.is-active,
-  .app-mobile-nav-link:not(:disabled):hover {
-    @apply bg-app-surface-soft/70 text-app-text;
-  }
-
-  .app-mobile-nav-mark {
-    @apply flex h-8 w-8 items-center justify-center rounded-lg border border-app-border/60 bg-app-surface-soft/45;
   }
 
   .search-history-chip:hover {
@@ -641,56 +223,8 @@
     background: color-mix(in srgb, var(--color-app-success) 14%, var(--color-app-surface) 86%);
   }
 
-  .app-record-header {
-    @apply flex flex-wrap items-start justify-between gap-4;
-  }
-
-  .app-record-header-main {
-    @apply min-w-0 flex-1 grid gap-2;
-  }
-
-  .app-record-header-tags {
-    @apply flex flex-wrap items-center gap-2;
-  }
-
-  .app-record-header-title {
-    @apply text-lg font-semibold text-app-text;
-  }
-
-  .app-record-header-subtitle {
-    @apply text-sm text-app-text-muted;
-  }
-
-  .app-record-header-description {
-    @apply text-sm leading-6 text-app-text-muted;
-  }
-
-  .app-record-header-meta {
-    @apply text-xs text-app-text-dim;
-  }
-
   .app-record-header-note {
     @apply break-words;
-  }
-
-  .app-record-header-actions {
-    @apply flex shrink-0 items-center gap-2;
-  }
-
-  .app-settings-section-body {
-    @apply grid gap-5;
-  }
-
-  .app-settings-section-description {
-    @apply text-sm leading-6 text-app-text-dim;
-  }
-
-  .app-info-value {
-    @apply text-sm text-app-text;
-  }
-
-  .app-info-meta {
-    @apply text-xs text-app-text-dim;
   }
 
   .content-pre {
@@ -823,23 +357,6 @@
     @apply flex flex-wrap items-center justify-between gap-2 px-2 py-1.5;
   }
 
-  .app-table-toolbar {
-    @apply gap-2 rounded-lg border-app-border/80 bg-app-surface px-2 py-1.5;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
-
-  .app-table-toolbar-main {
-    @apply flex min-w-0 flex-1 flex-wrap items-center gap-2;
-  }
-
-  .app-table-toolbar-actions {
-    @apply w-full gap-1.5 md:w-auto md:justify-end;
-  }
-
-  .app-table-toolbar-count.p-tag {
-    @apply rounded-md px-2 py-1 text-xs font-semibold;
-  }
-
   .sources-toolbar {
     @apply rounded-[1.4rem] border-app-border/80 bg-app-surface-muted/18 px-4 py-3;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
@@ -851,10 +368,6 @@
 
   .utility-toolbar-group {
     @apply flex flex-wrap items-center gap-1.5;
-  }
-
-  .settings-header-actions {
-    @apply flex flex-wrap items-center justify-end gap-1.5;
   }
 
   .settings-block {
@@ -959,14 +472,6 @@
 
   .settings-status-tag.p-tag {
     @apply rounded-xl px-3 py-1 text-sm font-medium;
-  }
-
-  .settings-save-bar {
-    @apply fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6;
-  }
-
-  .settings-panel form {
-    padding-bottom: 6rem;
   }
 
   @media (min-width: 1280px) {

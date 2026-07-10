@@ -25,18 +25,17 @@ onMounted(() => {
 
 <template>
   <div
-    class="app-shell"
-    :class="{
-      'is-login-route': isLoginRoute,
-      'is-sidebar-collapsed': preferences.state.sidebarCollapsed,
-    }"
+    :class="[
+      'grid min-h-screen items-start bg-app-bg text-app-text md:grid-cols-[auto_minmax(0,1fr)] md:pl-[14rem] md:transition-[padding-left] md:duration-[220ms] md:ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+      isLoginRoute ? 'block md:pl-0' : preferences.state.sidebarCollapsed ? 'md:pl-[4.75rem]' : '',
+    ]"
   >
     <ConfirmDialog :draggable="false" :pt="appConfirmDialogPt" />
     <Toast position="bottom-right" :pt="appToastPt" />
     <AppSidebar />
 
-    <main class="app-main-shell" :class="{ 'is-login-route': isLoginRoute }">
-      <div v-if="appReady" class="app-main-content">
+    <main :class="isLoginRoute ? 'flex min-h-screen min-w-0 flex-col px-0 py-0 pb-0' : 'flex min-h-screen min-w-0 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3'">
+      <div v-if="appReady" class="grid min-h-0 flex-1 content-start gap-2">
         <AppRouteBreadcrumbs v-if="showGlobalBreadcrumbs" />
         <RouterView />
       </div>

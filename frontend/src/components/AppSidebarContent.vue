@@ -46,22 +46,27 @@ async function signOut() {
 </script>
 
 <template>
-  <nav class="app-sidebar-nav">
+  <nav class="grid flex-1 content-start gap-1 overflow-y-auto py-3">
     <div
       v-for="item in isAuthenticated() ? items : []"
       :key="item.to"
-      class="app-sidebar-nav-item"
+      class="grid gap-1"
     >
       <RouterLink
         :to="item.to"
-        class="app-sidebar-link"
-        :class="{ 'is-active': isActive(item.to) }"
+        :class="[
+          'group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm transition',
+          isActive(item.to) ? 'is-active bg-app-surface-soft/70 text-app-text' : 'text-app-text-muted hover:bg-app-surface-soft/40 hover:text-app-text',
+        ]"
         :data-nav-key="item.to"
         :title="item.label"
         @click="handleItemNavigate(item)"
       >
-        <span class="app-sidebar-link-mark">
-          <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon" />
+        <span :class="[
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
+          isActive(item.to) ? 'border-app-border-strong bg-app-surface-soft text-app-text' : 'border-app-border/60 bg-app-surface-soft/45 text-app-text-dim group-hover:text-app-text',
+        ]">
+          <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon h-4 w-4" />
         </span>
         <Transition name="sidebar-label">
           <span v-if="!collapsed">{{ item.label }}</span>
@@ -70,14 +75,16 @@ async function signOut() {
 
       <div
         v-if="!collapsed && hasActiveChildren(item)"
-        class="app-sidebar-subnav"
+        class="ml-4 grid gap-1 border-l border-app-border/45 pl-3"
       >
         <RouterLink
           v-for="child in item.children"
           :key="child.to"
           :to="child.to"
-          class="app-sidebar-sublink"
-          :class="{ 'is-active': isActive(child.to) }"
+          :class="[
+            'flex min-w-0 items-center rounded-lg px-2.5 py-1.5 text-xs transition',
+            isActive(child.to) ? 'is-active bg-app-surface-soft/55 text-app-text' : 'text-app-text-dim hover:bg-app-surface-soft/35 hover:text-app-text',
+          ]"
           :data-nav-child-key="child.to"
         >
           <span>{{ child.label }}</span>
@@ -86,7 +93,7 @@ async function signOut() {
     </div>
   </nav>
 
-  <div class="app-sidebar-footer">
+  <div class="app-sidebar-footer mt-auto shrink-0 border-t border-app-border/50 pt-3">
     <div
       class="flex items-end gap-2"
       :class="{ 'justify-center': collapsed }"
@@ -94,7 +101,7 @@ async function signOut() {
       <Transition name="sidebar-user-card">
         <div
           v-if="authSessionState.user && !collapsed"
-          class="app-sidebar-user grow"
+          class="grid grow gap-1 rounded-xl border border-app-border/70 bg-app-surface-muted/35 px-3 py-2.5"
           data-testid="sidebar-user-card"
         >
           <div class="flex items-start justify-between gap-2">
@@ -116,13 +123,13 @@ async function signOut() {
       </Transition>
       <Button
         v-if="isAuthenticated()"
-        :class="[controlButtonClass, 'app-sidebar-icon-button']"
+        :class="[controlButtonClass, 'inline-flex h-9 w-9 shrink-0 items-center justify-center px-0']"
         type="button"
         :aria-label="t('auth.logout')"
         :title="t('auth.logout')"
         @click="signOut"
       >
-        <AppMdiIcon :path="mdiLogoutVariant" :title="t('auth.logout')" class="app-sidebar-link-icon" />
+        <AppMdiIcon :path="mdiLogoutVariant" :title="t('auth.logout')" class="app-sidebar-link-icon h-4 w-4" />
       </Button>
     </div>
   </div>

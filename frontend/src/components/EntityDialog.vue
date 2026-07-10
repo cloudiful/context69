@@ -72,7 +72,7 @@ function handleSubmit() {
     modal
     :header="title"
     :pt="appFormDialogPt"
-    :style="{ width: '32rem', maxWidth: '96vw' }"
+    class="w-[32rem] max-w-[96vw]"
     @update:visible="emit('update:visible', $event)"
   >
     <div class="grid gap-3">

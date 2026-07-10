@@ -62,9 +62,9 @@ function switchLocale(nextLocale: AppLocale) {
 </script>
 
 <template>
-  <AppPanel surface="plain" class="settings-panel">
+  <AppPanel surface="plain">
     <template #actions>
-      <div class="settings-header-actions">
+      <div class="flex flex-wrap items-center justify-end gap-1.5">
         <Message v-if="hasChanges" severity="secondary" :closable="false">
           {{ t("settings.status.pending") }}
         </Message>
@@ -79,7 +79,7 @@ function switchLocale(nextLocale: AppLocale) {
       :loading-title="t('settings.loadingTitle')"
       :loading-message="t('settings.loadingMessage')"
     >
-      <form class="grid gap-2" @submit.prevent="state.saveSettings">
+      <form class="grid gap-2 pb-24" @submit.prevent="state.saveSettings">
         <div class="grid gap-4">
           <SettingsAppearancePage
             v-if="currentSection === 'appearance'"
@@ -95,7 +95,7 @@ function switchLocale(nextLocale: AppLocale) {
           <SettingsAdminUsersPage v-else />
         </div>
 
-        <div class="settings-save-bar">
+        <div class="fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6">
           <Button
             :class="settingsFloatingSaveButtonClass"
             data-testid="settings-save"

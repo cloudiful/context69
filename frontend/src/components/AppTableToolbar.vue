@@ -25,13 +25,13 @@ const showSearchIcon = computed(() => !(props.searchQuery ?? "").trim());
 </script>
 
 <template>
-  <div class="utility-toolbar app-table-toolbar">
-    <div class="app-table-toolbar-main">
+  <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-app-border/80 bg-app-surface px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
       <slot name="main" />
-      <Tag v-if="countLabel" class="app-table-toolbar-count" :value="countLabel" severity="secondary" />
+      <Tag v-if="countLabel" class="rounded-md px-2 py-1 text-xs font-semibold" :value="countLabel" severity="secondary" />
     </div>
 
-    <div class="utility-toolbar-group app-table-toolbar-actions">
+    <div class="flex w-full flex-wrap items-center gap-1.5 md:w-auto md:justify-end">
       <IconField v-if="searchEnabled" class="relative min-w-0 md:w-72 [&.p-iconfield]:w-full">
         <InputIcon
           v-if="showSearchIcon"

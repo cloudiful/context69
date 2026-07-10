@@ -66,8 +66,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="workspace-page">
-    <div class="workspace-block-header">
+  <div class="grid gap-2">
+    <div class="flex flex-wrap items-start justify-between gap-3">
       <h1 class="section-title">{{ t("groups.title") }}</h1>
       <Button :class="toolPrimaryButtonClass" @click="createDialogVisible = true">
         {{ t("groups.create") }}

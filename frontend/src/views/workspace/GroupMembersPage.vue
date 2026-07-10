@@ -10,8 +10,8 @@ const state = useGroupWorkspaceContext();
 </script>
 
 <template>
-  <section class="workspace-block">
-    <div class="workspace-block-header">
+  <section class="grid gap-3 rounded-[1.1rem] border border-app-border/70 bg-app-surface-muted/20 p-3">
+    <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p class="section-title">{{ $t("groups.membersTitle") }}</p>
       </div>

@@ -179,7 +179,7 @@ function confirmEnable(loginNameValue: string) {
       modal
       :header="t('adminUsers.create')"
       :pt="appFormDialogPt"
-      :style="{ width: '30rem', maxWidth: '96vw' }"
+      class="w-[30rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
@@ -194,7 +194,7 @@ function confirmEnable(loginNameValue: string) {
           <label class="form-label">{{ t("adminUsers.password") }}</label>
           <Password v-model="password" fluid :feedback="false" toggle-mask />
         </div>
-        <label class="workspace-switch">
+        <label class="flex items-center gap-2 text-sm text-app-text">
           <span>{{ t("adminUsers.isAdmin") }}</span>
           <ToggleSwitch v-model="isAdmin" />
         </label>
@@ -216,14 +216,14 @@ function confirmEnable(loginNameValue: string) {
       modal
       :header="t('common.edit')"
       :pt="appFormDialogPt"
-      :style="{ width: '28rem', maxWidth: '96vw' }"
+      class="w-[28rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
           <label class="form-label">{{ t("adminUsers.displayName") }}</label>
           <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
-        <label class="workspace-switch">
+        <label class="flex items-center gap-2 text-sm text-app-text">
           <span>{{ t("adminUsers.isAdmin") }}</span>
           <ToggleSwitch v-model="isAdmin" />
         </label>
@@ -245,7 +245,7 @@ function confirmEnable(loginNameValue: string) {
       modal
       :header="t('adminUsers.resetPasswordAction')"
       :pt="appFormDialogPt"
-      :style="{ width: '28rem', maxWidth: '96vw' }"
+      class="w-[28rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">

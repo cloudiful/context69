@@ -16,7 +16,7 @@ provide(groupWorkspaceStateKey, state);
 </script>
 
 <template>
-  <div class="workspace-page">
+  <div class="grid gap-2">
     <RouterView />
 
     <EntityDialog
@@ -62,7 +62,7 @@ provide(groupWorkspaceStateKey, state);
       modal
       :header="$t('groups.moveGroup')"
       :pt="appFormDialogPt"
-      :style="{ width: '30rem', maxWidth: '96vw' }"
+      class="w-[30rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">

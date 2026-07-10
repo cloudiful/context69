@@ -53,7 +53,7 @@ function confirmCreate() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="library-modal" modal :header="t('library.createTextDialog.title')" :style="{ width: '40rem', maxWidth: '92vw' }">
+  <Dialog v-model:visible="visible" class="library-modal w-[40rem] max-w-[92vw]" modal :header="t('library.createTextDialog.title')">
     <div class="library-modal-body">
       <div class="library-modal-intro">
         <p class="section-label">{{ t("library.newTextFile") }}</p>

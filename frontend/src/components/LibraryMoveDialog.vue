@@ -61,7 +61,7 @@ function confirmMove() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="library-modal" modal :header="title" :style="{ width: '34rem', maxWidth: '92vw' }">
+  <Dialog v-model:visible="visible" class="library-modal w-[34rem] max-w-[92vw]" modal :header="title">
     <div class="library-modal-body">
       <div class="library-modal-intro">
         <p class="section-label">{{ t("library.moveDialog.label") }}</p>

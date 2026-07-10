@@ -101,7 +101,7 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
     modal
     :header="title"
     :pt="appFormDialogPt"
-    :style="{ width: '30rem', maxWidth: '96vw' }"
+    class="w-[30rem] max-w-[96vw]"
     @update:visible="emit('update:visible', $event)"
   >
     <div class="grid gap-3">

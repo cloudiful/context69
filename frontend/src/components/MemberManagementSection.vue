@@ -38,14 +38,14 @@ function submit() {
 </script>
 
 <template>
-  <section class="workspace-block">
-    <div class="workspace-block-header">
+  <section class="grid gap-3 rounded-[1.1rem] border border-app-border/70 bg-app-surface-muted/20 p-3">
+    <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p class="section-title">{{ title }}</p>
       </div>
     </div>
 
-    <form class="workspace-inline-form" @submit.prevent="submit">
+    <form class="grid gap-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto] lg:items-center" @submit.prevent="submit">
       <InputText v-model="loginName" :placeholder="t('members.loginName')" />
       <Select v-model="role" :options="roleOptions" option-label="label" option-value="value" />
       <Button :class="toolPrimaryButtonClass" type="submit" :disabled="busy">
@@ -53,11 +53,11 @@ function submit() {
       </Button>
     </form>
 
-    <div class="workspace-list">
-      <div v-for="member in members" :key="member.user_id" class="workspace-list-row">
-        <div class="workspace-list-copy">
+    <div class="grid gap-2">
+      <div v-for="member in members" :key="member.user_id" class="flex flex-wrap items-center justify-between gap-3">
+        <div class="grid gap-0.5 text-sm">
           <strong>{{ member.display_name }}</strong>
-          <span>{{ member.login_name }} · {{ member.role }}</span>
+          <span class="text-app-text-dim">{{ member.login_name }} · {{ member.role }}</span>
         </div>
         <Button :class="settingsDangerButtonClass" :disabled="busy" @click="emit('remove', member.login_name)">
           {{ t("common.delete") }}

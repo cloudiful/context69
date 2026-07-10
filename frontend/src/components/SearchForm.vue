@@ -126,28 +126,28 @@ function resetForm() {
 
 <template>
   <Fluid class="block w-full">
-    <form class="search-form-layout w-full" @submit.prevent="emit('submit')">
-      <div class="search-form-topline">
-        <div class="search-form-query-shell">
+    <form class="grid w-full gap-2 rounded-[1.1rem] border border-app-border/80 bg-app-surface/92 p-2" @submit.prevent="emit('submit')">
+      <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+        <div class="min-w-0">
           <InputText
             id="query"
             v-model="queryModel"
             data-testid="search-query"
-            class="search-form-query"
+            class="min-h-[2.35rem] rounded-xl px-3 text-sm"
             :placeholder="t('search.form.query')"
           />
         </div>
 
-        <div class="search-form-actions">
+        <div class="flex items-stretch justify-end gap-1.5">
           <Button
-            :class="[subtleTextButtonClass, 'search-form-action min-w-0']"
+            :class="[subtleTextButtonClass, 'min-w-0 justify-center']"
             data-testid="search-toggle-advanced"
             type="button"
             :label="advancedFiltersOpen ? t('search.form.hideFilters') : t('search.form.moreFilters')"
             @click="advancedFiltersOpen = !advancedFiltersOpen"
           />
           <Button
-            :class="[settingsPrimaryButtonClass, 'search-form-action min-h-[2.35rem] w-full min-w-0 whitespace-nowrap lg:w-auto lg:min-w-[7.25rem]']"
+            :class="[settingsPrimaryButtonClass, 'min-h-[2.35rem] w-full min-w-0 justify-center whitespace-nowrap lg:w-auto lg:min-w-[7.25rem]']"
             data-testid="search-submit"
             type="submit"
             :disabled="busy"
@@ -156,8 +156,8 @@ function resetForm() {
         </div>
       </div>
 
-      <div v-if="advancedFiltersOpen" class="search-form-advanced">
-        <div class="search-form-grid search-form-grid-primary">
+      <div v-if="advancedFiltersOpen" class="grid gap-2 border-t border-app-border/70 pt-2">
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_8rem]">
           <AppFormField input-id="source" :label="t('search.form.source')">
             <Select
               input-id="source"
@@ -181,7 +181,7 @@ function resetForm() {
           </AppFormField>
         </div>
 
-        <div class="search-form-grid search-form-grid-secondary">
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,12rem)_minmax(0,12rem)]">
           <AppFormField input-id="published-after" :label="t('search.form.publishedAfter')">
             <DatePicker
               input-id="published-after"
@@ -203,9 +203,9 @@ function resetForm() {
           </AppFormField>
         </div>
 
-        <div class="search-form-advanced-actions">
+        <div class="flex justify-end">
           <Button
-            :class="[settingsSecondaryButtonClass, 'search-form-action min-w-20']"
+            :class="[settingsSecondaryButtonClass, 'min-w-20 justify-center']"
             data-testid="search-reset"
             type="button"
             :label="t('common.reset')"
