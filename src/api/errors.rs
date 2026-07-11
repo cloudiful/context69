@@ -88,7 +88,50 @@ fn runtime_aware_status(message: &str) -> Option<StatusCode> {
         || message.contains("save runtime settings and restart the service")
     {
         Some(StatusCode::SERVICE_UNAVAILABLE)
+    } else if message.contains("embedding upstream transport error") {
+        if message.contains("kind=timeout") {
+            Some(StatusCode::GATEWAY_TIMEOUT)
+        } else {
+            Some(StatusCode::BAD_GATEWAY)
+        }
+    } else if message.contains("embedding request failed: status=429") {
+        Some(StatusCode::TOO_MANY_REQUESTS)
+    } else if message.contains("embedding request failed:")
+        || message.contains("failed to parse embedding response:")
+    {
+        Some(StatusCode::BAD_GATEWAY)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+
+    use super::runtime_aware_status;
+
+    #[test]
+    fn maps_embedding_upstream_failures() {
+        assert_eq!(
+            runtime_aware_status(
+                "embedding upstream transport error: operation=read response body kind=timeout"
+            ),
+            Some(StatusCode::GATEWAY_TIMEOUT)
+        );
+        assert_eq!(
+            runtime_aware_status(
+                "embedding upstream transport error: operation=send request kind=connect"
+            ),
+            Some(StatusCode::BAD_GATEWAY)
+        );
+        assert_eq!(
+            runtime_aware_status("embedding request failed: status=429 Too Many Requests"),
+            Some(StatusCode::TOO_MANY_REQUESTS)
+        );
+        assert_eq!(
+            runtime_aware_status("embedding request failed: status=401 Unauthorized"),
+            Some(StatusCode::BAD_GATEWAY)
+        );
     }
 }

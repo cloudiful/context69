@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
@@ -51,10 +51,9 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
             builder = builder.bearer_auth(api_key);
         }
 
-        let response = builder
-            .send()
-            .await
-            .with_context(|| format!("failed to send embedding request to {endpoint}"))?;
+        let response = builder.send().await.map_err(|error| {
+            format_embedding_transport_error("send request", &endpoint, &self.config.model, error)
+        })?;
         let status = response.status();
         let content_type = response
             .headers()
@@ -62,10 +61,14 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
             .and_then(|value| value.to_str().ok())
             .unwrap_or("unknown")
             .to_string();
-        let body = response
-            .text()
-            .await
-            .with_context(|| format!("failed to read embedding response body from {endpoint}"))?;
+        let body = response.text().await.map_err(|error| {
+            format_embedding_transport_error(
+                "read response body",
+                &endpoint,
+                &self.config.model,
+                error,
+            )
+        })?;
 
         if !status.is_success() {
             return Err(format_embedding_http_error(
@@ -144,6 +147,27 @@ fn format_embedding_http_error(
     )
 }
 
+fn format_embedding_transport_error(
+    operation: &str,
+    endpoint: &str,
+    model: &str,
+    error: reqwest::Error,
+) -> anyhow::Error {
+    let kind = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_decode() {
+        "decode"
+    } else {
+        "transport"
+    };
+
+    anyhow!(
+        "embedding upstream transport error: operation={operation} kind={kind} endpoint={endpoint} model={model}: {error}"
+    )
+}
+
 fn extract_error_message(body: &str) -> Option<String> {
     let value = serde_json::from_str::<Value>(body).ok()?;
 
@@ -171,7 +195,10 @@ fn truncate_for_error(input: &str, max_chars: usize) -> String {
 mod tests {
     use reqwest::StatusCode;
 
-    use super::{extract_error_message, format_embedding_http_error, parse_embedding_response};
+    use super::{
+        extract_error_message, format_embedding_http_error, format_embedding_transport_error,
+        parse_embedding_response,
+    };
 
     #[test]
     fn parse_error_includes_response_context() {
@@ -211,5 +238,25 @@ mod tests {
             extract_error_message(r#"{"error":"backend unavailable"}"#).as_deref(),
             Some("backend unavailable")
         );
+    }
+
+    #[test]
+    fn transport_error_includes_concrete_cause() {
+        let error = reqwest::Client::new()
+            .get("not a url")
+            .build()
+            .expect_err("invalid URL should fail");
+        let message = format_embedding_transport_error(
+            "send request",
+            "not a url/embeddings",
+            "test-model",
+            error,
+        )
+        .to_string();
+
+        assert!(message.contains("embedding upstream transport error"));
+        assert!(message.contains("operation=send request"));
+        assert!(message.contains("model=test-model"));
+        assert!(message.contains("builder error"));
     }
 }
