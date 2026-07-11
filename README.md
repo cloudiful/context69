@@ -39,6 +39,11 @@ Search and library ingest become available after those settings are saved and th
 Text-only ingest does not require Docling. PDF/DOCX/XLSX conversion needs Docling connection
 settings, while Docling VLM fields can be left empty unless you want VLM-based enrichment.
 
+File originals use `file_library.storage_root` by default. When the runtime file-library S3
+settings are complete, the service uses the configured S3-compatible bucket instead. All service
+instances must use the same S3 settings when sharing a database. S3 credentials are never returned
+by the settings API; leaving Secret Key empty preserves the stored value.
+
 By default this starts:
 
 - HTTP API
@@ -52,6 +57,15 @@ Export OpenAPI:
 ```bash
 cargo run -- export-openapi
 ```
+
+Migrate verified local originals to the configured S3 backend:
+
+```bash
+cargo run -- migrate-library-storage --dry-run
+cargo run -- migrate-library-storage
+```
+
+The migration is resumable. Missing files and SHA-256 mismatches are reported and left unchanged.
 
 Export OpenAPI and regenerate frontend types:
 
@@ -208,6 +222,7 @@ Runtime endpoints include:
 - `POST /v1/search`
 - `GET /v1/groups/by-path/{group_path}/library/resources` for database-backed folder pagination, search, and sorting
 - `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/retry` to reprocess a failed file from its saved original
+- `POST /v1/groups/by-path/{group_path}/library/files/prepare-upload` to reuse an existing SHA-256 object inside the same group
 - `GET|POST /v1/auth/personal-access-tokens`
 - `DELETE /v1/auth/personal-access-tokens/{token_id}`
 - source and document management endpoints under `/v1/*`
@@ -220,6 +235,9 @@ For the full surface:
 
 ## Security
 
+- Browser authentication uses the signed `context69_session_v2` HttpOnly cookie and a shared Valkey session store.
+- Configure `CONTEXT69_AUTH__SESSION_VALKEY_URL`, `CONTEXT69_AUTH__SESSION_SECRET_KEY`, and `CONTEXT69_AUTH__SESSION_COOKIE_SECURE=true` in production. Every instance must use the same Valkey and secret key.
+- Browser UI and API must remain same-origin, either directly or through the documented frontend reverse proxy. Session cookies are not configured for cross-origin API access.
 - Personal access tokens are user-scoped bearer credentials for CLI, MCP, or automation callers.
 - Access token plaintext is returned only once at creation time; after that only metadata is listed in the UI and API.
 - Personal access tokens always expire and can be revoked from the frontend settings page.

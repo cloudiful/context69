@@ -52,7 +52,6 @@ function updateTheme(value: unknown) {
       <div class="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
         <AppSelectField
           :key="localeSelectKey"
-          float-label
           input-id="settings-locale-select"
           :model-value="selectedLocale"
           :label="t('language.label')"
@@ -62,7 +61,6 @@ function updateTheme(value: unknown) {
         />
 
         <AppSelectField
-          float-label
           input-id="settings-theme-select"
           :model-value="theme"
           :label="t('theme.label')"

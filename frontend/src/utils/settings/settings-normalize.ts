@@ -2,8 +2,8 @@ import type {
   DoclingSettingsResponse,
   RuntimeSettingsResponse,
   UpdateDoclingSettingsRequest,
-  UpdateRuntimeSettingsRequest,
 } from "../../services/api";
+import type { UpdateRuntimeSettingsRequest } from "../../services/api";
 import type {
   DoclingPayloadShape,
   DraftDoclingSettings,
@@ -18,7 +18,7 @@ export function runtimeResponseToPayload(
 }
 
 export function normalizeRuntimePayload(
-  value: DraftRuntimeSettings | UpdateRuntimeSettingsRequest,
+  value: DraftRuntimeSettings,
 ): UpdateRuntimeSettingsRequest {
   return {
     qdrant: {
@@ -50,6 +50,17 @@ export function normalizeRuntimePayload(
       max_upload_request_size_mb: Number(value.file_library.max_upload_request_size_mb),
       ingest_concurrency: Number(value.file_library.ingest_concurrency),
       pdf_pages_per_task: Number(value.file_library.pdf_pages_per_task),
+      s3: value.file_library.s3_enabled && value.file_library.s3
+        ? {
+            endpoint: value.file_library.s3.endpoint.trim(),
+            region: value.file_library.s3.region.trim(),
+            bucket: value.file_library.s3.bucket.trim(),
+            prefix: value.file_library.s3.prefix.trim().replace(/^\/+|\/+$/g, ""),
+            path_style: value.file_library.s3.path_style,
+            access_key: value.file_library.s3.access_key.trim(),
+            secret_key: cleanOptional(value.file_library.s3.secret_key),
+          }
+        : undefined,
     },
   };
 }

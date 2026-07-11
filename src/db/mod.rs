@@ -18,7 +18,6 @@ mod search_settings;
 mod source_connections;
 mod sync_runs;
 
-pub use auth::RefreshTokenRecord;
 pub use context69_db_schema::MIGRATOR;
 pub use personal_access_tokens::PersonalAccessTokenRecord;
 use rows::*;

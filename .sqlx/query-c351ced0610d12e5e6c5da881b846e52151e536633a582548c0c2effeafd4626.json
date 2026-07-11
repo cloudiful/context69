@@ -1,0 +1,158 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    storage_root,\n    max_upload_size_mb,\n    max_upload_request_size_mb,\n    ingest_concurrency,\n    pdf_pages_per_task,\n    s3_endpoint,\n    s3_region,\n    s3_bucket,\n    s3_prefix,\n    s3_path_style,\n    s3_access_key,\n    s3_secret_key\nFROM context69.runtime_file_library_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "storage_root",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "storage_root"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "max_upload_size_mb",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "max_upload_size_mb"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "max_upload_request_size_mb",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "max_upload_request_size_mb"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ingest_concurrency",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "ingest_concurrency"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "pdf_pages_per_task",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "pdf_pages_per_task"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "s3_endpoint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_endpoint"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "s3_region",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_region"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "s3_bucket",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_bucket"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "s3_prefix",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_prefix"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "s3_path_style",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_path_style"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "s3_access_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_access_key"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "s3_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_secret_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "c351ced0610d12e5e6c5da881b846e52151e536633a582548c0c2effeafd4626"
+}

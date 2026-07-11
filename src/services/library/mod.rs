@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     path::PathBuf,
     sync::Arc,
 };
@@ -31,13 +32,15 @@ use crate::{
     services::settings::SettingsService,
 };
 
-mod filenames;
 mod content_objects;
+mod filenames;
 mod files;
 mod folders;
 mod ingest;
 mod metadata;
-mod object_storage;
+mod migration;
+pub use migration::StorageMigrationSummary;
+pub(crate) mod object_storage;
 mod resources;
 mod storage;
 mod tree;
@@ -72,6 +75,7 @@ pub struct UploadedLibraryFile {
     pub filename: String,
     pub media_type: String,
     pub bytes: Bytes,
+    pub declared_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

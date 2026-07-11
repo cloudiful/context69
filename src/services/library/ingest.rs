@@ -54,12 +54,11 @@ impl LibraryService {
             Some(file) => file,
             None => return Ok(()),
         };
-        let storage_path = self.storage_root.join(&file.storage_rel_path);
-        let bytes = match fs::read(&storage_path) {
-            Ok(bytes) => Bytes::from(bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(anyhow!(error).context("failed to read stored file")),
-        };
+        let bytes = self
+            .storage
+            .read(&file.storage_rel_path)
+            .await?
+            .with_context(|| format!("stored file not found for file {file_id}"))?;
 
         let result = async {
             let _runtime = self.runtime()?;

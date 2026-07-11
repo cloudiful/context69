@@ -13,7 +13,6 @@ use context69::{
         },
     },
 };
-use jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER as JWT_CRYPTO_PROVIDER;
 use scheduler::{
     CoordinatedLeaseConfig, ExecutionSlot, GuardedRunResult, GuardedRunner, InMemoryStateStore,
     Job, OverlapPolicy, Schedule, Scheduler, SchedulerConfig, Task, TaskContext,
@@ -25,8 +24,6 @@ use tracing_subscriber::{EnvFilter, fmt};
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
-    let _ = JWT_CRYPTO_PROVIDER.install_default();
-
     let mode = env::args().nth(1).unwrap_or_else(|| "serve".to_string());
     if mode == "export-openapi" {
         export_openapi(env::args().nth(2)).await?;
@@ -57,10 +54,26 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        "migrate-library-storage" => {
+            let dry_run = env::args().any(|arg| arg == "--dry-run");
+            let summary = app
+                .library
+                .migrate_local_storage_to_active_backend(dry_run)
+                .await?;
+            info!(
+                dry_run,
+                scanned = summary.scanned,
+                migrated = summary.migrated,
+                already_migrated = summary.already_migrated,
+                missing = summary.missing,
+                invalid = summary.invalid,
+                "library storage migration finished"
+            );
+        }
         "serve" => serve(app).await?,
         other => {
             return Err(anyhow::anyhow!(
-                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, or export-openapi"
+                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, migrate-library-storage, or export-openapi"
             ));
         }
     }
@@ -114,7 +127,7 @@ async fn serve(app: Arc<Context69App>) -> Result<()> {
     } else {
         None
     };
-    let router = api::router(app);
+    let router = api::router(app).await?;
     let server_config = server::ServerConfig::new()
         .with_listen_addr(api_bind_addr)
         .build()?;

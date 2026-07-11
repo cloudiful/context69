@@ -11,7 +11,7 @@ use crate::db::Database;
 use crate::domain::{LibraryFileRecord, LibraryFolderRecord, LibraryIngestJobRecord};
 
 mod detail;
-mod documents;
+pub(crate) mod documents;
 mod files;
 mod folders;
 mod jobs;

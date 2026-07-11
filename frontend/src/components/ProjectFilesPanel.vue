@@ -111,7 +111,7 @@ const { filteredGroupEntries } = useGroupBrowserEntries({
   query: () => pageState.query,
   t,
 });
-const visibleGroupEntries = computed(() => treeState.selectedFolderId || pageState.page !== 1
+const visibleGroupEntries = computed(() => treeState.selectedFolderId || pageState.page !== 1 || pageState.statusFilter
   ? []
   : filteredGroupEntries.value);
 
@@ -140,7 +140,7 @@ const resourceMenuItems = computed(() => {
   const items = [
     { label: entry.isSourceConfigFile ? t("library.editSourceConfig") : t("library.preview"), icon: entry.isSourceConfigFile ? "pi pi-file-edit" : "pi pi-eye", command: () => { void openExplorerEntry(entry); } },
   ];
-  if (entry.ingestStatus === "failed") {
+  if (entry.ingestStatus === "failed" && !actionsState.unavailableFileIds.includes(entry.id)) {
     items.push({
       label: actionsState.retryingFileIds.includes(entry.id) ? t("library.retrying") : t("common.retry"),
       icon: "pi pi-refresh",
@@ -443,10 +443,12 @@ onBeforeUnmount(() => {
       :page-size="pageState.pageSize"
       :resource-search-query="pageState.query"
       :retrying-file-ids="actionsState.retryingFileIds"
+      :unavailable-file-ids="actionsState.unavailableFileIds"
       :selected-folder-ready="!!treeState.selectedFolder"
       :selection="treeState.selectedExplorerEntry"
       :sort-field="pageState.sortBy"
       :sort-order="pageState.sortOrder"
+      :status-filter="pageState.statusFilter"
       :table-context-selection="treeState.resourceContextEntry"
       :upload-busy="actionsState.uploadBusy"
       :total-records="pageState.total"
@@ -457,6 +459,7 @@ onBeforeUnmount(() => {
       @row-contextmenu="handleExplorerRowContextMenu"
       @page="pageState.changePage($event.first, $event.rows)"
       @sort="pageState.changeSort($event.sortField, $event.sortOrder)"
+      @status-filter="pageState.changeStatusFilter($event)"
       @group-contextmenu="handleGroupRowContextMenu"
       @surface-contextmenu="handleSurfaceContextMenu"
       @open-entry="openExplorerEntry"

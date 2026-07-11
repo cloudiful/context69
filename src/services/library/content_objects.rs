@@ -107,3 +107,15 @@ fn validate_sha256(value: &str) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate_sha256;
+
+    #[test]
+    fn sha256_requires_exact_hex_digest() {
+        assert!(validate_sha256(&"a".repeat(64)).is_ok());
+        assert!(validate_sha256(&"a".repeat(63)).is_err());
+        assert!(validate_sha256(&"z".repeat(64)).is_err());
+    }
+}

@@ -1,30 +1,26 @@
-use std::{collections::HashMap, sync::Arc};
-
 use anyhow::{Context, Result, anyhow};
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
-use chrono::{Duration as ChronoDuration, Utc};
-use jsonwebtoken::{
-    Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, decode_header, encode,
-};
+use axum_login::{AuthUser, AuthnBackend, UserId};
+use chrono::Utc;
 use uuid::Uuid;
 
 use crate::{
     config::AuthConfig,
-    contracts::{AuthTokenResponse, AuthUserResponse, MembershipRole},
-    db::{Database, RefreshTokenRecord},
+    contracts::{AuthUserResponse, MembershipRole},
+    db::Database,
     domain::{AccessScope, PersonalGroupRecord, UserRecord},
-    services::token_utils::hash_token,
 };
+
+pub const SESSION_COOKIE_NAME: &str = "context69_session_v2";
+pub const AUTH_SESSION_DATA_KEY: &str = "context69.auth_session_v2";
 
 #[derive(Clone)]
 pub struct AuthService {
     db: Database,
     config: AuthConfig,
-    encoding_keys: Arc<HashMap<String, EncodingKey>>,
-    decoding_keys: Arc<HashMap<String, DecodingKey>>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,42 +30,46 @@ pub struct AuthSession {
 }
 
 #[derive(Debug, Clone)]
-pub struct IssuedSession {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_in_secs: u64,
-    pub session: AuthSession,
+pub struct Credentials {
+    pub login_name: String,
+    pub password: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct AccessTokenClaims {
-    sub: String,
-    jti: String,
-    iss: String,
-    iat: i64,
-    exp: i64,
+#[derive(Debug, Clone)]
+pub struct AuthPrincipal(pub AuthSession);
+
+impl AuthUser for AuthPrincipal {
+    type Id = i64;
+
+    fn id(&self) -> Self::Id {
+        self.0.user.id
+    }
+
+    fn session_auth_hash(&self) -> &[u8] {
+        self.0.user.password_hash.as_bytes()
+    }
+}
+
+#[derive(Debug)]
+pub struct AuthBackendError(anyhow::Error);
+
+impl std::fmt::Display for AuthBackendError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl std::error::Error for AuthBackendError {}
+
+impl From<anyhow::Error> for AuthBackendError {
+    fn from(value: anyhow::Error) -> Self {
+        Self(value)
+    }
 }
 
 impl AuthService {
     pub fn new(db: Database, config: AuthConfig) -> Result<Self> {
-        let mut encoding_keys = HashMap::new();
-        let mut decoding_keys = HashMap::new();
-        for key in &config.signing_keys {
-            encoding_keys.insert(
-                key.kid.clone(),
-                EncodingKey::from_secret(key.secret.as_bytes()),
-            );
-            decoding_keys.insert(
-                key.kid.clone(),
-                DecodingKey::from_secret(key.secret.as_bytes()),
-            );
-        }
-        Ok(Self {
-            db,
-            config,
-            encoding_keys: Arc::new(encoding_keys),
-            decoding_keys: Arc::new(decoding_keys),
-        })
+        Ok(Self { db, config })
     }
 
     pub async fn ensure_bootstrap_admin(&self) -> Result<()> {
@@ -100,23 +100,11 @@ impl AuthService {
         Ok(())
     }
 
-    pub async fn verify_access_token(&self, token: &str) -> Result<AuthSession> {
-        let header = decode_header(token).context("invalid token header")?;
-        let kid = header.kid.context("missing token kid")?;
-        let decoding_key = self.decoding_keys.get(&kid).context("unknown token kid")?;
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.set_issuer(&[self.config.issuer.as_str()]);
-        let claims = decode::<AccessTokenClaims>(token, decoding_key, &validation)
-            .context("invalid access token")?
-            .claims;
-        let user_id = claims
-            .sub
-            .parse::<i64>()
-            .context("invalid access token subject")?;
-        self.session_for_user_id(user_id).await
-    }
-
-    pub async fn login(&self, login_name: &str, password: &str) -> Result<IssuedSession> {
+    pub async fn authenticate_credentials(
+        &self,
+        login_name: &str,
+        password: &str,
+    ) -> Result<AuthPrincipal> {
         let user = self
             .db
             .get_user_by_login_name(login_name.trim())
@@ -124,7 +112,7 @@ impl AuthService {
             .context("invalid login or password")?;
         ensure_user_enabled(&user)?;
         verify_password(&user.password_hash, password)?;
-        self.issue_session(user).await
+        Ok(AuthPrincipal(self.session_for_user_id(user.id).await?))
     }
 
     pub async fn list_admin_users(&self, actor: &UserRecord) -> Result<Vec<UserRecord>> {
@@ -244,52 +232,6 @@ impl AuthService {
             .await
     }
 
-    pub async fn refresh(&self, refresh_token: &str) -> Result<IssuedSession> {
-        let current_token_hash = hash_token(refresh_token);
-        let record = self
-            .db
-            .get_refresh_token_by_hash(&current_token_hash)
-            .await?
-            .context("invalid refresh token")?;
-        validate_refresh_token_record(&record)?;
-        let user = self
-            .db
-            .get_user_by_id(record.user_id)
-            .await?
-            .context("user not found")?;
-        ensure_user_enabled(&user)?;
-
-        let access_token = self.sign_access_token(user.id)?;
-        let next_refresh_token = new_refresh_token();
-        let next_refresh_hash = hash_token(&next_refresh_token);
-        let next_expires_at = Utc::now()
-            + ChronoDuration::from_std(self.config.refresh_token_ttl)
-                .context("invalid refresh token ttl")?;
-        self.db
-            .rotate_refresh_token(
-                record.id,
-                &current_token_hash,
-                Uuid::new_v4(),
-                &next_refresh_hash,
-                user.id,
-                next_expires_at,
-            )
-            .await?;
-        let session = self.session_for_user_id(user.id).await?;
-        Ok(IssuedSession {
-            access_token,
-            refresh_token: next_refresh_token,
-            expires_in_secs: self.config.access_token_ttl.as_secs(),
-            session,
-        })
-    }
-
-    pub async fn logout(&self, refresh_token: &str) -> Result<()> {
-        self.db
-            .revoke_refresh_token_by_hash(&hash_token(refresh_token))
-            .await
-    }
-
     pub async fn session_for_user_id(&self, user_id: i64) -> Result<AuthSession> {
         let user = self
             .db
@@ -312,74 +254,50 @@ impl AuthService {
         self.db.resolve_access_scope(user_id, group_path).await
     }
 
-    pub fn cookie_name(&self) -> &str {
-        &self.config.refresh_cookie_name
-    }
-
-    pub fn refresh_cookie_secure(&self) -> bool {
-        self.config.refresh_cookie_secure
-    }
-
-    pub fn refresh_token_ttl_secs(&self) -> i64 {
-        self.config.refresh_token_ttl.as_secs() as i64
-    }
-
     pub fn anonymous_mcp_enabled(&self) -> bool {
         self.config.anonymous_mcp_enabled
     }
+}
 
-    pub fn token_response(&self, issued: IssuedSession) -> AuthTokenResponse {
-        AuthTokenResponse {
-            access_token: issued.access_token,
-            token_type: "Bearer".to_string(),
-            expires_in_secs: issued.expires_in_secs,
-            user: user_response(&issued.session),
+impl AuthnBackend for AuthService {
+    type User = AuthPrincipal;
+    type Credentials = Credentials;
+    type Error = AuthBackendError;
+
+    async fn authenticate(
+        &self,
+        credentials: Self::Credentials,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        match self
+            .authenticate_credentials(&credentials.login_name, &credentials.password)
+            .await
+        {
+            Ok(principal) => Ok(Some(principal)),
+            Err(error)
+                if matches!(
+                    error.to_string().as_str(),
+                    "invalid login or password" | "user account is disabled"
+                ) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error.into()),
         }
     }
 
-    async fn issue_session(&self, user: UserRecord) -> Result<IssuedSession> {
-        let access_token = self.sign_access_token(user.id)?;
-        let refresh_token = new_refresh_token();
-        let refresh_token_hash = hash_token(&refresh_token);
-        let refresh_expires_at = Utc::now()
-            + ChronoDuration::from_std(self.config.refresh_token_ttl)
-                .context("invalid refresh token ttl")?;
-        self.db
-            .insert_refresh_token(
-                Uuid::new_v4(),
-                user.id,
-                &refresh_token_hash,
-                refresh_expires_at,
-            )
-            .await?;
-        let session = self.session_for_user_id(user.id).await?;
-        Ok(IssuedSession {
-            access_token,
-            refresh_token,
-            expires_in_secs: self.config.access_token_ttl.as_secs(),
-            session,
-        })
-    }
-
-    fn sign_access_token(&self, user_id: i64) -> Result<String> {
-        let now = Utc::now();
-        let exp = now
-            + ChronoDuration::from_std(self.config.access_token_ttl)
-                .context("invalid access token ttl")?;
-        let claims = AccessTokenClaims {
-            sub: user_id.to_string(),
-            jti: Uuid::new_v4().to_string(),
-            iss: self.config.issuer.clone(),
-            iat: now.timestamp(),
-            exp: exp.timestamp(),
-        };
-        let mut header = Header::new(Algorithm::HS256);
-        header.kid = Some(self.config.active_kid.clone());
-        let encoding_key = self
-            .encoding_keys
-            .get(&self.config.active_kid)
-            .context("missing active signing key")?;
-        encode(&header, &claims, encoding_key).context("failed to sign access token")
+    async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
+        match self.session_for_user_id(*user_id).await {
+            Ok(session) => Ok(Some(AuthPrincipal(session))),
+            Err(error)
+                if matches!(
+                    error.to_string().as_str(),
+                    "user not found" | "user account is disabled"
+                ) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
@@ -410,23 +328,6 @@ fn verify_password(password_hash: &str, password: &str) -> Result<()> {
     Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
         .map_err(|_| anyhow!("invalid login or password"))
-}
-
-fn new_refresh_token() -> String {
-    format!("rt_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
-}
-
-fn validate_refresh_token_record(record: &RefreshTokenRecord) -> Result<()> {
-    if record.revoked_at.is_some() {
-        return Err(anyhow!("refresh token has been revoked"));
-    }
-    if record.replaced_by_token_id.is_some() {
-        return Err(anyhow!("refresh token has been rotated"));
-    }
-    if record.expires_at <= Utc::now() {
-        return Err(anyhow!("refresh token has expired"));
-    }
-    Ok(())
 }
 
 fn require_admin(actor: &UserRecord) -> Result<()> {

@@ -21,7 +21,6 @@ const { t } = useI18n();
         <h3 class="text-sm font-semibold text-app-text">{{ t('settings.docling.connectionTitle') }}</h3>
         <div class="settings-compact-grid settings-compact-grid-connection">
           <AppTextField
-            float-label
             input-id="docling-base-url"
             v-model="doclingDraft.connection.base_url"
             :label="t('settings.docling.baseUrl')"
@@ -29,7 +28,6 @@ const { t } = useI18n();
             placeholder="http://127.0.0.1:5001"
           />
           <AppNumberField
-            float-label
             input-id="docling-timeout"
             v-model="doclingDraft.connection.timeout_secs"
             :label="t('settings.docling.timeout')"
@@ -37,7 +35,6 @@ const { t } = useI18n();
             :step="1"
           />
           <AppNumberField
-            float-label
             input-id="docling-poll-interval"
             v-model="doclingDraft.connection.poll_interval_secs"
             :label="t('settings.docling.pollInterval')"
@@ -52,7 +49,6 @@ const { t } = useI18n();
         <div class="grid gap-3">
           <div class="settings-compact-grid settings-compact-grid-vlm-main">
             <AppTextField
-              float-label
               input-id="docling-openai-base-url"
               v-model="doclingDraft.vlm.openai_base_url"
               :label="t('settings.docling.openAiBaseUrl')"
@@ -63,7 +59,6 @@ const { t } = useI18n();
 
           <div class="settings-compact-grid settings-compact-grid-vlm-main">
             <AppTextField
-              float-label
               input-id="docling-api-key"
               v-model="doclingDraft.vlm.api_key"
               :label="t('settings.docling.apiKey')"
@@ -72,7 +67,6 @@ const { t } = useI18n();
               placeholder="sk-..."
             />
             <AppTextField
-              float-label
               input-id="docling-vlm-pipeline-model"
               v-model="doclingDraft.vlm.vlm_pipeline_model"
               :label="t('settings.docling.vlmPipelineModel')"
@@ -82,14 +76,12 @@ const { t } = useI18n();
 
           <div class="settings-compact-grid settings-compact-grid-models">
             <AppTextField
-              float-label
               input-id="docling-picture-description-model"
               v-model="doclingDraft.vlm.picture_description_model"
               :label="t('settings.docling.pictureDescriptionModel')"
               placeholder="gpt-4o-mini"
             />
             <AppTextField
-              float-label
               input-id="docling-code-formula-model"
               v-model="doclingDraft.vlm.code_formula_model"
               :label="t('settings.docling.codeFormulaModel')"

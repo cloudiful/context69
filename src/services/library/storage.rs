@@ -1,5 +1,3 @@
-use std::{fs, path::Path};
-
 use sha2::{Digest, Sha256};
 
 use crate::contracts::LibraryTextContentFormat;
@@ -30,14 +28,6 @@ pub(super) fn detect_file_kind(filename: &str, media_type: &str) -> Result<Libra
         return Ok(LibraryFileKind::PlainText);
     }
     Err(anyhow!("unsupported file type for {}", filename))
-}
-
-pub(super) fn write_storage_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
-    fs::write(path, bytes).with_context(|| format!("failed to write file {}", path.display()))
 }
 
 pub(super) fn build_storage_rel_path(file_id: Uuid, filename: &str) -> String {

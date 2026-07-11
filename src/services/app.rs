@@ -185,6 +185,19 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             max_upload_request_size_mb: config.file_library.max_upload_request_size_mb,
             ingest_concurrency: config.file_library.ingest_concurrency,
             pdf_pages_per_task: config.file_library.pdf_pages_per_task,
+            s3: config
+                .file_library
+                .s3
+                .as_ref()
+                .map(|s3| crate::db::StoredRuntimeS3Settings {
+                    endpoint: s3.endpoint.clone(),
+                    region: s3.region.clone(),
+                    bucket: s3.bucket.clone(),
+                    prefix: s3.prefix.clone(),
+                    path_style: s3.path_style,
+                    access_key: s3.access_key.clone(),
+                    secret_key: s3.secret_key.clone(),
+                }),
         },
     })
     .await?;
@@ -277,15 +290,19 @@ fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) 
         max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
         ingest_concurrency: runtime.file_library.ingest_concurrency,
         pdf_pages_per_task: runtime.file_library.pdf_pages_per_task,
-        s3: runtime.file_library.s3.as_ref().map(|s3| crate::config::S3StorageConfig {
-            endpoint: s3.endpoint.clone(),
-            region: s3.region.clone(),
-            bucket: s3.bucket.clone(),
-            prefix: s3.prefix.clone(),
-            path_style: s3.path_style,
-            access_key: s3.access_key.clone(),
-            secret_key: s3.secret_key.clone(),
-        }),
+        s3: runtime
+            .file_library
+            .s3
+            .as_ref()
+            .map(|s3| crate::config::S3StorageConfig {
+                endpoint: s3.endpoint.clone(),
+                region: s3.region.clone(),
+                bucket: s3.bucket.clone(),
+                prefix: s3.prefix.clone(),
+                path_style: s3.path_style,
+                access_key: s3.access_key.clone(),
+                secret_key: s3.secret_key.clone(),
+            }),
     };
 }
 

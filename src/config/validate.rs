@@ -143,42 +143,16 @@ pub(super) fn validate_sources_config(
 }
 
 pub(super) fn validate_auth_config(config: &AuthConfig) -> Result<()> {
-    if config.issuer.trim().is_empty() {
-        return Err(anyhow!("auth.issuer must not be empty"));
+    if config.session_valkey_url.trim().is_empty() {
+        return Err(anyhow!("auth.session_valkey_url must not be empty"));
     }
-    if config.access_token_ttl.as_secs() == 0 {
-        return Err(anyhow!("auth.access_token_ttl_secs must be greater than 0"));
-    }
-    if config.refresh_token_ttl.as_secs() == 0 {
+    if config.session_secret_key.trim().len() < 32 {
         return Err(anyhow!(
-            "auth.refresh_token_ttl_secs must be greater than 0"
+            "auth.session_secret_key must be at least 32 characters"
         ));
     }
-    if config.refresh_cookie_name.trim().is_empty() {
-        return Err(anyhow!("auth.refresh_cookie_name must not be empty"));
-    }
-    if config.active_kid.trim().is_empty() {
-        return Err(anyhow!("auth.active_kid must not be empty"));
-    }
-    if config.signing_keys.is_empty() {
-        return Err(anyhow!("auth.signing_keys must not be empty"));
-    }
-    let mut found_active = false;
-    for key in &config.signing_keys {
-        if key.kid.trim().is_empty() {
-            return Err(anyhow!("auth.signing_keys[].kid must not be empty"));
-        }
-        if key.secret.trim().is_empty() {
-            return Err(anyhow!("auth.signing_keys[].secret must not be empty"));
-        }
-        if key.kid == config.active_kid {
-            found_active = true;
-        }
-    }
-    if !found_active {
-        return Err(anyhow!(
-            "auth.active_kid must match one of auth.signing_keys[].kid"
-        ));
+    if config.session_idle_ttl.as_secs() == 0 {
+        return Err(anyhow!("auth.session_idle_ttl_secs must be greater than 0"));
     }
     if let Some(admin) = &config.bootstrap_admin
         && admin.login_name.trim().is_empty()

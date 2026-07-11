@@ -60,6 +60,33 @@ describe("LibraryResourceTable", () => {
     expect(wrapper.emitted("sort")?.[1]).toEqual([{ sortField: "updated_at", sortOrder: 1 }]);
   });
 
+  it("forwards desktop and mobile status filters", async () => {
+    const wrapper = mount(LibraryResourceTable, {
+      props: {
+        ...baseProps,
+        paginated: true,
+      },
+      global: { plugins: [testPrimeVuePlugin, createTestI18n()] },
+    });
+
+    wrapper.findComponent({ name: "DataTable" }).vm.$emit("filter", {
+      filters: {
+        status: {
+          operator: "and",
+          constraints: [{ value: "failed", matchMode: "equals" }],
+        },
+      },
+    });
+    const mobileStatusSelect = wrapper
+      .findAllComponents({ name: "Select" })
+      .find((select) => select.props("ariaLabel") === "Filter by status");
+    mobileStatusSelect?.vm.$emit("update:modelValue", "running");
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted("status-filter")?.[0]).toEqual(["failed"]);
+    expect(wrapper.emitted("status-filter")?.[1]).toEqual(["running"]);
+  });
+
   it("persists column widths without restoring backend sort state", async () => {
     const storage = installMockStorage();
     const wrapper = mount(LibraryResourceTable, {

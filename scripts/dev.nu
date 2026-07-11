@@ -6,6 +6,7 @@ def print-startup-summary [mode: string] {
   print "  backend OpenAPI     http://127.0.0.1:8096/openapi.json"
   print "  backend health      http://127.0.0.1:8096/healthz"
   print "  MCP HTTP            http://127.0.0.1:8097/mcp"
+  print "  auth sessions       Valkey from CONTEXT69_AUTH__SESSION_VALKEY_URL (default redis://127.0.0.1:6379)"
   if $mode == "full" {
     print "  frontend            http://0.0.0.0:5173 (Vite will print LAN URLs)"
   }
@@ -56,6 +57,7 @@ def main [command?: string] {
       print "  RUST_LOG defaults to info if not set"
       print "  Frontend listens on 0.0.0.0:5173"
       print "  Frontend proxies /v1, /healthz, and /openapi.json to http://127.0.0.1:8096"
+      print "  Backend startup fails with an auth session Valkey error when the configured store is unavailable"
     }
     _ => {
       error make {

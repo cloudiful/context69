@@ -25,7 +25,7 @@ function isActive(itemTo: string) {
       :to="item.to"
       :class="[
         'grid justify-items-center gap-1 rounded-xl px-2 py-2 text-[0.72rem] font-medium transition',
-        isActive(item.to) ? 'bg-app-surface-soft/70 text-app-text' : 'text-app-text-dim hover:bg-app-surface-soft/70 hover:text-app-text',
+        isActive(item.activePrefix ?? item.to) ? 'bg-app-surface-soft/70 text-app-text' : 'text-app-text-dim hover:bg-app-surface-soft/70 hover:text-app-text',
       ]"
       :title="item.label"
     >

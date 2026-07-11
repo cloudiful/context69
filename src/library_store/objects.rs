@@ -21,6 +21,23 @@ pub struct DeletedStorageObject {
 }
 
 impl LibraryStore {
+    pub async fn link_file_storage_object(
+        &self,
+        file_id: Uuid,
+        object_id: Uuid,
+        object_key: &str,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/objects/link_file_storage_object.sql",
+            file_id,
+            object_id,
+            object_key
+        )
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_storage_object(
         &self,
         group_id: i64,

@@ -40,6 +40,16 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       max_upload_request_size_mb: 128,
       ingest_concurrency: 2,
       pdf_pages_per_task: 5,
+      s3_enabled: false,
+      s3: {
+        endpoint: "",
+        region: "",
+        bucket: "",
+        prefix: "",
+        path_style: false,
+        access_key: "",
+        secret_key: "",
+      },
     },
   };
 }
@@ -105,6 +115,16 @@ export function runtimeResponseToDraft(
       max_upload_request_size_mb: response.file_library.max_upload_request_size_mb,
       ingest_concurrency: response.file_library.ingest_concurrency,
       pdf_pages_per_task: response.file_library.pdf_pages_per_task,
+      s3_enabled: !!response.file_library.s3,
+      s3: {
+        endpoint: response.file_library.s3?.endpoint ?? "",
+        region: response.file_library.s3?.region ?? "",
+        bucket: response.file_library.s3?.bucket ?? "",
+        prefix: response.file_library.s3?.prefix ?? "",
+        path_style: response.file_library.s3?.path_style ?? false,
+        access_key: response.file_library.s3?.access_key ?? "",
+        secret_key: "",
+      },
     },
   };
 }

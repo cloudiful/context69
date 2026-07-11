@@ -4,6 +4,7 @@ import {
   apiClient,
   type LibraryFileSummary,
   type LibraryFolderNode,
+  type LibraryIngestStatus,
   type LibraryResourceItem,
   type LibraryResourceSortBy,
   type SortDirection,
@@ -28,6 +29,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
   const sortBy = ref<LibraryResourceSortBy>("updated_at");
   const sortDirection = ref<SortDirection>("desc");
   const query = ref("");
+  const statusFilter = ref<LibraryIngestStatus | null>(null);
   let requestId = 0;
 
   const first = computed(() => (page.value - 1) * pageSize.value);
@@ -112,6 +114,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
         page: page.value,
         pageSize: pageSize.value,
         query: query.value.trim(),
+        status: statusFilter.value,
         sortBy: sortBy.value,
         sortDirection: sortDirection.value,
       });
@@ -142,6 +145,12 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
     await loadPage();
   }
 
+  async function changeStatusFilter(status: LibraryIngestStatus | null) {
+    statusFilter.value = status;
+    page.value = 1;
+    await loadPage();
+  }
+
   function reset() {
     requestId += 1;
     entries.value = [];
@@ -153,6 +162,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
   return {
     changePage,
     changeSort,
+    changeStatusFilter,
     entries,
     error,
     first,
@@ -164,6 +174,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
     reset,
     sortBy,
     sortOrder,
+    statusFilter,
     total,
   };
 }

@@ -7,7 +7,7 @@ use opendal::{Operator, services};
 use crate::config::FileLibraryConfig;
 
 #[derive(Clone)]
-pub(super) struct LibraryObjectStorage {
+pub(crate) struct LibraryObjectStorage {
     operator: Operator,
     backend: &'static str,
 }
@@ -42,6 +42,25 @@ impl LibraryObjectStorage {
             operator: Operator::new(builder)?.finish(),
             backend: "local",
         })
+    }
+
+    pub(crate) fn from_s3(config: &crate::config::S3StorageConfig) -> Result<Self> {
+        let wrapper = FileLibraryConfig {
+            storage_root: "./data/library".into(),
+            max_upload_size_mb: 1,
+            max_upload_request_size_mb: 1,
+            ingest_concurrency: 1,
+            pdf_pages_per_task: 1,
+            s3: Some(config.clone()),
+        };
+        Self::from_config(&wrapper)
+    }
+
+    pub(crate) async fn check(&self) -> Result<()> {
+        self.operator
+            .check()
+            .await
+            .context("S3 connection check failed")
     }
 
     pub(super) fn backend(&self) -> &'static str {
@@ -86,4 +105,55 @@ pub(super) fn content_object_key(group_id: i64, sha256: &str) -> String {
 fn path_text(path: &Path) -> Result<&str> {
     path.to_str()
         .with_context(|| format!("storage root is not valid UTF-8: {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use bytes::Bytes;
+    use uuid::Uuid;
+
+    use crate::config::FileLibraryConfig;
+
+    use super::{LibraryObjectStorage, content_object_key};
+
+    #[tokio::test]
+    async fn local_backend_round_trips_objects() {
+        let root = std::env::temp_dir().join(format!("context69-storage-{}", Uuid::new_v4()));
+        let storage = LibraryObjectStorage::from_config(&config(root.clone())).unwrap();
+        let key = content_object_key(42, &"a".repeat(64));
+
+        storage
+            .write(&key, Bytes::from_static(b"content"))
+            .await
+            .unwrap();
+        assert!(storage.exists(&key).await.unwrap());
+        assert_eq!(
+            storage.read(&key).await.unwrap(),
+            Some(Bytes::from_static(b"content"))
+        );
+        storage.delete(&key).await.unwrap();
+        assert!(!storage.exists(&key).await.unwrap());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn content_keys_are_group_scoped() {
+        let hash = "b".repeat(64);
+        assert_eq!(content_object_key(7, &hash), format!("objects/7/{hash}"));
+        assert_ne!(content_object_key(7, &hash), content_object_key(8, &hash));
+    }
+
+    fn config(storage_root: PathBuf) -> FileLibraryConfig {
+        FileLibraryConfig {
+            storage_root,
+            max_upload_size_mb: 1,
+            max_upload_request_size_mb: 1,
+            ingest_concurrency: 1,
+            pdf_pages_per_task: 1,
+            s3: None,
+        }
+    }
 }

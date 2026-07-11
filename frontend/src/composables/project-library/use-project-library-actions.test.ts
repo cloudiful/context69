@@ -5,13 +5,17 @@ import type { LibraryFolderNode, LibraryIngestJobResponse } from "../../services
 import { useProjectLibraryActions } from "./use-project-library-actions";
 
 const mocks = vi.hoisted(() => ({
+  getGroupLibraryFile: vi.fn(),
   retryGroupLibraryFile: vi.fn(),
   showErrorToast: vi.fn(),
   toastAdd: vi.fn(),
 }));
 
 vi.mock("../../services/api", () => ({
-  apiClient: { retryGroupLibraryFile: mocks.retryGroupLibraryFile },
+  apiClient: {
+    getGroupLibraryFile: mocks.getGroupLibraryFile,
+    retryGroupLibraryFile: mocks.retryGroupLibraryFile,
+  },
 }));
 vi.mock("../use-error-toast", () => ({ useErrorToast: () => mocks.showErrorToast }));
 vi.mock("primevue/useconfirm", () => ({ useConfirm: () => ({ require: vi.fn() }) }));
@@ -33,6 +37,8 @@ const root: LibraryFolderNode = {
 describe("useProjectLibraryActions retry", () => {
   beforeEach(() => {
     mocks.retryGroupLibraryFile.mockReset();
+    mocks.getGroupLibraryFile.mockReset();
+    mocks.getGroupLibraryFile.mockResolvedValue({ source_available: true });
     mocks.showErrorToast.mockReset();
     mocks.toastAdd.mockReset();
   });
@@ -73,5 +79,29 @@ describe("useProjectLibraryActions retry", () => {
     expect(loadTree).toHaveBeenCalledOnce();
     expect(schedulePolling).toHaveBeenCalledWith(["job-id"]);
     expect(state.retryingFileIds.value).toEqual([]);
+  });
+
+  it("does not retry when the stored original is missing", async () => {
+    mocks.getGroupLibraryFile.mockResolvedValue({ source_available: false });
+    const state = useProjectLibraryActions({
+      groupPath: ref("group"),
+      loadTree: vi.fn(),
+      moveOptions: ref([]),
+      replaceSelection: vi.fn(),
+      schedulePolling: vi.fn(),
+      selectFile: vi.fn(),
+      selectedFolder: ref(root),
+      selectedFileId: ref("file-id"),
+      t: (key) => key,
+      updateExpandedForFolder: vi.fn(),
+      previewDocked: ref(false),
+      previewDialogVisible: ref(false),
+    });
+
+    await state.retryFile("file-id");
+
+    expect(mocks.retryGroupLibraryFile).not.toHaveBeenCalled();
+    expect(state.unavailableFileIds.value).toEqual(["file-id"]);
+    expect(mocks.showErrorToast).toHaveBeenCalledOnce();
   });
 });

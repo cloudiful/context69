@@ -80,24 +80,14 @@ pub struct S3StorageConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
-    pub issuer: String,
-    #[serde(rename = "access_token_ttl_secs", with = "serde_helpers::seconds")]
-    pub access_token_ttl: Duration,
-    #[serde(rename = "refresh_token_ttl_secs", with = "serde_helpers::seconds")]
-    pub refresh_token_ttl: Duration,
-    pub refresh_cookie_name: String,
-    pub refresh_cookie_secure: bool,
+    pub session_valkey_url: String,
+    pub session_secret_key: String,
+    #[serde(rename = "session_idle_ttl_secs", with = "serde_helpers::seconds")]
+    pub session_idle_ttl: Duration,
+    pub session_cookie_secure: bool,
     pub anonymous_mcp_enabled: bool,
-    pub active_kid: String,
-    pub signing_keys: Vec<AuthSigningKeyConfig>,
     #[serde(default)]
     pub bootstrap_admin: Option<BootstrapAdminConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthSigningKeyConfig {
-    pub kid: String,
-    pub secret: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

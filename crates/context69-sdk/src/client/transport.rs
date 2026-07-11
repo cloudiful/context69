@@ -114,6 +114,18 @@ pub(crate) fn file_upload_form(folder_id: Option<Uuid>, files: Vec<Part>) -> For
     form
 }
 
+pub(crate) fn file_upload_form_with_sha256(
+    folder_id: Option<Uuid>,
+    sha256: String,
+    file: Part,
+) -> Form {
+    let mut form = Form::new();
+    if let Some(folder_id) = folder_id {
+        form = form.text("folder_id", folder_id.to_string());
+    }
+    form.text("sha256", sha256).part("files", file)
+}
+
 pub(crate) fn validate_personal_access_token(token: String) -> Result<String, Error> {
     let trimmed = token.trim();
     if trimmed.is_empty() {

@@ -70,6 +70,7 @@ describe("useProjectLibraryPage", () => {
     const state = useProjectLibraryPage({ groupPath: "stock/alpha", folder, t: (key) => key });
 
     state.query.value = "latest";
+    await state.changeStatusFilter("failed");
     await state.changePage(25, 25);
     await state.changeSort("size", -1);
 
@@ -78,6 +79,7 @@ describe("useProjectLibraryPage", () => {
       page: 1,
       pageSize: 25,
       query: "latest",
+      status: "failed",
       sortBy: "size",
       sortDirection: "desc",
     });
@@ -87,5 +89,19 @@ describe("useProjectLibraryPage", () => {
       sizeBytes: 2048,
     });
     expect(state.total.value).toBe(80);
+  });
+
+  it("returns to the first page when the status filter changes", async () => {
+    mocks.getGroupLibraryResources.mockResolvedValue(response());
+    const state = useProjectLibraryPage({ groupPath: "stock/alpha", folder: root, t: (key) => key });
+
+    await state.changePage(50, 25);
+    await state.changeStatusFilter("running");
+
+    expect(state.page.value).toBe(1);
+    expect(mocks.getGroupLibraryResources).toHaveBeenLastCalledWith("stock/alpha", expect.objectContaining({
+      page: 1,
+      status: "running",
+    }));
   });
 });

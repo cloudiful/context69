@@ -8,6 +8,7 @@ import type {
   SourceConfigInput,
   UpsertLibraryTextRequest,
   LibraryResourceSortBy,
+  LibraryIngestStatus,
   SortDirection,
 } from "./api-types";
 
@@ -62,6 +63,7 @@ export function createGroupWorkspaceApi({
       page: number;
       pageSize: number;
       query: string;
+      status: LibraryIngestStatus | null;
       sortBy: LibraryResourceSortBy;
       sortDirection: SortDirection;
     }, options?: RequestOptions) {
@@ -73,6 +75,7 @@ export function createGroupWorkspaceApi({
             page: params.page,
             page_size: params.pageSize,
             query: params.query || undefined,
+            status: params.status ?? undefined,
             sort_by: params.sortBy,
             sort_direction: params.sortDirection,
           },
@@ -108,11 +111,36 @@ export function createGroupWorkspaceApi({
       }));
     },
     async uploadGroupLibraryFiles(groupPath: string, folderId: string | null, files: File[], options?: RequestOptions) {
+      const prepared = await Promise.all(files.map(async (file) => {
+        const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        const result = await unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/prepare-upload", {
+          params: { path: { group_path: groupPath } },
+          body: {
+            folder_id: folderId,
+            filename: file.name,
+            media_type: file.type || "application/octet-stream",
+            size_bytes: file.size,
+            sha256,
+          },
+          signal: options?.signal,
+        }));
+        return { file, result, sha256 };
+      }));
+      const reused = prepared.filter(({ result }) => !result.upload_required);
+      const pending = prepared.filter(({ result }) => result.upload_required).map(({ file }) => file);
+      if (pending.length === 0) {
+        return {
+          files: reused.flatMap(({ result }) => result.file ? [result.file] : []),
+          jobs: reused.flatMap(({ result }) => result.job ? [result.job] : []),
+        };
+      }
       const form = new FormData();
       if (folderId) {
         form.append("folder_id", folderId);
       }
-      for (const file of files) {
+      for (const { file, sha256 } of prepared.filter(({ result }) => result.upload_required)) {
+        form.append("sha256", sha256);
         form.append("files", file);
       }
 
@@ -122,7 +150,11 @@ export function createGroupWorkspaceApi({
         signal: options?.signal,
       });
 
-      return unwrapFetchResponse<LibraryUploadResponse>(response);
+      const uploaded = await unwrapFetchResponse<LibraryUploadResponse>(response);
+      return {
+        files: [...reused.flatMap(({ result }) => result.file ? [result.file] : []), ...uploaded.files],
+        jobs: [...reused.flatMap(({ result }) => result.job ? [result.job] : []), ...uploaded.jobs],
+      };
     },
     getGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/files/{file_id}", {

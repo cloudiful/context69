@@ -130,7 +130,15 @@ const activeSection = computed(() => {
           >
             {{ detail.error_message || t("library.failedMessage") }}
           </AppStateMessage>
+          <AppStateMessage
+            v-if="!detail.source_available"
+            severity="warn"
+            :title="t('library.sourceMissingTitle')"
+          >
+            {{ t("library.sourceMissingMessage") }}
+          </AppStateMessage>
           <Button
+            v-else
             icon="pi pi-refresh"
             :label="retrying ? t('library.retrying') : t('common.retry')"
             :loading="retrying"

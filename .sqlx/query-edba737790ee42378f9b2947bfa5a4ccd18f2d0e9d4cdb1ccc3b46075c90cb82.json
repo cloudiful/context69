@@ -1,0 +1,149 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH resources AS (\n    SELECT\n        'folder'::TEXT AS resource_kind,\n        folder.id,\n        groups.group_key,\n        groups.full_path AS group_path,\n        folder.visibility,\n        folder.parent_id AS parent_folder_id,\n        folder.name,\n        NULL::TEXT AS media_type,\n        NULL::BIGINT AS size_bytes,\n        NULL::TEXT AS ingest_status,\n        NULL::TEXT AS error_message,\n        (SELECT COUNT(*) FROM context69.library_folders child WHERE child.parent_id = folder.id)::BIGINT AS child_folder_count,\n        (SELECT COUNT(*) FROM context69.library_files file WHERE file.folder_id = folder.id)::BIGINT AS file_count,\n        (SELECT COUNT(*) FROM context69.library_files file WHERE file.folder_id = folder.id AND file.ingest_status IN ('pending', 'running'))::BIGINT AS processing_count,\n        EXISTS (SELECT 1 FROM context69.library_files file WHERE file.folder_id = folder.id AND LOWER(file.filename) = 'source.json') AS is_source_folder,\n        (folder.name = 'records' AND folder.parent_id IS NOT NULL) AS is_source_records_folder,\n        folder.created_at,\n        folder.updated_at\n    FROM context69.library_folders folder\n    JOIN context69.groups groups ON groups.id = folder.group_id\n    WHERE folder.group_id = $1\n      AND folder.parent_id IS NOT DISTINCT FROM $2::UUID\n\n    UNION ALL\n\n    SELECT\n        'file'::TEXT AS resource_kind,\n        file.id,\n        groups.group_key,\n        groups.full_path AS group_path,\n        file.visibility,\n        file.folder_id AS parent_folder_id,\n        file.filename AS name,\n        file.media_type,\n        file.size_bytes,\n        file.ingest_status,\n        file.error_message,\n        0::BIGINT AS child_folder_count,\n        0::BIGINT AS file_count,\n        0::BIGINT AS processing_count,\n        FALSE AS is_source_folder,\n        FALSE AS is_source_records_folder,\n        file.created_at,\n        file.updated_at\n    FROM context69.library_files file\n    JOIN context69.groups groups ON groups.id = file.group_id\n    WHERE file.group_id = $1\n      AND file.folder_id IS NOT DISTINCT FROM $2::UUID\n)\nSELECT\n    resource_kind AS \"resource_kind!\",\n    id AS \"id!\",\n    group_key AS \"group_key!\",\n    group_path AS \"group_path!\",\n    visibility AS \"visibility!\",\n    parent_folder_id,\n    name AS \"name!\",\n    media_type,\n    size_bytes,\n    ingest_status,\n    error_message,\n    child_folder_count AS \"child_folder_count!\",\n    file_count AS \"file_count!\",\n    processing_count AS \"processing_count!\",\n    is_source_folder AS \"is_source_folder!\",\n    is_source_records_folder AS \"is_source_records_folder!\",\n    created_at AS \"created_at!\",\n    updated_at AS \"updated_at!\"\nFROM resources\nWHERE (\n       NULLIF(BTRIM($3::TEXT), '') IS NULL\n    OR resources.name ILIKE '%' || BTRIM($3::TEXT) || '%'\n    OR COALESCE(resources.media_type, '') ILIKE '%' || BTRIM($3::TEXT) || '%'\n    OR COALESCE(resources.ingest_status, '') ILIKE '%' || BTRIM($3::TEXT) || '%'\n)\nAND ($4::TEXT IS NULL OR resources.ingest_status = $4::TEXT)\nORDER BY\n    CASE WHEN $5 = 'name' AND $6 = 'asc' THEN LOWER(name) END ASC NULLS LAST,\n    CASE WHEN $5 = 'name' AND $6 = 'desc' THEN LOWER(name) END DESC NULLS LAST,\n    CASE WHEN $5 = 'type' AND $6 = 'asc' THEN resource_kind || ':' || COALESCE(media_type, '') END ASC NULLS LAST,\n    CASE WHEN $5 = 'type' AND $6 = 'desc' THEN resource_kind || ':' || COALESCE(media_type, '') END DESC NULLS LAST,\n    CASE WHEN $5 = 'status' AND $6 = 'asc' THEN ingest_status END ASC NULLS LAST,\n    CASE WHEN $5 = 'status' AND $6 = 'desc' THEN ingest_status END DESC NULLS LAST,\n    CASE WHEN $5 = 'size' AND $6 = 'asc' THEN size_bytes END ASC NULLS LAST,\n    CASE WHEN $5 = 'size' AND $6 = 'desc' THEN size_bytes END DESC NULLS LAST,\n    CASE WHEN $5 = 'updated_at' AND $6 = 'asc' THEN updated_at END ASC NULLS LAST,\n    CASE WHEN $5 = 'updated_at' AND $6 = 'desc' THEN updated_at END DESC NULLS LAST,\n    LOWER(name) ASC,\n    id ASC\nLIMIT $7 OFFSET $8\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_kind!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "parent_folder_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "media_type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "ingest_status",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "child_folder_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "file_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "processing_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "is_source_folder!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "is_source_records_folder!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "edba737790ee42378f9b2947bfa5a4ccd18f2d0e9d4cdb1ccc3b46075c90cb82"
+}

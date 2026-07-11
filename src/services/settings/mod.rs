@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 
 mod mappers;
 mod validate;
@@ -53,7 +53,9 @@ impl SettingsService {
             if let Some(api_key) = normalize_optional_string(request.embedding.api_key.clone()) {
                 Some(api_key)
             } else {
-                existing.as_ref().and_then(|settings| settings.embedding.api_key.clone())
+                existing
+                    .as_ref()
+                    .and_then(|settings| settings.embedding.api_key.clone())
             };
         let mut stored = runtime_settings_from_request(request, api_key);
         if let Some(s3) = stored.file_library.s3.as_mut()
@@ -64,9 +66,45 @@ impl SettingsService {
                 .map(|s3| s3.secret_key)
                 .unwrap_or_default();
         }
+        if stored
+            .file_library
+            .s3
+            .as_ref()
+            .is_some_and(|s3| s3.secret_key.is_empty())
+        {
+            return Err(anyhow!(
+                "runtime.file_library.s3.secret_key must not be empty"
+            ));
+        }
 
         let saved = self.db.save_runtime_settings(&stored).await?;
         Ok(runtime_settings_response(saved))
+    }
+
+    pub async fn test_s3_connection(
+        &self,
+        request: &crate::contracts::UpdateRuntimeS3Settings,
+    ) -> Result<()> {
+        let existing = self.db.get_runtime_settings().await?;
+        let secret_key = normalize_optional_string(request.secret_key.clone())
+            .or_else(|| {
+                existing
+                    .and_then(|settings| settings.file_library.s3)
+                    .map(|s3| s3.secret_key)
+            })
+            .context("runtime.file_library.s3.secret_key must not be empty")?;
+        let config = crate::config::S3StorageConfig {
+            endpoint: request.endpoint.trim().to_string(),
+            region: request.region.trim().to_string(),
+            bucket: request.bucket.trim().to_string(),
+            prefix: request.prefix.trim_matches('/').to_string(),
+            path_style: request.path_style,
+            access_key: request.access_key.trim().to_string(),
+            secret_key,
+        };
+        crate::services::library::object_storage::LibraryObjectStorage::from_s3(&config)?
+            .check()
+            .await
     }
 
     pub async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse> {
@@ -237,8 +275,8 @@ mod tests {
     };
     use crate::{
         contracts::{
-            DoclingSettingsSource, RuntimeChunkingSettings, RuntimeFileLibrarySettings,
-            RuntimeQdrantSettings, RuntimeSchedulerSettings, UpdateDoclingConnectionSettings,
+            DoclingSettingsSource, RuntimeChunkingSettings, RuntimeQdrantSettings,
+            RuntimeSchedulerSettings, UpdateDoclingConnectionSettings,
             UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings,
             UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
         },
@@ -304,12 +342,13 @@ mod tests {
                 max_chars: 1200,
                 overlap_chars: 200,
             },
-            file_library: RuntimeFileLibrarySettings {
+            file_library: crate::contracts::UpdateRuntimeFileLibrarySettings {
                 storage_root: "/tmp/library".to_string(),
                 max_upload_size_mb: 64,
                 max_upload_request_size_mb: 128,
                 ingest_concurrency: 2,
                 pdf_pages_per_task: 5,
+                s3: None,
             },
         }
     }

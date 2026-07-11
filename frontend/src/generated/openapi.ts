@@ -180,22 +180,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["refresh"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/documents/{document_id}": {
         parameters: {
             query?: never;
@@ -254,6 +238,22 @@ export interface paths {
         get: operations["list_child_groups"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/files/prepare-upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["prepare_group_library_upload"];
         delete?: never;
         options?: never;
         head?: never;
@@ -724,6 +724,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/runtime/s3/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["test_s3_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/search": {
         parameters: {
             query?: never;
@@ -861,13 +877,6 @@ export interface components {
             password: string;
         };
         AuthMeResponse: {
-            user: components["schemas"]["AuthUserResponse"];
-        };
-        AuthTokenResponse: {
-            access_token: string;
-            /** Format: int64 */
-            expires_in_secs: number;
-            token_type: string;
             user: components["schemas"]["AuthUserResponse"];
         };
         AuthUserResponse: {
@@ -1042,6 +1051,7 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size_bytes: number;
+            source_available?: boolean;
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
@@ -1204,6 +1214,20 @@ export interface components {
         };
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
+        PrepareLibraryUploadRequest: {
+            filename: string;
+            /** Format: uuid */
+            folder_id?: string | null;
+            media_type: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        PrepareLibraryUploadResponse: {
+            file?: null | components["schemas"]["LibraryFileSummary"];
+            job?: null | components["schemas"]["LibraryIngestJobResponse"];
+            upload_required: boolean;
+        };
         ResetAdminUserPasswordRequest: {
             password: string;
         };
@@ -1225,12 +1249,22 @@ export interface components {
             max_upload_size_mb: number;
             /** Format: int32 */
             pdf_pages_per_task: number;
+            s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
             storage_root: string;
         };
         RuntimeQdrantSettings: {
             collection_name: string;
             recreate_on_dimension_mismatch: boolean;
             url: string;
+        };
+        RuntimeS3SettingsResponse: {
+            access_key: string;
+            bucket: string;
+            endpoint: string;
+            has_secret_key: boolean;
+            path_style: boolean;
+            prefix: string;
+            region: string;
         };
         RuntimeSchedulerSettings: {
             /** Format: int64 */
@@ -1402,10 +1436,28 @@ export interface components {
             /** Format: int64 */
             timeout_secs: number;
         };
+        UpdateRuntimeFileLibrarySettings: {
+            ingest_concurrency: number;
+            max_upload_request_size_mb: number;
+            max_upload_size_mb: number;
+            /** Format: int32 */
+            pdf_pages_per_task: number;
+            s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
+            storage_root: string;
+        };
+        UpdateRuntimeS3Settings: {
+            access_key: string;
+            bucket: string;
+            endpoint: string;
+            path_style?: boolean;
+            prefix?: string;
+            region: string;
+            secret_key?: string | null;
+        };
         UpdateRuntimeSettingsRequest: {
             chunking: components["schemas"]["RuntimeChunkingSettings"];
             embedding: components["schemas"]["UpdateRuntimeEmbeddingSettings"];
-            file_library: components["schemas"]["RuntimeFileLibrarySettings"];
+            file_library: components["schemas"]["UpdateRuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
         };
@@ -1771,13 +1823,11 @@ export interface operations {
         };
         responses: {
             /** @description Authenticated session */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["AuthTokenResponse"];
-                };
+                content?: never;
             };
             /** @description Invalid login or password */
             401: {
@@ -1835,7 +1885,7 @@ export interface operations {
                     "application/json": components["schemas"]["AuthMeResponse"];
                 };
             };
-            /** @description Missing or invalid bearer token */
+            /** @description Missing or invalid session */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1974,35 +2024,6 @@ export interface operations {
             };
             /** @description Personal access token not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    refresh: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Refreshed access token */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthTokenResponse"];
-                };
-            };
-            /** @description Invalid refresh token */
-            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2198,6 +2219,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["GroupResponse"][];
                 };
+            };
+        };
+    };
+    prepare_group_library_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareLibraryUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Upload requirement or reused file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrepareLibraryUploadResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or folder not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -2560,6 +2622,7 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 query?: string;
+                status?: components["schemas"]["LibraryIngestStatus"];
                 sort_by?: components["schemas"]["LibraryResourceSortBy"];
                 sort_direction?: components["schemas"]["SortDirection"];
             };
@@ -3488,6 +3551,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RuntimeSettingsResponse"];
                 };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    test_s3_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRuntimeS3Settings"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: {
                 headers: {

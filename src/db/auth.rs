@@ -1,20 +1,9 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 use super::Database;
 use crate::domain::UserRecord;
-
-#[derive(Debug, Clone)]
-pub struct RefreshTokenRecord {
-    pub id: Uuid,
-    pub user_id: i64,
-    pub token_hash: String,
-    pub expires_at: DateTime<Utc>,
-    pub revoked_at: Option<DateTime<Utc>>,
-    pub replaced_by_token_id: Option<Uuid>,
-}
 
 #[derive(Debug, Clone, FromRow)]
 struct UserRow {
@@ -26,16 +15,6 @@ struct UserRow {
     disabled_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct RefreshTokenRow {
-    id: Uuid,
-    user_id: i64,
-    token_hash: String,
-    expires_at: DateTime<Utc>,
-    revoked_at: Option<DateTime<Utc>>,
-    replaced_by_token_id: Option<Uuid>,
 }
 
 impl Database {
@@ -203,82 +182,6 @@ impl Database {
         tx.commit().await?;
         Ok(Some(user_from_row(row)))
     }
-
-    pub async fn insert_refresh_token(
-        &self,
-        id: Uuid,
-        user_id: i64,
-        token_hash: &str,
-        expires_at: DateTime<Utc>,
-    ) -> Result<RefreshTokenRecord> {
-        let row = sqlx::query_file_as!(
-            RefreshTokenRow,
-            "src/sql/db/auth/insert_refresh_token.sql",
-            id,
-            user_id,
-            token_hash,
-            expires_at
-        )
-        .fetch_one(self.pool())
-        .await?;
-        Ok(refresh_token_from_row(row))
-    }
-
-    pub async fn get_refresh_token_by_hash(
-        &self,
-        token_hash: &str,
-    ) -> Result<Option<RefreshTokenRecord>> {
-        let row = sqlx::query_file_as!(
-            RefreshTokenRow,
-            "src/sql/db/auth/get_refresh_token_by_hash.sql",
-            token_hash
-        )
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(row.map(refresh_token_from_row))
-    }
-
-    pub async fn rotate_refresh_token(
-        &self,
-        current_id: Uuid,
-        current_hash: &str,
-        replacement_id: Uuid,
-        replacement_hash: &str,
-        user_id: i64,
-        expires_at: DateTime<Utc>,
-    ) -> Result<RefreshTokenRecord> {
-        let mut tx = self.pool().begin().await?;
-        sqlx::query_file!(
-            "src/sql/db/auth/rotate_refresh_token_revoke_current.sql",
-            current_id,
-            replacement_id,
-            current_hash
-        )
-        .execute(&mut *tx)
-        .await?;
-        let row = sqlx::query_file_as!(
-            RefreshTokenRow,
-            "src/sql/db/auth/insert_refresh_token.sql",
-            replacement_id,
-            user_id,
-            replacement_hash,
-            expires_at
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(refresh_token_from_row(row))
-    }
-
-    pub async fn revoke_refresh_token_by_hash(&self, token_hash: &str) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/auth/revoke_refresh_token_by_hash.sql",
-            token_hash
-        )
-        .execute(self.pool())
-        .await?;
-        Ok(())
-    }
 }
 
 fn user_from_row(row: UserRow) -> UserRecord {
@@ -291,16 +194,5 @@ fn user_from_row(row: UserRow) -> UserRecord {
         disabled_at: row.disabled_at,
         created_at: row.created_at,
         updated_at: row.updated_at,
-    }
-}
-
-fn refresh_token_from_row(row: RefreshTokenRow) -> RefreshTokenRecord {
-    RefreshTokenRecord {
-        id: row.id,
-        user_id: row.user_id,
-        token_hash: row.token_hash,
-        expires_at: row.expires_at,
-        revoked_at: row.revoked_at,
-        replaced_by_token_id: row.replaced_by_token_id,
     }
 }

@@ -75,15 +75,25 @@ impl LibraryService {
         if let Some(runtime) = &self.runtime {
             runtime.index.delete_points(&chunk_ids).await?;
         }
-        let paths = self.store.list_storage_paths_for_files(file_ids).await?;
         self.store.delete_documents_for_files(file_ids).await?;
+        Ok(())
+    }
 
-        for (file_id, storage_rel_path) in paths {
-            let abs_path = self.storage_root.join(storage_rel_path);
-            if let Err(error) = fs::remove_file(&abs_path)
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                warn!(file_id = %file_id, path = %abs_path.display(), error = %error, "failed to remove stored file");
+    pub(super) async fn delete_unreferenced_objects(
+        &self,
+        paths: Vec<crate::library_store::documents::StoragePathRow>,
+    ) -> Result<()> {
+        for path in paths {
+            let should_delete = if let Some(object_id) = path.storage_object_id {
+                self.store
+                    .delete_unreferenced_storage_object(object_id)
+                    .await?
+                    .is_some()
+            } else {
+                true
+            };
+            if should_delete && let Err(error) = self.storage.delete(&path.storage_rel_path).await {
+                warn!(file_id = %path.id, path = %path.storage_rel_path, error = %error, "failed to remove stored object");
             }
         }
         Ok(())

@@ -3,9 +3,7 @@ import type { AuthUserResponse } from "../services/api";
 
 export function setAuthenticatedUser(
   user: Partial<AuthUserResponse> = {},
-  accessToken = "access-token",
 ) {
-  authSessionState.accessToken = accessToken;
   authSessionState.user = {
     user_id: 1,
     login_name: "admin",
@@ -18,6 +16,7 @@ export function setAuthenticatedUser(
   authSessionState.status = "authenticated";
   authSessionState.ready = true;
   authSessionState.lastFailureReason = null;
+  authSessionState.restoreError = null;
 }
 
 export function setGuest(reason: "expired" | "network" | "unknown" | null = null) {

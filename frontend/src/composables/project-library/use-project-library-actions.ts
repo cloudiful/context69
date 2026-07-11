@@ -61,6 +61,7 @@ export function useProjectLibraryActions({
   const uploadBusy = ref(false);
   const actionBusy = ref(false);
   const retryingFileIds = ref<string[]>([]);
+  const unavailableFileIds = ref<string[]>([]);
   const moveDialog = ref<MoveDialogState | null>(null);
   const createDialog = ref<CreateDialogState | null>(null);
   const createTextDialog = ref<CreateTextDialogState | null>(null);
@@ -160,6 +161,11 @@ export function useProjectLibraryActions({
     if (retryingFileIds.value.includes(fileId)) return;
     retryingFileIds.value = [...retryingFileIds.value, fileId];
     try {
+      const detail = await apiClient.getGroupLibraryFile(toValue(groupPath), fileId);
+      if (!detail.source_available) {
+        unavailableFileIds.value = [...new Set([...unavailableFileIds.value, fileId])];
+        throw new Error(t("library.sourceMissingMessage"));
+      }
       const job = await apiClient.retryGroupLibraryFile(toValue(groupPath), fileId);
       await loadTree();
       schedulePolling([job.job_id]);
@@ -315,6 +321,7 @@ export function useProjectLibraryActions({
     revealPreviewForFile,
     retryFile,
     retryingFileIds,
+    unavailableFileIds,
     uploadBusy,
   };
 }

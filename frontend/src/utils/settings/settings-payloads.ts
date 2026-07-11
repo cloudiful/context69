@@ -13,38 +13,7 @@ import { normalizeDoclingPayload, normalizeRuntimePayload } from "./settings-nor
 export function buildRuntimePayload(
   draft: DraftRuntimeSettings,
 ): UpdateRuntimeSettingsRequest {
-  return normalizeRuntimePayload({
-    qdrant: {
-      url: draft.qdrant.url,
-      collection_name: draft.qdrant.collection_name,
-      recreate_on_dimension_mismatch: draft.qdrant.recreate_on_dimension_mismatch,
-    },
-    embedding: {
-      base_url: draft.embedding.base_url,
-      api_key: draft.embedding.api_key,
-      model: draft.embedding.model,
-      dimensions: draft.embedding.dimensions,
-      timeout_secs: draft.embedding.timeout_secs,
-    },
-    scheduler: {
-      interval_secs: draft.scheduler.interval_secs,
-      run_on_start: draft.scheduler.run_on_start,
-      max_concurrency: draft.scheduler.max_concurrency,
-      job_id: draft.scheduler.job_id,
-      valkey_url: draft.scheduler.valkey_url,
-    },
-    chunking: {
-      max_chars: draft.chunking.max_chars,
-      overlap_chars: draft.chunking.overlap_chars,
-    },
-    file_library: {
-      storage_root: draft.file_library.storage_root,
-      max_upload_size_mb: draft.file_library.max_upload_size_mb,
-      max_upload_request_size_mb: draft.file_library.max_upload_request_size_mb,
-      ingest_concurrency: draft.file_library.ingest_concurrency,
-      pdf_pages_per_task: draft.file_library.pdf_pages_per_task,
-    },
-  });
+  return normalizeRuntimePayload(draft);
 }
 
 export function buildDoclingPayload(

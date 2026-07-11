@@ -224,6 +224,8 @@ pub struct LibraryResourcePageQuery {
     pub page_size: u32,
     #[serde(default)]
     pub query: Option<String>,
+    #[serde(default)]
+    pub status: Option<LibraryIngestStatus>,
     #[serde(default = "default_resource_sort_by")]
     pub sort_by: LibraryResourceSortBy,
     #[serde(default = "default_sort_direction")]
@@ -325,6 +327,8 @@ pub struct LibraryFileDetailResponse {
     pub media_type: String,
     pub size_bytes: i64,
     pub sha256: String,
+    #[serde(default)]
+    pub source_available: bool,
     pub ingest_status: LibraryIngestStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,

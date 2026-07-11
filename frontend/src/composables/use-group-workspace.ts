@@ -160,7 +160,7 @@ export function useGroupWorkspace() {
       await loadPage();
       if (isCurrentGroup) {
         void router.push({
-          name: "group-detail",
+          name: "group-overview",
           params: { groupPath: moved.group_path ?? moved.group_key },
         });
       }
@@ -173,7 +173,7 @@ export function useGroupWorkspace() {
 
   function openGroup(childGroup: GroupResponse) {
     void router.push({
-      name: "group-detail",
+      name: "group-overview",
       params: { groupPath: childGroup.group_path ?? childGroup.group_key },
     });
   }

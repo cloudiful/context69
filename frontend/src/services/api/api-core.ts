@@ -1,6 +1,6 @@
 import type { Client } from "openapi-fetch";
 import type { paths } from "../../generated/openapi";
-import { getAccessToken, handleUnauthorized } from "../auth/session";
+import { handleUnauthorized } from "../auth/session";
 import { API_BASE_URL, openapiClient } from "../openapi-client";
 import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";
@@ -70,32 +70,8 @@ export function resolveApiUrl(path: string): string {
 }
 
 export async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
-  const request = new Request(input, init);
-  const token = getAccessToken();
-  if (token) {
-    request.headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  let response = await fetch(request);
-  if (response.status !== 401 || request.headers.get("x-context69-retry") === "1") {
-    return response;
-  }
-
-  const restored = await handleUnauthorized();
-  if (!restored) {
-    return response;
-  }
-
-  const retryRequest = new Request(request);
-  retryRequest.headers.set("x-context69-retry", "1");
-  const nextToken = getAccessToken();
-  if (nextToken) {
-    retryRequest.headers.set("Authorization", `Bearer ${nextToken}`);
-  } else {
-    retryRequest.headers.delete("Authorization");
-  }
-
-  response = await fetch(retryRequest);
+  const response = await fetch(input, { ...init, credentials: "include" });
+  if (response.status === 401) handleUnauthorized();
   return response;
 }
 

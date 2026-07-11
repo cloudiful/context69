@@ -12,7 +12,10 @@ FROM (
     WHERE group_id = $1
       AND folder_id IS NOT DISTINCT FROM $2::UUID
 ) resources
-WHERE NULLIF(BTRIM($3::TEXT), '') IS NULL
-   OR resources.name ILIKE '%' || BTRIM($3::TEXT) || '%'
-   OR COALESCE(resources.media_type, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
-   OR COALESCE(resources.ingest_status, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
+WHERE (
+       NULLIF(BTRIM($3::TEXT), '') IS NULL
+    OR resources.name ILIKE '%' || BTRIM($3::TEXT) || '%'
+    OR COALESCE(resources.media_type, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
+    OR COALESCE(resources.ingest_status, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
+)
+AND ($4::TEXT IS NULL OR resources.ingest_status = $4::TEXT)

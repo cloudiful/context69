@@ -18,7 +18,9 @@ const schedulerToggleModel = computed(() => ({
     :qdrant-toggle-model="qdrantToggleModel"
     :runtime-draft="state.runtimeDraft"
     :scheduler-toggle-model="schedulerToggleModel"
+    :s3-testing="state.s3Testing.value"
     @update:qdrant-toggle-model="state.qdrantToggleModel.value = $event"
     @update:scheduler-toggle-model="state.schedulerToggleModel.value = $event"
+    @test-s3="state.testS3Connection"
   />
 </template>

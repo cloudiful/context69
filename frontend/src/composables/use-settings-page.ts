@@ -38,6 +38,7 @@ export function useSettingsPage() {
 
   const loading = ref(false);
   const saving = ref(false);
+  const s3Testing = ref(false);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
@@ -199,6 +200,24 @@ export function useSettingsPage() {
     }
   }
 
+  async function testS3Connection() {
+    const s3 = buildRuntimePayload(runtimeDraft).file_library.s3;
+    if (!s3) return;
+    s3Testing.value = true;
+    try {
+      await apiClient.testS3Connection(s3);
+      toast.add({
+        severity: "success",
+        summary: t("settings.runtime.s3TestSuccess"),
+        life: 2500,
+      });
+    } catch (error) {
+      showErrorToast(error, t("settings.runtime.s3TestFailed"));
+    } finally {
+      s3Testing.value = false;
+    }
+  }
+
   async function createAdminUser(payload: {
     login_name: string;
     display_name: string;
@@ -313,10 +332,12 @@ export function useSettingsPage() {
     saveMessage,
     saveSettings,
     saving,
+    s3Testing,
     schedulerToggleModel,
     searchDraft,
     searchModeOptions,
     runtimeDraft,
+    testS3Connection,
     updateAdminUser,
   };
 }

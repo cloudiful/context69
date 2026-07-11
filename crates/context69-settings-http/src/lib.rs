@@ -11,7 +11,8 @@ use axum::{
 };
 use context69_contracts::{
     ApiErrorResponse, DoclingSettingsResponse, RuntimeSettingsResponse, SearchSettingsResponse,
-    UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    UpdateSearchSettingsRequest,
 };
 use context69_http_support::{internal_error_response, json_error_response, runtime_aware_status};
 use utoipa::OpenApi;
@@ -23,6 +24,7 @@ pub trait SettingsApi: Send + Sync {
         &self,
         request: &UpdateRuntimeSettingsRequest,
     ) -> Result<RuntimeSettingsResponse>;
+    async fn test_s3_connection(&self, request: &UpdateRuntimeS3Settings) -> Result<()>;
     async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse>;
     async fn update_docling_settings(
         &self,
@@ -51,6 +53,10 @@ where
             get(get_runtime_settings).put(update_runtime_settings),
         )
         .route(
+            "/v1/settings/runtime/s3/test",
+            axum::routing::post(test_s3_connection),
+        )
+        .route(
             "/v1/settings/docling",
             get(get_docling_settings).put(update_docling_settings),
         )
@@ -65,6 +71,7 @@ where
     paths(
         get_runtime_settings,
         update_runtime_settings,
+        test_s3_connection,
         get_docling_settings,
         update_docling_settings,
         get_search_settings,
@@ -75,6 +82,7 @@ where
             ApiErrorResponse,
             RuntimeSettingsResponse,
             UpdateRuntimeSettingsRequest,
+            UpdateRuntimeS3Settings,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
             SearchSettingsResponse,
@@ -104,6 +112,17 @@ async fn update_runtime_settings(
 ) -> impl IntoResponse {
     match state.settings.update_runtime_settings(&request).await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/settings/runtime/s3/test", request_body = UpdateRuntimeS3Settings, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn test_s3_connection(
+    State(state): State<SettingsHttpState>,
+    axum::Json(request): axum::Json<UpdateRuntimeS3Settings>,
+) -> impl IntoResponse {
+    match state.settings.test_s3_connection(&request).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => settings_management_error_response(error),
     }
 }

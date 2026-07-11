@@ -8,8 +8,8 @@ pub mod settings;
 pub mod sources;
 
 pub use auth::{
-    AdminUserResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse, AuthUserResponse,
-    CreateAdminUserRequest, CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
+    AdminUserResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse, CreateAdminUserRequest,
+    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
     PersonalAccessTokenResponse, PersonalAccessTokenScope, ResetAdminUserPasswordRequest,
     UpdateAdminUserRequest,
 };
@@ -20,7 +20,8 @@ pub use library::{
     LibraryIngestJobResponse, LibraryIngestStatus, LibraryPreviewContentFormat,
     LibraryResourceItem, LibraryResourceKind, LibraryResourcePageQuery,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTextContentFormat,
-    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest, SortDirection,
+    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
     UpsertLibraryTextRequest,
 };
 pub use mcp::McpDocumentArgs;
@@ -35,9 +36,10 @@ pub use search::{
 pub use settings::{
     DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,
     DoclingVlmSettingsResponse, RuntimeChunkingSettings, RuntimeEmbeddingSettings,
-    RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
-    RuntimeSettingsResponse, SearchSettingsResponse, UpdateDoclingConnectionSettings,
-    UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings,
+    RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeS3SettingsResponse,
+    RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse,
+    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings,
+    UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings, UpdateRuntimeS3Settings,
     UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
 };
 pub use sources::{

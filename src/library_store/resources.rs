@@ -15,12 +15,14 @@ impl LibraryStore {
         project_id: i64,
         folder_id: Option<Uuid>,
         query: Option<&str>,
+        status: Option<LibraryIngestStatus>,
     ) -> Result<i64> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/library_store/resources/count_resources_in_project_folder.sql",
             project_id,
             folder_id,
-            query
+            query,
+            status.map(LibraryIngestStatus::as_str)
         )
         .fetch_one(self.db.pool())
         .await?)
@@ -32,6 +34,7 @@ impl LibraryStore {
         project_id: i64,
         folder_id: Option<Uuid>,
         query: Option<&str>,
+        status: Option<LibraryIngestStatus>,
         sort_by: LibraryResourceSortBy,
         sort_direction: SortDirection,
         limit: i64,
@@ -43,6 +46,7 @@ impl LibraryStore {
             project_id,
             folder_id,
             query,
+            status.map(LibraryIngestStatus::as_str),
             sort_by.as_str(),
             sort_direction.as_str(),
             limit,

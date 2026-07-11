@@ -51,7 +51,7 @@ async function createGroup(payload: { key?: string; name: string; visibility: Vi
 }
 
 function openGroup(group: GroupResponse) {
-  void router.push({ name: "group-detail", params: { groupPath: group.group_path ?? group.group_key } });
+  void router.push({ name: "group-overview", params: { groupPath: group.group_path ?? group.group_key } });
 }
 
 function roleSeverity(role?: string | null) {
@@ -67,8 +67,7 @@ onMounted(() => {
 
 <template>
   <div class="grid gap-2">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <h1 class="section-title">{{ t("groups.title") }}</h1>
+    <div class="flex justify-end">
       <Button :class="toolPrimaryButtonClass" @click="createDialogVisible = true">
         {{ t("groups.create") }}
       </Button>

@@ -13,6 +13,7 @@ export interface AppNavChildItem {
 
 export interface AppNavItem {
   to: string;
+  activePrefix?: string;
   label: string;
   iconPath: string;
   children?: AppNavChildItem[];
@@ -34,7 +35,7 @@ export function useAppNavigation() {
       return undefined;
     }
 
-    if (routeName.value.startsWith("group-") || routeName.value === "group-detail") {
+    if (routeName.value.startsWith("group-")) {
       return resolveGroupSectionNav(t, groupPath.value);
     }
 
@@ -44,7 +45,8 @@ export function useAppNavigation() {
   return computed<AppNavItem[]>(() => [
     { to: "/search", label: t("nav.search"), iconPath: mdiMagnify },
     {
-      to: "/groups",
+      to: groupPath.value ? `/groups/${encodeURIComponent(groupPath.value)}` : "/groups",
+      activePrefix: "/groups",
       label: t("nav.groups"),
       iconPath: mdiFolderOutline,
       children: groupsChildren.value,

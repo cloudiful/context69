@@ -22,7 +22,7 @@ describe("AppSidebarContent", () => {
       routes: [
         { path: "/search", component: { template: "<div />" } },
         { path: "/groups", component: { template: "<div />" } },
-        { path: "/groups/:groupPath/overview", name: "group-overview", component: { template: "<div />" } },
+        { path: "/groups/:groupPath", name: "group-overview", component: { template: "<div />" } },
         { path: "/groups/:groupPath/members", name: "group-members", component: { template: "<div />" } },
         { path: "/groups/:groupPath/settings", name: "group-settings", component: { template: "<div />" } },
         { path: "/settings", component: { template: "<div />" } },
@@ -92,7 +92,7 @@ describe("AppSidebarContent", () => {
       routes: [
         { path: "/search", component: { template: "<div />" } },
         { path: "/groups", component: { template: "<div />" } },
-        { path: "/groups/:groupPath/overview", name: "group-overview", component: { template: "<div />" } },
+        { path: "/groups/:groupPath", name: "group-overview", component: { template: "<div />" } },
         { path: "/groups/:groupPath/members", name: "group-members", component: { template: "<div />" } },
         { path: "/groups/:groupPath/settings", name: "group-settings", component: { template: "<div />" } },
         { path: "/settings", component: { template: "<div />" } },
@@ -109,9 +109,11 @@ describe("AppSidebarContent", () => {
     });
 
     expect(wrapper.find('[data-nav-key="/groups"]').classes()).toContain("is-active");
+    expect(wrapper.get('[data-nav-key="/groups"]').attributes("href")).toBe("/groups/stock");
     expect(wrapper.get('[data-nav-child-key="/groups/stock/members"]').classes()).toContain("is-active");
     expect(wrapper.text()).toContain("Members");
     expect(wrapper.text()).toContain("Settings");
+    expect(wrapper.text()).not.toContain("Overview");
     expect(wrapper.find(".app-sidebar-subnav-heading").exists()).toBe(false);
   });
 

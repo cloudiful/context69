@@ -64,10 +64,9 @@ describe("App field controls", () => {
     expect(wrapper.find("label").classes()).toContain("md:self-center");
   });
 
-  it("renders a float label wrapper when requested", () => {
+  it("renders a standard label linked to the input", () => {
     const wrapper = mount(AppTextField, {
       props: {
-        floatLabel: true,
         inputId: "base-url",
         label: "Base URL",
         modelValue: "",
@@ -77,8 +76,8 @@ describe("App field controls", () => {
       },
     });
 
-    expect(wrapper.find(".p-floatlabel").exists()).toBe(true);
     expect(wrapper.find("label[for='base-url']").text()).toBe("Base URL");
+    expect(wrapper.get("#base-url").attributes("id")).toBe("base-url");
   });
 
   it("merges toggle updates by key", async () => {

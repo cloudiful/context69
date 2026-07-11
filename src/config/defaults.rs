@@ -3,9 +3,9 @@ use std::{path::PathBuf, time::Duration};
 use crate::chunking::ChunkingConfig;
 
 use super::types::{
-    ApiConfig, AppDbConfig, AuthConfig, AuthSigningKeyConfig, BootstrapAdminConfig,
-    ConnectionConfig, EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig,
-    PostgresSqlConnectorConfig, QdrantConfig, SchedulerConfig, SourceConfig, default_mcp_bind_addr,
+    ApiConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ConnectionConfig, EmbeddingConfig,
+    FileConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig, QdrantConfig,
+    SchedulerConfig, SourceConfig, default_mcp_bind_addr,
 };
 
 pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
@@ -16,8 +16,7 @@ pub(super) const APP_NAME: &str = "context69";
 pub(super) const CONFIG_ENV_PREFIX: &str = "CONTEXT69_";
 pub const APP_DB_URL_ENV_VAR: &str = "CONTEXT69_APP_DB__URL";
 pub(super) const DEFAULT_MCP_BIND_ADDR: &str = "0.0.0.0:8097";
-pub const DEFAULT_ACCESS_TOKEN_TTL_SECS: u64 = 900;
-pub const DEFAULT_REFRESH_TOKEN_TTL_SECS: u64 = 60 * 60 * 24 * 30;
+pub const DEFAULT_SESSION_IDLE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
 
@@ -25,12 +24,8 @@ pub(super) fn default_max_upload_request_size_mb() -> usize {
     256
 }
 
-pub(super) fn default_access_token_ttl() -> Duration {
-    Duration::from_secs(DEFAULT_ACCESS_TOKEN_TTL_SECS)
-}
-
-pub(super) fn default_refresh_token_ttl() -> Duration {
-    Duration::from_secs(DEFAULT_REFRESH_TOKEN_TTL_SECS)
+pub(super) fn default_session_idle_ttl() -> Duration {
+    Duration::from_secs(DEFAULT_SESSION_IDLE_TTL_SECS)
 }
 
 pub(super) fn default_scheduler_execution_guard_ttl() -> Duration {
@@ -61,17 +56,11 @@ impl Default for FileConfig {
             },
             docling: None,
             auth: AuthConfig {
-                issuer: "context69".to_string(),
-                access_token_ttl: default_access_token_ttl(),
-                refresh_token_ttl: default_refresh_token_ttl(),
-                refresh_cookie_name: "context69_refresh".to_string(),
-                refresh_cookie_secure: false,
+                session_valkey_url: "redis://127.0.0.1:6379".to_string(),
+                session_secret_key: "replace-me-with-a-long-random-session-secret".to_string(),
+                session_idle_ttl: default_session_idle_ttl(),
+                session_cookie_secure: false,
                 anonymous_mcp_enabled: true,
-                active_kid: "default".to_string(),
-                signing_keys: vec![AuthSigningKeyConfig {
-                    kid: "default".to_string(),
-                    secret: "replace-me-with-a-long-random-secret".to_string(),
-                }],
                 bootstrap_admin: Some(BootstrapAdminConfig {
                     login_name: "admin".to_string(),
                     display_name: "Administrator".to_string(),

@@ -9,10 +9,12 @@ const {
   authSessionState: {
     ready: true,
     lastFailureReason: null,
+    restoreError: null,
     user: null,
   } as {
     ready: boolean;
     lastFailureReason: string | null;
+    restoreError: string | null;
     user: { is_admin: boolean } | null;
   },
   ensureSessionReady: vi.fn(),
@@ -38,6 +40,7 @@ describe("router auth guards", () => {
     });
     authSessionState.ready = true;
     authSessionState.lastFailureReason = null;
+    authSessionState.restoreError = null;
     authSessionState.user = null;
   });
 
@@ -77,26 +80,32 @@ describe("router auth guards", () => {
     expect(router.currentRoute.value.name).toBe("settings-appearance");
   });
 
-  it("redirects a group root route to the group overview page", async () => {
-    isAuthenticated.mockReturnValue(true);
-
+  it("uses the group root route as the group overview page", async () => {
     const { router } = await import("./index");
+    const resolved = router.resolve("/groups/stock");
 
-    await router.push("/groups/stock");
-
-    expect(router.currentRoute.value.name).toBe("group-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/overview");
+    expect(resolved.name).toBe("group-overview");
+    expect(resolved.fullPath).toBe("/groups/stock");
   });
 
   it("supports encoded nested group paths", async () => {
-    isAuthenticated.mockReturnValue(true);
-
     const { router } = await import("./index");
+    const resolved = router.resolve("/groups/stock%2Falpha");
 
-    await router.push("/groups/stock%2Falpha");
+    expect(resolved.name).toBe("group-overview");
+    expect(resolved.fullPath).toBe("/groups/stock%2Falpha");
+  });
 
-    expect(router.currentRoute.value.name).toBe("group-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock%2Falpha/overview");
+  it("redirects legacy overview URLs to the group root", async () => {
+    const { router } = await import("./index");
+    const resolved = router.resolve("/groups/stock/overview");
+    const redirect = resolved.matched.at(-1)?.redirect;
+
+    expect(typeof redirect).toBe("function");
+    expect((redirect as (to: typeof resolved) => unknown)(resolved)).toEqual({
+      name: "group-overview",
+      params: resolved.params,
+    });
   });
 
   it("keeps the group settings route addressable", async () => {

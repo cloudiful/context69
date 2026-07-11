@@ -31,7 +31,7 @@ impl LibraryService {
             .filter(|value| !value.is_empty());
         let total = self
             .store
-            .count_resources_in_project_folder(project.id, query.folder_id, search)
+            .count_resources_in_project_folder(project.id, query.folder_id, search, query.status)
             .await?;
         let page_size = i64::from(query.page_size);
         let offset = i64::from(query.page - 1)
@@ -43,6 +43,7 @@ impl LibraryService {
                 project.id,
                 query.folder_id,
                 search,
+                query.status,
                 query.sort_by,
                 query.sort_direction,
                 page_size,

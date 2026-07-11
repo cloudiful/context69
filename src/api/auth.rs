@@ -7,15 +7,13 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use axum_extra::extract::CookieJar;
-use axum_extra::extract::cookie::{Cookie, SameSite};
+use axum_login::AuthSession as AxumAuthSession;
 use context69_http_support::AuthenticatedUser;
-use time::Duration as CookieDuration;
 use uuid::Uuid;
 
 use crate::{
     contracts::{ApiErrorResponse, AuthLoginRequest, AuthMeResponse, PersonalAccessTokenScope},
-    services::auth::{AuthSession, user_response},
+    services::auth::{AuthService, AuthSession, Credentials, user_response},
     services::personal_access_tokens::is_personal_access_token,
 };
 
@@ -23,12 +21,14 @@ use super::{ApiState, errors::internal_error_response};
 
 #[derive(Clone)]
 pub(crate) enum AuthKind {
-    SessionJwt,
+    BrowserSession,
     PersonalAccessToken {
         token_id: Uuid,
         scopes: BTreeSet<PersonalAccessTokenScope>,
     },
 }
+
+pub(crate) type BrowserAuthSession = AxumAuthSession<AuthService>;
 
 #[derive(Clone)]
 pub(crate) struct AuthenticatedRequest {
@@ -59,7 +59,7 @@ where
             None => Err((
                 StatusCode::UNAUTHORIZED,
                 Json(ApiErrorResponse {
-                    error: "missing bearer token".to_string(),
+                    error: "missing authenticated session or personal access token".to_string(),
                 }),
             )
                 .into_response()),
@@ -72,7 +72,13 @@ pub(crate) async fn auth_middleware(
     mut request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    match authenticate_request(&state, request.headers()).await {
+    let bearer = extract_bearer_token(request.headers()).map(|token| token.map(str::to_owned));
+    let browser_session = request
+        .extensions()
+        .get::<BrowserAuthSession>()
+        .and_then(|auth| auth.user.as_ref())
+        .map(|principal| principal.0.clone());
+    match authenticate_request(&state, bearer, browser_session).await {
         Ok(Some(authenticated)) => {
             request
                 .extensions_mut()
@@ -85,7 +91,7 @@ pub(crate) async fn auth_middleware(
         Ok(None) => (
             StatusCode::UNAUTHORIZED,
             Json(ApiErrorResponse {
-                error: "missing bearer token".to_string(),
+                error: "missing authenticated session or personal access token".to_string(),
             }),
         )
             .into_response(),
@@ -98,7 +104,13 @@ pub(crate) async fn optional_auth_middleware(
     mut request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    match authenticate_request(&state, request.headers()).await {
+    let bearer = extract_bearer_token(request.headers()).map(|token| token.map(str::to_owned));
+    let browser_session = request
+        .extensions()
+        .get::<BrowserAuthSession>()
+        .and_then(|auth| auth.user.as_ref())
+        .map(|principal| principal.0.clone());
+    match authenticate_request(&state, bearer, browser_session).await {
         Ok(Some(authenticated)) => {
             request
                 .extensions_mut()
@@ -221,81 +233,31 @@ pub(crate) async fn require_admin_scope_middleware(
     path = "/v1/auth/login",
     request_body = AuthLoginRequest,
     responses(
-        (status = 200, description = "Authenticated session", body = crate::contracts::AuthTokenResponse),
+        (status = 204, description = "Authenticated session"),
         (status = 401, description = "Invalid login or password", body = ApiErrorResponse)
     )
 )]
 pub(crate) async fn login(
-    State(state): State<ApiState>,
-    jar: CookieJar,
+    mut auth_session: BrowserAuthSession,
     Json(request): Json<AuthLoginRequest>,
 ) -> impl IntoResponse {
-    match state
-        .app
-        .auth
-        .login(&request.login_name, &request.password)
-        .await
-    {
-        Ok(issued) => {
-            let cookie = refresh_cookie(
-                &state,
-                state.app.auth.cookie_name(),
-                &issued.refresh_token,
-                state.app.auth.refresh_token_ttl_secs(),
-            );
-            let response = state.app.auth.token_response(issued);
-            (jar.add(cookie), Json(response)).into_response()
-        }
-        Err(error) => (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse {
-                error: error.to_string(),
-            }),
-        )
-            .into_response(),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/auth/refresh",
-    responses(
-        (status = 200, description = "Refreshed access token", body = crate::contracts::AuthTokenResponse),
-        (status = 401, description = "Invalid refresh token", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn refresh(State(state): State<ApiState>, jar: CookieJar) -> impl IntoResponse {
-    let Some(refresh_token) = jar
-        .get(state.app.auth.cookie_name())
-        .map(|cookie| cookie.value().to_string())
-    else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse {
-                error: "missing refresh token".to_string(),
-            }),
-        )
-            .into_response();
+    let credentials = Credentials {
+        login_name: request.login_name,
+        password: request.password,
     };
-
-    match state.app.auth.refresh(&refresh_token).await {
-        Ok(issued) => {
-            let cookie = refresh_cookie(
-                &state,
-                state.app.auth.cookie_name(),
-                &issued.refresh_token,
-                state.app.auth.refresh_token_ttl_secs(),
-            );
-            let response = state.app.auth.token_response(issued);
-            (jar.add(cookie), Json(response)).into_response()
-        }
-        Err(error) => (
+    match auth_session.authenticate(credentials).await {
+        Ok(Some(principal)) => match auth_session.login(&principal).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(error) => internal_error_response(anyhow::anyhow!(error)),
+        },
+        Ok(None) => (
             StatusCode::UNAUTHORIZED,
             Json(ApiErrorResponse {
-                error: error.to_string(),
+                error: "invalid login or password".to_string(),
             }),
         )
             .into_response(),
+        Err(error) => internal_error_response(anyhow::anyhow!(error)),
     }
 }
 
@@ -307,20 +269,11 @@ pub(crate) async fn refresh(State(state): State<ApiState>, jar: CookieJar) -> im
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
-pub(crate) async fn logout(State(state): State<ApiState>, jar: CookieJar) -> impl IntoResponse {
-    if let Some(refresh_token) = jar
-        .get(state.app.auth.cookie_name())
-        .map(|cookie| cookie.value().to_string())
-        && let Err(error) = state.app.auth.logout(&refresh_token).await
-    {
-        return internal_error_response(error);
+pub(crate) async fn logout(mut auth_session: BrowserAuthSession) -> impl IntoResponse {
+    match auth_session.logout().await {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => internal_error_response(anyhow::anyhow!(error)),
     }
-
-    (
-        jar.remove(clear_refresh_cookie(&state)),
-        StatusCode::NO_CONTENT,
-    )
-        .into_response()
 }
 
 #[utoipa::path(
@@ -328,7 +281,7 @@ pub(crate) async fn logout(State(state): State<ApiState>, jar: CookieJar) -> imp
     path = "/v1/auth/me",
     responses(
         (status = 200, description = "Current authenticated user", body = crate::contracts::AuthMeResponse),
-        (status = 401, description = "Missing or invalid bearer token", body = ApiErrorResponse)
+        (status = 401, description = "Missing or invalid session", body = ApiErrorResponse)
     )
 )]
 pub(crate) async fn me(CurrentUser(session): CurrentUser) -> impl IntoResponse {
@@ -362,17 +315,17 @@ pub(crate) fn extract_bearer_token(
 
 async fn authenticate_request(
     state: &ApiState,
-    headers: &axum::http::HeaderMap,
+    bearer: Result<Option<String>, String>,
+    browser_session: Option<AuthSession>,
 ) -> Result<Option<AuthenticatedRequest>, String> {
-    let Some(token) = extract_bearer_token(headers)? else {
-        return Ok(None);
-    };
-
-    if is_personal_access_token(token) {
+    if let Some(token) = bearer? {
+        if !is_personal_access_token(&token) {
+            return Err("bearer token must be a personal access token".to_string());
+        }
         let verified = state
             .app
             .personal_access_tokens
-            .verify(token)
+            .verify(&token)
             .await
             .map_err(|error| error.to_string())?;
         return Ok(Some(AuthenticatedRequest {
@@ -383,16 +336,9 @@ async fn authenticate_request(
             },
         }));
     }
-
-    let session = state
-        .app
-        .auth
-        .verify_access_token(token)
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(Some(AuthenticatedRequest {
+    Ok(browser_session.map(|session| AuthenticatedRequest {
         session,
-        kind: AuthKind::SessionJwt,
+        kind: AuthKind::BrowserSession,
     }))
 }
 
@@ -407,7 +353,7 @@ async fn require_scope_middleware(
         return (
             StatusCode::UNAUTHORIZED,
             Json(ApiErrorResponse {
-                error: "missing bearer token".to_string(),
+                error: "missing authenticated session or personal access token".to_string(),
             }),
         )
             .into_response();
@@ -451,23 +397,25 @@ fn scope_name(scope: PersonalAccessTokenScope) -> &'static str {
     }
 }
 
-fn refresh_cookie(state: &ApiState, name: &str, value: &str, ttl_secs: i64) -> Cookie<'static> {
-    Cookie::build((name.to_string(), value.to_string()))
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .secure(state.app.auth.refresh_cookie_secure())
-        .max_age(CookieDuration::seconds(ttl_secs))
-        .build()
-}
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderValue, header};
 
-fn clear_refresh_cookie(state: &ApiState) -> Cookie<'static> {
-    let mut cookie = Cookie::build((state.app.auth.cookie_name().to_string(), String::new()))
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .secure(state.app.auth.refresh_cookie_secure())
-        .build();
-    cookie.make_removal();
-    cookie
+    use super::extract_bearer_token;
+
+    #[test]
+    fn bearer_extraction_preserves_pat_and_rejects_other_schemes() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer ctx_pat_secret"),
+        );
+        assert_eq!(extract_bearer_token(&headers), Ok(Some("ctx_pat_secret")));
+
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Basic abc"));
+        assert_eq!(
+            extract_bearer_token(&headers),
+            Err("authorization header must use Bearer".to_string())
+        );
+    }
 }

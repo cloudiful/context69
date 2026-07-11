@@ -10,6 +10,7 @@ const props = defineProps<{
   entries: LibraryBrowserEntry[];
   expandedKeys: Record<string, boolean>;
   hideGroupPaths?: boolean;
+  resourceFilterActive?: boolean;
   resourceSearchQuery: string;
   selection: ExplorerEntry | null;
 }>();
@@ -39,7 +40,7 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
 <template>
   <div class="hidden grid-cols-1 md:hidden library-card-list">
     <div v-if="entries.length === 0" class="px-3 py-8 text-center text-sm text-app-text-dim">
-      {{ resourceSearchQuery ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
+      {{ resourceFilterActive ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
     </div>
 
     <article

@@ -13,9 +13,10 @@
 
 ## Authentication
 
-- Browser sign-in still uses `POST /v1/auth/login`, refresh cookie rotation, and short-lived JWT bearer tokens.
+- Browser sign-in uses `POST /v1/auth/login` and an HttpOnly signed session cookie backed by Valkey.
+- Browser sessions expire after seven days of inactivity and are renewed by authenticated activity.
 - Personal access tokens are opaque bearer tokens prefixed with `ctx_pat_`.
-- PAT creation and revocation are only available to normal browser/JWT sessions, not to PAT callers.
+- PAT creation and revocation are only available to browser sessions, not to PAT callers.
 - PAT scopes are coarse-grained: `search`, `workspace`, `library`, `sources`, `settings`, `admin`.
 
 ## OpenAPI

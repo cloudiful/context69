@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::services::auth::AuthService;
 use axum::extract::FromRef;
 use context69_namespace_http::NamespaceHttpState;
 use context69_search_http::SearchHttpState;
@@ -68,6 +69,12 @@ impl FromRef<ApiState> for SettingsHttpState {
     }
 }
 
+impl FromRef<ApiState> for AuthService {
+    fn from_ref(state: &ApiState) -> Self {
+        state.app.auth.clone()
+    }
+}
+
 pub use docs::{ApiDoc, openapi_document};
 pub use router::router;
 
@@ -77,18 +84,18 @@ pub(crate) use admin_users::{
 };
 pub(crate) use auth::{
     RequestAuth, auth_middleware, forbid_personal_access_token_middleware, login, logout, me,
-    optional_auth_middleware, refresh, require_admin_scope_middleware,
-    require_library_scope_middleware, require_search_scope_middleware,
-    require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, touch_personal_access_token_middleware,
+    optional_auth_middleware, require_admin_scope_middleware, require_library_scope_middleware,
+    require_search_scope_middleware, require_settings_scope_middleware,
+    require_sources_scope_middleware, require_workspace_scope_middleware,
+    touch_personal_access_token_middleware,
 };
 pub(crate) use docs::openapi_json;
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
     delete_group_library_folder, get_group_library_file, get_group_library_job,
     get_group_library_resources, get_group_library_tree, move_group_library_file,
-    move_group_library_folder, retry_group_library_file, upload_group_library_files,
-    upsert_group_library_text,
+    move_group_library_folder, prepare_group_library_upload, retry_group_library_file,
+    upload_group_library_files, upsert_group_library_text,
 };
 pub(crate) use group_source_folders::{
     create_group_source_folder, sync_group_source_folder, update_group_source_folder_config,

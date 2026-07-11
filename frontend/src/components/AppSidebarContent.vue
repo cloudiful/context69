@@ -27,8 +27,12 @@ function isActive(itemTo: string) {
   return route.path === itemTo || route.path.startsWith(`${itemTo}/`);
 }
 
+function isItemActive(item: (typeof items.value)[number]) {
+  return isActive(item.activePrefix ?? item.to);
+}
+
 function hasActiveChildren(item: (typeof items.value)[number]) {
-  return !!item.children?.length && isActive(item.to);
+  return !!item.children?.length && isItemActive(item);
 }
 
 function handleItemNavigate(item: (typeof items.value)[number]) {
@@ -56,15 +60,15 @@ async function signOut() {
         :to="item.to"
         :class="[
           'group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm transition',
-          isActive(item.to) ? 'is-active bg-app-surface-soft/70 text-app-text' : 'text-app-text-muted hover:bg-app-surface-soft/40 hover:text-app-text',
+          isItemActive(item) ? 'is-active bg-app-surface-soft/70 text-app-text' : 'text-app-text-muted hover:bg-app-surface-soft/40 hover:text-app-text',
         ]"
-        :data-nav-key="item.to"
+        :data-nav-key="item.activePrefix ?? item.to"
         :title="item.label"
         @click="handleItemNavigate(item)"
       >
         <span :class="[
           'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
-          isActive(item.to) ? 'border-app-border-strong bg-app-surface-soft text-app-text' : 'border-app-border/60 bg-app-surface-soft/45 text-app-text-dim group-hover:text-app-text',
+          isItemActive(item) ? 'border-app-border-strong bg-app-surface-soft text-app-text' : 'border-app-border/60 bg-app-surface-soft/45 text-app-text-dim group-hover:text-app-text',
         ]">
           <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon h-4 w-4" />
         </span>

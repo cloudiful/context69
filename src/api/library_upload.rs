@@ -8,6 +8,7 @@ pub(crate) async fn read_library_uploads(
 ) -> Result<Vec<UploadedLibraryFile>, axum::response::Response> {
     let mut folder_id = None;
     let mut uploads = Vec::new();
+    let mut declared_sha256 = None;
 
     loop {
         let field = match multipart.next_field().await {
@@ -55,6 +56,22 @@ pub(crate) async fn read_library_uploads(
             continue;
         }
 
+        if name == "sha256" {
+            declared_sha256 = match field.text().await {
+                Ok(value) => Some(value.trim().to_ascii_lowercase()),
+                Err(error) => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(ApiErrorResponse {
+                            error: error.to_string(),
+                        }),
+                    )
+                        .into_response());
+                }
+            };
+            continue;
+        }
+
         if name != "files" {
             continue;
         }
@@ -85,6 +102,7 @@ pub(crate) async fn read_library_uploads(
             filename,
             media_type,
             bytes,
+            declared_sha256: declared_sha256.take(),
         });
     }
 

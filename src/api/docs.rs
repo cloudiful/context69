@@ -9,7 +9,7 @@ use crate::api::{
         __path_create_admin_user, __path_disable_admin_user, __path_enable_admin_user,
         __path_list_admin_users, __path_reset_admin_user_password, __path_update_admin_user,
     },
-    auth::{__path_login, __path_logout, __path_me, __path_refresh},
+    auth::{__path_login, __path_logout, __path_me},
     errors::internal_error_response,
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
@@ -17,8 +17,8 @@ use crate::api::{
         __path_get_group_library_file, __path_get_group_library_job,
         __path_get_group_library_resources, __path_get_group_library_tree,
         __path_move_group_library_file, __path_move_group_library_folder,
-        __path_retry_group_library_file, __path_upload_group_library_files,
-        __path_upsert_group_library_text,
+        __path_prepare_group_library_upload, __path_retry_group_library_file,
+        __path_upload_group_library_files, __path_upsert_group_library_text,
     },
     group_source_folders::{
         __path_create_group_source_folder, __path_sync_group_source_folder,
@@ -42,16 +42,17 @@ use crate::api::{
     },
 };
 use crate::contracts::{
-    AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthTokenResponse,
-    AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest,
-    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateSourceFolderRequest,
-    CreateTextRequest, HealthResponse, HealthStatus, LibraryFileDetailResponse,
-    LibraryFolderResponse, LibraryIngestJobResponse, LibraryResourceItem, LibraryResourceKind,
+    AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse,
+    CreateAdminUserRequest, CreateFolderRequest, CreatePersonalAccessTokenRequest,
+    CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest,
+    HealthResponse, HealthStatus, LibraryFileDetailResponse, LibraryFolderResponse,
+    LibraryIngestJobResponse, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, LibraryUploadResponse,
     MoveFileRequest, MoveFolderRequest, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    ResetAdminUserPasswordRequest, SearchMode, SortDirection, SourceConfigInput,
-    SourceConnectionResponse, SourceFolderResponse, SourceStatus, SyncOutcome,
-    UpdateAdminUserRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, ResetAdminUserPasswordRequest,
+    SearchMode, SortDirection, SourceConfigInput, SourceConnectionResponse, SourceFolderResponse,
+    SourceStatus, SyncOutcome, UpdateAdminUserRequest, UpsertLibraryTextRequest,
+    UpsertSourceConnectionRequest,
 };
 
 #[derive(OpenApi)]
@@ -59,7 +60,6 @@ use crate::contracts::{
     paths(
         healthz,
         login,
-        refresh,
         logout,
         me,
         list_personal_access_tokens,
@@ -98,6 +98,7 @@ use crate::contracts::{
         move_group_library_folder,
         delete_group_library_folder,
         upload_group_library_files,
+        prepare_group_library_upload,
         get_group_library_file,
         move_group_library_file,
         retry_group_library_file,
@@ -112,7 +113,6 @@ use crate::contracts::{
         HealthResponse,
         ApiErrorResponse,
         AuthLoginRequest,
-        AuthTokenResponse,
         AuthMeResponse,
         AuthUserResponse,
         PersonalAccessTokenScope,
@@ -145,7 +145,9 @@ use crate::contracts::{
         LibraryResourcePageResponse,
         LibraryIngestJobResponse,
         LibraryFileDetailResponse,
-        LibraryUploadResponse
+        LibraryUploadResponse,
+        PrepareLibraryUploadRequest,
+        PrepareLibraryUploadResponse
     ))
 )]
 pub struct ApiDoc;
@@ -187,6 +189,9 @@ mod tests {
 
         for path in [
             "/healthz",
+            "/v1/auth/login",
+            "/v1/auth/logout",
+            "/v1/auth/me",
             "/v1/sources",
             "/v1/source-connections",
             "/v1/settings/docling",
@@ -214,11 +219,13 @@ mod tests {
         ] {
             assert!(paths.contains_key(path), "missing path {path}");
         }
+        assert!(!paths.contains_key("/v1/auth/refresh"));
 
         let schemas = json
             .pointer("/components/schemas")
             .and_then(Value::as_object)
             .expect("schemas to exist");
+        assert!(!schemas.contains_key("AuthTokenResponse"));
 
         for schema in [
             "HealthResponse",

@@ -25,14 +25,6 @@ pub struct AuthUserResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct AuthTokenResponse {
-    pub access_token: String,
-    pub token_type: String,
-    pub expires_in_secs: u64,
-    pub user: AuthUserResponse,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuthMeResponse {
     pub user: AuthUserResponse,
 }

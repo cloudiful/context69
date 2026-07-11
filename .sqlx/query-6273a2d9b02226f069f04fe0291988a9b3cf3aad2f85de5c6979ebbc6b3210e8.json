@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, group_id, sha256, size_bytes, storage_backend, object_key\nFROM context69.library_storage_objects\nWHERE group_id = $1 AND sha256 = $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "storage_backend",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "storage_backend"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "object_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "object_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6273a2d9b02226f069f04fe0291988a9b3cf3aad2f85de5c6979ebbc6b3210e8"
+}

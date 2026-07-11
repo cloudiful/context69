@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
-import DataTable from "primevue/datatable";
+import DataTable, { type DataTableFilterEvent, type DataTableOperatorFilterMetaData } from "primevue/datatable";
 import Paginator from "primevue/paginator";
+import Select from "primevue/select";
 import Tag from "primevue/tag";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import AppStateMessage from "./AppStateMessage.vue";
 import LibraryResourceCards from "./LibraryResourceCards.vue";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
+import type { LibraryIngestStatus } from "../services/api";
 import { libraryRowActionButtonClass, libraryRowDangerActionButtonClass, toolPrimaryButtonClass } from "../ui/button-classes";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import { formatBytes, formatTimestamp } from "../utils/format";
@@ -30,10 +33,12 @@ const props = withDefaults(defineProps<{
   paginated?: boolean;
   resourceSearchQuery: string;
   retryingFileIds?: string[];
+  unavailableFileIds?: string[];
   selectedFolderReady: boolean;
   selection: ExplorerEntry | null;
   sortField?: string;
   sortOrder?: number;
+  statusFilter?: LibraryIngestStatus | null;
   tableContextSelection: ExplorerEntry | null;
   uploadBusy: boolean;
   totalRecords?: number;
@@ -47,8 +52,10 @@ const props = withDefaults(defineProps<{
   paginated: false,
   sortField: "updated_at",
   sortOrder: -1,
+  statusFilter: null,
   totalRecords: 0,
   retryingFileIds: () => [],
+  unavailableFileIds: () => [],
 });
 
 const emit = defineEmits<{
@@ -65,6 +72,7 @@ const emit = defineEmits<{
   retry: [];
   "retry-entry": [ExplorerEntry];
   sort: [{ sortField: "name" | "type" | "status" | "size" | "updated_at"; sortOrder: number }];
+  "status-filter": [LibraryIngestStatus | null];
   "row-click": [{ data: ExplorerEntry }];
   "row-contextmenu": [{ originalEvent: Event; data: ExplorerEntry }];
   "row-dblclick": [{ data: ExplorerEntry }];
@@ -78,8 +86,23 @@ const emit = defineEmits<{
   "upload-select": [event: { files?: File[] }];
 }>();
 
+const { t } = useI18n();
 const { statusLabel, statusSeverity } = createLibraryStatusHelpers();
 const displayEntries = computed<LibraryBrowserEntry[]>(() => [...props.groupEntries, ...props.entries]);
+const hasActiveResourceFilter = computed(() => !!props.resourceSearchQuery || !!props.statusFilter);
+const filters = ref({
+  status: {
+    operator: "and",
+    constraints: [{ value: props.statusFilter, matchMode: "equals" }],
+  },
+});
+const statusOptions = computed(() => [
+  { label: t("library.allStatuses"), value: null },
+  ...(["pending", "running", "succeeded", "failed"] as const).map((value) => ({
+    label: statusLabel(value),
+    value,
+  })),
+]);
 const tableStateKey = computed(() => props.compact
   ? "context69:table:group-library:v5"
   : "context69:table:library:v3");
@@ -225,6 +248,20 @@ function handleSort(event: { sortField?: string | ((item: LibraryBrowserEntry) =
   });
 }
 
+function handleFilter(event: DataTableFilterEvent) {
+  const metadata = event.filters.status as DataTableOperatorFilterMetaData | undefined;
+  const value = metadata?.constraints[0]?.value;
+  emit("status-filter", typeof value === "string" ? value as LibraryIngestStatus : null);
+}
+
+function handleMobileStatusFilter(value: LibraryIngestStatus | null) {
+  emit("status-filter", value);
+}
+
+watch(() => props.statusFilter, (status) => {
+  filters.value.status.constraints[0]!.value = status;
+});
+
 function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unknown }) {
   const layoutState: Record<string, string> = {};
   if (typeof state.columnWidths === "string") layoutState.columnWidths = state.columnWidths;
@@ -261,6 +298,8 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           :value="displayEntries"
           :first="props.first"
           :lazy="props.paginated"
+          v-model:filters="filters"
+          filter-display="menu"
           :paginator="props.paginated"
           :rows="props.pageSize"
           :rows-per-page-options="[25, 50, 100]"
@@ -285,11 +324,12 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           @row-contextmenu="handleRowContextMenu"
           @page="emit('page', { first: $event.first, rows: $event.rows })"
           @sort="handleSort"
+          @filter="handleFilter"
           @state-save="persistColumnLayout"
         >
           <template #empty>
             <div class="py-8 text-center text-sm text-app-text-dim">
-              {{ props.resourceSearchQuery ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
+              {{ hasActiveResourceFilter ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
             </div>
           </template>
 
@@ -340,7 +380,27 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
             </template>
           </Column>
 
-          <Column :header="$t('library.statusLabel')" sort-field="status" :sortable="props.paginated" :style="props.compact ? 'width: 16%' : undefined" class="w-32">
+          <Column
+            :header="$t('library.statusLabel')"
+            field="status"
+            sort-field="status"
+            :sortable="props.paginated"
+            :show-filter-match-modes="false"
+            :show-filter-operator="false"
+            :show-add-button="false"
+            :style="props.compact ? 'width: 16%' : undefined"
+            class="w-32"
+          >
+            <template #filter="{ filterModel }">
+              <Select
+                v-model="filterModel.value"
+                :aria-label="$t('library.filterByStatus')"
+                class="w-full"
+                :options="statusOptions"
+                option-label="label"
+                option-value="value"
+              />
+            </template>
             <template #body="{ data }">
               <Tag v-if="data.kind === 'group'" :value="data.visibility" severity="secondary" />
               <span v-else-if="data.kind === 'file'" class="inline-flex items-center gap-1.5">
@@ -351,7 +411,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                 />
                 </span>
                 <Button
-                  v-if="data.ingestStatus === 'failed'"
+                  v-if="data.ingestStatus === 'failed' && !props.unavailableFileIds.includes(data.id)"
                   unstyled
                   :class="[libraryRowActionButtonClass, 'h-7 w-7 px-0']"
                   icon="pi pi-refresh"
@@ -443,10 +503,26 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           </Column>
         </DataTable>
 
+        <div class="px-3 py-2 md:hidden">
+          <label class="grid gap-1 text-sm font-medium text-app-text-muted">
+            <span>{{ $t("library.statusLabel") }}</span>
+            <Select
+              :model-value="props.statusFilter"
+              :aria-label="$t('library.filterByStatus')"
+              class="w-full"
+              :options="statusOptions"
+              option-label="label"
+              option-value="value"
+              @update:model-value="handleMobileStatusFilter"
+            />
+          </label>
+        </div>
+
         <LibraryResourceCards
           :entries="displayEntries"
           :expanded-keys="props.expandedKeys"
           :hide-group-paths="props.hideGroupPaths"
+          :resource-filter-active="hasActiveResourceFilter"
           :resource-search-query="props.resourceSearchQuery"
           :selection="props.selection"
           @delete="deleteEntry"

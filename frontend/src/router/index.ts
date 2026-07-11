@@ -43,19 +43,18 @@ export const router = createRouter({
       children: [
         {
           path: "",
-          name: "group-detail",
-          redirect: (to) => ({
-            name: "group-overview",
-            params: to.params,
-          }),
-        },
-        {
-          path: "overview",
           name: "group-overview",
           component: () => import("../views/workspace/GroupOverviewPage.vue"),
           meta: {
             contentLayout: "fill",
           },
+        },
+        {
+          path: "overview",
+          redirect: (to) => ({
+            name: "group-overview",
+            params: to.params,
+          }),
         },
         {
           path: "members",
@@ -178,6 +177,10 @@ setAuthNavigator((to) => {
 router.beforeEach(async (to) => {
   if (!authSessionState.ready) {
     await ensureSessionReady();
+  }
+
+  if (authSessionState.restoreError && !authSessionState.user) {
+    return false;
   }
 
   if (to.meta.requiresAuth && !isAuthenticated()) {

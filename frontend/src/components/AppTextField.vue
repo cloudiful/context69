@@ -6,7 +6,6 @@ import AppFormField from "./AppFormField.vue";
 const props = withDefaults(defineProps<{
   autocomplete?: string;
   disabled?: boolean;
-  floatLabel?: boolean;
   helper?: string;
   inputId: string;
   label: string;
@@ -19,7 +18,6 @@ const props = withDefaults(defineProps<{
 }>(), {
   autocomplete: "",
   disabled: false,
-  floatLabel: false,
   helper: "",
   modelValue: "",
   layout: "stacked",
@@ -36,7 +34,6 @@ const emit = defineEmits<{
 
 <template>
   <AppFormField
-    :float-label="props.floatLabel"
     :input-id="props.inputId"
     :label="props.label"
     :helper="props.helper || undefined"

@@ -5,25 +5,41 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { createAppI18n } from "../i18n";
 import { setAuthenticatedUser } from "../test-utils/auth";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
-import { setWorkspaceNavigationGroup } from "../composables/use-workspace-navigation-context";
 import AppRouteBreadcrumbs from "./AppRouteBreadcrumbs.vue";
 
 describe("AppRouteBreadcrumbs", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     setAuthenticatedUser();
-    setWorkspaceNavigationGroup("", "");
   });
 
-  it("renders group hierarchy and navigates back to the group", async () => {
-    setWorkspaceNavigationGroup("stock/alpha", "Alpha Group");
+  it("hides a breadcrumb with only one node", async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/groups/:groupPath", name: "group-overview", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/groups/stock");
+    await router.isReady();
 
+    const wrapper = mount(AppRouteBreadcrumbs, {
+      global: {
+        plugins: [testPrimeVuePlugin, router, createAppI18n("zh-CN")],
+      },
+    });
+
+    expect(wrapper.find(".p-breadcrumb").exists()).toBe(false);
+    expect(wrapper.find("#app-route-actions").exists()).toBe(true);
+  });
+
+  it("renders browser and the current group section only", async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
         { path: "/search", name: "search", component: { template: "<div />" } },
         { path: "/groups", name: "groups", component: { template: "<div />" } },
-        { path: "/groups/:groupPath/overview", name: "group-overview", component: { template: "<div />" } },
+        { path: "/groups/:groupPath", name: "group-overview", component: { template: "<div />" } },
         { path: "/groups/:groupPath/settings", name: "group-settings", component: { template: "<div />" } },
       ],
     });
@@ -39,28 +55,20 @@ describe("AppRouteBreadcrumbs", () => {
 
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Search");
     expect(wrapper.text()).toContain("Browser");
-    expect(wrapper.text()).toContain("stock");
-    expect(wrapper.text()).toContain("Alpha Group");
     expect(wrapper.text()).toContain("Settings");
+    expect(wrapper.text()).not.toContain("Search");
+    expect(wrapper.text()).not.toContain("stock");
+    expect(wrapper.text()).not.toContain("Alpha Group");
 
-    const groupButton = wrapper.findAll("button").find((button) => button.text() === "Alpha Group");
-    expect(groupButton).toBeDefined();
+    const browserButton = wrapper.findAll("button").find((button) => button.text() === "Browser");
+    expect(browserButton).toBeDefined();
 
-    await groupButton!.trigger("click");
+    await browserButton!.trigger("click");
     await flushPromises();
 
     expect(router.currentRoute.value.name).toBe("group-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock%2Falpha/overview");
-
-    const parentGroupButton = wrapper.findAll("button").find((button) => button.text() === "stock");
-    expect(parentGroupButton).toBeDefined();
-
-    await parentGroupButton!.trigger("click");
-    await flushPromises();
-
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock/overview");
+    expect(router.currentRoute.value.fullPath).toBe("/groups/stock%2Falpha");
   });
 
   it("renders settings breadcrumbs for nested settings routes", async () => {
@@ -82,8 +90,8 @@ describe("AppRouteBreadcrumbs", () => {
       },
     });
 
-    expect(wrapper.text()).toContain("搜索");
     expect(wrapper.text()).toContain("设置");
     expect(wrapper.text()).toContain("访问令牌");
+    expect(wrapper.text()).not.toContain("搜索");
   });
 });

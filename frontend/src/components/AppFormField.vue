@@ -1,14 +1,10 @@
 <script setup lang="ts">
-import FloatLabel from "primevue/floatlabel";
-
 const props = withDefaults(defineProps<{
-  floatLabel?: boolean;
   inputId: string;
   label: string;
   helper?: string;
   layout?: "stacked" | "inline";
 }>(), {
-  floatLabel: false,
   helper: "",
   layout: "stacked",
 });
@@ -22,7 +18,6 @@ const props = withDefaults(defineProps<{
       : ''"
   >
     <label
-      v-if="!props.floatLabel"
       class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim"
       :class="props.layout === 'inline' ? 'md:mb-0 md:self-center' : ''"
       :for="props.inputId"
@@ -30,17 +25,7 @@ const props = withDefaults(defineProps<{
       {{ props.label }}
     </label>
     <div class="grid min-w-0 gap-2">
-      <FloatLabel
-        v-if="props.floatLabel"
-        variant="on"
-        class="block [&>.p-inputnumber>.p-inputtext]:w-full [&>.p-inputnumber]:w-full [&>.p-inputtext]:w-full [&>.p-select]:w-full"
-      >
-        <slot />
-        <label class="text-xs font-medium uppercase tracking-[0.08em] !bg-transparent !px-0" :for="props.inputId">
-          {{ props.label }}
-        </label>
-      </FloatLabel>
-      <slot v-else />
+      <slot />
       <p v-if="props.helper" class="text-xs leading-6 text-app-text-dim">{{ props.helper }}</p>
     </div>
   </div>

@@ -1,47 +1,19 @@
 import createClient from "openapi-fetch";
 
 import type { paths } from "../generated/openapi";
-import { getAccessToken, handleUnauthorized } from "./auth/session";
+import { handleUnauthorized } from "./auth/session";
 
 export const API_BASE_URL = resolveApiBaseUrl();
 
 export const openapiClient = createClient<paths>({
   baseUrl: API_BASE_URL || undefined,
+  credentials: "include",
 });
 
 openapiClient.use({
-  async onRequest({ request }) {
-    const token = getAccessToken();
-    if (token) {
-      request.headers.set("Authorization", `Bearer ${token}`);
-    }
-    return request;
-  },
-  async onResponse({ request, response }) {
-    if (response.status !== 401) {
-      return response;
-    }
-
-    if (request.headers.get("x-context69-retry") === "1") {
-      return response;
-    }
-
-    const restored = await handleUnauthorized();
-    if (!restored) {
-      return response;
-    }
-
-    const retryRequest = new Request(request);
-    retryRequest.headers.set("x-context69-retry", "1");
-
-    const token = getAccessToken();
-    if (token) {
-      retryRequest.headers.set("Authorization", `Bearer ${token}`);
-    } else {
-      retryRequest.headers.delete("Authorization");
-    }
-
-    return fetch(retryRequest);
+  async onResponse({ response }) {
+    if (response.status === 401) handleUnauthorized();
+    return response;
   },
 });
 

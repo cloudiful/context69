@@ -376,15 +376,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Authenticated session",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthTokenResponse"
-                }
-              }
-            }
+          "204": {
+            "description": "Authenticated session"
           },
           "401": {
             "description": "Invalid login or password",
@@ -436,7 +429,7 @@
             }
           },
           "401": {
-            "description": "Missing or invalid bearer token",
+            "description": "Missing or invalid session",
             "content": {
               "application/json": {
                 "schema": {
@@ -587,34 +580,6 @@
           },
           "404": {
             "description": "Personal access token not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/auth/refresh": {
-      "post": {
-        "tags": [],
-        "operationId": "refresh",
-        "responses": {
-          "200": {
-            "description": "Refreshed access token",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthTokenResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Invalid refresh token",
             "content": {
               "application/json": {
                 "schema": {
@@ -862,6 +827,51 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/library/files/prepare-upload": {
+      "post": {
+        "tags": [],
+        "operationId": "prepare_group_library_upload",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareLibraryUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Upload requirement or reused file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrepareLibraryUploadResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or folder not found"
           }
         }
       }
@@ -1321,6 +1331,14 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LibraryIngestStatus"
             }
           },
           {
@@ -2434,6 +2452,47 @@
         }
       }
     },
+    "/v1/settings/runtime/s3/test": {
+      "post": {
+        "tags": [],
+        "operationId": "test_s3_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRuntimeS3Settings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/search": {
       "get": {
         "tags": [],
@@ -3056,31 +3115,6 @@
           "user"
         ],
         "properties": {
-          "user": {
-            "$ref": "#/components/schemas/AuthUserResponse"
-          }
-        }
-      },
-      "AuthTokenResponse": {
-        "type": "object",
-        "required": [
-          "access_token",
-          "token_type",
-          "expires_in_secs",
-          "user"
-        ],
-        "properties": {
-          "access_token": {
-            "type": "string"
-          },
-          "expires_in_secs": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "token_type": {
-            "type": "string"
-          },
           "user": {
             "$ref": "#/components/schemas/AuthUserResponse"
           }
@@ -3760,6 +3794,9 @@
             "type": "integer",
             "format": "int64"
           },
+          "source_available": {
+            "type": "boolean"
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
@@ -4342,6 +4379,68 @@
           "admin"
         ]
       },
+      "PrepareLibraryUploadRequest": {
+        "type": "object",
+        "required": [
+          "filename",
+          "media_type",
+          "size_bytes",
+          "sha256"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PrepareLibraryUploadResponse": {
+        "type": "object",
+        "required": [
+          "upload_required"
+        ],
+        "properties": {
+          "file": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryFileSummary"
+              }
+            ]
+          },
+          "job": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryIngestJobResponse"
+              }
+            ]
+          },
+          "upload_required": {
+            "type": "boolean"
+          }
+        }
+      },
       "ResetAdminUserPasswordRequest": {
         "type": "object",
         "required": [
@@ -4427,6 +4526,16 @@
             "format": "int32",
             "minimum": 0
           },
+          "s3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RuntimeS3SettingsResponse"
+              }
+            ]
+          },
           "storage_root": {
             "type": "string"
           }
@@ -4447,6 +4556,41 @@
             "type": "boolean"
           },
           "url": {
+            "type": "string"
+          }
+        }
+      },
+      "RuntimeS3SettingsResponse": {
+        "type": "object",
+        "required": [
+          "endpoint",
+          "region",
+          "bucket",
+          "prefix",
+          "path_style",
+          "access_key",
+          "has_secret_key"
+        ],
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "has_secret_key": {
+            "type": "boolean"
+          },
+          "path_style": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "region": {
             "type": "string"
           }
         }
@@ -5129,6 +5273,83 @@
           }
         }
       },
+      "UpdateRuntimeFileLibrarySettings": {
+        "type": "object",
+        "required": [
+          "storage_root",
+          "max_upload_size_mb",
+          "max_upload_request_size_mb",
+          "ingest_concurrency",
+          "pdf_pages_per_task"
+        ],
+        "properties": {
+          "ingest_concurrency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_upload_request_size_mb": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_upload_size_mb": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pdf_pages_per_task": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "s3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateRuntimeS3Settings"
+              }
+            ]
+          },
+          "storage_root": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateRuntimeS3Settings": {
+        "type": "object",
+        "required": [
+          "endpoint",
+          "region",
+          "bucket",
+          "access_key"
+        ],
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "path_style": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secret_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateRuntimeSettingsRequest": {
         "type": "object",
         "required": [
@@ -5146,7 +5367,7 @@
             "$ref": "#/components/schemas/UpdateRuntimeEmbeddingSettings"
           },
           "file_library": {
-            "$ref": "#/components/schemas/RuntimeFileLibrarySettings"
+            "$ref": "#/components/schemas/UpdateRuntimeFileLibrarySettings"
           },
           "qdrant": {
             "$ref": "#/components/schemas/RuntimeQdrantSettings"

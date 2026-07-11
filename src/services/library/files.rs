@@ -26,14 +26,16 @@ impl LibraryService {
             .with_context(|| format!("unknown folder {folder_id}"))
     }
 
-    pub(crate) fn read_text_file_content(
+    pub(crate) async fn read_text_file_content(
         &self,
         file: &crate::domain::LibraryFileRecord,
     ) -> Result<String> {
-        let path = self.storage_root.join(&file.storage_rel_path);
-        let bytes = fs::read(&path)
-            .with_context(|| format!("failed to read stored file {}", path.display()))?;
-        String::from_utf8(bytes)
+        let bytes = self
+            .storage
+            .read(&file.storage_rel_path)
+            .await?
+            .with_context(|| format!("stored file not found for file {}", file.id))?;
+        String::from_utf8(bytes.to_vec())
             .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
     }
 
@@ -138,8 +140,7 @@ impl LibraryService {
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
         let storage_rel_path = storage::build_storage_rel_path(file_id, &filename);
-        let storage_path = self.storage_root.join(&storage_rel_path);
-        storage::write_storage_file(&storage_path, &bytes)?;
+        self.storage.write(&storage_rel_path, bytes.clone()).await?;
 
         let file = match existing {
             Some(existing_file) => {
@@ -161,11 +162,8 @@ impl LibraryService {
                     .await?
                     .with_context(|| format!("unknown file {}", existing_file.id))?;
                 if existing_file.storage_rel_path != updated.storage_rel_path {
-                    let old_path = self.storage_root.join(existing_file.storage_rel_path);
-                    if let Err(error) = fs::remove_file(&old_path)
-                        && error.kind() != std::io::ErrorKind::NotFound
-                    {
-                        warn!(path = %old_path.display(), error = %error, "failed to remove stale library file");
+                    if let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await {
+                        warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
                     }
                 }
                 updated
@@ -183,6 +181,7 @@ impl LibraryService {
                             size_bytes: bytes.len() as i64,
                             sha256,
                             storage_rel_path,
+                            storage_object_id: None,
                         },
                     )
                     .await?
@@ -270,8 +269,7 @@ impl LibraryService {
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
         let storage_rel_path = storage::build_storage_rel_path(file_id, filename);
-        let storage_path = self.storage_root.join(&storage_rel_path);
-        storage::write_storage_file(&storage_path, &bytes)?;
+        self.storage.write(&storage_rel_path, bytes.clone()).await?;
 
         let file = match existing {
             Some(existing_file) => {
@@ -293,11 +291,8 @@ impl LibraryService {
                     .await?
                     .with_context(|| format!("unknown file {}", existing_file.id))?;
                 if existing_file.storage_rel_path != updated.storage_rel_path {
-                    let old_path = self.storage_root.join(existing_file.storage_rel_path);
-                    if let Err(error) = fs::remove_file(&old_path)
-                        && error.kind() != std::io::ErrorKind::NotFound
-                    {
-                        warn!(path = %old_path.display(), error = %error, "failed to remove stale library file");
+                    if let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await {
+                        warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
                     }
                 }
                 updated
@@ -315,6 +310,7 @@ impl LibraryService {
                             size_bytes: bytes.len() as i64,
                             sha256,
                             storage_rel_path,
+                            storage_object_id: None,
                         },
                     )
                     .await?
@@ -422,9 +418,20 @@ impl LibraryService {
         let file_id = Uuid::new_v4();
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&upload.bytes);
+        if upload
+            .declared_sha256
+            .as_deref()
+            .is_some_and(|declared| declared != sha256)
+        {
+            return Err(anyhow!(
+                "declared SHA-256 does not match uploaded file {}",
+                upload.filename
+            ));
+        }
         let storage_rel_path = storage::build_storage_rel_path(file_id, &upload.filename);
-        let storage_path = self.storage_root.join(&storage_rel_path);
-        storage::write_storage_file(&storage_path, &upload.bytes)?;
+        self.storage
+            .write(&storage_rel_path, upload.bytes.clone())
+            .await?;
 
         let created = self
             .store
@@ -437,6 +444,7 @@ impl LibraryService {
                 size_bytes: upload.bytes.len() as i64,
                 sha256,
                 storage_rel_path,
+                storage_object_id: None,
             })
             .await?;
         let job = self.store.create_job(job_id, file_id).await?;
@@ -485,9 +493,19 @@ impl LibraryService {
         let file_id = Uuid::new_v4();
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&upload.bytes);
-        let storage_rel_path = storage::build_storage_rel_path(file_id, &upload.filename);
-        let storage_path = self.storage_root.join(&storage_rel_path);
-        storage::write_storage_file(&storage_path, &upload.bytes)?;
+        if upload
+            .declared_sha256
+            .as_deref()
+            .is_some_and(|declared| declared != sha256)
+        {
+            return Err(anyhow!(
+                "declared SHA-256 does not match uploaded file {}",
+                upload.filename
+            ));
+        }
+        let object = self
+            .store_project_content(project.id, &sha256, upload.bytes.clone())
+            .await?;
 
         let created = self
             .store
@@ -501,18 +519,14 @@ impl LibraryService {
                     media_type: upload.media_type.clone(),
                     size_bytes: upload.bytes.len() as i64,
                     sha256,
-                    storage_rel_path,
+                    storage_rel_path: object.object_key,
+                    storage_object_id: Some(object.id),
                 },
             )
             .await?;
         let job = self.store.create_job(job_id, file_id).await?;
 
-        let service = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = service.run_ingest(file_id, job_id, kind).await {
-                warn!(file_id = %file_id, job_id = %job_id, error = %error, "library ingest failed");
-            }
-        });
+        self.spawn_ingest(file_id, job_id, kind);
 
         Ok((file_to_summary(&created), job_to_response(job)))
     }
@@ -524,10 +538,13 @@ impl LibraryService {
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
-        self.store
+        let mut detail = self
+            .store
             .get_file_detail(file_id, folder_path)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))
+            .with_context(|| format!("unknown file {file_id}"))?;
+        detail.source_available = self.storage.exists(&file.storage_rel_path).await?;
+        Ok(detail)
     }
 
     pub async fn get_file_in_project(
@@ -541,10 +558,13 @@ impl LibraryService {
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
-        self.store
+        let mut detail = self
+            .store
             .get_file_detail_in_project(project.id, file_id, folder_path)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))
+            .with_context(|| format!("unknown file {file_id}"))?;
+        detail.source_available = self.storage.exists(&file.storage_rel_path).await?;
+        Ok(detail)
     }
 
     pub async fn retry_file_in_project(
@@ -574,24 +594,8 @@ impl LibraryService {
             }
             LibraryFileKind::PlainText => {}
         }
-        let storage_path = self.storage_root.join(&file.storage_rel_path);
-        let metadata = match fs::metadata(&storage_path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(anyhow!("stored file not found for file {file_id}"));
-            }
-            Err(error) => {
-                return Err(anyhow!(error).context(format!(
-                    "failed to read stored file {}",
-                    storage_path.display()
-                )));
-            }
-        };
-        if !metadata.is_file() {
-            return Err(anyhow!(
-                "stored file is not a regular file: {}",
-                storage_path.display()
-            ));
+        if !self.storage.exists(&file.storage_rel_path).await? {
+            return Err(anyhow!("stored file not found for file {file_id}"));
         }
 
         let job_id = Uuid::new_v4();
@@ -682,10 +686,12 @@ impl LibraryService {
     }
 
     pub async fn delete_file(&self, file_id: Uuid) -> Result<()> {
+        let paths = self.store.list_storage_paths_for_files(&[file_id]).await?;
         self.delete_file_ids(&[file_id]).await?;
         if !self.store.delete_file_record(file_id).await? {
             return Err(anyhow!("unknown file {file_id}"));
         }
+        self.delete_unreferenced_objects(paths).await?;
         self.bump_search_generation("library file delete").await?;
         Ok(())
     }
@@ -695,6 +701,7 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
         file_id: Uuid,
     ) -> Result<()> {
+        let paths = self.store.list_storage_paths_for_files(&[file_id]).await?;
         self.delete_file_ids(&[file_id]).await?;
         if !self
             .store
@@ -703,6 +710,7 @@ impl LibraryService {
         {
             return Err(anyhow!("unknown file {file_id}"));
         }
+        self.delete_unreferenced_objects(paths).await?;
         self.bump_search_generation("library file delete").await?;
         Ok(())
     }
@@ -788,8 +796,7 @@ impl LibraryService {
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
         let storage_rel_path = storage::build_storage_rel_path(file_id, &filename);
-        let storage_path = self.storage_root.join(&storage_rel_path);
-        storage::write_storage_file(&storage_path, &bytes)?;
+        self.storage.write(&storage_rel_path, bytes.clone()).await?;
         let new_file = NewLibraryFile {
             id: file_id,
             folder_id: request.folder_id,
@@ -799,6 +806,7 @@ impl LibraryService {
             size_bytes: bytes.len() as i64,
             sha256,
             storage_rel_path,
+            storage_object_id: None,
         };
         let created = match project {
             Some(project) => {

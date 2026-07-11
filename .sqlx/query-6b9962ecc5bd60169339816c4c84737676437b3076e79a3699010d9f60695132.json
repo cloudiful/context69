@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_files\nSET storage_object_id = $2,\n    storage_rel_path = $3,\n    updated_at = now()\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6b9962ecc5bd60169339816c4c84737676437b3076e79a3699010d9f60695132"
+}

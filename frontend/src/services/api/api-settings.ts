@@ -2,6 +2,7 @@ import type {
   RequestOptions,
   UpdateDoclingSettingsRequest,
   UpdateRuntimeSettingsRequest,
+  UpdateRuntimeS3Settings,
   UpdateSearchSettingsRequest,
 } from "./api-types";
 
@@ -22,6 +23,14 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
     updateRuntimeSettings(payload: UpdateRuntimeSettingsRequest, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.PUT("/v1/settings/runtime", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      );
+    },
+    testS3Connection(payload: UpdateRuntimeS3Settings, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/s3/test", {
           body: payload,
           signal: options?.signal,
         }),

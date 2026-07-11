@@ -10,9 +10,9 @@ pub use defaults::{
 };
 pub use load::load_app_db_url;
 pub use types::{
-    ApiConfig, AppDbConfig, AuthConfig, AuthSigningKeyConfig, BootstrapAdminConfig, Config,
-    ConnectionConfig, EmbeddingConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig,
-    QdrantConfig, SchedulerConfig, SourceConfig, SyncStrategy, parse_sync_strategy,
+    ApiConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, Config, ConnectionConfig,
+    EmbeddingConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig, QdrantConfig,
+    S3StorageConfig, SchedulerConfig, SourceConfig, SyncStrategy, parse_sync_strategy,
 };
 
 #[cfg(test)]
@@ -88,6 +88,19 @@ enabled = true
             parsed.scheduler.execution_guard_renew_interval,
             Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS)
         );
+    }
+
+    #[test]
+    fn browser_session_defaults_are_stable() {
+        let config = FileConfig::default();
+
+        assert_eq!(config.auth.session_valkey_url, "redis://127.0.0.1:6379");
+        assert_eq!(
+            config.auth.session_idle_ttl,
+            Duration::from_secs(60 * 60 * 24 * 7)
+        );
+        assert!(!config.auth.session_cookie_secure);
+        assert!(config.auth.session_secret_key.len() >= 32);
     }
 
     #[test]

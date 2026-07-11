@@ -173,7 +173,8 @@ impl SourceFoldersService {
         let descriptor = self.describe_source_folder(project, folder_id).await?;
         let config_text = self
             .library
-            .read_text_file_content(&descriptor.source_config_file)?;
+            .read_text_file_content(&descriptor.source_config_file)
+            .await?;
         let input: SourceConfigInput =
             serde_json::from_str(&config_text).context("failed to parse source.json content")?;
         self.sync
@@ -251,7 +252,8 @@ impl SourceFoldersService {
         for descriptor in descriptors {
             let identity = source_folder_identity(project.id, &descriptor.path);
             let legacy_source_key = self
-                .read_source_config_input(&descriptor)?
+                .read_source_config_input(&descriptor)
+                .await?
                 .map(|input| input.source_key);
             self.sync
                 .delete_project_source_folder_state(
@@ -385,13 +387,14 @@ impl SourceFoldersService {
         Ok(descriptors)
     }
 
-    fn read_source_config_input(
+    async fn read_source_config_input(
         &self,
         descriptor: &SourceFolderDescriptor,
     ) -> Result<Option<SourceConfigInput>> {
         let content = self
             .library
-            .read_text_file_content(&descriptor.source_config_file);
+            .read_text_file_content(&descriptor.source_config_file)
+            .await;
         match content {
             Ok(content) => serde_json::from_str(&content)
                 .map(Some)

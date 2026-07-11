@@ -33,6 +33,16 @@ export type DraftRuntimeSettings = {
     max_upload_request_size_mb: number;
     ingest_concurrency: number;
     pdf_pages_per_task: number;
+    s3_enabled: boolean;
+    s3: {
+      endpoint: string;
+      region: string;
+      bucket: string;
+      prefix: string;
+      path_style: boolean;
+      access_key: string;
+      secret_key: string;
+    };
   };
 };
 

@@ -162,4 +162,4 @@ client.search().search(request)                         -> client.search().execu
 client.search().get_document(id)                        -> client.document(id).get()
 ```
 
-Login, refresh, logout, PAT management, and admin-user APIs remain intentionally excluded. HTTP `401 Unauthorized` responses are returned directly; the SDK does not retry with refresh-cookie logic.
+Browser login, session logout, PAT management, and admin-user APIs remain intentionally excluded. HTTP `401 Unauthorized` responses are returned directly; the SDK does not use browser session cookies.

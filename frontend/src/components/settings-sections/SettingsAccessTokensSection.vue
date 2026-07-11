@@ -103,14 +103,12 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
 
           <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_11rem_auto] md:items-start">
             <AppTextField
-              float-label
               input-id="personal-access-token-name"
               v-model="personalAccessTokenDraft.name"
               :label="t('settings.personalAccessTokens.name')"
               test-id="personal-access-token-name"
             />
             <AppSelectField
-              float-label
               input-id="personal-access-token-expiry"
               v-model="personalAccessTokenDraft.expires_in_days"
               :label="t('settings.personalAccessTokens.expiry')"

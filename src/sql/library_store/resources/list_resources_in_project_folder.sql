@@ -69,21 +69,24 @@ SELECT
     created_at AS "created_at!",
     updated_at AS "updated_at!"
 FROM resources
-WHERE NULLIF(BTRIM($3::TEXT), '') IS NULL
-   OR resources.name ILIKE '%' || BTRIM($3::TEXT) || '%'
-   OR COALESCE(resources.media_type, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
-   OR COALESCE(resources.ingest_status, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
+WHERE (
+       NULLIF(BTRIM($3::TEXT), '') IS NULL
+    OR resources.name ILIKE '%' || BTRIM($3::TEXT) || '%'
+    OR COALESCE(resources.media_type, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
+    OR COALESCE(resources.ingest_status, '') ILIKE '%' || BTRIM($3::TEXT) || '%'
+)
+AND ($4::TEXT IS NULL OR resources.ingest_status = $4::TEXT)
 ORDER BY
-    CASE WHEN $4 = 'name' AND $5 = 'asc' THEN LOWER(name) END ASC NULLS LAST,
-    CASE WHEN $4 = 'name' AND $5 = 'desc' THEN LOWER(name) END DESC NULLS LAST,
-    CASE WHEN $4 = 'type' AND $5 = 'asc' THEN resource_kind || ':' || COALESCE(media_type, '') END ASC NULLS LAST,
-    CASE WHEN $4 = 'type' AND $5 = 'desc' THEN resource_kind || ':' || COALESCE(media_type, '') END DESC NULLS LAST,
-    CASE WHEN $4 = 'status' AND $5 = 'asc' THEN ingest_status END ASC NULLS LAST,
-    CASE WHEN $4 = 'status' AND $5 = 'desc' THEN ingest_status END DESC NULLS LAST,
-    CASE WHEN $4 = 'size' AND $5 = 'asc' THEN size_bytes END ASC NULLS LAST,
-    CASE WHEN $4 = 'size' AND $5 = 'desc' THEN size_bytes END DESC NULLS LAST,
-    CASE WHEN $4 = 'updated_at' AND $5 = 'asc' THEN updated_at END ASC NULLS LAST,
-    CASE WHEN $4 = 'updated_at' AND $5 = 'desc' THEN updated_at END DESC NULLS LAST,
+    CASE WHEN $5 = 'name' AND $6 = 'asc' THEN LOWER(name) END ASC NULLS LAST,
+    CASE WHEN $5 = 'name' AND $6 = 'desc' THEN LOWER(name) END DESC NULLS LAST,
+    CASE WHEN $5 = 'type' AND $6 = 'asc' THEN resource_kind || ':' || COALESCE(media_type, '') END ASC NULLS LAST,
+    CASE WHEN $5 = 'type' AND $6 = 'desc' THEN resource_kind || ':' || COALESCE(media_type, '') END DESC NULLS LAST,
+    CASE WHEN $5 = 'status' AND $6 = 'asc' THEN ingest_status END ASC NULLS LAST,
+    CASE WHEN $5 = 'status' AND $6 = 'desc' THEN ingest_status END DESC NULLS LAST,
+    CASE WHEN $5 = 'size' AND $6 = 'asc' THEN size_bytes END ASC NULLS LAST,
+    CASE WHEN $5 = 'size' AND $6 = 'desc' THEN size_bytes END DESC NULLS LAST,
+    CASE WHEN $5 = 'updated_at' AND $6 = 'asc' THEN updated_at END ASC NULLS LAST,
+    CASE WHEN $5 = 'updated_at' AND $6 = 'desc' THEN updated_at END DESC NULLS LAST,
     LOWER(name) ASC,
     id ASC
-LIMIT $6 OFFSET $7
+LIMIT $7 OFFSET $8

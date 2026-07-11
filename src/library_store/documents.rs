@@ -6,9 +6,10 @@ use crate::domain::ChunkPayload;
 use crate::domain::LibraryFileDocumentRecord;
 
 #[derive(Debug)]
-struct StoragePathRow {
-    id: Uuid,
-    storage_rel_path: String,
+pub struct StoragePathRow {
+    pub id: Uuid,
+    pub storage_rel_path: String,
+    pub storage_object_id: Option<Uuid>,
 }
 
 impl LibraryStore {
@@ -178,7 +179,7 @@ impl LibraryStore {
     pub async fn list_storage_paths_for_files(
         &self,
         file_ids: &[Uuid],
-    ) -> Result<Vec<(Uuid, String)>> {
+    ) -> Result<Vec<StoragePathRow>> {
         if file_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -191,10 +192,7 @@ impl LibraryStore {
         .fetch_all(self.db.pool())
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| (row.id, row.storage_rel_path))
-            .collect())
+        Ok(rows)
     }
 
     pub async fn update_document_metadata(

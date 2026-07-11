@@ -6,7 +6,6 @@ import Breadcrumb from "primevue/breadcrumb";
 
 import { resolveSettingsSectionNav } from "../settings/navigation";
 import { authSessionState } from "../services/auth/session";
-import { useWorkspaceNavigationContext } from "../composables/use-workspace-navigation-context";
 
 type Crumb = {
   label: string;
@@ -16,30 +15,11 @@ type Crumb = {
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
-const workspaceContext = useWorkspaceNavigationContext();
 
 const routeName = computed(() => String(route.name ?? ""));
 const groupPath = computed(() => String(route.params.groupPath ?? ""));
 
 const settingsSections = computed(() => resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true));
-
-const currentGroupLabel = computed(() => {
-  if (workspaceContext.groupPath === groupPath.value && workspaceContext.groupLabel) {
-    return workspaceContext.groupLabel;
-  }
-  return groupPath.value;
-});
-
-const groupCrumbs = computed<Crumb[]>(() => {
-  const segments = groupPath.value.split("/").filter(Boolean);
-  return segments.map((segment, index) => {
-    const path = segments.slice(0, index + 1).join("/");
-    return {
-      label: index === segments.length - 1 ? currentGroupLabel.value : segment,
-      to: `/groups/${encodeURIComponent(path)}/overview`,
-    };
-  });
-});
 
 const items = computed<Crumb[]>(() => {
   if (routeName.value === "search") {
@@ -47,18 +27,14 @@ const items = computed<Crumb[]>(() => {
   }
 
   if (routeName.value === "groups") {
-    return [
-      { label: t("nav.search"), to: "/search" },
-      { label: t("nav.groups") },
-    ];
+    return [{ label: t("nav.groups") }];
   }
 
-  if (routeName.value.startsWith("group-") || routeName.value === "group-detail") {
-    const crumbs: Crumb[] = [
-      { label: t("nav.search"), to: "/search" },
-      { label: t("nav.groups"), to: "/groups" },
-      ...groupCrumbs.value,
-    ];
+  if (routeName.value.startsWith("group-")) {
+    const groupHome = `/groups/${encodeURIComponent(groupPath.value)}`;
+    const crumbs: Crumb[] = routeName.value === "group-overview"
+      ? [{ label: t("nav.groups") }]
+      : [{ label: t("nav.groups"), to: groupHome }];
 
     if (routeName.value === "group-members") {
       crumbs.push({ label: t("groups.membersTitle") });
@@ -72,7 +48,6 @@ const items = computed<Crumb[]>(() => {
   if (routeName.value.startsWith("settings-")) {
     const activeSection = settingsSections.value.find((item) => item.to === route.path);
     const crumbs: Crumb[] = [
-      { label: t("nav.search"), to: "/search" },
       { label: t("nav.settings"), to: "/settings/appearance" },
     ];
     if (activeSection && activeSection.label !== t("nav.settings")) {
@@ -95,6 +70,7 @@ function navigate(to?: string) {
 <template>
   <div class="flex min-w-0 items-center gap-3 rounded-[1rem] border border-app-border/60 bg-app-surface-muted/18 px-3 py-2">
     <Breadcrumb
+      v-if="items.length > 1"
       :model="items"
       class="min-w-0 flex-1 [&.p-breadcrumb]:border-0 [&.p-breadcrumb]:bg-transparent [&.p-breadcrumb]:p-0"
     >

@@ -10,7 +10,7 @@ use crate::contracts::{
     CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryIngestJobResponse,
     LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryTreeResponse,
     LibraryUploadResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
-    UpsertLibraryTextRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
 
 use super::{
@@ -301,6 +301,41 @@ pub(crate) async fn upload_group_library_files(
         .await
     {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/groups/by-path/{group_path}/library/files/prepare-upload",
+    params(("group_path" = String, Path, description = "URL-encoded group path")),
+    request_body = PrepareLibraryUploadRequest,
+    responses(
+        (status = 200, description = "Upload requirement or reused file", body = PrepareLibraryUploadResponse),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Group or folder not found")
+    )
+)]
+pub(crate) async fn prepare_group_library_upload(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(group_path): Path<String>,
+    Json(request): Json<PrepareLibraryUploadRequest>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+        return group_access_error_response(error);
+    }
+    match state
+        .app
+        .library
+        .prepare_upload_in_project(&group, &request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }

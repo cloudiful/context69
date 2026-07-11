@@ -17,6 +17,7 @@ context69-contracts.workspace = true
 reqwest = { workspace = true, features = [ "charset", "gzip", "http2", "json", "multipart", "rustls", "system-proxy" ] }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 url.workspace = true
 uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
