@@ -22,6 +22,7 @@ export const router = createRouter({
       name: "search",
       component: () => import("../views/SearchView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
       },
     },
@@ -52,6 +53,9 @@ export const router = createRouter({
           path: "overview",
           name: "group-overview",
           component: () => import("../views/workspace/GroupOverviewPage.vue"),
+          meta: {
+            contentLayout: "fill",
+          },
         },
         {
           path: "members",

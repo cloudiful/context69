@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, toValue, type MaybeRefOrGetter, type Ref } from "vue";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 
@@ -26,7 +26,7 @@ interface CreateTextDialogState {
 }
 
 interface UseProjectLibraryActionsOptions {
-  groupPath: string;
+  groupPath: MaybeRefOrGetter<string>;
   loadTree: () => Promise<void>;
   moveOptions: Ref<Array<{ label: string; value: string | null }>>;
   replaceSelection: (folderId: string | null, fileId: string | null) => Promise<void>;
@@ -60,6 +60,7 @@ export function useProjectLibraryActions({
   const createFolderBusy = ref(false);
   const uploadBusy = ref(false);
   const actionBusy = ref(false);
+  const retryingFileIds = ref<string[]>([]);
   const moveDialog = ref<MoveDialogState | null>(null);
   const createDialog = ref<CreateDialogState | null>(null);
   const createTextDialog = ref<CreateTextDialogState | null>(null);
@@ -85,7 +86,7 @@ export function useProjectLibraryActions({
     const parentFolderId = createDialog.value.parentFolderId;
     createFolderBusy.value = true;
     try {
-      const folder = await apiClient.createGroupLibraryFolder(groupPath, {
+      const folder = await apiClient.createGroupLibraryFolder(toValue(groupPath), {
         parent_folder_id: parentFolderId,
         name,
       });
@@ -106,7 +107,7 @@ export function useProjectLibraryActions({
     if (!createTextDialog.value) return;
     createFolderBusy.value = true;
     try {
-      const response = await apiClient.upsertGroupLibraryText(groupPath, {
+      const response = await apiClient.upsertGroupLibraryText(toValue(groupPath), {
         title: payload.title,
         content: payload.content,
         external_id: crypto.randomUUID(),
@@ -133,7 +134,7 @@ export function useProjectLibraryActions({
     uploadBusy.value = true;
     try {
       const response = await apiClient.uploadGroupLibraryFiles(
-        groupPath,
+        toValue(groupPath),
         selectedFolder.value?.folder_id ?? null,
         files,
       );
@@ -153,6 +154,26 @@ export function useProjectLibraryActions({
   async function revealPreviewForFile(fileId: string) {
     previewDialogVisible.value = !previewDocked.value;
     await selectFile(fileId);
+  }
+
+  async function retryFile(fileId: string) {
+    if (retryingFileIds.value.includes(fileId)) return;
+    retryingFileIds.value = [...retryingFileIds.value, fileId];
+    try {
+      const job = await apiClient.retryGroupLibraryFile(toValue(groupPath), fileId);
+      await loadTree();
+      schedulePolling([job.job_id]);
+      toast.add({
+        severity: "success",
+        summary: t("library.retryAccepted"),
+        detail: t("library.retryAcceptedMessage"),
+        life: 2500,
+      });
+    } catch (error) {
+      showErrorToast(error, t("library.retryFailed"));
+    } finally {
+      retryingFileIds.value = retryingFileIds.value.filter((id) => id !== fileId);
+    }
   }
 
   function openMoveFolderDialog(folder: LibraryFolderNode) {
@@ -181,11 +202,11 @@ export function useProjectLibraryActions({
     actionBusy.value = true;
     try {
       if (moveDialog.value.kind === "folder") {
-        await apiClient.moveGroupLibraryFolder(groupPath, moveDialog.value.id, { target_folder_id: targetFolderId });
+        await apiClient.moveGroupLibraryFolder(toValue(groupPath), moveDialog.value.id, { target_folder_id: targetFolderId });
         await loadTree();
         await replaceSelection(targetFolderId, null);
       } else {
-        await apiClient.moveGroupLibraryFile(groupPath, moveDialog.value.id, { target_folder_id: targetFolderId });
+        await apiClient.moveGroupLibraryFile(toValue(groupPath), moveDialog.value.id, { target_folder_id: targetFolderId });
         await loadTree();
         await replaceSelection(targetFolderId, moveDialog.value.id);
       }
@@ -213,7 +234,7 @@ export function useProjectLibraryActions({
   async function deleteFolderConfirmed(folder: LibraryFolderNode) {
     actionBusy.value = true;
     try {
-      await apiClient.deleteGroupLibraryFolder(groupPath, folder.folder_id!);
+      await apiClient.deleteGroupLibraryFolder(toValue(groupPath), folder.folder_id!);
       await loadTree();
       await replaceSelection(null, null);
       toast.add({ severity: "success", summary: t("common.delete"), detail: folder.name, life: 2500 });
@@ -238,7 +259,7 @@ export function useProjectLibraryActions({
   async function deleteFileConfirmed(file: LibraryFileSummary) {
     actionBusy.value = true;
     try {
-      await apiClient.deleteGroupLibraryFile(groupPath, file.file_id);
+      await apiClient.deleteGroupLibraryFile(toValue(groupPath), file.file_id);
       await loadTree();
       if (selectedFileId.value === file.file_id) {
         await replaceSelection(selectedFolder.value?.folder_id ?? null, null);
@@ -292,6 +313,8 @@ export function useProjectLibraryActions({
     openMoveFileDialog,
     openMoveFolderDialog,
     revealPreviewForFile,
+    retryFile,
+    retryingFileIds,
     uploadBusy,
   };
 }

@@ -107,18 +107,6 @@ export function useSettingsPage() {
     }
   });
 
-  watch(() => runtimeDraft.embedding.api_key, (value) => {
-    if (value.trim()) {
-      runtimeDraft.embedding.clear_api_key = false;
-    }
-  });
-
-  watch(() => doclingDraft.vlm.api_key, (value) => {
-    if (value.trim()) {
-      doclingDraft.vlm.clear_api_key = false;
-    }
-  });
-
   async function loadAdminUsers() {
     if (!authSessionState.user?.is_admin) {
       adminUsers.value = [];

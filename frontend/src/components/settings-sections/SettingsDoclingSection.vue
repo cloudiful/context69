@@ -4,21 +4,14 @@ import { useI18n } from "vue-i18n";
 import AppNumberField from "../AppNumberField.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
-import AppToggleGroup from "../AppToggleGroup.vue";
 import type { DraftDoclingSettings } from "../../utils/settings";
 
-const props = defineProps<{
+defineProps<{
   doclingDraft: DraftDoclingSettings;
 }>();
 
 const { t } = useI18n();
 
-function updateApiKeyClear(value: Record<string, boolean>) {
-  props.doclingDraft.vlm.clear_api_key = !!value.clear_api_key;
-  if (props.doclingDraft.vlm.clear_api_key) {
-    props.doclingDraft.vlm.api_key = "";
-  }
-}
 </script>
 
 <template>
@@ -77,15 +70,6 @@ function updateApiKeyClear(value: Record<string, boolean>) {
               type="password"
               autocomplete="new-password"
               placeholder="sk-..."
-            />
-            <AppToggleGroup
-              v-if="doclingDraft.vlm.has_api_key"
-              :model-value="{ clear_api_key: doclingDraft.vlm.clear_api_key }"
-              columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
-              :items="[
-                { key: 'clear_api_key', inputId: 'docling-clear-api-key', label: t('settings.docling.clearStoredApiKey'), testId: 'docling-clear-api-key' },
-              ]"
-              @update:model-value="updateApiKeyClear"
             />
             <AppTextField
               float-label

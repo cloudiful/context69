@@ -17,6 +17,7 @@ const appReady = computed(() => authSessionState.ready);
 const route = useRoute();
 const isLoginRoute = computed(() => route.name === "login");
 const showGlobalBreadcrumbs = computed(() => !isLoginRoute.value && route.name !== "search");
+const fillsRouteContent = computed(() => route.meta.contentLayout === "fill");
 
 onMounted(() => {
   preferences.hydrate();
@@ -43,7 +44,9 @@ onMounted(() => {
         :class="showGlobalBreadcrumbs ? 'grid-rows-[auto_minmax(0,1fr)]' : 'grid-rows-[minmax(0,1fr)]'"
       >
         <AppRouteBreadcrumbs v-if="showGlobalBreadcrumbs" />
-        <RouterView />
+        <div :class="fillsRouteContent ? 'h-full min-h-0' : 'min-w-0 self-start'">
+          <RouterView />
+        </div>
       </div>
     </main>
     <AppMobileNav />

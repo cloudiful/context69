@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::PathBuf,
     sync::Arc,
 };
@@ -19,8 +18,8 @@ use crate::{
     contracts::{
         CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryFileSummary,
         LibraryFolderNode, LibraryFolderResponse, LibraryIngestJobResponse, LibraryIngestStatus,
-        LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
-        UpsertLibraryTextRequest,
+        LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryTreeResponse,
+        LibraryUploadResponse, MoveFileRequest, MoveFolderRequest, UpsertLibraryTextRequest,
     },
     db::Database,
     docling::DoclingXlsxClient,
@@ -33,10 +32,13 @@ use crate::{
 };
 
 mod filenames;
+mod content_objects;
 mod files;
 mod folders;
 mod ingest;
 mod metadata;
+mod object_storage;
+mod resources;
 mod storage;
 mod tree;
 mod xlsx;
@@ -51,6 +53,7 @@ pub struct LibraryService {
     chunking: ChunkingConfig,
     settings: SettingsService,
     storage_root: PathBuf,
+    storage: Arc<object_storage::LibraryObjectStorage>,
     max_upload_size_bytes: usize,
     max_upload_request_size_bytes: usize,
     pdf_pages_per_task: u32,
@@ -117,12 +120,9 @@ impl LibraryService {
         settings: SettingsService,
         file_library_config: FileLibraryConfig,
     ) -> Result<Self> {
-        fs::create_dir_all(&file_library_config.storage_root).with_context(|| {
-            format!(
-                "failed to create storage root {}",
-                file_library_config.storage_root.display()
-            )
-        })?;
+        let storage = Arc::new(object_storage::LibraryObjectStorage::from_config(
+            &file_library_config,
+        )?);
 
         Ok(Self {
             db: db.clone(),
@@ -133,6 +133,7 @@ impl LibraryService {
             chunking,
             settings,
             storage_root: file_library_config.storage_root,
+            storage,
             max_upload_size_bytes: file_library_config.max_upload_size_mb * 1024 * 1024,
             max_upload_request_size_bytes: file_library_config.max_upload_request_size_mb
                 * 1024

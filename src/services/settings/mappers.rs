@@ -54,6 +54,15 @@ pub(super) fn runtime_settings_from_request(
             max_upload_request_size_mb: request.file_library.max_upload_request_size_mb,
             ingest_concurrency: request.file_library.ingest_concurrency,
             pdf_pages_per_task: request.file_library.pdf_pages_per_task,
+            s3: request.file_library.s3.as_ref().map(|s3| crate::db::StoredRuntimeS3Settings {
+                endpoint: s3.endpoint.trim().to_string(),
+                region: s3.region.trim().to_string(),
+                bucket: s3.bucket.trim().to_string(),
+                prefix: s3.prefix.trim_matches('/').to_string(),
+                path_style: s3.path_style,
+                access_key: s3.access_key.trim().to_string(),
+                secret_key: s3.secret_key.clone().unwrap_or_default(),
+            }),
         },
     }
 }
@@ -138,6 +147,15 @@ pub(super) fn runtime_settings_response(
             max_upload_request_size_mb: settings.file_library.max_upload_request_size_mb,
             ingest_concurrency: settings.file_library.ingest_concurrency,
             pdf_pages_per_task: settings.file_library.pdf_pages_per_task,
+            s3: settings.file_library.s3.map(|s3| crate::contracts::RuntimeS3SettingsResponse {
+                endpoint: s3.endpoint,
+                region: s3.region,
+                bucket: s3.bucket,
+                prefix: s3.prefix,
+                path_style: s3.path_style,
+                access_key: s3.access_key,
+                has_secret_key: !s3.secret_key.is_empty(),
+            }),
         },
     }
 }
@@ -178,6 +196,15 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             max_upload_request_size_mb: defaults.file_library.max_upload_request_size_mb,
             ingest_concurrency: defaults.file_library.ingest_concurrency,
             pdf_pages_per_task: defaults.file_library.pdf_pages_per_task,
+            s3: defaults.file_library.s3.map(|s3| crate::contracts::RuntimeS3SettingsResponse {
+                endpoint: s3.endpoint,
+                region: s3.region,
+                bucket: s3.bucket,
+                prefix: s3.prefix,
+                path_style: s3.path_style,
+                access_key: s3.access_key,
+                has_secret_key: !s3.secret_key.is_empty(),
+            }),
         },
     }
 }

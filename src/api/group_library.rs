@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -8,7 +8,8 @@ use uuid::Uuid;
 
 use crate::contracts::{
     CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryIngestJobResponse,
-    LibraryTreeResponse, LibraryUploadResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
+    LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryTreeResponse,
+    LibraryUploadResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
     UpsertLibraryTextRequest,
 };
 
@@ -48,6 +49,40 @@ pub(crate) async fn get_group_library_tree(
     }
     match state.app.library.list_tree_in_project(&group).await {
         Ok(tree) => (StatusCode::OK, Json(tree)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/groups/by-path/{group_path}/library/resources",
+    params(
+        ("group_path" = String, Path, description = "URL-encoded group path"),
+        LibraryResourcePageQuery
+    ),
+    responses(
+        (status = 200, description = "Paginated resources in a group library folder", body = LibraryResourcePageResponse),
+        (status = 400, description = "Invalid pagination parameters"),
+        (status = 404, description = "Group or folder not found")
+    )
+)]
+pub(crate) async fn get_group_library_resources(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(group_path): Path<String>,
+    Query(query): Query<LibraryResourcePageQuery>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    match state
+        .app
+        .library
+        .list_resources_page_in_project(&group, &query)
+        .await
+    {
+        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }
@@ -293,6 +328,43 @@ pub(crate) async fn get_group_library_file(
     };
     match state.app.library.get_file_in_project(&group, file_id).await {
         Ok(file) => (StatusCode::OK, Json(file)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/groups/by-path/{group_path}/library/files/{file_id}/retry",
+    params(
+        ("group_path" = String, Path, description = "URL-encoded group path"),
+        ("file_id" = Uuid, Path, description = "Failed file id")
+    ),
+    responses(
+        (status = 202, description = "Retry accepted", body = LibraryIngestJobResponse),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Group, file, or stored file not found"),
+        (status = 409, description = "File is not failed")
+    )
+)]
+pub(crate) async fn retry_group_library_file(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path((group_path, file_id)): Path<(String, Uuid)>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+        return group_access_error_response(error);
+    }
+    match state
+        .app
+        .library
+        .retry_file_in_project(&group, file_id)
+        .await
+    {
+        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }

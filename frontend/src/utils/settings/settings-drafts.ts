@@ -19,8 +19,6 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
     embedding: {
       base_url: "",
       api_key: "",
-      clear_api_key: false,
-      has_api_key: false,
       model: "",
       dimensions: 768,
       timeout_secs: 30,
@@ -56,8 +54,6 @@ export function createDoclingDraft(): DraftDoclingSettings {
     vlm: {
       openai_base_url: "",
       api_key: "",
-      clear_api_key: false,
-      has_api_key: false,
       vlm_pipeline_model: "",
       picture_description_model: "",
       code_formula_model: "",
@@ -88,8 +84,6 @@ export function runtimeResponseToDraft(
     embedding: {
       base_url: response.embedding.base_url,
       api_key: "",
-      clear_api_key: false,
-      has_api_key: response.embedding.has_api_key,
       model: response.embedding.model,
       dimensions: response.embedding.dimensions,
       timeout_secs: response.embedding.timeout_secs,
@@ -127,8 +121,6 @@ export function doclingResponseToDraft(
     vlm: {
       openai_base_url: response.vlm.openai_base_url ?? "",
       api_key: "",
-      clear_api_key: false,
-      has_api_key: response.vlm.has_api_key,
       vlm_pipeline_model: response.vlm.vlm_pipeline_model ?? "",
       picture_description_model: response.vlm.picture_description_model ?? "",
       code_formula_model: response.vlm.code_formula_model ?? "",

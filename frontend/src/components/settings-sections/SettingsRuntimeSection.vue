@@ -10,7 +10,7 @@ import type { DraftRuntimeSettings } from "../../utils/settings";
 type QdrantToggleModel = { recreate_on_dimension_mismatch: boolean };
 type SchedulerToggleModel = { run_on_start: boolean };
 
-const props = defineProps<{
+defineProps<{
   qdrantToggleModel: QdrantToggleModel;
   runtimeDraft: DraftRuntimeSettings;
   schedulerToggleModel: SchedulerToggleModel;
@@ -35,12 +35,6 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
   });
 }
 
-function updateEmbeddingApiKeyClear(value: Record<string, boolean>) {
-  props.runtimeDraft.embedding.clear_api_key = !!value.clear_api_key;
-  if (props.runtimeDraft.embedding.clear_api_key) {
-    props.runtimeDraft.embedding.api_key = "";
-  }
-}
 </script>
 
 <template>
@@ -92,15 +86,6 @@ function updateEmbeddingApiKeyClear(value: Record<string, boolean>) {
               :step="1"
             />
           </div>
-          <AppToggleGroup
-            v-if="runtimeDraft.embedding.has_api_key"
-            :model-value="{ clear_api_key: runtimeDraft.embedding.clear_api_key }"
-            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
-            :items="[
-              { key: 'clear_api_key', inputId: 'runtime-embedding-clear-api-key', label: t('settings.runtime.clearStoredEmbeddingApiKey'), testId: 'runtime-embedding-clear-api-key' },
-            ]"
-            @update:model-value="updateEmbeddingApiKeyClear"
-          />
         </div>
       </section>
 

@@ -52,7 +52,6 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchForm: typeof import('./src/components/SearchForm.vue')['default']
-    SearchHistoryPanel: typeof import('./src/components/SearchHistoryPanel.vue')['default']
     SearchResultList: typeof import('./src/components/SearchResultList.vue')['default']
     SearchSelectionPreview: typeof import('./src/components/SearchSelectionPreview.vue')['default']
     SettingsAccessTokensSection: typeof import('./src/components/settings-sections/SettingsAccessTokensSection.vue')['default']

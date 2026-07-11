@@ -123,6 +123,18 @@ pub struct StoredRuntimeFileLibrarySettings {
     pub max_upload_request_size_mb: usize,
     pub ingest_concurrency: usize,
     pub pdf_pages_per_task: u32,
+    pub s3: Option<StoredRuntimeS3Settings>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredRuntimeS3Settings {
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub prefix: String,
+    pub path_style: bool,
+    pub access_key: String,
+    pub secret_key: String,
 }
 
 #[derive(Debug, Clone)]

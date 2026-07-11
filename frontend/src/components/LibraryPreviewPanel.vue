@@ -19,10 +19,12 @@ const props = defineProps<{
   detailLoading: boolean;
   selectedFileId: string | null;
   selectedFolderSummary: FolderSummary | null;
+  retrying?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:activeSectionKey": [value: string];
+  retry: [fileId: string];
 }>();
 
 const { t } = useI18n();
@@ -121,13 +123,21 @@ const activeSection = computed(() => {
         >
           {{ t("library.processingMessage") }}
         </AppStateMessage>
-        <AppStateMessage
-          v-else-if="detail.ingest_status === 'failed'"
-          severity="error"
-          :title="t('library.processingFailedTitle')"
-        >
-          {{ detail.error_message || t("library.failedMessage") }}
-        </AppStateMessage>
+        <div v-else-if="detail.ingest_status === 'failed'" class="grid justify-items-start gap-3">
+          <AppStateMessage
+            severity="error"
+            :title="t('library.processingFailedTitle')"
+          >
+            {{ detail.error_message || t("library.failedMessage") }}
+          </AppStateMessage>
+          <Button
+            icon="pi pi-refresh"
+            :label="retrying ? t('library.retrying') : t('common.retry')"
+            :loading="retrying"
+            :disabled="retrying"
+            @click="emit('retry', detail.file_id)"
+          />
+        </div>
 
         <section
           v-if="detail.sections.length > 0"

@@ -81,6 +81,18 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
             "runtime.file_library.pdf_pages_per_task must be greater than 0"
         ));
     }
+    if let Some(s3) = &request.file_library.s3 {
+        for (name, value) in [
+            ("endpoint", s3.endpoint.as_str()),
+            ("region", s3.region.as_str()),
+            ("bucket", s3.bucket.as_str()),
+            ("access_key", s3.access_key.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(anyhow!("runtime.file_library.s3.{name} must not be empty"));
+            }
+        }
+    }
     Ok(())
 }
 

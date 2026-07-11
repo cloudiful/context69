@@ -14,29 +14,11 @@ impl LibraryStore {
         file_id: Uuid,
         folder_path: String,
     ) -> Result<Option<LibraryFileDetailResponse>> {
-        let file = sqlx::query_as::<_, FileDetailRow>(
-            r#"
-            SELECT
-                group_key,
-                g.full_path AS group_path,
-                id AS file_id,
-                visibility,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
-            FROM context69.library_files lf
-            INNER JOIN context69.groups g ON g.id = lf.group_id
-            WHERE id = $1
-            "#,
+        let file = sqlx::query_file_as!(
+            FileDetailRow,
+            "src/sql/library_store/files/get_file_detail.sql",
+            file_id
         )
-        .bind(file_id)
         .fetch_optional(self.db.pool())
         .await?;
 
@@ -79,31 +61,12 @@ impl LibraryStore {
         file_id: Uuid,
         folder_path: String,
     ) -> Result<Option<LibraryFileDetailResponse>> {
-        let file = sqlx::query_as::<_, FileDetailRow>(
-            r#"
-            SELECT
-                group_key,
-                g.full_path AS group_path,
-                id AS file_id,
-                visibility,
-                folder_id,
-                filename,
-                media_type,
-                size_bytes,
-                sha256,
-                ingest_status,
-                error_message,
-                created_at,
-                updated_at,
-                ingested_at
-            FROM context69.library_files lf
-            INNER JOIN context69.groups g ON g.id = lf.group_id
-            WHERE group_id = $1
-              AND id = $2
-            "#,
+        let file = sqlx::query_file_as!(
+            FileDetailRow,
+            "src/sql/library_store/files/get_file_detail_in_project.sql",
+            project_id,
+            file_id
         )
-        .bind(project_id)
-        .bind(file_id)
         .fetch_optional(self.db.pool())
         .await?;
 

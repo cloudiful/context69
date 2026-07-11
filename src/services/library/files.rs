@@ -547,6 +547,97 @@ impl LibraryService {
             .with_context(|| format!("unknown file {file_id}"))
     }
 
+    pub async fn retry_file_in_project(
+        &self,
+        project: &crate::domain::GroupRecord,
+        file_id: Uuid,
+    ) -> Result<LibraryIngestJobResponse> {
+        let file = self
+            .store
+            .get_file_in_project(project.id, file_id)
+            .await?
+            .with_context(|| format!("unknown file {file_id}"))?;
+        if file.ingest_status != LibraryIngestStatus::Failed {
+            return Err(anyhow!(
+                "file {file_id} is not failed and cannot be retried"
+            ));
+        }
+
+        let kind = storage::detect_file_kind(&file.filename, &file.media_type)?;
+        self.runtime()?;
+        match kind {
+            LibraryFileKind::Pdf | LibraryFileKind::Docx => {
+                self.load_docling_pdf_converter().await?;
+            }
+            LibraryFileKind::Xlsx => {
+                self.load_docling_xlsx_client().await?;
+            }
+            LibraryFileKind::PlainText => {}
+        }
+        let storage_path = self.storage_root.join(&file.storage_rel_path);
+        let metadata = match fs::metadata(&storage_path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(anyhow!("stored file not found for file {file_id}"));
+            }
+            Err(error) => {
+                return Err(anyhow!(error).context(format!(
+                    "failed to read stored file {}",
+                    storage_path.display()
+                )));
+            }
+        };
+        if !metadata.is_file() {
+            return Err(anyhow!(
+                "stored file is not a regular file: {}",
+                storage_path.display()
+            ));
+        }
+
+        let job_id = Uuid::new_v4();
+        let job = self
+            .store
+            .claim_failed_file_retry_in_project(project.id, file_id, job_id)
+            .await?
+            .ok_or_else(|| anyhow!("file {file_id} is not failed and cannot be retried"))?;
+
+        let service = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = service.run_retry_ingest(file_id, job_id, kind).await {
+                warn!(file_id = %file_id, job_id = %job_id, error = %error, "library ingest retry failed");
+            }
+        });
+
+        Ok(job_to_response(job))
+    }
+
+    async fn run_retry_ingest(
+        &self,
+        file_id: Uuid,
+        job_id: Uuid,
+        kind: LibraryFileKind,
+    ) -> Result<()> {
+        if let Err(error) = self.cleanup_ingest_artifacts(file_id).await {
+            let message = error.to_string();
+            self.store
+                .update_job_status(
+                    job_id,
+                    LibraryIngestStatus::Failed,
+                    None,
+                    Some(&message),
+                    false,
+                    true,
+                )
+                .await?;
+            self.store
+                .update_file_status(file_id, LibraryIngestStatus::Failed, Some(&message), false)
+                .await?;
+            return Err(error);
+        }
+
+        self.run_ingest(file_id, job_id, kind).await
+    }
+
     pub async fn move_file(
         &self,
         file_id: Uuid,

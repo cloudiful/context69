@@ -42,6 +42,3 @@ export const searchResultOpenButtonClass = `${compactTableActionButtonClass} shr
 
 export const subtleTextButtonClass =
   "inline-flex min-h-[2.35rem] items-center justify-center px-2 text-sm text-app-text-muted transition hover:bg-app-surface-soft/35 hover:text-app-text disabled:text-app-text-dim disabled:opacity-100";
-
-export const searchHistoryClearButtonClass =
-  "inline-flex min-h-8 items-center justify-center px-1 text-sm text-app-text-muted transition hover:text-app-text disabled:text-app-text-dim disabled:opacity-100";

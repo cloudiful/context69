@@ -1,4 +1,4 @@
-import { onBeforeUnmount, ref } from "vue";
+import { onBeforeUnmount, ref, toValue, watch, type MaybeRefOrGetter } from "vue";
 
 import { apiClient, type LibraryFileDetailResponse } from "../../services/api";
 import { useErrorToast } from "../use-error-toast";
@@ -6,7 +6,7 @@ import { useErrorToast } from "../use-error-toast";
 const POLL_INTERVAL_MS = 2000;
 
 interface UseProjectLibraryDetailOptions {
-  groupPath: string;
+  groupPath: MaybeRefOrGetter<string>;
   loadTree: () => Promise<void>;
   selectedFileId: { value: string | null };
   t: (key: string) => string;
@@ -32,7 +32,7 @@ export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t
     detailController = new AbortController();
     detailLoading.value = true;
     try {
-      const nextDetail = await apiClient.getGroupLibraryFile(groupPath, fileId, { signal: detailController.signal });
+      const nextDetail = await apiClient.getGroupLibraryFile(toValue(groupPath), fileId, { signal: detailController.signal });
       detail.value = nextDetail;
       activeSectionKey.value = nextDetail.sections[0]?.section_key ?? "";
       const runningJobs = nextDetail.jobs
@@ -62,7 +62,7 @@ export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t
     try {
       const jobs = await Promise.all(jobIds.map(async (jobId) => {
         try {
-          return await apiClient.getGroupLibraryJob(groupPath, jobId);
+          return await apiClient.getGroupLibraryJob(toValue(groupPath), jobId);
         } catch {
           return null;
         }
@@ -89,8 +89,16 @@ export function useProjectLibraryDetail({ groupPath, loadTree, selectedFileId, t
   function dispose() {
     detailController?.abort();
     if (pollingTimer !== null) window.clearTimeout(pollingTimer);
+    pollingTimer = null;
     activeJobs.clear();
   }
+
+  watch(() => toValue(groupPath), () => {
+    dispose();
+    detail.value = null;
+    detailLoading.value = false;
+    activeSectionKey.value = "";
+  });
 
   onBeforeUnmount(dispose);
 

@@ -61,6 +61,21 @@ pub struct FileLibraryConfig {
     pub max_upload_request_size_mb: usize,
     pub ingest_concurrency: usize,
     pub pdf_pages_per_task: u32,
+    #[serde(default)]
+    pub s3: Option<S3StorageConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct S3StorageConfig {
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    #[serde(default)]
+    pub prefix: String,
+    #[serde(default)]
+    pub path_style: bool,
+    pub access_key: String,
+    pub secret_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,6 +12,25 @@ struct StoragePathRow {
 }
 
 impl LibraryStore {
+    pub async fn list_chunk_ids_for_library_file(&self, file_id: Uuid) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/documents/list_chunk_ids_for_library_file.sql",
+            file_id.to_string()
+        )
+        .fetch_all(self.db.pool())
+        .await?)
+    }
+
+    pub async fn delete_documents_for_library_file(&self, file_id: Uuid) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/documents/delete_documents_for_library_file.sql",
+            file_id.to_string()
+        )
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
     pub async fn replace_file_documents(
         &self,
         file_id: Uuid,

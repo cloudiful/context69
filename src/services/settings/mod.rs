@@ -49,14 +49,21 @@ impl SettingsService {
         settings_validate::runtime_settings_request(request)?;
 
         let existing = self.db.get_runtime_settings().await?;
-        let api_key = if request.embedding.clear_api_key {
-            None
-        } else if let Some(api_key) = normalize_optional_string(request.embedding.api_key.clone()) {
-            Some(api_key)
-        } else {
-            existing.and_then(|settings| settings.embedding.api_key)
-        };
-        let stored = runtime_settings_from_request(request, api_key);
+        let api_key =
+            if let Some(api_key) = normalize_optional_string(request.embedding.api_key.clone()) {
+                Some(api_key)
+            } else {
+                existing.as_ref().and_then(|settings| settings.embedding.api_key.clone())
+            };
+        let mut stored = runtime_settings_from_request(request, api_key);
+        if let Some(s3) = stored.file_library.s3.as_mut()
+            && s3.secret_key.is_empty()
+        {
+            s3.secret_key = existing
+                .and_then(|settings| settings.file_library.s3)
+                .map(|s3| s3.secret_key)
+                .unwrap_or_default();
+        }
 
         let saved = self.db.save_runtime_settings(&stored).await?;
         Ok(runtime_settings_response(saved))
@@ -82,17 +89,16 @@ impl SettingsService {
 
         let existing = self.db.get_docling_settings().await?;
         let openai_base_url = normalize_optional_string(request.vlm.openai_base_url.clone());
-        let merged_api_key = if request.vlm.clear_api_key {
-            None
-        } else if let Some(api_key) = normalize_optional_string(request.vlm.api_key.clone()) {
-            Some(api_key)
-        } else if openai_base_url.is_some() {
-            existing
-                .as_ref()
-                .and_then(|settings| settings.api_key.clone())
-        } else {
-            None
-        };
+        let merged_api_key =
+            if let Some(api_key) = normalize_optional_string(request.vlm.api_key.clone()) {
+                Some(api_key)
+            } else if openai_base_url.is_some() {
+                existing
+                    .as_ref()
+                    .and_then(|settings| settings.api_key.clone())
+            } else {
+                None
+            };
 
         let candidate = docling_settings_from_request(request, merged_api_key);
         validate_docling_vlm_shape(&candidate)?;
@@ -286,7 +292,6 @@ mod tests {
                 dimensions: 3072,
                 timeout_secs: 30,
                 api_key: None,
-                clear_api_key: false,
             },
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,

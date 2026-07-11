@@ -2,14 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { installMockStorage } from "../test-utils/storage";
 import {
-  SEARCH_HISTORY_STORAGE_KEY,
   addSearchHistoryEntry,
-  clearSearchHistory,
   readSearchHistory,
 } from "./search-history";
 
 describe("search history utils", () => {
-  it("stores normalized entries, dedupes, and clears", () => {
+  it("stores normalized entries and dedupes", () => {
     const storage = installMockStorage();
 
     addSearchHistoryEntry({
@@ -48,9 +46,5 @@ describe("search history utils", () => {
         sourceKey: "gov_documents",
       }),
     );
-
-    clearSearchHistory(storage);
-    expect(storage.getItem(SEARCH_HISTORY_STORAGE_KEY)).toBeNull();
-    expect(readSearchHistory(storage)).toEqual([]);
   });
 });

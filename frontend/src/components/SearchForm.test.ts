@@ -17,6 +17,7 @@ describe("SearchForm", () => {
           publishedBefore: "",
           limit: 8,
         },
+        historyEntries: [],
         sources: [
           {
             source_key: "gov_documents",
@@ -77,6 +78,7 @@ describe("SearchForm", () => {
           publishedBefore: "",
           limit: 8,
         },
+        historyEntries: [],
         sources: [],
         busy: false,
       },

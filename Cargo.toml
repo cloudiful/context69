@@ -39,6 +39,7 @@ docling-convert = { package = "cloudiful-docling-convert", version = "0.2.4" }
 futures = "0.3.32"
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
 qdrant-client = "1.18.0"
+opendal = { version = "0.54.0", default-features = false, features = ["services-fs", "services-s3"] }
 reqwest = { version = "0.13.4", default-features = false }
 redis = "1.3.0"
 rmcp = "2.1.0"
@@ -90,6 +91,7 @@ docling-convert.workspace = true
 futures.workspace = true
 jsonwebtoken.workspace = true
 qdrant-client.workspace = true
+opendal.workspace = true
 reqwest = { workspace = true, features = [ "charset", "gzip", "http2", "json", "multipart", "rustls", "system-proxy" ] }
 rmcp = { workspace = true, features = [ "server", "macros", "schemars", "transport-io", "transport-streamable-http-server" ] }
 scheduler = { workspace = true, features = ["valkey-guard", "valkey-store"] }

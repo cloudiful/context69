@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)::BIGINT AS \"count!\"\nFROM (\n    SELECT name, NULL::TEXT AS media_type, NULL::TEXT AS ingest_status\n    FROM context69.library_folders\n    WHERE group_id = $1\n      AND parent_id IS NOT DISTINCT FROM $2::UUID\n\n    UNION ALL\n\n    SELECT filename AS name, media_type, ingest_status\n    FROM context69.library_files\n    WHERE group_id = $1\n      AND folder_id IS NOT DISTINCT FROM $2::UUID\n) resources\nWHERE NULLIF(BTRIM($3::TEXT), '') IS NULL\n   OR resources.name ILIKE '%' || BTRIM($3::TEXT) || '%'\n   OR COALESCE(resources.media_type, '') ILIKE '%' || BTRIM($3::TEXT) || '%'\n   OR COALESCE(resources.ingest_status, '') ILIKE '%' || BTRIM($3::TEXT) || '%'\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9079b93933dcaf8bfd2f44b15447f633d8bf3997b6c2c1edf1c80368d5d53013"
+}

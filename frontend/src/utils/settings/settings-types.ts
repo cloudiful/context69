@@ -12,8 +12,6 @@ export type DraftRuntimeSettings = {
   embedding: {
     base_url: string;
     api_key: string;
-    clear_api_key: boolean;
-    has_api_key: boolean;
     model: string;
     dimensions: number;
     timeout_secs: number;
@@ -47,8 +45,6 @@ export type DraftDoclingSettings = {
   vlm: {
     openai_base_url: string;
     api_key: string;
-    clear_api_key: boolean;
-    has_api_key: boolean;
     vlm_pipeline_model: string;
     picture_description_model: string;
     code_formula_model: string;

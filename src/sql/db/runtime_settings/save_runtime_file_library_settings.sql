@@ -5,13 +5,27 @@ INSERT INTO context69.runtime_file_library_settings (
     max_upload_request_size_mb,
     ingest_concurrency,
     pdf_pages_per_task,
+    s3_endpoint,
+    s3_region,
+    s3_bucket,
+    s3_prefix,
+    s3_path_style,
+    s3_access_key,
+    s3_secret_key,
     updated_at
 )
-VALUES (TRUE, $1, $2, $3, $4, $5, now())
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
 ON CONFLICT (singleton) DO UPDATE
 SET storage_root = EXCLUDED.storage_root,
     max_upload_size_mb = EXCLUDED.max_upload_size_mb,
     max_upload_request_size_mb = EXCLUDED.max_upload_request_size_mb,
     ingest_concurrency = EXCLUDED.ingest_concurrency,
     pdf_pages_per_task = EXCLUDED.pdf_pages_per_task,
+    s3_endpoint = EXCLUDED.s3_endpoint,
+    s3_region = EXCLUDED.s3_region,
+    s3_bucket = EXCLUDED.s3_bucket,
+    s3_prefix = EXCLUDED.s3_prefix,
+    s3_path_style = EXCLUDED.s3_path_style,
+    s3_access_key = EXCLUDED.s3_access_key,
+    s3_secret_key = EXCLUDED.s3_secret_key,
     updated_at = now()

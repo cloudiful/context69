@@ -93,6 +93,9 @@ impl LibraryService {
             }
             Err(error) => {
                 let message = error.to_string();
+                if let Err(cleanup_error) = self.cleanup_ingest_artifacts(file_id).await {
+                    warn!(file_id = %file_id, error = %cleanup_error, "failed to clean ingest artifacts after failure");
+                }
                 self.store
                     .update_job_status(
                         job_id,
@@ -297,15 +300,7 @@ impl LibraryService {
         sections: Vec<IngestSection>,
     ) -> Result<()> {
         let runtime = self.runtime()?.clone();
-        let existing_file_ids = [file.id];
-        let existing_chunk_ids = self
-            .store
-            .list_chunk_ids_for_files(&existing_file_ids)
-            .await?;
-        runtime.index.delete_points(&existing_chunk_ids).await?;
-        self.store
-            .delete_documents_for_files(&existing_file_ids)
-            .await?;
+        self.cleanup_ingest_artifacts(file.id).await?;
 
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
         let mut mappings = Vec::new();

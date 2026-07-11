@@ -308,6 +308,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_group_library_file"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/folders": {
         parameters: {
             query?: never;
@@ -364,6 +380,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_group_library_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_library_resources"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1088,6 +1120,49 @@ export interface components {
         LibraryIngestStatus: "pending" | "running" | "succeeded" | "failed";
         /** @enum {string} */
         LibraryPreviewContentFormat: "plain_text" | "markdown";
+        LibraryResourceItem: {
+            /** Format: int64 */
+            child_folder_count: number;
+            /** Format: date-time */
+            created_at: string;
+            error_message?: string | null;
+            /** Format: int64 */
+            file_count: number;
+            group_key: string;
+            group_path: string;
+            /** Format: uuid */
+            id: string;
+            ingest_status?: null | components["schemas"]["LibraryIngestStatus"];
+            is_source_folder: boolean;
+            is_source_records_folder: boolean;
+            kind: components["schemas"]["LibraryResourceKind"];
+            media_type?: string | null;
+            name: string;
+            /** Format: uuid */
+            parent_folder_id?: string | null;
+            /** Format: int64 */
+            processing_count: number;
+            /** Format: int64 */
+            size_bytes?: number | null;
+            /** Format: date-time */
+            updated_at: string;
+            visibility: components["schemas"]["Visibility"];
+        };
+        /** @enum {string} */
+        LibraryResourceKind: "folder" | "file";
+        LibraryResourcePageResponse: {
+            items: components["schemas"]["LibraryResourceItem"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
+        };
+        /** @enum {string} */
+        LibraryResourceSortBy: "name" | "type" | "status" | "size" | "updated_at";
         /** @enum {string} */
         LibraryTextContentFormat: "plain_text" | "markdown";
         LibraryTreeResponse: {
@@ -1232,6 +1307,8 @@ export interface components {
             /** Format: int64 */
             timeout_secs: number;
         };
+        /** @enum {string} */
+        SortDirection: "asc" | "desc";
         SourceConfigInput: {
             base_query: string;
             /** Format: int64 */
@@ -1308,7 +1385,6 @@ export interface components {
         };
         UpdateDoclingVlmSettings: {
             api_key?: string | null;
-            clear_api_key?: boolean;
             code_formula_model?: string | null;
             openai_base_url?: string | null;
             picture_description_model?: string | null;
@@ -1321,7 +1397,6 @@ export interface components {
         UpdateRuntimeEmbeddingSettings: {
             api_key?: string | null;
             base_url: string;
-            clear_api_key?: boolean;
             dimensions: number;
             model: string;
             /** Format: int64 */
@@ -2279,6 +2354,52 @@ export interface operations {
             };
         };
     };
+    retry_group_library_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Failed file id */
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Retry accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryIngestJobResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, file, or stored file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File is not failed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     create_group_library_folder: {
         parameters: {
             query?: never;
@@ -2424,6 +2545,50 @@ export interface operations {
                 };
             };
             /** @description Group or job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_group_library_resources: {
+        parameters: {
+            query?: {
+                folder_id?: string;
+                page?: number;
+                page_size?: number;
+                query?: string;
+                sort_by?: components["schemas"]["LibraryResourceSortBy"];
+                sort_direction?: components["schemas"]["SortDirection"];
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated resources in a group library folder */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryResourcePageResponse"];
+                };
+            };
+            /** @description Invalid pagination parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;

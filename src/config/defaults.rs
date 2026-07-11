@@ -84,6 +84,7 @@ impl Default for FileConfig {
                 max_upload_request_size_mb: default_max_upload_request_size_mb(),
                 ingest_concurrency: 2,
                 pdf_pages_per_task: 5,
+                s3: None,
             },
             scheduler: SchedulerConfig {
                 interval: Duration::from_secs(300),

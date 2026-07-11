@@ -104,7 +104,3 @@ export function addSearchHistoryEntry(
   writeSearchHistory(nextHistory, storage);
   return nextHistory;
 }
-
-export function clearSearchHistory(storage: Storage | null | undefined = getStorage()) {
-  storage?.removeItem(SEARCH_HISTORY_STORAGE_KEY);
-}

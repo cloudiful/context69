@@ -7,12 +7,11 @@ import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
 import SearchForm from "../components/SearchForm.vue";
-import SearchHistoryPanel from "../components/SearchHistoryPanel.vue";
 import SearchResultList from "../components/SearchResultList.vue";
 import SearchSelectionPreview from "../components/SearchSelectionPreview.vue";
 import { apiClient, type SearchHit, type SearchResponse, type SourceStatus } from "../services/api";
 import { resolveSearchErrorMessage } from "../utils/search-errors";
-import { addSearchHistoryEntry, clearSearchHistory, readSearchHistory, type SearchHistoryEntry } from "../utils/search-history";
+import { addSearchHistoryEntry, readSearchHistory, type SearchHistoryEntry } from "../utils/search-history";
 import { createDefaultFilters, filtersFromQuery, filtersToQuery, buildSearchPayload } from "../utils/search";
 import { buildSearchTarget } from "../utils/search-target";
 import { useErrorToast } from "../composables/use-error-toast";
@@ -31,15 +30,6 @@ const selectedHit = ref<SearchHit | null>(null);
 const historyEntries = ref<SearchHistoryEntry[]>([]);
 const showResultsPanel = computed(() => loading.value || searched.value);
 const visibleHistoryEntries = computed(() => historyEntries.value.slice(0, 8));
-const searchConsoleClass = computed(() => [
-  "grid",
-  "w-full",
-  "min-w-0",
-  "gap-2",
-  "px-0",
-  "py-1",
-  !showResultsPanel.value ? "xl:col-span-2" : "",
-]);
 
 let controller: AbortController | null = null;
 
@@ -111,11 +101,6 @@ async function rerunHistory(entry: SearchHistoryEntry) {
   await runSearch({ persistHistory: true });
 }
 
-function resetHistory() {
-  clearSearchHistory();
-  historyEntries.value = [];
-}
-
 function openHit(hit: SearchHit) {
   void router.push(buildSearchTarget(hit));
 }
@@ -136,20 +121,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="grid gap-2 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-    <section :class="searchConsoleClass">
+  <div class="grid content-start gap-2">
+    <section class="min-w-0 py-1">
       <SearchForm
         :filters="filters"
         :sources="sources"
         :busy="loading"
+        :history-entries="visibleHistoryEntries"
+        @history-select="rerunHistory"
         @submit="runSearch({ persistHistory: true })"
         @update:filters="updateFilters"
-      />
-
-      <SearchHistoryPanel
-        :entries="visibleHistoryEntries"
-        @clear="resetHistory"
-        @rerun="rerunHistory"
       />
     </section>
 

@@ -42,6 +42,7 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
         || message.contains("unknown file")
         || message.contains("unknown job")
         || message.contains("unknown target folder")
+        || message.contains("stored file not found for file")
     {
         StatusCode::NOT_FOUND
     } else if message.contains("must not be empty")
@@ -50,10 +51,15 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
         || message.contains("folder name")
         || message.contains("invalid folder_id")
         || message.contains("exceeds upload size limit")
+        || message.contains("page must be")
+        || message.contains("page_size must be")
+        || message.contains("page offset is too large")
         || message.contains("duplicate key value")
         || message.contains("docling")
     {
         StatusCode::BAD_REQUEST
+    } else if message.contains("is not failed and cannot be retried") {
+        StatusCode::CONFLICT
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     };
@@ -132,6 +138,17 @@ mod tests {
         assert_eq!(
             runtime_aware_status("embedding request failed: status=401 Unauthorized"),
             Some(StatusCode::BAD_GATEWAY)
+        );
+    }
+
+    #[test]
+    fn maps_non_failed_retry_to_conflict() {
+        assert_eq!(
+            super::library_management_error_response(anyhow::anyhow!(
+                "file id is not failed and cannot be retried"
+            ))
+            .status(),
+            StatusCode::CONFLICT
         );
     }
 }

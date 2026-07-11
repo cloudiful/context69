@@ -163,12 +163,13 @@ describe("SettingsView", () => {
 
     expect(wrapper.get("#runtime-scheduler-valkey-url").attributes("placeholder")).toBe("redis://valkey:6379/0");
     expect(wrapper.get("#runtime-embedding-base-url").element).toBeTruthy();
+    expect(wrapper.find("#runtime-embedding-clear-api-key").exists()).toBe(false);
     await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
 
     await router.push("/settings/docling");
     await flushPromises();
     expect(wrapper.find("#docling-base-url").exists()).toBe(true);
-    expect(wrapper.find("#docling-clear-api-key").exists()).toBe(true);
+    expect(wrapper.find("#docling-clear-api-key").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("Stored key");
     expect(wrapper.text()).not.toContain("No key stored");
     await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
@@ -183,7 +184,6 @@ describe("SettingsView", () => {
       embedding: expect.objectContaining({
         base_url: "https://openrouter.ai/api/v1",
         model: "text-embedding-3-small",
-        clear_api_key: false,
       }),
       scheduler: expect.objectContaining({
         valkey_url: "redis://valkey:6379/0",
@@ -195,7 +195,6 @@ describe("SettingsView", () => {
       }),
       vlm: expect.objectContaining({
         openai_base_url: "https://openrouter.ai/api/v1",
-        clear_api_key: false,
       }),
     }));
     expect(apiSpies.updateSearchSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -245,7 +244,6 @@ describe("SettingsView", () => {
       embedding: expect.objectContaining({
         base_url: "https://embedding.internal/v1",
         api_key: "embedding-secret",
-        clear_api_key: false,
       }),
     }));
   });

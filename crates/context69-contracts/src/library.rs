@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::Visibility;
@@ -152,6 +152,120 @@ pub struct LibraryTreeResponse {
     pub root: LibraryFolderNode,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryResourceKind {
+    Folder,
+    File,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryResourceSortBy {
+    Name,
+    Type,
+    Status,
+    Size,
+    UpdatedAt,
+}
+
+impl LibraryResourceSortBy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Type => "type",
+            Self::Status => "status",
+            Self::Size => "size",
+            Self::UpdatedAt => "updated_at",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+impl SortDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+}
+
+fn default_page() -> u32 {
+    1
+}
+
+fn default_page_size() -> u32 {
+    50
+}
+
+fn default_resource_sort_by() -> LibraryResourceSortBy {
+    LibraryResourceSortBy::UpdatedAt
+}
+
+fn default_sort_direction() -> SortDirection {
+    SortDirection::Desc
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct LibraryResourcePageQuery {
+    #[serde(default)]
+    pub folder_id: Option<Uuid>,
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default = "default_resource_sort_by")]
+    pub sort_by: LibraryResourceSortBy,
+    #[serde(default = "default_sort_direction")]
+    pub sort_direction: SortDirection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryResourceItem {
+    pub kind: LibraryResourceKind,
+    pub id: Uuid,
+    pub group_key: String,
+    pub group_path: String,
+    pub visibility: Visibility,
+    #[serde(default)]
+    pub parent_folder_id: Option<Uuid>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingest_status: Option<LibraryIngestStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    pub child_folder_count: u64,
+    pub file_count: u64,
+    pub processing_count: u64,
+    pub is_source_folder: bool,
+    pub is_source_records_folder: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryResourcePageResponse {
+    pub items: Vec<LibraryResourceItem>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryIngestJobResponse {
     pub job_id: Uuid,
@@ -226,6 +340,25 @@ pub struct LibraryFileDetailResponse {
 pub struct LibraryUploadResponse {
     pub files: Vec<LibraryFileSummary>,
     pub jobs: Vec<LibraryIngestJobResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PrepareLibraryUploadRequest {
+    #[serde(default)]
+    pub folder_id: Option<Uuid>,
+    pub filename: String,
+    pub media_type: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PrepareLibraryUploadResponse {
+    pub upload_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<LibraryFileSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<LibraryIngestJobResponse>,
 }
 
 fn default_preview_content_format() -> LibraryPreviewContentFormat {

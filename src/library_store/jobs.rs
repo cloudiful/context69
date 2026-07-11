@@ -6,6 +6,25 @@ use super::mappers::job_from_row;
 use super::{JobRow, LibraryIngestJobRecord, LibraryIngestStatus, LibraryStore};
 
 impl LibraryStore {
+    pub async fn claim_failed_file_retry_in_project(
+        &self,
+        project_id: i64,
+        file_id: Uuid,
+        job_id: Uuid,
+    ) -> Result<Option<LibraryIngestJobRecord>> {
+        let row = sqlx::query_file_as!(
+            JobRow,
+            "src/sql/library_store/jobs/claim_failed_file_retry_in_project.sql",
+            project_id,
+            file_id,
+            job_id
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        row.map(job_from_row).transpose()
+    }
+
     pub async fn create_job(&self, job_id: Uuid, file_id: Uuid) -> Result<LibraryIngestJobRecord> {
         let row = sqlx::query_as::<_, JobRow>(
             r#"

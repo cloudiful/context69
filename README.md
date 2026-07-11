@@ -182,6 +182,9 @@ nu scripts/dev.nu backend
 nu scripts/dev.nu full
 ```
 
+The full development stack binds Vite to `0.0.0.0:5173`, prints the available LAN URLs on
+startup, and proxies backend requests to `http://127.0.0.1:8096`.
+
 Database and SQLx workflow:
 
 ```bash
@@ -203,6 +206,8 @@ Runtime endpoints include:
 - `GET /healthz`
 - `GET /openapi.json`
 - `POST /v1/search`
+- `GET /v1/groups/by-path/{group_path}/library/resources` for database-backed folder pagination, search, and sorting
+- `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/retry` to reprocess a failed file from its saved original
 - `GET|POST /v1/auth/personal-access-tokens`
 - `DELETE /v1/auth/personal-access-tokens/{token_id}`
 - source and document management endpoints under `/v1/*`

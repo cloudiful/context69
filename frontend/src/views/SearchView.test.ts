@@ -1,12 +1,13 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import AutoComplete from "primevue/autocomplete";
 
 import { apiClient } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
 import { testPrimeVuePlugin } from "../test-utils/primevue";
 import { installMockStorage } from "../test-utils/storage";
-import { SEARCH_HISTORY_STORAGE_KEY } from "../utils/search-history";
+import { SEARCH_HISTORY_STORAGE_KEY, type SearchHistoryEntry } from "../utils/search-history";
 
 import SearchView from "./SearchView.vue";
 
@@ -125,7 +126,7 @@ describe("SearchView", () => {
     expect(wrapper.text()).not.toContain("Matrix Retrieval Console");
   });
 
-  it("stores recent searches, reruns them, and clears local history", async () => {
+  it("suggests recent searches from the query input and reruns the selected entry", async () => {
     const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
     const search = vi.spyOn(apiClient, "search").mockResolvedValue({
       query: "policy",
@@ -157,7 +158,7 @@ describe("SearchView", () => {
     await flushPromises();
 
     expect(search).toHaveBeenCalledTimes(1);
-    expect(wrapper.text()).toContain("Recent Searches");
+    expect(wrapper.text()).not.toContain("Recent Searches");
     expect(window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY)).toContain("policy");
 
     search.mockResolvedValueOnce({
@@ -165,18 +166,17 @@ describe("SearchView", () => {
       hits: [],
     });
 
-    const historyButton = wrapper.findAll("button").find((button) => button.text().includes("policy"));
-    expect(historyButton).toBeTruthy();
-    await historyButton!.trigger("click");
+    const autocomplete = wrapper.getComponent(AutoComplete);
+    autocomplete.vm.$emit("complete", { query: "pol" });
+    await flushPromises();
+    const suggestions = autocomplete.props("suggestions") as SearchHistoryEntry[];
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toEqual(expect.objectContaining({ query: "policy" }));
+
+    autocomplete.vm.$emit("update:modelValue", suggestions[0]);
     await flushPromises();
 
     expect(search).toHaveBeenCalledTimes(2);
-
-    const clearButton = wrapper.findAll("button").find((button) => button.text() === "Clear Recent");
-    expect(clearButton).toBeTruthy();
-    await clearButton!.trigger("click");
-
-    expect(window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY)).toBeNull();
     expect(wrapper.text()).not.toContain("Recent Searches");
   });
 

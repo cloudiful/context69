@@ -43,7 +43,7 @@ pub struct UpdateRuntimeSettingsRequest {
     pub embedding: UpdateRuntimeEmbeddingSettings,
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
-    pub file_library: RuntimeFileLibrarySettings,
+    pub file_library: UpdateRuntimeFileLibrarySettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -70,8 +70,6 @@ pub struct UpdateRuntimeEmbeddingSettings {
     pub timeout_secs: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-    #[serde(default)]
-    pub clear_api_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -97,6 +95,44 @@ pub struct RuntimeFileLibrarySettings {
     pub max_upload_request_size_mb: usize,
     pub ingest_concurrency: usize,
     pub pdf_pages_per_task: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s3: Option<RuntimeS3SettingsResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateRuntimeFileLibrarySettings {
+    pub storage_root: String,
+    pub max_upload_size_mb: usize,
+    pub max_upload_request_size_mb: usize,
+    pub ingest_concurrency: usize,
+    pub pdf_pages_per_task: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s3: Option<UpdateRuntimeS3Settings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RuntimeS3SettingsResponse {
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub prefix: String,
+    pub path_style: bool,
+    pub access_key: String,
+    pub has_secret_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateRuntimeS3Settings {
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    #[serde(default)]
+    pub prefix: String,
+    #[serde(default)]
+    pub path_style: bool,
+    pub access_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -156,8 +192,6 @@ pub struct UpdateDoclingVlmSettings {
     pub openai_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-    #[serde(default)]
-    pub clear_api_key: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vlm_pipeline_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

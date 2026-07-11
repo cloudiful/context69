@@ -32,7 +32,6 @@ export function normalizeRuntimePayload(
       dimensions: Number(value.embedding.dimensions),
       timeout_secs: Number(value.embedding.timeout_secs),
       api_key: cleanOptional("api_key" in value.embedding ? value.embedding.api_key : undefined),
-      clear_api_key: "clear_api_key" in value.embedding && !!value.embedding.clear_api_key,
     },
     scheduler: {
       interval_secs: Number(value.scheduler.interval_secs),
@@ -76,7 +75,6 @@ export function normalizeDoclingPayload(
     vlm: {
       openai_base_url: cleanOptional(vlm.openai_base_url),
       api_key: cleanOptional(vlm.api_key),
-      clear_api_key: !!vlm.clear_api_key,
       vlm_pipeline_model: cleanOptional(vlm.vlm_pipeline_model),
       picture_description_model: cleanOptional(vlm.picture_description_model),
       code_formula_model: cleanOptional(vlm.code_formula_model),

@@ -2,6 +2,17 @@ use super::*;
 use crate::domain::AccessScope;
 
 impl LibraryService {
+    pub(super) async fn cleanup_ingest_artifacts(&self, file_id: Uuid) -> Result<()> {
+        let chunk_ids = self.store.list_chunk_ids_for_library_file(file_id).await?;
+        if let Some(runtime) = &self.runtime {
+            runtime.index.delete_points(&chunk_ids).await?;
+        }
+        self.store
+            .delete_documents_for_library_file(file_id)
+            .await?;
+        Ok(())
+    }
+
     pub(super) async fn refresh_metadata_for_folder_subtree(&self, folder_id: Uuid) -> Result<()> {
         let file_ids = self.descendant_file_ids(folder_id).await?;
         for file_id in file_ids {

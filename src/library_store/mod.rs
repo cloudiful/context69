@@ -16,6 +16,8 @@ mod files;
 mod folders;
 mod jobs;
 mod mappers;
+pub(crate) mod objects;
+mod resources;
 
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format, job_to_response};
 
@@ -34,6 +36,7 @@ pub struct NewLibraryFile {
     pub size_bytes: i64,
     pub sha256: String,
     pub storage_rel_path: String,
+    pub storage_object_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +82,28 @@ struct FileRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     ingested_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ResourceRow {
+    resource_kind: String,
+    id: Uuid,
+    group_key: String,
+    group_path: String,
+    visibility: String,
+    parent_folder_id: Option<Uuid>,
+    name: String,
+    media_type: Option<String>,
+    size_bytes: Option<i64>,
+    ingest_status: Option<String>,
+    error_message: Option<String>,
+    child_folder_count: i64,
+    file_count: i64,
+    processing_count: i64,
+    is_source_folder: bool,
+    is_source_records_folder: bool,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, FromRow)]

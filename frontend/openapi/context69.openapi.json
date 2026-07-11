@@ -1044,6 +1044,54 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}/retry": {
+      "post": {
+        "tags": [],
+        "operationId": "retry_group_library_file",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "Failed file id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Retry accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryIngestJobResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group, file, or stored file not found"
+          },
+          "409": {
+            "description": "File is not failed"
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/library/folders": {
       "post": {
         "tags": [],
@@ -1220,6 +1268,94 @@
           },
           "404": {
             "description": "Group or job not found"
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/library/resources": {
+      "get": {
+        "tags": [],
+        "operationId": "get_group_library_resources",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folder_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LibraryResourceSortBy"
+            }
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated resources in a group library folder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryResourcePageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination parameters"
+          },
+          "404": {
+            "description": "Group or folder not found"
           }
         }
       }
@@ -3898,6 +4034,165 @@
           "markdown"
         ]
       },
+      "LibraryResourceItem": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "group_key",
+          "group_path",
+          "visibility",
+          "name",
+          "child_folder_count",
+          "file_count",
+          "processing_count",
+          "is_source_folder",
+          "is_source_records_folder",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "child_folder_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "group_key": {
+            "type": "string"
+          },
+          "group_path": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ingest_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryIngestStatus"
+              }
+            ]
+          },
+          "is_source_folder": {
+            "type": "boolean"
+          },
+          "is_source_records_folder": {
+            "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LibraryResourceKind"
+          },
+          "media_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "processing_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "size_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility"
+          }
+        }
+      },
+      "LibraryResourceKind": {
+        "type": "string",
+        "enum": [
+          "folder",
+          "file"
+        ]
+      },
+      "LibraryResourcePageResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryResourceItem"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_pages": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "LibraryResourceSortBy": {
+        "type": "string",
+        "enum": [
+          "name",
+          "type",
+          "status",
+          "size",
+          "updated_at"
+        ]
+      },
       "LibraryTextContentFormat": {
         "type": "string",
         "enum": [
@@ -4443,6 +4738,13 @@
           }
         }
       },
+      "SortDirection": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
       "SourceConfigInput": {
         "type": "object",
         "required": [
@@ -4748,9 +5050,6 @@
               "null"
             ]
           },
-          "clear_api_key": {
-            "type": "boolean"
-          },
           "code_formula_model": {
             "type": [
               "string",
@@ -4815,9 +5114,6 @@
           },
           "base_url": {
             "type": "string"
-          },
-          "clear_api_key": {
-            "type": "boolean"
           },
           "dimensions": {
             "type": "integer",

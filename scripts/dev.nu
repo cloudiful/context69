@@ -7,7 +7,7 @@ def print-startup-summary [mode: string] {
   print "  backend health      http://127.0.0.1:8096/healthz"
   print "  MCP HTTP            http://127.0.0.1:8097/mcp"
   if $mode == "full" {
-    print "  frontend            http://127.0.0.1:5173"
+    print "  frontend            http://0.0.0.0:5173 (Vite will print LAN URLs)"
   }
   print "Stop with Ctrl+C"
 }
@@ -54,6 +54,7 @@ def main [command?: string] {
       print "Config:"
       print "  Provide runtime config through the standard context69 config file or CONTEXT69_* env vars"
       print "  RUST_LOG defaults to info if not set"
+      print "  Frontend listens on 0.0.0.0:5173"
       print "  Frontend proxies /v1, /healthz, and /openapi.json to http://127.0.0.1:8096"
     }
     _ => {

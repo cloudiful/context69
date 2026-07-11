@@ -3,6 +3,7 @@ import { computed } from "vue";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
+import Paginator from "primevue/paginator";
 import Tag from "primevue/tag";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
@@ -19,21 +20,35 @@ const props = withDefaults(defineProps<{
   compact?: boolean;
   entries: ExplorerEntry[];
   error?: string | null;
+  first?: number;
   groupEntries?: GroupExplorerEntry[];
   hideActions?: boolean;
   hideGroupPaths?: boolean;
   expandedKeys: Record<string, boolean>;
   loading: boolean;
+  pageSize?: number;
+  paginated?: boolean;
   resourceSearchQuery: string;
+  retryingFileIds?: string[];
   selectedFolderReady: boolean;
   selection: ExplorerEntry | null;
+  sortField?: string;
+  sortOrder?: number;
   tableContextSelection: ExplorerEntry | null;
   uploadBusy: boolean;
+  totalRecords?: number;
 }>(), {
   groupEntries: () => [],
   hideActions: false,
   hideGroupPaths: false,
   compact: false,
+  first: 0,
+  pageSize: 50,
+  paginated: false,
+  sortField: "updated_at",
+  sortOrder: -1,
+  totalRecords: 0,
+  retryingFileIds: () => [],
 });
 
 const emit = defineEmits<{
@@ -43,10 +58,13 @@ const emit = defineEmits<{
   "edit-group": [GroupExplorerEntry];
   "group-contextmenu": [{ originalEvent: Event; data: GroupExplorerEntry }];
   "move-group": [GroupExplorerEntry];
+  page: [{ first: number; rows: number }];
   "open-group": [GroupExplorerEntry];
   "open-entry": [ExplorerEntry];
   refresh: [];
   retry: [];
+  "retry-entry": [ExplorerEntry];
+  sort: [{ sortField: "name" | "type" | "status" | "size" | "updated_at"; sortOrder: number }];
   "row-click": [{ data: ExplorerEntry }];
   "row-contextmenu": [{ originalEvent: Event; data: ExplorerEntry }];
   "row-dblclick": [{ data: ExplorerEntry }];
@@ -62,6 +80,9 @@ const emit = defineEmits<{
 
 const { statusLabel, statusSeverity } = createLibraryStatusHelpers();
 const displayEntries = computed<LibraryBrowserEntry[]>(() => [...props.groupEntries, ...props.entries]);
+const tableStateKey = computed(() => props.compact
+  ? "context69:table:group-library:v5"
+  : "context69:table:library:v3");
 
 function resourceTypeLabel(entry: LibraryBrowserEntry): string {
   if (entry.kind === "group") return "groups.groupType";
@@ -93,6 +114,10 @@ function statusTooltip(entry: LibraryBrowserEntry): string | undefined {
   }
 
   return entry.errorMessage || undefined;
+}
+
+function isRetrying(entry: LibraryBrowserEntry): boolean {
+  return entry.kind === "file" && props.retryingFileIds.includes(entry.id);
 }
 
 function entryIndentStyle(entry: LibraryBrowserEntry) {
@@ -190,6 +215,23 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
   emit("update:tableContextSelection", entry?.kind === "group" ? null : entry);
 }
 
+function handleSort(event: { sortField?: string | ((item: LibraryBrowserEntry) => string); sortOrder?: number | null }) {
+  if (typeof event.sortField !== "string" || !["name", "type", "status", "size", "updated_at"].includes(event.sortField)) {
+    return;
+  }
+  emit("sort", {
+    sortField: event.sortField as "name" | "type" | "status" | "size" | "updated_at",
+    sortOrder: event.sortOrder === 1 ? 1 : -1,
+  });
+}
+
+function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unknown }) {
+  const layoutState: Record<string, string> = {};
+  if (typeof state.columnWidths === "string") layoutState.columnWidths = state.columnWidths;
+  if (typeof state.tableWidth === "string") layoutState.tableWidth = state.tableWidth;
+  window.localStorage.setItem(tableStateKey.value, JSON.stringify(layoutState));
+}
+
 </script>
 
 <template>
@@ -217,6 +259,14 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
           :selection="props.selection"
           :contextMenuSelection="props.tableContextSelection"
           :value="displayEntries"
+          :first="props.first"
+          :lazy="props.paginated"
+          :paginator="props.paginated"
+          :rows="props.pageSize"
+          :rows-per-page-options="[25, 50, 100]"
+          :sort-field="props.sortField"
+          :sort-order="props.sortOrder"
+          :total-records="props.totalRecords"
           data-key="key"
           selection-mode="single"
           context-menu
@@ -226,13 +276,16 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
           scrollable
           scroll-height="flex"
           state-storage="local"
-          :state-key="props.compact ? 'context69:table:group-library:v3' : 'context69:table:library:v2'"
+          :state-key="tableStateKey"
           :table-style="props.compact ? 'width: 100%; table-layout: fixed' : 'min-width: 52rem'"
           @update:selection="handleSelectionUpdate"
           @update:contextMenuSelection="handleContextSelectionUpdate"
           @row-click="handleRowClick"
           @row-dblclick="handleRowDoubleClick"
           @row-contextmenu="handleRowContextMenu"
+          @page="emit('page', { first: $event.first, rows: $event.rows })"
+          @sort="handleSort"
+          @state-save="persistColumnLayout"
         >
           <template #empty>
             <div class="py-8 text-center text-sm text-app-text-dim">
@@ -240,7 +293,7 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
             </div>
           </template>
 
-          <Column :header="$t('library.filename')" field="name" :style="props.compact ? 'width: 36%' : 'min-width: 18rem'">
+          <Column :header="$t('library.filename')" field="name" sort-field="name" :sortable="props.paginated" :style="props.compact ? 'width: 36%' : 'min-width: 18rem'">
             <template #body="{ data }">
               <div class="library-resource-record" :style="entryIndentStyle(data)">
                 <div class="flex min-w-0 items-start gap-1.5">
@@ -281,19 +334,32 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
             </template>
           </Column>
 
-          <Column :header="$t('library.typeLabel')" :style="props.compact ? 'width: 11%' : undefined" class="w-24">
+          <Column :header="$t('library.typeLabel')" sort-field="type" :sortable="props.paginated" :style="props.compact ? 'width: 11%' : undefined" class="w-24">
             <template #body="{ data }">
               <span class="text-sm text-app-text-muted">{{ $t(resourceTypeLabel(data)) }}</span>
             </template>
           </Column>
 
-          <Column :header="$t('library.statusLabel')" :style="props.compact ? 'width: 16%' : undefined" class="w-32">
+          <Column :header="$t('library.statusLabel')" sort-field="status" :sortable="props.paginated" :style="props.compact ? 'width: 16%' : undefined" class="w-32">
             <template #body="{ data }">
               <Tag v-if="data.kind === 'group'" :value="data.visibility" severity="secondary" />
-              <span v-else-if="data.kind === 'file'" :class="statusTooltip(data) ? 'inline-flex cursor-help' : 'inline-flex'" :title="statusTooltip(data)">
+              <span v-else-if="data.kind === 'file'" class="inline-flex items-center gap-1.5">
+                <span :class="statusTooltip(data) ? 'inline-flex cursor-help' : 'inline-flex'" :title="statusTooltip(data)">
                 <Tag
                   :value="statusLabel(data.ingestStatus)"
                   :severity="statusSeverity(data.ingestStatus)"
+                />
+                </span>
+                <Button
+                  v-if="data.ingestStatus === 'failed'"
+                  unstyled
+                  :class="[libraryRowActionButtonClass, 'h-7 w-7 px-0']"
+                  icon="pi pi-refresh"
+                  :loading="isRetrying(data)"
+                  :disabled="isRetrying(data)"
+                  :aria-label="$t('common.retry')"
+                  :title="$t('common.retry')"
+                  @click.stop="emit('retry-entry', data)"
                 />
               </span>
               <span v-else class="text-sm text-app-text-muted">
@@ -306,13 +372,13 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
             </template>
           </Column>
 
-          <Column :header="$t('library.sizeLabel')" :style="props.compact ? 'width: 12%' : undefined" class="w-24">
+          <Column :header="$t('library.sizeLabel')" sort-field="size" :sortable="props.paginated" :style="props.compact ? 'width: 12%' : undefined" class="w-24">
             <template #body="{ data }">
               <span class="tabular-nums text-sm text-app-text-muted">{{ resourceSizeLabel(data) }}</span>
             </template>
           </Column>
 
-          <Column :header="$t('library.updatedColumn')" :style="props.compact ? 'width: 25%' : undefined" class="w-36">
+          <Column :header="$t('library.updatedColumn')" sort-field="updated_at" :sortable="props.paginated" :style="props.compact ? 'width: 25%' : undefined" class="w-36">
             <template #body="{ data }">
               <span class="whitespace-nowrap text-sm text-app-text-muted">
                 {{ data.updatedAt ? formatTimestamp(data.updatedAt) : "—" }}
@@ -391,6 +457,16 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
           @row-contextmenu="handleRowContextMenu"
           @row-dblclick="handleRowDoubleClick({ data: $event })"
           @toggle-folder="emit('toggle-folder', $event)"
+        />
+
+        <Paginator
+          v-if="props.paginated"
+          class="md:hidden"
+          :first="props.first"
+          :rows="props.pageSize"
+          :rows-per-page-options="[25, 50, 100]"
+          :total-records="props.totalRecords"
+          @page="emit('page', { first: $event.first, rows: $event.rows })"
         />
       </AsyncStateBlock>
     </div>

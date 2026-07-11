@@ -1,0 +1,164 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH claimed AS (\n    UPDATE context69.library_files\n    SET ingest_status = 'pending',\n        error_message = NULL,\n        ingested_at = NULL,\n        updated_at = now()\n    WHERE group_id = $1\n      AND id = $2\n      AND ingest_status = 'failed'\n    RETURNING id, group_id, visibility\n)\nINSERT INTO context69.library_ingest_jobs (\n    id,\n    group_id,\n    visibility,\n    file_id,\n    status\n)\nSELECT $3, group_id, visibility, id, 'pending'\nFROM claimed\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    file_id,\n    status,\n    docling_task_id,\n    error_message,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "docling_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "docling_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "7dba1d8e5b1f8e66c2a7a64a90f8ee1bd2527b47bf9ac79ca8640a6a596d2e94"
+}

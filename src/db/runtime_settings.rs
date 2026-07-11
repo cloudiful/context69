@@ -5,7 +5,7 @@ use super::{
     RuntimeFileLibrarySettingsRow, RuntimeQdrantSettingsRow, RuntimeSchedulerSettingsRow,
     StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
     StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeSchedulerSettings,
-    StoredRuntimeSettings,
+    StoredRuntimeS3Settings, StoredRuntimeSettings,
 };
 
 impl Database {
@@ -97,6 +97,26 @@ impl Database {
                     .context("runtime file_library ingest_concurrency must be non-negative")?,
                 pdf_pages_per_task: u32::try_from(file_library.pdf_pages_per_task)
                     .context("runtime file_library pdf_pages_per_task must be non-negative")?,
+                s3: match (
+                    file_library.s3_endpoint,
+                    file_library.s3_region,
+                    file_library.s3_bucket,
+                    file_library.s3_access_key,
+                    file_library.s3_secret_key,
+                ) {
+                    (Some(endpoint), Some(region), Some(bucket), Some(access_key), Some(secret_key)) => {
+                        Some(StoredRuntimeS3Settings {
+                            endpoint,
+                            region,
+                            bucket,
+                            prefix: file_library.s3_prefix.unwrap_or_default(),
+                            path_style: file_library.s3_path_style,
+                            access_key,
+                            secret_key,
+                        })
+                    }
+                    _ => None,
+                },
             },
         }))
     }
@@ -173,7 +193,14 @@ impl Database {
             file_library_max_upload_size_mb,
             file_library_max_upload_request_size_mb,
             file_library_ingest_concurrency,
-            i64::from(settings.file_library.pdf_pages_per_task)
+            i64::from(settings.file_library.pdf_pages_per_task),
+            settings.file_library.s3.as_ref().map(|value| value.endpoint.as_str()),
+            settings.file_library.s3.as_ref().map(|value| value.region.as_str()),
+            settings.file_library.s3.as_ref().map(|value| value.bucket.as_str()),
+            settings.file_library.s3.as_ref().map(|value| value.prefix.as_str()),
+            settings.file_library.s3.as_ref().is_some_and(|value| value.path_style),
+            settings.file_library.s3.as_ref().map(|value| value.access_key.as_str()),
+            settings.file_library.s3.as_ref().map(|value| value.secret_key.as_str())
         )
         .execute(&mut *tx)
         .await?;

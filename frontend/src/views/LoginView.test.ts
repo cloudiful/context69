@@ -7,6 +7,7 @@ import { testPrimeVuePlugin } from "../test-utils/primevue";
 import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
 import * as authService from "../services/auth/session";
 import { AuthError } from "../services/auth/session";
+import AppPanel from "../components/AppPanel.vue";
 
 import LoginView from "./LoginView.vue";
 
@@ -42,6 +43,12 @@ async function mountView(path = "/login") {
 }
 
 describe("LoginView", () => {
+  it("keeps the login panel compact", async () => {
+    const { wrapper } = await mountView();
+
+    expect(wrapper.getComponent(AppPanel).classes()).toContain("max-w-[24rem]");
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
     setGuest();

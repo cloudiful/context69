@@ -14,9 +14,11 @@ use crate::api::{
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
         __path_delete_group_library_file, __path_delete_group_library_folder,
-        __path_get_group_library_file, __path_get_group_library_job, __path_get_group_library_tree,
+        __path_get_group_library_file, __path_get_group_library_job,
+        __path_get_group_library_resources, __path_get_group_library_tree,
         __path_move_group_library_file, __path_move_group_library_folder,
-        __path_upload_group_library_files, __path_upsert_group_library_text,
+        __path_retry_group_library_file, __path_upload_group_library_files,
+        __path_upsert_group_library_text,
     },
     group_source_folders::{
         __path_create_group_source_folder, __path_sync_group_source_folder,
@@ -44,11 +46,12 @@ use crate::contracts::{
     AuthUserResponse, CreateAdminUserRequest, CreateFolderRequest,
     CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateSourceFolderRequest,
     CreateTextRequest, HealthResponse, HealthStatus, LibraryFileDetailResponse,
-    LibraryFolderResponse, LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryResourceItem, LibraryResourceKind,
+    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, LibraryUploadResponse,
     MoveFileRequest, MoveFolderRequest, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    ResetAdminUserPasswordRequest, SearchMode, SourceConfigInput, SourceConnectionResponse,
-    SourceFolderResponse, SourceStatus, SyncOutcome, UpdateAdminUserRequest,
-    UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
+    ResetAdminUserPasswordRequest, SearchMode, SortDirection, SourceConfigInput,
+    SourceConnectionResponse, SourceFolderResponse, SourceStatus, SyncOutcome,
+    UpdateAdminUserRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
 };
 
 #[derive(OpenApi)]
@@ -88,6 +91,7 @@ use crate::contracts::{
         delete_library_file,
         get_library_job,
         get_group_library_tree,
+        get_group_library_resources,
         create_group_library_folder,
         create_group_library_text,
         upsert_group_library_text,
@@ -96,6 +100,7 @@ use crate::contracts::{
         upload_group_library_files,
         get_group_library_file,
         move_group_library_file,
+        retry_group_library_file,
         delete_group_library_file,
         get_group_library_job,
         create_group_source_folder,
@@ -133,6 +138,11 @@ use crate::contracts::{
         MoveFileRequest,
         LibraryFolderResponse,
         LibraryTreeResponse,
+        LibraryResourceKind,
+        LibraryResourceSortBy,
+        SortDirection,
+        LibraryResourceItem,
+        LibraryResourcePageResponse,
         LibraryIngestJobResponse,
         LibraryFileDetailResponse,
         LibraryUploadResponse
@@ -199,6 +209,7 @@ mod tests {
             "/v1/groups/by-path/{group_path}/library/files/upload",
             "/v1/groups/by-path/{group_path}/library/files/{file_id}",
             "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",
+            "/v1/groups/by-path/{group_path}/library/files/{file_id}/retry",
             "/v1/groups/by-path/{group_path}/library/jobs/{job_id}",
         ] {
             assert!(paths.contains_key(path), "missing path {path}");

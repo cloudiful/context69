@@ -16,9 +16,11 @@ import LibraryMoveDialog from "./LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 import LibraryPreviewShell from "./LibraryPreviewShell.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
+import LibraryToolbar from "./LibraryToolbar.vue";
 import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
+import { useProjectLibraryPage } from "../composables/project-library/use-project-library-page";
 import { useGroupBrowserEntries } from "../composables/project-library/use-group-browser-entries";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
@@ -58,10 +60,21 @@ const tree = useProjectLibraryTree({
   t,
 });
 const treeState = proxyRefs(tree);
+const page = useProjectLibraryPage({
+  groupPath: () => props.groupPath,
+  folder: tree.selectedFolder,
+  t,
+});
+const pageState = proxyRefs(page);
+
+async function refreshLibraryData() {
+  await tree.loadTree();
+  await page.loadPage();
+}
 
 const detail = useProjectLibraryDetail({
-  groupPath: props.groupPath,
-  loadTree: tree.loadTree,
+  groupPath: () => props.groupPath,
+  loadTree: refreshLibraryData,
   selectedFileId: tree.selectedFileId,
   t,
 });
@@ -77,8 +90,8 @@ const preview = useProjectLibraryPreview({
 const previewState = proxyRefs(preview);
 
 const actions = useProjectLibraryActions({
-  groupPath: props.groupPath,
-  loadTree: tree.loadTree,
+  groupPath: () => props.groupPath,
+  loadTree: refreshLibraryData,
   moveOptions: tree.moveOptions,
   replaceSelection: tree.replaceSelection,
   schedulePolling: detail.schedulePolling,
@@ -94,10 +107,13 @@ const actionsState = proxyRefs(actions);
 
 const { filteredGroupEntries } = useGroupBrowserEntries({
   childGroups: () => props.childGroups,
-  libraryEntryCount: () => treeState.filteredExplorerEntries.length,
-  query: () => treeState.resourceSearchQuery,
+  libraryEntryCount: () => pageState.entries.length,
+  query: () => pageState.query,
   t,
 });
+const visibleGroupEntries = computed(() => treeState.selectedFolderId || pageState.page !== 1
+  ? []
+  : filteredGroupEntries.value);
 
 const resourceContextMenu = ref();
 const groupContextMenu = ref();
@@ -124,6 +140,13 @@ const resourceMenuItems = computed(() => {
   const items = [
     { label: entry.isSourceConfigFile ? t("library.editSourceConfig") : t("library.preview"), icon: entry.isSourceConfigFile ? "pi pi-file-edit" : "pi pi-eye", command: () => { void openExplorerEntry(entry); } },
   ];
+  if (entry.ingestStatus === "failed") {
+    items.push({
+      label: actionsState.retryingFileIds.includes(entry.id) ? t("library.retrying") : t("common.retry"),
+      icon: "pi pi-refresh",
+      command: () => { void actionsState.retryFile(entry.id); },
+    });
+  }
   if (!entry.isSourceConfigFile && !entry.isSourceRecordFile) {
     items.push({ label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { actionsState.openMoveFileDialog(entry.file); } });
     items.push({ label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFile(entry.file); } });
@@ -302,6 +325,12 @@ function handleExplorerRowContextMenu(event: { originalEvent: Event; data: Explo
   resourceContextMenu.value?.show(event.originalEvent);
 }
 
+function retryExplorerEntry(entry: ExplorerEntry) {
+  if (entry.kind === "file") {
+    void actionsState.retryFile(entry.id);
+  }
+}
+
 function handleGroupRowContextMenu(event: { originalEvent: Event; data: GroupExplorerEntry }) {
   groupContextEntry.value = event.data;
   groupContextMenu.value?.show(event.originalEvent);
@@ -331,18 +360,32 @@ watch(tree.selectedFileId, (fileId) => {
 
 watch(tree.selectedFolderId, (folderId) => {
   treeState.updateExpandedForFolder(folderId);
+  page.reset();
+  void page.loadPage();
 });
 
-watch(tree.explorerEntries, (entries) => {
+watch(page.entries, (entries) => {
   treeState.syncSelectedExplorerEntry(entries);
 }, { immediate: true });
 
-watch(() => props.groupPath, () => {
+watch(() => props.groupPath, async () => {
   tree.resetTree();
-  void tree.loadTree();
+  page.reset();
+  await tree.loadTree();
+  await page.loadPage();
 }, { immediate: true });
 
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(page.query, () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    pageState.page = 1;
+    void page.loadPage();
+  }, 250);
+});
+
 onBeforeUnmount(() => {
+  clearTimeout(searchTimer);
   detail.dispose();
 });
 </script>
@@ -363,35 +406,57 @@ onBeforeUnmount(() => {
     <IconField class="relative w-56 [&.p-iconfield]:w-full">
       <InputIcon class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-dim" />
       <InputText
-        v-model="treeState.resourceSearchQuery"
+        v-model="pageState.query"
         class="w-full !pl-10"
         :placeholder="t('nav.search')"
       />
     </IconField>
   </Teleport>
 
-  <section class="library-workspace library-workspace-embedded h-full">
+  <section
+    class="library-workspace library-workspace-embedded grid h-full min-h-0 gap-2"
+    :class="treeState.breadcrumbItems.length > 0
+      ? 'grid-rows-[auto_minmax(0,1fr)]'
+      : 'grid-rows-[minmax(0,1fr)]'"
+  >
+    <LibraryToolbar
+      v-if="treeState.breadcrumbItems.length > 0"
+      :breadcrumb-home="treeState.breadcrumbHome"
+      :breadcrumb-items="treeState.breadcrumbItems"
+      :search-query="pageState.query"
+      :show-search="false"
+      @update:search-query="pageState.query = $event"
+    />
     <LibraryResourceTable
       :create-folder-busy="actionsState.createFolderBusy"
       :create-source-folder-busy="sourceFolderDialogBusy"
-      :entries="treeState.filteredExplorerEntries"
-      :error="treeState.treeError"
-      :group-entries="filteredGroupEntries"
+      :entries="pageState.entries"
+      :error="treeState.treeError || pageState.error"
+      :first="pageState.first"
+      :group-entries="visibleGroupEntries"
       hide-actions
       hide-group-paths
       compact
       :expanded-keys="treeState.expandedTreeKeys"
-      :loading="treeState.treeLoading"
-      :resource-search-query="treeState.resourceSearchQuery"
+      :loading="treeState.treeLoading || pageState.loading"
+      paginated
+      :page-size="pageState.pageSize"
+      :resource-search-query="pageState.query"
+      :retrying-file-ids="actionsState.retryingFileIds"
       :selected-folder-ready="!!treeState.selectedFolder"
       :selection="treeState.selectedExplorerEntry"
+      :sort-field="pageState.sortBy"
+      :sort-order="pageState.sortOrder"
       :table-context-selection="treeState.resourceContextEntry"
       :upload-busy="actionsState.uploadBusy"
+      :total-records="pageState.total"
       @update:selection="treeState.selectedExplorerEntry = $event"
       @update:tableContextSelection="treeState.resourceContextEntry = $event"
       @row-click="handleExplorerRowClick"
       @row-dblclick="handleExplorerRowDoubleClick"
       @row-contextmenu="handleExplorerRowContextMenu"
+      @page="pageState.changePage($event.first, $event.rows)"
+      @sort="pageState.changeSort($event.sortField, $event.sortOrder)"
       @group-contextmenu="handleGroupRowContextMenu"
       @surface-contextmenu="handleSurfaceContextMenu"
       @open-entry="openExplorerEntry"
@@ -403,7 +468,8 @@ onBeforeUnmount(() => {
       @delete-group="emit('delete-child-group', $event.group)"
       @toggle-folder="treeState.toggleFolderExpansion($event.id)"
       @refresh="treeState.refreshLibrary(detailState.loadDetail)"
-      @retry="treeState.loadTree"
+      @retry="refreshLibraryData"
+      @retry-entry="retryExplorerEntry"
       @create-folder="actionsState.openCreateFolderDialog()"
       @create-source-folder="openCreateSourceFolderDialog()"
       @sync-source-folder="syncSourceFolder($event.id)"
@@ -462,6 +528,8 @@ onBeforeUnmount(() => {
       :detail-loading="detailState.detailLoading"
       :selected-file-id="treeState.selectedFileId"
       :selected-folder-summary="treeState.selectedFolderSummary"
+      :retrying="!!treeState.selectedFileId && actionsState.retryingFileIds.includes(treeState.selectedFileId)"
+      @retry="actionsState.retryFile"
       @update:active-section-key="detailState.activeSectionKey = $event"
     />
   </Dialog>

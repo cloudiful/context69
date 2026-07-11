@@ -7,6 +7,8 @@ import type {
   RequestOptions,
   SourceConfigInput,
   UpsertLibraryTextRequest,
+  LibraryResourceSortBy,
+  SortDirection,
 } from "./api-types";
 
 type Deps = {
@@ -52,6 +54,29 @@ export function createGroupWorkspaceApi({
     getGroupLibraryTree(groupPath: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/tree", {
         params: { path: { group_path: groupPath } },
+        signal: options?.signal,
+      }));
+    },
+    getGroupLibraryResources(groupPath: string, params: {
+      folderId: string | null;
+      page: number;
+      pageSize: number;
+      query: string;
+      sortBy: LibraryResourceSortBy;
+      sortDirection: SortDirection;
+    }, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/resources", {
+        params: {
+          path: { group_path: groupPath },
+          query: {
+            folder_id: params.folderId ?? undefined,
+            page: params.page,
+            page_size: params.pageSize,
+            query: params.query || undefined,
+            sort_by: params.sortBy,
+            sort_direction: params.sortDirection,
+          },
+        },
         signal: options?.signal,
       }));
     },
@@ -101,6 +126,12 @@ export function createGroupWorkspaceApi({
     },
     getGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/files/{file_id}", {
+        params: { path: { group_path: groupPath, file_id: fileId } },
+        signal: options?.signal,
+      }));
+    },
+    retryGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/{file_id}/retry", {
         params: { path: { group_path: groupPath, file_id: fileId } },
         signal: options?.signal,
       }));

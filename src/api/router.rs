@@ -18,17 +18,17 @@ use super::{
     delete_group_library_file, delete_group_library_folder, delete_library_file,
     delete_library_folder, delete_source, delete_source_connection, disable_admin_user,
     enable_admin_user, forbid_personal_access_token_middleware, get_group_library_file,
-    get_group_library_job, get_group_library_tree, get_library_file, get_library_job,
-    get_library_tree, healthz, list_admin_users, list_personal_access_tokens,
+    get_group_library_job, get_group_library_resources, get_group_library_tree, get_library_file,
+    get_library_job, get_library_tree, healthz, list_admin_users, list_personal_access_tokens,
     list_source_connections, list_sources, login, logout, me, move_group_library_file,
     move_group_library_folder, move_library_file, move_library_folder, openapi_json, refresh,
     require_admin_scope_middleware, require_library_scope_middleware,
     require_search_scope_middleware, require_settings_scope_middleware,
     require_sources_scope_middleware, require_workspace_scope_middleware,
-    reset_admin_user_password, revoke_personal_access_token, sync_group_source_folder, sync_source,
-    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
-    update_source, update_source_connection, upload_group_library_files, upload_library_files,
-    upsert_group_library_text,
+    reset_admin_user_password, retry_group_library_file, revoke_personal_access_token,
+    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
+    update_admin_user, update_group_source_folder_config, update_source, update_source_connection,
+    upload_group_library_files, upload_library_files, upsert_group_library_text,
 };
 
 pub fn router(app: Arc<Context69App>) -> Router {
@@ -197,6 +197,10 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
             get(get_group_library_tree),
         )
         .route(
+            "/v1/groups/by-path/{group_path}/library/resources",
+            get(get_group_library_resources),
+        )
+        .route(
             "/v1/groups/by-path/{group_path}/library/folders",
             post(create_group_library_folder),
         )
@@ -223,6 +227,10 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         .route(
             "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",
             post(move_group_library_file),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/library/files/{file_id}/retry",
+            post(retry_group_library_file),
         )
         .route(
             "/v1/groups/by-path/{group_path}/library/jobs/{job_id}",

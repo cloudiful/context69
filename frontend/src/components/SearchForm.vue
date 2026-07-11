@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import AutoComplete from "primevue/autocomplete";
 import Button from "primevue/button";
 import DatePicker from "primevue/datepicker";
 import Fluid from "primevue/fluid";
 import InputNumber from "primevue/inputnumber";
-import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 
 import AppFormField from "./AppFormField.vue";
 import type { SourceStatus } from "../services/api";
 import type { SearchFilters } from "../types/ui";
+import type { SearchHistoryEntry } from "../utils/search-history";
 import {
   settingsPrimaryButtonClass,
   settingsSecondaryButtonClass,
@@ -19,17 +20,20 @@ import {
 
 const props = defineProps<{
   filters: SearchFilters;
+  historyEntries: SearchHistoryEntry[];
   sources: SourceStatus[];
   busy: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:filters": [SearchFilters];
+  "history-select": [SearchHistoryEntry];
   submit: [];
 }>();
 
 const { t } = useI18n();
 const advancedFiltersOpen = ref(false);
+const historySuggestions = ref<SearchHistoryEntry[]>([]);
 
 function patchFilters(next: Partial<SearchFilters>) {
   emit("update:filters", {
@@ -63,10 +67,18 @@ function formatDateValue(value: Date | Date[] | null | undefined): string {
   return `${year}-${month}-${day}`;
 }
 
-const queryModel = computed({
-  get: () => props.filters.query,
-  set: (value: string) => patchFilters({ query: value }),
-});
+function completeHistory(event: { query: string }) {
+  const query = event.query.trim().toLocaleLowerCase();
+  historySuggestions.value = props.historyEntries.filter((entry) => !query || entry.query.toLocaleLowerCase().includes(query));
+}
+
+function updateQuery(value: string | SearchHistoryEntry | null) {
+  if (value && typeof value === "object") {
+    emit("history-select", value);
+    return;
+  }
+  patchFilters({ query: value ?? "" });
+}
 
 const sourceOptions = computed(() => [
   { label: t("search.form.allSources"), value: "" },
@@ -129,12 +141,19 @@ function resetForm() {
     <form class="grid w-full gap-2 rounded-[1.1rem] border border-app-border/80 bg-app-surface/92 p-2" @submit.prevent="emit('submit')">
       <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
         <div class="min-w-0">
-          <InputText
-            id="query"
-            v-model="queryModel"
+          <AutoComplete
+            input-id="query"
+            :model-value="filters.query"
+            :suggestions="historySuggestions"
+            option-label="query"
+            complete-on-focus
+            :delay="0"
             data-testid="search-query"
-            class="min-h-[2.35rem] rounded-xl px-3 text-sm"
+            fluid
+            input-class="min-h-[2.35rem] rounded-xl px-3 text-sm"
             :placeholder="t('search.form.query')"
+            @complete="completeHistory"
+            @update:model-value="updateQuery"
           />
         </div>
 

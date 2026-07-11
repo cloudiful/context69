@@ -115,7 +115,8 @@ impl LibraryStore {
             file.media_type,
             file.size_bytes,
             file.sha256,
-            file.storage_rel_path
+            file.storage_rel_path,
+            file.storage_object_id
         )
         .fetch_one(self.db.pool())
         .await?;
@@ -139,7 +140,8 @@ impl LibraryStore {
             file.size_bytes,
             file.sha256,
             file.storage_rel_path,
-            project_id
+            project_id,
+            file.storage_object_id
         )
         .fetch_one(self.db.pool())
         .await?;

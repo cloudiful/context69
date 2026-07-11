@@ -22,7 +22,6 @@ export function buildRuntimePayload(
     embedding: {
       base_url: draft.embedding.base_url,
       api_key: draft.embedding.api_key,
-      clear_api_key: draft.embedding.clear_api_key,
       model: draft.embedding.model,
       dimensions: draft.embedding.dimensions,
       timeout_secs: draft.embedding.timeout_secs,
@@ -60,7 +59,6 @@ export function buildDoclingPayload(
     vlm: {
       openai_base_url: draft.vlm.openai_base_url,
       api_key: draft.vlm.api_key,
-      clear_api_key: draft.vlm.clear_api_key,
       vlm_pipeline_model: draft.vlm.vlm_pipeline_model,
       picture_description_model: draft.vlm.picture_description_model,
       code_formula_model: draft.vlm.code_formula_model,
