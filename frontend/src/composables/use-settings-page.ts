@@ -1,5 +1,6 @@
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import { useErrorToast } from "./use-error-toast";
 
@@ -9,6 +10,7 @@ import {
   type DoclingSettingsResponse,
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
+  type VectorIndexRebuildStatus,
 } from "../services/api";
 import { authSessionState } from "../services/auth/session";
 import {
@@ -33,6 +35,7 @@ import { useSettingsPersonalAccessTokens } from "./use-settings-personal-access-
 export function useSettingsPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const showErrorToast = useErrorToast();
   const personalAccessTokens = useSettingsPersonalAccessTokens();
 
@@ -40,6 +43,7 @@ export function useSettingsPage() {
   const saving = ref(false);
   const s3Testing = ref(false);
   const valkeyTesting = ref(false);
+  const vectorRebuildStatus = ref<VectorIndexRebuildStatus | null>(null);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
@@ -48,6 +52,7 @@ export function useSettingsPage() {
   const adminUsersBusy = ref(false);
   const adminUsersCreateBusy = ref(false);
   const rerankApiKeyDraft = ref("");
+  let vectorRebuildTimer: ReturnType<typeof setTimeout> | undefined;
 
   const runtimeDraft = reactive<DraftRuntimeSettings>(createRuntimeDraft());
   const doclingDraft = reactive<DraftDoclingSettings>(createDoclingDraft());
@@ -142,6 +147,7 @@ export function useSettingsPage() {
       assignRuntimeDraft(runtime);
       assignDoclingDraft(docling);
       assignSearchDraft(search);
+      await loadVectorIndexRebuildStatus();
 
     } catch (error) {
       showErrorToast(error, t("settings.loadFailed"));
@@ -234,6 +240,44 @@ export function useSettingsPage() {
       showErrorToast(error, t("settings.runtime.valkeyTestFailed"));
     } finally {
       valkeyTesting.value = false;
+    }
+  }
+
+  async function loadVectorIndexRebuildStatus() {
+    vectorRebuildStatus.value = await apiClient.getVectorIndexRebuildStatus();
+    scheduleVectorRebuildPoll();
+  }
+
+  function scheduleVectorRebuildPoll() {
+    clearTimeout(vectorRebuildTimer);
+    if (vectorRebuildStatus.value?.state !== "running") return;
+    vectorRebuildTimer = setTimeout(async () => {
+      try {
+        await loadVectorIndexRebuildStatus();
+      } catch (error) {
+        showErrorToast(error, t("settings.runtime.vectorRebuildStatusFailed"));
+      }
+    }, 1500);
+  }
+
+  function confirmVectorIndexRebuild() {
+    confirm.require({
+      header: t("settings.runtime.vectorRebuild"),
+      message: t("settings.runtime.vectorRebuildConfirm"),
+      icon: "pi pi-refresh",
+      rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
+      acceptProps: { label: t("settings.runtime.vectorRebuild"), severity: "danger" },
+      accept: () => void startVectorIndexRebuild(),
+    });
+  }
+
+  async function startVectorIndexRebuild() {
+    try {
+      vectorRebuildStatus.value = await apiClient.startVectorIndexRebuild();
+      toast.add({ severity: "info", summary: t("settings.runtime.vectorRebuildStarted"), life: 2500 });
+      scheduleVectorRebuildPoll();
+    } catch (error) {
+      showErrorToast(error, t("settings.runtime.vectorRebuildFailed"));
     }
   }
 
@@ -333,6 +377,8 @@ export function useSettingsPage() {
     void personalAccessTokens.loadPersonalAccessTokens();
   });
 
+  onBeforeUnmount(() => clearTimeout(vectorRebuildTimer));
+
   return {
     adminUsers,
     adminUsersBusy,
@@ -360,6 +406,8 @@ export function useSettingsPage() {
     testValkeyConnection,
     updateAdminUser,
     valkeyTesting,
+    vectorRebuildStatus,
+    confirmVectorIndexRebuild,
   };
 }
 

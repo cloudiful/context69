@@ -45,6 +45,20 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
         }),
       );
     },
+    getVectorIndexRebuildStatus(options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.GET("/v1/settings/runtime/vector-index/rebuild", {
+          signal: options?.signal,
+        }),
+      );
+    },
+    startVectorIndexRebuild(options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/vector-index/rebuild", {
+          signal: options?.signal,
+        }),
+      );
+    },
     getDoclingSettings(options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.GET("/v1/settings/docling", {

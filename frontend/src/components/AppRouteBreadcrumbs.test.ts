@@ -13,7 +13,23 @@ describe("AppRouteBreadcrumbs", () => {
     setAuthenticatedUser();
   });
 
-  it("hides a breadcrumb with only one node", async () => {
+  it("hides the single browser breadcrumb on the groups root", async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups", name: "groups", component: { template: "<div />" } }],
+    });
+    router.push("/groups");
+    await router.isReady();
+
+    const wrapper = mount(AppRouteBreadcrumbs, {
+      global: { plugins: [testPrimeVuePlugin, router, createAppI18n("zh-CN")] },
+    });
+
+    expect(wrapper.find(".p-breadcrumb").exists()).toBe(false);
+    expect(wrapper.find("#app-route-actions").exists()).toBe(true);
+  });
+
+  it("renders browser and group path on a group overview", async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -29,11 +45,13 @@ describe("AppRouteBreadcrumbs", () => {
       },
     });
 
-    expect(wrapper.find(".p-breadcrumb").exists()).toBe(false);
+    expect(wrapper.find(".p-breadcrumb").exists()).toBe(true);
+    expect(wrapper.text()).toContain("浏览器");
+    expect(wrapper.text()).toContain("stock");
     expect(wrapper.find("#app-route-actions").exists()).toBe(true);
   });
 
-  it("renders browser and the current group section only", async () => {
+  it("renders navigable group path before the current section", async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -56,19 +74,22 @@ describe("AppRouteBreadcrumbs", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Browser");
+    expect(wrapper.text()).toContain("stock");
+    expect(wrapper.text()).toContain("alpha");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).not.toContain("Search");
-    expect(wrapper.text()).not.toContain("stock");
-    expect(wrapper.text()).not.toContain("Alpha Group");
+
+    const stockButton = wrapper.findAll("button").find((button) => button.text() === "stock");
+    expect(stockButton).toBeDefined();
+    await stockButton!.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe("/groups/stock");
 
     const browserButton = wrapper.findAll("button").find((button) => button.text() === "Browser");
     expect(browserButton).toBeDefined();
-
     await browserButton!.trigger("click");
     await flushPromises();
-
-    expect(router.currentRoute.value.name).toBe("group-overview");
-    expect(router.currentRoute.value.fullPath).toBe("/groups/stock%2Falpha");
+    expect(router.currentRoute.value.name).toBe("groups");
   });
 
   it("renders settings breadcrumbs for nested settings routes", async () => {

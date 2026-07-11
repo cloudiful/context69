@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Breadcrumb from "primevue/breadcrumb";
+import Button from "primevue/button";
 
 import { resolveSettingsSectionNav } from "../settings/navigation";
 import { authSessionState } from "../services/auth/session";
@@ -21,6 +22,18 @@ const groupPath = computed(() => String(route.params.groupPath ?? ""));
 
 const settingsSections = computed(() => resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true));
 
+function groupPathCrumbs(path: string, currentIsGroup: boolean): Crumb[] {
+  const segments = path.split("/").filter(Boolean);
+  return segments.map((segment, index) => {
+    const cumulativePath = segments.slice(0, index + 1).join("/");
+    const isCurrent = currentIsGroup && index === segments.length - 1;
+    return {
+      label: segment,
+      to: isCurrent ? undefined : `/groups/${encodeURIComponent(cumulativePath)}`,
+    };
+  });
+}
+
 const items = computed<Crumb[]>(() => {
   if (routeName.value === "search") {
     return [{ label: t("nav.search") }];
@@ -31,10 +44,11 @@ const items = computed<Crumb[]>(() => {
   }
 
   if (routeName.value.startsWith("group-")) {
-    const groupHome = `/groups/${encodeURIComponent(groupPath.value)}`;
-    const crumbs: Crumb[] = routeName.value === "group-overview"
-      ? [{ label: t("nav.groups") }]
-      : [{ label: t("nav.groups"), to: groupHome }];
+    const isOverview = routeName.value === "group-overview";
+    const crumbs: Crumb[] = [
+      { label: t("nav.groups"), to: "/groups" },
+      ...groupPathCrumbs(groupPath.value, isOverview),
+    ];
 
     if (routeName.value === "group-members") {
       crumbs.push({ label: t("groups.membersTitle") });
@@ -75,14 +89,17 @@ function navigate(to?: string) {
       class="min-w-0 flex-1 [&.p-breadcrumb]:border-0 [&.p-breadcrumb]:bg-transparent [&.p-breadcrumb]:p-0"
     >
       <template #item="{ item }">
-        <button
+        <Button
           v-if="item.to"
-          class="truncate text-left text-sm font-medium text-app-text transition hover:text-app-text-muted"
+          class="min-w-0 max-w-full justify-start px-0"
           type="button"
+          size="small"
+          severity="secondary"
+          text
           @click="navigate(item.to)"
         >
-          {{ item.label }}
-        </button>
+          <span class="truncate">{{ item.label }}</span>
+        </Button>
         <span v-else class="truncate text-sm font-semibold text-app-text">
           {{ item.label }}
         </span>

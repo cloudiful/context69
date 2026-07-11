@@ -41,6 +41,7 @@ pub use settings::{
     TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
     UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings,
     UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    VectorIndexRebuildState, VectorIndexRebuildStatus,
 };
 pub use sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,

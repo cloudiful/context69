@@ -3,21 +3,20 @@ use chrono::NaiveDate;
 use qdrant_client::{
     Payload, Qdrant,
     qdrant::{
-        Condition, CountPointsBuilder, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
-        DeletePointsBuilder, Distance, FieldType, Filter, PointId, PointStruct, PointsIdsList,
-        Range, SearchPointsBuilder, SetPayloadPointsBuilder, UpsertPointsBuilder,
-        VectorParamsBuilder, vectors_config,
+        Condition, CountPointsBuilder, DeletePointsBuilder, Filter, PointId, PointStruct,
+        PointsIdsList, Range, SearchPointsBuilder, SetPayloadPointsBuilder, UpsertPointsBuilder,
+        vectors_config,
     },
 };
 use serde_json::json;
-use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    config::QdrantConfig,
     contracts::SearchRequest,
     domain::{AccessScope, ChunkPayload},
 };
+
+mod collection;
 
 #[derive(Debug, Clone)]
 pub struct SearchPointHit {
@@ -33,153 +32,6 @@ pub struct QdrantIndex {
 }
 
 impl QdrantIndex {
-    pub async fn connect(config: &QdrantConfig, dimensions: usize) -> Result<(Self, bool)> {
-        let client = Qdrant::from_url(&config.url).build()?;
-        let index = Self {
-            client,
-            collection_name: config.collection_name.clone(),
-            dimensions,
-        };
-        let recreated = index
-            .ensure_collection(dimensions, config.recreate_on_dimension_mismatch)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to initialize qdrant collection '{}' at {}; qdrant-client uses the gRPC endpoint, usually port 6334, not the REST endpoint on 6333",
-                    config.collection_name, config.url
-                )
-            })?;
-        Ok((index, recreated))
-    }
-
-    async fn ensure_collection(
-        &self,
-        dimensions: usize,
-        recreate_on_dimension_mismatch: bool,
-    ) -> Result<bool> {
-        if self.client.collection_exists(&self.collection_name).await? {
-            let collection = self
-                .client
-                .collection_info(&self.collection_name)
-                .await?
-                .result
-                .context("missing qdrant collection info")?;
-            let actual_dimensions = collection_vector_size(&collection)
-                .context("missing qdrant vector size in collection config")?;
-            if actual_dimensions != dimensions {
-                if recreate_on_dimension_mismatch {
-                    warn!(
-                        collection_name = self.collection_name,
-                        expected_dimensions = dimensions,
-                        actual_dimensions,
-                        "qdrant collection dimension mismatch detected, recreating collection"
-                    );
-                    self.client.delete_collection(&self.collection_name).await?;
-                    self.create_collection(dimensions).await?;
-                    return Ok(true);
-                }
-                return Err(anyhow!(
-                    "qdrant collection {} dimension mismatch: expected {}, found {}",
-                    self.collection_name,
-                    dimensions,
-                    actual_dimensions
-                ));
-            }
-            return Ok(false);
-        }
-
-        self.create_collection(dimensions).await?;
-        Ok(false)
-    }
-
-    async fn create_collection(&self, dimensions: usize) -> Result<()> {
-        self.client
-            .create_collection(
-                CreateCollectionBuilder::new(&self.collection_name).vectors_config(
-                    VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
-                ),
-            )
-            .await?;
-        self.client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    self.collection_name.clone(),
-                    "group_key",
-                    FieldType::Keyword,
-                )
-                .wait(true),
-            )
-            .await
-            .ok();
-        self.client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    self.collection_name.clone(),
-                    "group_path",
-                    FieldType::Keyword,
-                )
-                .wait(true),
-            )
-            .await
-            .ok();
-        self.client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    self.collection_name.clone(),
-                    "group_id",
-                    FieldType::Integer,
-                )
-                .wait(true),
-            )
-            .await
-            .ok();
-        self.client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    self.collection_name.clone(),
-                    "visibility",
-                    FieldType::Keyword,
-                )
-                .wait(true),
-            )
-            .await
-            .ok();
-        self.client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    self.collection_name.clone(),
-                    "source_key",
-                    FieldType::Keyword,
-                )
-                .wait(true),
-            )
-            .await
-            .ok();
-        self.client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    self.collection_name.clone(),
-                    "document_id",
-                    FieldType::Integer,
-                )
-                .wait(true),
-            )
-            .await
-            .ok();
-        self.client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    self.collection_name.clone(),
-                    "published_ts",
-                    FieldType::Integer,
-                )
-                .wait(true),
-            )
-            .await
-            .ok();
-        Ok(())
-    }
-
     pub async fn replace_document_chunks(
         &self,
         existing_chunk_ids: &[Uuid],

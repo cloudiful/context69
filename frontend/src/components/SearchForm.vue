@@ -140,22 +140,21 @@ function resetForm() {
   <Fluid class="block w-full">
     <form class="grid w-full gap-2 rounded-[1.1rem] border border-app-border/80 bg-app-surface/92 p-2" @submit.prevent="emit('submit')">
       <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <div class="min-w-0">
-          <AutoComplete
-            input-id="query"
-            :model-value="filters.query"
-            :suggestions="historySuggestions"
-            option-label="query"
-            complete-on-focus
-            :delay="0"
-            data-testid="search-query"
-            fluid
-            input-class="min-h-[2.35rem] rounded-xl px-3 text-sm"
-            :placeholder="t('search.form.query')"
-            @complete="completeHistory"
-            @update:model-value="updateQuery"
-          />
-        </div>
+        <AutoComplete
+          input-id="query"
+          class="min-w-0"
+          :model-value="filters.query"
+          :suggestions="historySuggestions"
+          option-label="query"
+          complete-on-focus
+          :delay="0"
+          data-testid="search-query"
+          fluid
+          size="small"
+          :placeholder="t('search.form.query')"
+          @complete="completeHistory"
+          @update:model-value="updateQuery"
+        />
 
         <div class="flex items-stretch justify-end gap-1.5">
           <Button

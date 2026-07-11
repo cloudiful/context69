@@ -20,9 +20,11 @@ const schedulerToggleModel = computed(() => ({
     :scheduler-toggle-model="schedulerToggleModel"
     :s3-testing="state.s3Testing.value"
     :valkey-testing="state.valkeyTesting.value"
+    :vector-rebuild-status="state.vectorRebuildStatus.value"
     @update:qdrant-toggle-model="state.qdrantToggleModel.value = $event"
     @update:scheduler-toggle-model="state.schedulerToggleModel.value = $event"
     @test-s3="state.testS3Connection"
     @test-valkey="state.testValkeyConnection"
+    @rebuild-vector-index="state.confirmVectorIndexRebuild"
   />
 </template>

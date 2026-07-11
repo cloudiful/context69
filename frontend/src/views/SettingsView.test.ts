@@ -86,11 +86,22 @@ const personalAccessTokensResponse = [
   },
 ];
 
+const vectorRebuildStatus = {
+  state: "idle" as const,
+  processed_chunks: 0,
+  total_chunks: 0,
+};
+
 function createApiSpies() {
   return {
     getRuntimeSettings: vi.spyOn(apiClient, "getRuntimeSettings").mockResolvedValue(runtimeResponse as never),
     updateRuntimeSettings: vi.spyOn(apiClient, "updateRuntimeSettings").mockResolvedValue(runtimeResponse as never),
     testValkeyConnection: vi.spyOn(apiClient, "testValkeyConnection").mockResolvedValue(undefined as never),
+    getVectorIndexRebuildStatus: vi.spyOn(apiClient, "getVectorIndexRebuildStatus").mockResolvedValue(vectorRebuildStatus as never),
+    startVectorIndexRebuild: vi.spyOn(apiClient, "startVectorIndexRebuild").mockResolvedValue({
+      ...vectorRebuildStatus,
+      state: "running",
+    } as never),
     getDoclingSettings: vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never),
     getSearchSettings: vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never),
     updateDoclingSettings: vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never),
@@ -165,6 +176,7 @@ describe("SettingsView", () => {
     expect(wrapper.get("#runtime-scheduler-valkey-url").attributes("placeholder")).toBe("redis://valkey:6379/0");
     expect(wrapper.get("#runtime-embedding-base-url").element).toBeTruthy();
     expect(wrapper.find("#runtime-embedding-clear-api-key").exists()).toBe(false);
+    expect(wrapper.find('[data-testid="runtime-vector-rebuild"]').exists()).toBe(true);
     await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
 
     await router.push("/settings/docling");

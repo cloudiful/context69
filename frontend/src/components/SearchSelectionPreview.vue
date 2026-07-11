@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
+import Button from "primevue/button";
 
 import AppStateMessage from "./AppStateMessage.vue";
 import type { SearchHit } from "../services/api";
-import { controlButtonClass } from "../ui/button-classes";
 import { formatDate, formatScore } from "../utils/format";
 
 defineProps<{
@@ -29,13 +29,15 @@ const { t } = useI18n();
             · {{ t("search.result.score") }} {{ formatScore(selectedHit.score) }}
           </p>
         </div>
-        <button
-          :class="[controlButtonClass, 'shrink-0']"
+        <Button
+          class="shrink-0"
           type="button"
+          size="small"
+          severity="secondary"
+          variant="outlined"
+          :label="t('common.open')"
           @click="emit('open', selectedHit)"
-        >
-          {{ t("common.open") }}
-        </button>
+        />
       </div>
 
       <p v-if="selectedHit.library_path" class="text-xs leading-5 text-app-text-dim">

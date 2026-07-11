@@ -337,8 +337,9 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
             <template #body="{ data }">
               <div class="py-0 [padding-left:calc(var(--library-entry-depth,0)*0.9rem)]" :style="entryIndentStyle(data)">
                 <div class="flex min-w-0 items-start gap-1.5">
-                  <button
+                  <Button
                     v-if="data.kind === 'folder'"
+                    unstyled
                     class="library-folder-toggle"
                     type="button"
                     :aria-label="isFolderExpanded(data) ? 'Collapse folder' : 'Expand folder'"
@@ -350,18 +351,17 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                     >
                       &gt;
                     </span>
-                  </button>
+                  </Button>
                   <span v-else-if="data.kind === 'file'" class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
 
-                  <div class="grid min-w-0 gap-1">
-                    <button
-                      class="block w-full truncate rounded-[0.65rem] text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[color:color-mix(in_srgb,var(--color-app-border-strong)_72%,transparent)]"
-                      type="button"
+                  <div class="grid min-w-0 flex-1 gap-1">
+                    <span
+                      class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-6 text-app-text"
                       :data-entry-key="data.key"
                       @click.stop="openEntry(data)"
                     >
                       {{ data.name }}
-                    </button>
+                    </span>
                     <p v-if="data.kind === 'folder'" class="text-xs leading-4 text-app-text-dim">
                       {{ $t("library.treeCounts", { folders: data.childFolderCount, files: data.fileCount }) }}
                     </p>

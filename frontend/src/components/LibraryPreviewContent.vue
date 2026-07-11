@@ -57,8 +57,8 @@ watch(
 <template>
   <article
     v-if="normalizedContentFormat === 'markdown' && markdownReady && markdownHtml"
-    class="library-markdown-content"
+    class="library-markdown-content max-h-[34rem] overflow-auto text-[0.98rem] leading-8 text-app-text-muted"
     v-html="markdownHtml"
   />
-  <pre v-else class="library-preview-plaintext">{{ content }}</pre>
+  <pre v-else class="max-h-[34rem] overflow-auto whitespace-pre-wrap break-words font-sans text-[0.98rem] leading-8 text-app-text-muted">{{ content }}</pre>
 </template>

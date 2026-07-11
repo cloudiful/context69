@@ -17,6 +17,7 @@ import LibraryToolbar from "../components/LibraryToolbar.vue";
 import { useLibraryActions } from "../composables/library/use-library-actions";
 import { useLibraryDetail } from "../composables/library/use-library-detail";
 import { useLibraryPreview } from "../composables/library/use-library-preview";
+import { libraryPreviewDialogPt } from "../components/app-dialog";
 import { useLibraryTree } from "../composables/library/use-library-tree";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry } from "../types/library";
@@ -144,7 +145,10 @@ function handleExplorerRowClick(event: { data: ExplorerEntry }) {
   if (entry.kind === "folder") {
     treeState.toggleFolderExpansion(entry.id);
     void treeState.selectFolder(entry.id);
+    return;
   }
+
+  void actionsState.revealPreviewForFile(entry.id);
 }
 
 function handleExplorerRowDoubleClick(event: { data: ExplorerEntry }) {
@@ -314,6 +318,7 @@ defineExpose({
       class="library-preview-dialog w-[min(96vw,58rem)]"
       :modal="true"
       :header="previewState.previewTitle"
+      :pt="libraryPreviewDialogPt"
     >
       <LibraryPreviewShell :title="previewState.previewTitle" :show-header="false">
         <LibraryPreviewPanel

@@ -57,8 +57,9 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
     >
       <div class="flex min-w-0 items-start justify-between gap-3">
         <div class="flex min-w-0 items-start gap-1.5">
-          <button
+          <Button
             v-if="entry.kind === 'folder'"
+            unstyled
             class="library-folder-toggle"
             type="button"
             :aria-label="isFolderExpanded(entry) ? 'Collapse folder' : 'Expand folder'"
@@ -70,17 +71,16 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
             >
               &gt;
             </span>
-          </button>
+          </Button>
           <span v-else-if="entry.kind === 'file'" class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
           <div class="min-w-0">
-            <button
-              class="block w-full truncate text-left text-sm font-semibold leading-5 text-app-text transition hover:text-app-text-muted"
-              type="button"
+            <span
+              class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-5 text-app-text"
               :data-entry-key="entry.key"
               @click.stop="emit('open', entry)"
             >
               {{ entry.name }}
-            </button>
+            </span>
             <p v-if="entry.kind === 'folder'" class="mt-0.5 truncate text-xs leading-5 text-app-text-dim">
               {{ $t("library.treeCounts", { folders: entry.childFolderCount, files: entry.fileCount }) }}
             </p>

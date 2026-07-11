@@ -19,3 +19,10 @@ export const appConfirmDialogPt = {
   message: { class: "min-w-0 break-words text-sm leading-6 text-app-text-muted" },
   footer: { class: "flex justify-end gap-2 border-t border-app-border/70 px-5 py-4" },
 } as const;
+
+export const libraryPreviewDialogPt = {
+  header: { class: "min-w-0 border-b border-app-border/70 px-4 py-3" },
+  title: { class: "min-w-0 truncate text-base font-semibold text-app-text" },
+  headerActions: { class: "shrink-0" },
+  content: { class: "px-4 py-3" },
+} as const;

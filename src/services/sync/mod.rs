@@ -11,7 +11,8 @@ use crate::{
     config::{SourceConfig, SyncStrategy},
     contracts::{
         SourceConfigInput, SourceConnectionResponse, SourceOriginStatusKind, SourceStatus,
-        SyncOutcome, UpsertSourceConnectionRequest,
+        SyncOutcome, UpsertSourceConnectionRequest, VectorIndexRebuildState,
+        VectorIndexRebuildStatus,
     },
     db::{Database, StoredSourceConnection},
     domain::{ChunkPayload, SyncCheckpoint},
@@ -46,6 +47,7 @@ pub struct SyncService {
     registry: Arc<RwLock<SourceRegistry>>,
     source_store: SourceStore,
     source_connection_statuses: Arc<RwLock<HashMap<String, SourceConnectionHealth>>>,
+    vector_rebuild_status: Arc<RwLock<VectorIndexRebuildStatus>>,
 }
 
 #[derive(Clone, Debug)]
@@ -80,6 +82,14 @@ impl SyncService {
             )),
             source_store: SourceStore::new(db),
             source_connection_statuses: Arc::new(RwLock::new(HashMap::new())),
+            vector_rebuild_status: Arc::new(RwLock::new(VectorIndexRebuildStatus {
+                state: VectorIndexRebuildState::Idle,
+                processed_chunks: 0,
+                total_chunks: 0,
+                error_message: None,
+                started_at: None,
+                finished_at: None,
+            })),
         }
     }
 

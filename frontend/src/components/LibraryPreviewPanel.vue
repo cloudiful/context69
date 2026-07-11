@@ -2,6 +2,8 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
+import Column from "primevue/column";
+import DataTable from "primevue/datatable";
 import Tag from "./AppTag.vue";
 
 import type { LibraryFileDetailResponse } from "../services/api";
@@ -94,27 +96,25 @@ const activeSection = computed(() => {
         />
       </template>
 
-      <div v-if="selectedFileId && detail" class="space-y-4">
-        <section class="rounded-xl border border-app-border/65 bg-app-surface/35 px-4 py-4">
-          <dl class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-4 gap-y-3">
-            <div class="grid gap-1">
-              <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.statusLabel") }}</dt>
-              <dd><Tag :value="statusLabel(detail.ingest_status)" :severity="statusSeverity(detail.ingest_status)" /></dd>
-            </div>
-            <div class="grid gap-1">
-              <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.sizeLabel") }}</dt>
-              <dd class="text-sm text-app-text">{{ formatBytes(detail.size_bytes) }}</dd>
-            </div>
-            <div class="grid gap-1">
-              <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.updatedColumn") }}</dt>
-              <dd class="text-sm text-app-text">{{ formatTimestamp(detail.updated_at) }}</dd>
-            </div>
-            <div class="grid gap-1">
-              <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.ingestedAt") }}</dt>
-              <dd class="text-sm text-app-text">{{ detail.ingested_at ? formatTimestamp(detail.ingested_at) : "—" }}</dd>
-            </div>
-          </dl>
-        </section>
+      <div v-if="selectedFileId && detail" class="space-y-3">
+        <dl class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-4 gap-y-2">
+          <div class="grid gap-1">
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.statusLabel") }}</dt>
+            <dd><Tag :value="statusLabel(detail.ingest_status)" :severity="statusSeverity(detail.ingest_status)" /></dd>
+          </div>
+          <div class="grid gap-1">
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.sizeLabel") }}</dt>
+            <dd class="text-sm text-app-text">{{ formatBytes(detail.size_bytes) }}</dd>
+          </div>
+          <div class="grid gap-1">
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.updatedColumn") }}</dt>
+            <dd class="text-sm text-app-text">{{ formatTimestamp(detail.updated_at) }}</dd>
+          </div>
+          <div class="grid gap-1">
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.ingestedAt") }}</dt>
+            <dd class="text-sm text-app-text">{{ detail.ingested_at ? formatTimestamp(detail.ingested_at) : "—" }}</dd>
+          </div>
+        </dl>
 
         <AppStateMessage
           v-if="detail.ingest_status === 'running' || detail.ingest_status === 'pending'"
@@ -147,57 +147,48 @@ const activeSection = computed(() => {
           />
         </div>
 
-        <section
-          v-if="detail.sections.length > 0"
-          class="grid gap-4 rounded-xl border border-app-border/65 bg-app-surface/35 px-4 py-4"
-        >
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <h2 class="min-w-0 flex-1 truncate text-base font-semibold text-app-text">
-              {{ activeSection?.title ?? t("library.previewSectionTitle") }}
-            </h2>
-            <div class="flex flex-wrap gap-2">
-              <Button
-                v-for="section in detail.sections"
-                :key="section.section_key"
-                :severity="activeSection?.section_key === section.section_key ? undefined : 'secondary'"
-                :variant="activeSection?.section_key === section.section_key ? undefined : 'outlined'"
-                size="small"
-                @click="emit('update:activeSectionKey', section.section_key)"
-              >
-                {{ section.section_label }}
-              </Button>
-            </div>
+        <section v-if="detail.sections.length > 0" class="grid gap-3">
+          <div v-if="detail.sections.length > 1" class="flex flex-wrap gap-2">
+            <Button
+              v-for="section in detail.sections"
+              :key="section.section_key"
+              :severity="activeSection?.section_key === section.section_key ? undefined : 'secondary'"
+              :variant="activeSection?.section_key === section.section_key ? undefined : 'outlined'"
+              size="small"
+              @click="emit('update:activeSectionKey', section.section_key)"
+            >
+              {{ section.section_label }}
+            </Button>
           </div>
 
-          <div v-if="activeSection" class="grid gap-3">
-            <div class="flex items-center justify-end">
-              <p class="text-xs text-app-text-dim">
-                {{ t("library.documentId", { id: activeSection.document_id }) }}
-              </p>
-            </div>
-            <LibraryPreviewContent
-              :content="activeSection.preview_text"
-              :content-format="activeSection.content_format"
-            />
-          </div>
+          <LibraryPreviewContent
+            v-if="activeSection"
+            :content="activeSection.preview_text"
+            :content-format="activeSection.content_format"
+          />
         </section>
 
-        <section v-if="detail.jobs.length > 0" class="grid gap-3 rounded-xl border border-app-border/65 bg-app-surface/35 px-4 py-4">
+        <section v-if="detail.jobs.length > 0" class="grid gap-2">
           <h2 class="text-sm font-semibold text-app-text">{{ t("library.jobsTitle") }}</h2>
-
-          <div class="grid gap-2">
-            <div
-              v-for="job in detail.jobs"
-              :key="job.job_id"
-              class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-app-border/55 bg-app-surface-soft/18 px-3 py-2.5"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-sm text-app-text">{{ job.job_id }}</p>
-                <p class="text-xs text-app-text-dim">{{ formatTimestamp(job.updated_at) }}</p>
-              </div>
-              <Tag :value="statusLabel(job.status)" :severity="statusSeverity(job.status)" />
-            </div>
-          </div>
+          <DataTable :value="detail.jobs" data-key="job_id" size="small">
+            <Column field="job_id" :header="t('library.jobsTitle')">
+              <template #body="{ data }">
+                <span class="block max-w-96 truncate font-mono text-xs text-app-text" :title="data.job_id">
+                  {{ data.job_id }}
+                </span>
+              </template>
+            </Column>
+            <Column field="updated_at" :header="t('library.updatedColumn')" class="w-40">
+              <template #body="{ data }">
+                <span class="whitespace-nowrap text-xs text-app-text-muted">{{ formatTimestamp(data.updated_at) }}</span>
+              </template>
+            </Column>
+            <Column field="status" :header="t('library.statusLabel')" class="w-24">
+              <template #body="{ data }">
+                <Tag :value="statusLabel(data.status)" :severity="statusSeverity(data.status)" />
+              </template>
+            </Column>
+          </DataTable>
         </section>
       </div>
     </AsyncStateBlock>

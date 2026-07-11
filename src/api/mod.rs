@@ -46,7 +46,10 @@ pub(crate) fn build_api_state(app: Arc<Context69App>) -> ApiState {
             search: Arc::new(SearchApiAdapter::new(app.query.clone(), app.auth.clone())),
         },
         settings_http: SettingsHttpState {
-            settings: Arc::new(SettingsApiAdapter::new(app.settings.clone())),
+            settings: Arc::new(SettingsApiAdapter::new(
+                app.settings.clone(),
+                app.sync.clone(),
+            )),
         },
     }
 }

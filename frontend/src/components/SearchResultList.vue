@@ -45,13 +45,14 @@ const { t } = useI18n();
         <template #body="{ data: hit }">
           <div class="grid min-w-0 gap-2">
             <div class="flex min-w-0 flex-wrap items-start gap-2.5">
-              <button
+              <Button
+                unstyled
                 class="min-w-0 flex-1 text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
                 type="button"
                 @click.stop="emit('select', hit)"
               >
                 {{ hit.title }}
-              </button>
+              </Button>
               <div class="flex shrink-0 flex-wrap items-center gap-1.5">
                 <Tag class="tool-chip" :value="hit.source_key" severity="secondary" />
                 <Tag class="tool-chip" :value="hit.external_id" severity="secondary" />
@@ -99,13 +100,14 @@ const { t } = useI18n();
       >
         <div class="flex min-w-0 items-start justify-between gap-3">
           <div class="min-w-0">
-            <button
+            <Button
+              unstyled
               class="min-w-0 flex-1 text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
               type="button"
               @click.stop="emit('select', hit)"
             >
               {{ hit.title }}
-            </button>
+            </Button>
             <div class="mt-1 flex min-w-0 flex-wrap gap-1">
               <Tag class="tool-chip" :value="hit.source_key" severity="secondary" />
               <Tag class="tool-chip" :value="formatScore(hit.score)" severity="secondary" />

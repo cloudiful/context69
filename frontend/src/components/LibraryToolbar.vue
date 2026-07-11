@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import Breadcrumb from "primevue/breadcrumb";
+import Button from "primevue/button";
 
 import AppTableToolbar from "./AppTableToolbar.vue";
 
@@ -44,13 +45,16 @@ const { t } = useI18n();
           class="min-w-0"
         >
           <template #item="{ item }">
-            <button
-              class="text-left text-sm font-medium text-app-text transition hover:text-app-text-muted"
+            <Button
+              class="min-w-0 max-w-full justify-start px-0"
               type="button"
+              size="small"
+              severity="secondary"
+              text
               @click="item.onSelect()"
             >
-              {{ item.label }}
-            </button>
+              <span class="truncate">{{ item.label }}</span>
+            </Button>
           </template>
         </Breadcrumb>
       </div>

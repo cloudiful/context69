@@ -154,25 +154,8 @@
     transform: rotate(90deg);
   }
 
-  .library-preview-dialog .p-dialog-header {
-    @apply border-b border-app-border/70 px-5 py-4;
-  }
-
-  .library-preview-dialog .p-dialog-content {
-    @apply px-0 py-0;
-  }
-
-  .library-preview-dialog .library-pane {
-    @apply px-5 py-5;
-  }
-
-  .library-preview-plaintext {
-    @apply mt-3 max-h-[34rem] overflow-auto whitespace-pre-wrap break-words rounded-[1.7rem] border border-app-border/70 bg-app-surface-soft/46 px-5 py-4 text-[0.98rem] leading-8 text-app-text-muted;
-    font-family: inherit;
-  }
-
   .library-markdown-content {
-    @apply mt-3 max-h-[34rem] overflow-auto rounded-[1.7rem] border border-app-border/70 bg-app-surface-soft/46 px-5 py-5 text-[0.98rem] leading-8 text-app-text-muted;
+    font-family: inherit;
   }
 
   .library-markdown-content > :first-child {

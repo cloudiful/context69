@@ -7,40 +7,38 @@ import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
+import VectorIndexRebuildControl from "./VectorIndexRebuildControl.vue";
 import type { DraftRuntimeSettings } from "../../utils/settings";
+import type { VectorIndexRebuildStatus } from "../../services/api";
 
 type QdrantToggleModel = { recreate_on_dimension_mismatch: boolean };
 type SchedulerToggleModel = { run_on_start: boolean };
-
 const props = defineProps<{
   qdrantToggleModel: QdrantToggleModel;
   runtimeDraft: DraftRuntimeSettings;
   schedulerToggleModel: SchedulerToggleModel;
   s3Testing: boolean;
   valkeyTesting: boolean;
+  vectorRebuildStatus: VectorIndexRebuildStatus | null;
 }>();
-
 const emit = defineEmits<{
   "update:qdrantToggleModel": [value: QdrantToggleModel];
   "update:schedulerToggleModel": [value: SchedulerToggleModel];
   "test-s3": [];
   "test-valkey": [];
+  "rebuild-vector-index": [];
 }>();
-
 const { t } = useI18n();
-
 function updateQdrantToggleModel(value: Record<string, boolean>) {
   emit("update:qdrantToggleModel", {
     recreate_on_dimension_mismatch: !!value.recreate_on_dimension_mismatch,
   });
 }
-
 function updateSchedulerToggleModel(value: Record<string, boolean>) {
   emit("update:schedulerToggleModel", {
     run_on_start: !!value.run_on_start,
   });
 }
-
 function updateS3Toggle(value: Record<string, boolean>) {
   props.runtimeDraft.file_library.s3_enabled = !!value.s3_enabled;
 }
@@ -117,6 +115,10 @@ function updateS3PathStyle(value: Record<string, boolean>) {
               { key: 'recreate_on_dimension_mismatch', inputId: 'runtime-qdrant-recreate', label: t('settings.runtime.recreateOnDimensionMismatch'), testId: 'runtime-qdrant-recreate' },
             ]"
             @update:model-value="updateQdrantToggleModel"
+          />
+          <VectorIndexRebuildControl
+            :status="vectorRebuildStatus"
+            @rebuild="emit('rebuild-vector-index')"
           />
         </div>
       </AppSettingsBlock>

@@ -39,6 +39,13 @@ Search and library ingest become available after those settings are saved and th
 Text-only ingest does not require Docling. PDF/DOCX/XLSX conversion needs Docling connection
 settings, while Docling VLM fields can be left empty unless you want VLM-based enrichment.
 
+The service records the active embedding Base URL, model, and dimensions for each Qdrant
+collection. Changing any of them starts a background rebuild of all stored chunk vectors from
+PostgreSQL during the next startup; health and settings stay available, while vector search returns
+an unavailable error until the rebuild succeeds. Docling conversion and chunking are not repeated.
+A missing collection is restored the same way. Administrators can also start an online rebuild and
+monitor its progress from Runtime Settings. Do not stop the service while a rebuild is running.
+
 File originals use `file_library.storage_root` by default. When the runtime file-library S3
 settings are complete, the service uses the configured S3-compatible bucket instead. All service
 instances must use the same S3 settings when sharing a database. S3 credentials are never returned

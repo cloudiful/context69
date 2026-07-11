@@ -2534,6 +2534,70 @@
         }
       }
     },
+    "/v1/settings/runtime/vector-index/rebuild": {
+      "get": {
+        "tags": [],
+        "operationId": "get_vector_index_rebuild_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "start_vector_index_rebuild",
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/search": {
       "get": {
         "tags": [],
@@ -5572,6 +5636,56 @@
           "user_id": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "VectorIndexRebuildState": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "running",
+          "succeeded",
+          "failed"
+        ]
+      },
+      "VectorIndexRebuildStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "processed_chunks",
+          "total_chunks"
+        ],
+        "properties": {
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "processed_chunks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VectorIndexRebuildState"
+          },
+          "total_chunks": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

@@ -23,6 +23,7 @@ import { useProjectLibraryDetail } from "../composables/project-library/use-proj
 import { useProjectLibraryPage } from "../composables/project-library/use-project-library-page";
 import { useGroupBrowserEntries } from "../composables/project-library/use-group-browser-entries";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
+import { libraryPreviewDialogPt } from "./app-dialog";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
 import { apiClient, type GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
@@ -210,7 +211,9 @@ function handleExplorerRowClick(event: { data: ExplorerEntry }) {
   if (entry.kind === "folder") {
     treeState.toggleFolderExpansion(entry.id);
     void treeState.selectFolder(entry.id);
+    return;
   }
+  void openExplorerEntry(entry);
 }
 
 function handleExplorerRowDoubleClick(event: { data: ExplorerEntry }) {
@@ -524,6 +527,7 @@ onBeforeUnmount(() => {
     modal
     :header="previewState.previewTitle"
     class="library-preview-dialog w-[min(96vw,58rem)]"
+    :pt="libraryPreviewDialogPt"
   >
     <LibraryPreviewPanel
       :active-section-key="detailState.activeSectionKey"

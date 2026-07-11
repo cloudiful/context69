@@ -756,6 +756,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/runtime/vector-index/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_vector_index_rebuild_status"];
+        put?: never;
+        post: operations["start_vector_index_rebuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/search": {
         parameters: {
             query?: never;
@@ -1517,6 +1533,18 @@ export interface components {
             login_name: string;
             /** Format: int64 */
             user_id: number;
+        };
+        /** @enum {string} */
+        VectorIndexRebuildState: "idle" | "running" | "succeeded" | "failed";
+        VectorIndexRebuildStatus: {
+            error_message?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            processed_chunks: number;
+            /** Format: date-time */
+            started_at?: string | null;
+            state: components["schemas"]["VectorIndexRebuildState"];
+            total_chunks: number;
         };
         /** @enum {string} */
         Visibility: "public" | "private";
@@ -3646,6 +3674,68 @@ export interface operations {
                 content?: never;
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_vector_index_rebuild_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorIndexRebuildStatus"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    start_vector_index_rebuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorIndexRebuildStatus"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

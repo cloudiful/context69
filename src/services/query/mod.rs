@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use anyhow::{Result, anyhow};
 use context69_search::SearchService;
@@ -18,11 +21,16 @@ use self::adapters::{AuthScopeResolver, DbSearchRepository, EmbeddingAdapter, Qd
 pub struct QueryService {
     db: Database,
     inner: Option<SearchService>,
+    vector_index_ready: Arc<AtomicBool>,
 }
 
 impl QueryService {
     pub fn disabled(db: Database) -> Self {
-        Self { db, inner: None }
+        Self {
+            db,
+            inner: None,
+            vector_index_ready: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     pub async fn new(
@@ -32,6 +40,7 @@ impl QueryService {
         valkey_url: Option<&str>,
         embedding_model: String,
         auth: AuthService,
+        vector_index_ready: Arc<AtomicBool>,
     ) -> Result<Self> {
         Ok(Self {
             db: db.clone(),
@@ -46,6 +55,7 @@ impl QueryService {
                 )
                 .await?,
             ),
+            vector_index_ready,
         })
     }
 
@@ -54,6 +64,11 @@ impl QueryService {
         user_id: Option<i64>,
         request: SearchRequest,
     ) -> Result<SearchResponse> {
+        if !self.vector_index_ready.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "vector index is rebuilding or unavailable; retry after the rebuild completes"
+            ));
+        }
         let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
         inner.search(user_id, request).await
     }

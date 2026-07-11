@@ -12,7 +12,7 @@ use axum::{
 use context69_contracts::{
     ApiErrorResponse, DoclingSettingsResponse, RuntimeSettingsResponse, SearchSettingsResponse,
     TestRuntimeValkeyRequest, UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings,
-    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, VectorIndexRebuildStatus,
 };
 use context69_http_support::{internal_error_response, json_error_response, runtime_aware_status};
 use utoipa::OpenApi;
@@ -26,6 +26,8 @@ pub trait SettingsApi: Send + Sync {
     ) -> Result<RuntimeSettingsResponse>;
     async fn test_s3_connection(&self, request: &UpdateRuntimeS3Settings) -> Result<()>;
     async fn test_valkey_connection(&self, request: &TestRuntimeValkeyRequest) -> Result<()>;
+    async fn get_vector_index_rebuild_status(&self) -> Result<VectorIndexRebuildStatus>;
+    async fn start_vector_index_rebuild(&self) -> Result<VectorIndexRebuildStatus>;
     async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse>;
     async fn update_docling_settings(
         &self,
@@ -62,6 +64,10 @@ where
             axum::routing::post(test_valkey_connection),
         )
         .route(
+            "/v1/settings/runtime/vector-index/rebuild",
+            get(get_vector_index_rebuild_status).post(start_vector_index_rebuild),
+        )
+        .route(
             "/v1/settings/docling",
             get(get_docling_settings).put(update_docling_settings),
         )
@@ -78,6 +84,8 @@ where
         update_runtime_settings,
         test_s3_connection,
         test_valkey_connection,
+        get_vector_index_rebuild_status,
+        start_vector_index_rebuild,
         get_docling_settings,
         update_docling_settings,
         get_search_settings,
@@ -90,6 +98,7 @@ where
             UpdateRuntimeSettingsRequest,
             UpdateRuntimeS3Settings,
             TestRuntimeValkeyRequest,
+            VectorIndexRebuildStatus,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
             SearchSettingsResponse,
@@ -145,6 +154,24 @@ async fn test_valkey_connection(
     }
 }
 
+#[utoipa::path(get, path = "/v1/settings/runtime/vector-index/rebuild", responses((status = 200, body = VectorIndexRebuildStatus), (status = 500, body = ApiErrorResponse)))]
+async fn get_vector_index_rebuild_status(
+    State(state): State<SettingsHttpState>,
+) -> impl IntoResponse {
+    match state.settings.get_vector_index_rebuild_status().await {
+        Ok(status) => (StatusCode::OK, axum::Json(status)).into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/settings/runtime/vector-index/rebuild", responses((status = 202, body = VectorIndexRebuildStatus), (status = 409, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn start_vector_index_rebuild(State(state): State<SettingsHttpState>) -> impl IntoResponse {
+    match state.settings.start_vector_index_rebuild().await {
+        Ok(status) => (StatusCode::ACCEPTED, axum::Json(status)).into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
 #[utoipa::path(get, path = "/v1/settings/docling", responses((status = 200, body = DoclingSettingsResponse), (status = 500, body = ApiErrorResponse)))]
 async fn get_docling_settings(State(state): State<SettingsHttpState>) -> impl IntoResponse {
     match state.settings.get_docling_settings().await {
@@ -187,6 +214,8 @@ fn settings_management_error_response(error: anyhow::Error) -> axum::response::R
     let message = error.to_string();
     let status = if let Some(status) = runtime_aware_status(&message) {
         status
+    } else if message.contains("already running") {
+        StatusCode::CONFLICT
     } else if message.contains("must not be empty")
         || message.contains("must be greater than 0")
         || message.contains("must be one of")

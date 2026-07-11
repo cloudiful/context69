@@ -63,5 +63,6 @@ declare module 'vue' {
     SettingsSearchSection: typeof import('./src/components/settings-sections/SettingsSearchSection.vue')['default']
     SourceEditorForm: typeof import('./src/components/SourceEditorForm.vue')['default']
     SourceTable: typeof import('./src/components/SourceTable.vue')['default']
+    VectorIndexRebuildControl: typeof import('./src/components/settings-sections/VectorIndexRebuildControl.vue')['default']
   }
 }

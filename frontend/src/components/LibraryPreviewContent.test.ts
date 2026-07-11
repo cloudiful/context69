@@ -18,7 +18,7 @@ describe("LibraryPreviewContent", () => {
 
     expect(wrapper.html()).toContain("<h1>Title</h1>");
     expect(wrapper.html()).toContain("<strong>Bold</strong>");
-    expect(wrapper.find("pre.library-preview-plaintext").exists()).toBe(false);
+    expect(wrapper.find("pre").exists()).toBe(false);
   });
 
   it("renders plain text content in a pre block", () => {
@@ -29,7 +29,7 @@ describe("LibraryPreviewContent", () => {
       },
     });
 
-    expect(wrapper.find("pre.library-preview-plaintext").exists()).toBe(true);
+    expect(wrapper.find("pre").exists()).toBe(true);
     expect(wrapper.text()).toContain("# Title");
     expect(wrapper.find(".library-markdown-content").exists()).toBe(false);
   });

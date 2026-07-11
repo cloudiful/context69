@@ -18,10 +18,12 @@ mod search_cache;
 mod search_settings;
 mod source_connections;
 mod sync_runs;
+mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
 pub use personal_access_tokens::PersonalAccessTokenRecord;
 use rows::*;
+pub use vector_index_state::VectorIndexState;
 
 #[derive(Clone)]
 pub struct Database {

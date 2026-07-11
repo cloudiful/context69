@@ -205,6 +205,7 @@ impl SyncService {
     pub async fn rebuild_index_from_db(&self) -> Result<usize> {
         let runtime = self.runtime()?.clone();
         let payloads = self.db.list_chunk_payloads_for_reindex().await?;
+        self.set_vector_rebuild_progress(0, payloads.len()).await;
         if payloads.is_empty() {
             return Ok(0);
         }
@@ -222,6 +223,8 @@ impl SyncService {
                 .replace_document_chunks(&[], batch, &embeddings)
                 .await?;
             rebuilt += batch.len();
+            self.set_vector_rebuild_progress(rebuilt, payloads.len())
+                .await;
         }
 
         info!(
@@ -229,5 +232,64 @@ impl SyncService {
             "reindexed qdrant collection from app db"
         );
         Ok(rebuilt)
+    }
+
+    pub async fn vector_index_rebuild_status(&self) -> VectorIndexRebuildStatus {
+        self.vector_rebuild_status.read().await.clone()
+    }
+
+    pub async fn start_vector_index_rebuild(&self) -> Result<VectorIndexRebuildStatus> {
+        self.runtime()?;
+        self.begin_vector_index_rebuild().await?;
+
+        let service = self.clone();
+        tokio::spawn(async move {
+            let result = service.rebuild_index_from_db().await;
+            service.finish_vector_index_rebuild(result).await;
+        });
+
+        Ok(self.vector_index_rebuild_status().await)
+    }
+
+    pub(crate) async fn begin_vector_index_rebuild(&self) -> Result<()> {
+        self.runtime()?;
+        let mut status = self.vector_rebuild_status.write().await;
+        if status.state == VectorIndexRebuildState::Running {
+            return Err(anyhow!("vector index rebuild is already running"));
+        }
+        *status = VectorIndexRebuildStatus {
+            state: VectorIndexRebuildState::Running,
+            processed_chunks: 0,
+            total_chunks: 0,
+            error_message: None,
+            started_at: Some(chrono::Utc::now()),
+            finished_at: None,
+        };
+        Ok(())
+    }
+
+    pub(crate) async fn finish_vector_index_rebuild(&self, result: Result<usize>) {
+        let mut status = self.vector_rebuild_status.write().await;
+        status.finished_at = Some(chrono::Utc::now());
+        match result {
+            Ok(rebuilt) => {
+                status.state = VectorIndexRebuildState::Succeeded;
+                status.processed_chunks = rebuilt;
+                status.total_chunks = rebuilt;
+            }
+            Err(error) => {
+                error!(error = %error, "vector index rebuild failed");
+                status.state = VectorIndexRebuildState::Failed;
+                status.error_message = Some(error.to_string());
+            }
+        }
+    }
+
+    async fn set_vector_rebuild_progress(&self, processed_chunks: usize, total_chunks: usize) {
+        let mut status = self.vector_rebuild_status.write().await;
+        if status.state == VectorIndexRebuildState::Running {
+            status.processed_chunks = processed_chunks;
+            status.total_chunks = total_chunks;
+        }
     }
 }

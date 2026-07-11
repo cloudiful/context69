@@ -2,15 +2,17 @@ use async_trait::async_trait;
 use context69_settings_http::SettingsApi;
 
 use crate::services::settings::SettingsService;
+use crate::services::sync::SyncService;
 
 #[derive(Clone)]
 pub struct SettingsApiAdapter {
     service: SettingsService,
+    sync: SyncService,
 }
 
 impl SettingsApiAdapter {
-    pub fn new(service: SettingsService) -> Self {
-        Self { service }
+    pub fn new(service: SettingsService, sync: SyncService) -> Self {
+        Self { service, sync }
     }
 }
 
@@ -41,6 +43,18 @@ impl SettingsApi for SettingsApiAdapter {
         request: &crate::contracts::TestRuntimeValkeyRequest,
     ) -> anyhow::Result<()> {
         self.service.test_valkey_connection(request).await
+    }
+
+    async fn get_vector_index_rebuild_status(
+        &self,
+    ) -> anyhow::Result<crate::contracts::VectorIndexRebuildStatus> {
+        Ok(self.sync.vector_index_rebuild_status().await)
+    }
+
+    async fn start_vector_index_rebuild(
+        &self,
+    ) -> anyhow::Result<crate::contracts::VectorIndexRebuildStatus> {
+        self.sync.start_vector_index_rebuild().await
     }
 
     async fn get_docling_settings(

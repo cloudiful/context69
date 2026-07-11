@@ -66,6 +66,7 @@ export type UpsertMembershipRequest = Schemas["UpsertMembershipRequest"];
 export type UpsertSourceConnectionRequest = Schemas["UpsertSourceConnectionRequest"];
 export type UserDirectoryEntryResponse = Schemas["UserDirectoryEntryResponse"];
 export type Visibility = Schemas["Visibility"];
+export type VectorIndexRebuildStatus = Schemas["VectorIndexRebuildStatus"];
 
 export interface RequestOptions {
   signal?: AbortSignal;

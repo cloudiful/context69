@@ -1,7 +1,10 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use anyhow::Result;
-use sha2::{Digest, Sha512};
 use tracing::warn;
 
 use crate::{
@@ -20,6 +23,12 @@ use crate::{
     source_store::SourceStore,
 };
 
+mod browser_sessions;
+mod vector_identity;
+mod vector_rebuild;
+
+pub use browser_sessions::BrowserSessionConfig;
+
 #[derive(Clone)]
 pub struct Context69App {
     pub config: Config,
@@ -35,14 +44,6 @@ pub struct Context69App {
     pub browser_sessions: BrowserSessionConfig,
 }
 
-#[derive(Clone)]
-pub struct BrowserSessionConfig {
-    pub valkey_url: String,
-    pub signing_key: [u8; 64],
-}
-
-const BROWSER_SESSION_SIGNING_KEY: &str = "browser_session_signing_key_v2";
-
 impl Context69App {
     pub async fn new(mut config: Config) -> Result<Self> {
         let db = Database::connect(&config.app_db.url).await?;
@@ -57,7 +58,7 @@ impl Context69App {
         if let Some(runtime) = &runtime {
             apply_runtime_settings(&mut config, runtime);
         }
-        let browser_sessions = resolve_browser_session_config(&db, &config).await?;
+        let browser_sessions = browser_sessions::resolve(&db, &config).await?;
         config.connections = db
             .list_source_connections()
             .await?
@@ -77,17 +78,25 @@ impl Context69App {
 
         let mut embedding: Option<Arc<dyn EmbeddingProvider>> = None;
         let mut index: Option<QdrantIndex> = None;
-        let mut recreated_collection = false;
+        let mut collection_needs_rebuild = false;
+        let vector_fingerprint = vector_identity::fingerprint(&config);
+        let stored_vector_fingerprint = db
+            .get_vector_index_fingerprint(&config.qdrant.collection_name)
+            .await?;
+        let vector_fingerprint_changed =
+            stored_vector_fingerprint.as_deref() != Some(&vector_fingerprint);
 
         if runtime.is_some() {
             match OpenAiCompatibleEmbeddingProvider::new(config.embedding.clone()) {
                 Ok(provider) => {
                     let provider: Arc<dyn EmbeddingProvider> = Arc::new(provider);
-                    match QdrantIndex::connect(&config.qdrant, config.embedding.dimensions).await {
+                    let mut qdrant_config = config.qdrant.clone();
+                    qdrant_config.recreate_on_dimension_mismatch |= vector_fingerprint_changed;
+                    match QdrantIndex::connect(&qdrant_config, config.embedding.dimensions).await {
                         Ok((connected_index, recreated)) => {
                             embedding = Some(provider);
                             index = Some(connected_index);
-                            recreated_collection = recreated;
+                            collection_needs_rebuild = recreated;
                         }
                         Err(error) => {
                             warn!(error = %error, "qdrant runtime is unavailable; continuing in degraded mode");
@@ -114,8 +123,11 @@ impl Context69App {
         if let Err(error) = sync.validate_sources().await {
             warn!(error = %error, "source validation failed during startup; continuing without blocking service startup");
         }
-        if recreated_collection && sync.runtime_configured() {
-            sync.rebuild_index_from_db().await?;
+        let automatic_rebuild_needed =
+            sync.runtime_configured() && (collection_needs_rebuild || vector_fingerprint_changed);
+        let vector_index_ready = Arc::new(AtomicBool::new(!automatic_rebuild_needed));
+        if automatic_rebuild_needed {
+            sync.begin_vector_index_rebuild().await?;
         }
         let query = if let (Some(embedding), Some(index)) = (embedding.clone(), index.clone()) {
             QueryService::new(
@@ -123,8 +135,9 @@ impl Context69App {
                 embedding,
                 index,
                 config.scheduler.valkey_url.as_deref(),
-                config.embedding.model.clone(),
+                vector_identity::fingerprint(&config),
                 auth.clone(),
+                vector_index_ready.clone(),
             )
             .await?
         } else {
@@ -145,6 +158,19 @@ impl Context69App {
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
             warn!(error = %error, "failed to prune expired rerank item scores during startup");
         }
+        if automatic_rebuild_needed {
+            vector_rebuild::spawn(
+                sync.clone(),
+                db.clone(),
+                index
+                    .clone()
+                    .expect("automatic vector rebuild requires a qdrant index"),
+                config.clone(),
+                vector_fingerprint,
+                vector_fingerprint_changed && !collection_needs_rebuild,
+                vector_index_ready,
+            );
+        }
 
         Ok(Self {
             config,
@@ -160,53 +186,6 @@ impl Context69App {
             browser_sessions,
         })
     }
-}
-
-async fn resolve_browser_session_config(
-    db: &Database,
-    config: &Config,
-) -> Result<BrowserSessionConfig> {
-    let valkey_url = resolve_browser_session_valkey_url(config);
-
-    let signing_key = if let Some(secret) = config
-        .auth
-        .session_secret_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        Sha512::digest(secret.as_bytes()).into()
-    } else {
-        let mut candidate = [0_u8; 64];
-        getrandom::fill(&mut candidate)
-            .map_err(|error| anyhow::anyhow!("failed to generate browser session key: {error}"))?;
-        let stored = db
-            .get_or_create_internal_secret(BROWSER_SESSION_SIGNING_KEY, &candidate)
-            .await?;
-        stored.try_into().map_err(|stored: Vec<u8>| {
-            anyhow::anyhow!(
-                "internal browser session signing key has invalid length {}; expected 64",
-                stored.len()
-            )
-        })?
-    };
-
-    Ok(BrowserSessionConfig {
-        valkey_url,
-        signing_key,
-    })
-}
-
-fn resolve_browser_session_valkey_url(config: &Config) -> String {
-    config
-        .auth
-        .session_valkey_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .or_else(|| config.scheduler.valkey_url.clone())
-        .unwrap_or_else(|| crate::config::DEFAULT_SESSION_VALKEY_URL.to_string())
 }
 
 async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Result<()> {
@@ -375,8 +354,7 @@ fn qdrant_grpc_url_from_rest_port(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{qdrant_grpc_url_from_rest_port, resolve_browser_session_valkey_url};
-    use crate::config::Config;
+    use super::qdrant_grpc_url_from_rest_port;
 
     #[test]
     fn upgrades_qdrant_rest_port_to_grpc_port() {
@@ -393,26 +371,5 @@ mod tests {
     #[test]
     fn keeps_qdrant_grpc_port_unchanged() {
         assert_eq!(qdrant_grpc_url_from_rest_port("http://qdrant:6334"), None);
-    }
-
-    #[test]
-    fn browser_session_valkey_prefers_override_then_runtime_then_default() {
-        let mut config = Config::default();
-        assert_eq!(
-            resolve_browser_session_valkey_url(&config),
-            "redis://127.0.0.1:6379"
-        );
-
-        config.scheduler.valkey_url = Some("redis://runtime:6379/0".to_string());
-        assert_eq!(
-            resolve_browser_session_valkey_url(&config),
-            "redis://runtime:6379/0"
-        );
-
-        config.auth.session_valkey_url = Some(" redis://override:6379/1 ".to_string());
-        assert_eq!(
-            resolve_browser_session_valkey_url(&config),
-            "redis://override:6379/1"
-        );
     }
 }

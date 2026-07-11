@@ -1,0 +1,49 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+import Button from "primevue/button";
+
+import type { VectorIndexRebuildStatus } from "../../services/api";
+
+const props = defineProps<{
+  status: VectorIndexRebuildStatus | null;
+}>();
+
+defineEmits<{ rebuild: [] }>();
+
+const { t } = useI18n();
+const running = computed(() => props.status?.state === "running");
+const progress = computed(() => {
+  if (!props.status || props.status.total_chunks === 0) return "";
+  return t("settings.runtime.vectorRebuildProgress", {
+    processed: props.status.processed_chunks,
+    total: props.status.total_chunks,
+  });
+});
+</script>
+
+<template>
+  <div class="grid gap-2">
+    <div>
+      <Button
+        icon="pi pi-refresh"
+        :label="t('settings.runtime.vectorRebuild')"
+        size="small"
+        severity="secondary"
+        :loading="running"
+        :disabled="running"
+        data-testid="runtime-vector-rebuild"
+        @click="$emit('rebuild')"
+      />
+    </div>
+    <p v-if="running" class="m-0 text-sm text-app-text-dim">
+      {{ progress || t('settings.runtime.vectorRebuilding') }}
+    </p>
+    <p v-else-if="status?.state === 'succeeded'" class="m-0 text-sm text-app-success">
+      {{ t('settings.runtime.vectorRebuildSucceeded', { count: status.processed_chunks }) }}
+    </p>
+    <p v-else-if="status?.state === 'failed'" class="m-0 text-sm text-app-danger">
+      {{ status.error_message || t('settings.runtime.vectorRebuildFailed') }}
+    </p>
+  </div>
+</template>
