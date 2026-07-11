@@ -16,8 +16,8 @@ const props = withDefaults(defineProps<{
   <section v-if="props.surface === 'plain'" class="grid min-w-0 gap-3">
     <div v-if="props.title || $slots.actions || props.label" class="flex items-start justify-between gap-3">
       <div class="min-w-0">
-        <p v-if="props.label" class="section-label">{{ props.label }}</p>
-        <h2 v-if="props.title" class="section-title">{{ props.title }}</h2>
+        <p v-if="props.label" class="text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim">{{ props.label }}</p>
+        <h2 v-if="props.title" class="text-base font-semibold text-app-text">{{ props.title }}</h2>
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <slot name="actions" />
@@ -33,8 +33,8 @@ const props = withDefaults(defineProps<{
     <template v-if="props.title || $slots.actions || props.label" #title>
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p v-if="props.label" class="section-label">{{ props.label }}</p>
-          <h2 v-if="props.title" class="section-title">{{ props.title }}</h2>
+          <p v-if="props.label" class="text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim">{{ props.label }}</p>
+          <h2 v-if="props.title" class="text-base font-semibold text-app-text">{{ props.title }}</h2>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <slot name="actions" />

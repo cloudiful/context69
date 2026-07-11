@@ -113,7 +113,7 @@ describe("SourcesView", () => {
     await flushPromises();
 
     expect(wrapper.find(".source-card-list").exists()).toBe(true);
-    expect(wrapper.find(".tool-card").text()).toContain("国务院/部委政策公文");
+    expect(wrapper.get('[data-testid="source-card"]').text()).toContain("国务院/部委政策公文");
 
     const syncButton = wrapper.findAll("button").find((button) => button.text() === "Sync");
     expect(syncButton).toBeTruthy();

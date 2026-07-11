@@ -111,7 +111,7 @@ function handleSurfaceContextMenu(event: MouseEvent) {
     return;
   }
 
-  if (target.closest("tr") || target.closest(".tool-card")) {
+  if (target.closest("tr") || target.closest("[data-library-card]")) {
     return;
   }
 
@@ -213,7 +213,7 @@ function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
         </template>
 
         <DataTable
-          class="tool-table-desktop"
+          class="hidden md:block"
           :selection="props.selection"
           :contextMenuSelection="props.tableContextSelection"
           :value="displayEntries"

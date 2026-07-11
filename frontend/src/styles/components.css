@@ -105,38 +105,6 @@
     @apply mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
   }
 
-  .app-form-field {
-    @apply grid min-w-0 content-start self-start gap-3;
-  }
-
-  .app-float-field.p-floatlabel {
-    @apply block;
-  }
-
-  .app-float-field > .p-inputtext,
-  .app-float-field > .p-inputnumber,
-  .app-float-field > .p-select {
-    @apply w-full;
-  }
-
-  .app-float-field > .p-inputnumber > .p-inputtext {
-    @apply w-full;
-  }
-
-  .app-form-field-label {
-    @apply text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
-  .app-float-field-label {
-    @apply text-xs font-medium uppercase tracking-[0.08em];
-    background: transparent !important;
-    padding-inline: 0 !important;
-  }
-
-  .app-form-field-help {
-    @apply text-xs leading-6 text-app-text-dim;
-  }
-
   .search-results-panel.p-card {
     border-radius: 1.1rem;
   }
@@ -321,81 +289,6 @@
     cursor: pointer;
   }
 
-
-  .tool-table-desktop {
-    display: block;
-  }
-
-  .tool-card-list {
-    display: none;
-  }
-
-  .tool-card {
-    @apply grid gap-2 border-b border-app-border/70 bg-app-surface px-3 py-2.5 text-sm last:border-b-0;
-  }
-
-  .tool-card-selected {
-    background: color-mix(in srgb, var(--color-app-surface-soft) 54%, var(--color-app-surface) 46%);
-  }
-
-  .tool-card-header {
-    @apply flex min-w-0 items-start justify-between gap-3;
-  }
-
-  .tool-card-title {
-    @apply block min-w-0 truncate text-left text-sm font-semibold leading-5 text-app-text;
-  }
-
-  .tool-card-subtitle {
-    @apply mt-0.5 truncate text-xs leading-5 text-app-text-dim;
-  }
-
-  .tool-card-snippet {
-    display: -webkit-box;
-    overflow: hidden;
-    color: var(--color-app-text-muted);
-    font-size: 0.82rem;
-    line-height: 1.35rem;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-
-  .tool-chip-row {
-    @apply mt-1 flex min-w-0 flex-wrap gap-1;
-  }
-
-  .tool-meta-grid {
-    @apply grid gap-x-3 gap-y-1 text-xs text-app-text-dim;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .tool-meta-grid div {
-    @apply min-w-0;
-  }
-
-  .tool-meta-grid dt {
-    @apply text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
-  .tool-meta-grid dd {
-    @apply mt-0.5 truncate text-app-text-muted;
-  }
-
-  .tool-meta-full {
-    grid-column: 1 / -1;
-  }
-
-  .tool-meta-full dd {
-    @apply break-all whitespace-normal;
-  }
-
-  .tool-card-actions {
-    @apply flex flex-wrap items-center justify-end gap-1;
-  }
-
-  .tool-empty {
-    @apply px-3 py-8 text-center text-sm text-app-text-dim;
-  }
 
   .library-layout {
     @apply grid gap-2;

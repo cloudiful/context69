@@ -304,16 +304,6 @@
     line-height: 1.45;
   }
 
-  .app-state-message-body {
-    display: grid;
-    gap: 0.2rem;
-  }
-
-  .app-state-message-title,
-  .app-state-message-text {
-    margin: 0;
-  }
-
   :root[data-theme="light"] .p-tag-success,
   :root[data-theme="light"] .p-message-success {
     color: color-mix(in srgb, var(--color-app-success) 82%, black 18%);
@@ -605,30 +595,6 @@
     border-top: 1px solid color-mix(in srgb, var(--color-app-border) 72%, transparent);
   }
 
-  .library-modal-body {
-    @apply grid gap-6;
-  }
-
-  .library-modal-intro {
-    @apply grid gap-2;
-  }
-
-  .library-modal-description {
-    @apply text-sm leading-7 text-app-text-muted;
-  }
-
-  .library-modal-field {
-    @apply grid gap-2;
-  }
-
-  .library-modal-control {
-    @apply w-full;
-  }
-
-  .library-modal-footer {
-    @apply flex flex-wrap justify-end gap-3;
-  }
-
   @media (max-width: 1023px) {
     .sources-panel > .p-card-body {
       padding: 1.25rem;
@@ -653,43 +619,11 @@
   }
 
   @media (max-width: 767px) {
-    .tool-card {
-      gap: 0.45rem;
-      padding: 0.65rem 0.75rem;
-    }
-
-    .tool-card-title {
-      font-size: 0.95rem;
-      line-height: 1.25rem;
-    }
-
-    .tool-card-snippet {
-      font-size: 0.82rem;
-      line-height: 1.25rem;
-      -webkit-line-clamp: 2;
-    }
-
     .tool-chip.p-tag,
     .p-tag {
       min-height: 1.25rem;
       padding: 0.08rem 0.38rem;
       font-size: 0.72rem;
-    }
-
-    .tool-meta-grid {
-      gap-y: 0.35rem;
-    }
-
-    .tool-card-actions {
-      justify-content: flex-start;
-    }
-
-    .tool-table-desktop {
-      display: none;
-    }
-
-    .tool-card-list {
-      display: grid;
     }
 
     .library-layout,
@@ -739,15 +673,6 @@
     .search-form-grid-secondary {
       gap: 0.5rem;
       grid-template-columns: minmax(0, 1fr);
-    }
-
-    .search-form-layout .app-form-field {
-      gap: 0.35rem;
-    }
-
-    .search-form-layout .app-form-field-label {
-      font-size: 0.7rem;
-      letter-spacing: 0.08em;
     }
 
     .search-form-layout .p-inputtext,

@@ -116,7 +116,7 @@ function handleRowSelect(source: SourceStatus) {
     <div class="overflow-hidden rounded-[0.8rem] border border-app-border/90 bg-app-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <DataTable
         :value="filteredSources"
-        class="source-data-table tool-table-desktop"
+        class="source-data-table hidden md:block"
         data-key="source_key"
         removable-sort
         resizable-columns
@@ -279,18 +279,18 @@ function handleRowSelect(source: SourceStatus) {
         </Column>
       </DataTable>
 
-      <div class="tool-card-list source-card-list">
-        <div v-if="filteredSources.length === 0" class="tool-empty">
+      <div class="hidden grid-cols-1 md:hidden source-card-list">
+        <div v-if="filteredSources.length === 0" class="px-3 py-8 text-center text-sm text-app-text-dim">
           {{ t("sources.emptyMessage") }}
         </div>
-        <article v-for="source in filteredSources" :key="source.source_key" class="tool-card">
-          <div class="tool-card-header">
+        <article v-for="source in filteredSources" :key="source.source_key" data-testid="source-card" class="grid gap-[0.45rem] border-b border-app-border/70 bg-app-surface px-3 py-[0.65rem] text-sm last:border-b-0">
+          <div class="flex min-w-0 items-start justify-between gap-3">
             <div class="min-w-0">
-              <h3 class="tool-card-title">{{ source.display_name }}</h3>
+              <h3 class="block min-w-0 truncate text-left text-sm font-semibold leading-5 text-app-text">{{ source.display_name }}</h3>
               <p v-if="source.display_name !== source.source_key" class="text-xs leading-5 text-app-text-dim">
                 {{ source.source_key }}
               </p>
-              <div class="tool-chip-row">
+              <div class="mt-1 flex min-w-0 flex-wrap gap-1">
                 <Tag class="tool-chip" :value="source.connector_type" severity="secondary" />
                 <Tag class="tool-chip" :value="source.connection" severity="secondary" />
                 <Tag class="tool-chip" :value="source.sync_strategy" severity="secondary" />
@@ -298,11 +298,11 @@ function handleRowSelect(source: SourceStatus) {
             </div>
           </div>
 
-          <p v-if="source.description" class="tool-card-snippet max-w-[44rem]">
+          <p v-if="source.description" class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-app-text-muted [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {{ source.description }}
           </p>
-          <p class="tool-card-snippet max-w-[44rem]" :title="source.base_query">{{ source.base_query }}</p>
-          <div v-if="(source.example_queries ?? []).length > 0" class="tool-chip-row">
+          <p class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-app-text-muted [-webkit-box-orient:vertical] [-webkit-line-clamp:2]" :title="source.base_query">{{ source.base_query }}</p>
+          <div v-if="(source.example_queries ?? []).length > 0" class="mt-1 flex min-w-0 flex-wrap gap-1">
             <Tag
               v-for="query in (source.example_queries ?? []).slice(0, 3)"
               :key="query"
@@ -312,32 +312,32 @@ function handleRowSelect(source: SourceStatus) {
             />
           </div>
 
-          <dl class="tool-meta-grid">
-            <div>
-              <dt>{{ t("sources.table.batchSize") }}</dt>
-              <dd>{{ source.batch_size }}</dd>
+          <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-app-text-dim">
+            <div class="min-w-0">
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.table.batchSize") }}</dt>
+              <dd class="mt-0.5 truncate text-app-text-muted">{{ source.batch_size }}</dd>
             </div>
-            <div>
-              <dt>{{ t("sources.table.lastSuccess") }}</dt>
-              <dd>{{ formatTimestamp(source.last_success_at) }}</dd>
+            <div class="min-w-0">
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.table.lastSuccess") }}</dt>
+              <dd class="mt-0.5 truncate text-app-text-muted">{{ formatTimestamp(source.last_success_at) }}</dd>
             </div>
-            <div class="tool-meta-full">
-              <dt>{{ t("sources.table.cursor") }}</dt>
-              <dd>{{ source.last_cursor_external_id ?? formatTimestamp(source.last_cursor_updated_at) }}</dd>
+            <div class="col-span-full min-w-0">
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.table.cursor") }}</dt>
+              <dd class="mt-0.5 break-all whitespace-normal text-app-text-muted">{{ source.last_cursor_external_id ?? formatTimestamp(source.last_cursor_updated_at) }}</dd>
             </div>
-            <div class="tool-meta-full">
-              <dt>{{ t("sources.table.origin") }}</dt>
-              <dd>
+            <div class="col-span-full min-w-0">
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.table.origin") }}</dt>
+              <dd class="mt-0.5 break-all whitespace-normal text-app-text-muted">
                 <Tag class="tool-chip" :value="originLabel(source)" :severity="originSeverity(source)" />
               </dd>
             </div>
           </dl>
 
-          <p v-if="source.origin_message" class="tool-card-snippet">
+          <p v-if="source.origin_message" class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-app-text-muted [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {{ source.origin_message }}
           </p>
 
-          <div v-if="props.canManage" class="tool-card-actions">
+          <div v-if="props.canManage" class="flex flex-wrap items-center justify-start gap-1">
             <Button :class="compactTableActionButtonClass" type="button" @click="emit('edit', source)">
               {{ t("common.edit") }}
             </Button>

@@ -118,7 +118,7 @@ describe("SearchView", () => {
       expect.any(Object),
     );
     expect(wrapper.find(".search-results-panel").exists()).toBe(true);
-    expect(wrapper.findAll(".section-title").filter((node) => node.text() === "Search Results")).toHaveLength(1);
+    expect(wrapper.findAll("h2").filter((node) => node.text() === "Search Results")).toHaveLength(1);
     expect(wrapper.findAll(".section-label").map((node) => node.text())).not.toContain("Results");
     expect(wrapper.text()).toContain("Policy Circular");
     expect(wrapper.text()).not.toContain("Query Console");

@@ -36,7 +36,7 @@ const { t } = useI18n();
       state-storage="local"
       state-key="context69:table:search-results:v2"
       table-style="min-width: 44rem"
-      class="search-results-table tool-table-desktop"
+      class="search-results-table hidden md:block"
       @update:selection="emit('select', $event)"
       @row-click="emit('select', $event.data)"
       @row-dblclick="emit('open', $event.data)"
@@ -87,16 +87,17 @@ const { t } = useI18n();
       </Column>
     </DataTable>
 
-    <div class="tool-card-list search-card-list">
+    <div class="hidden grid-cols-1 md:hidden search-card-list">
       <article
         v-for="hit in hits"
         :key="hit.chunk_id"
-        class="tool-card"
-        :class="{ 'tool-card-selected': selectedHit?.chunk_id === hit.chunk_id }"
+        class="grid gap-[0.45rem] border-b border-app-border/70 bg-app-surface px-3 py-[0.65rem] text-sm last:border-b-0"
+        data-testid="search-result-card"
+        :class="{ 'bg-[color-mix(in_srgb,var(--color-app-surface-soft)_54%,var(--color-app-surface)_46%)]': selectedHit?.chunk_id === hit.chunk_id }"
         @click="emit('select', hit)"
         @dblclick="emit('open', hit)"
       >
-        <div class="tool-card-header">
+        <div class="flex min-w-0 items-start justify-between gap-3">
           <div class="min-w-0">
             <button
               class="min-w-0 flex-1 text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
@@ -105,7 +106,7 @@ const { t } = useI18n();
             >
               {{ hit.title }}
             </button>
-            <div class="tool-chip-row">
+            <div class="mt-1 flex min-w-0 flex-wrap gap-1">
               <Tag class="tool-chip" :value="hit.source_key" severity="secondary" />
               <Tag class="tool-chip" :value="formatScore(hit.score)" severity="secondary" />
             </div>
@@ -119,18 +120,18 @@ const { t } = useI18n();
           />
         </div>
 
-        <p v-if="hit.library_path" class="tool-card-subtitle">
+        <p v-if="hit.library_path" class="mt-0.5 truncate text-xs leading-5 text-app-text-dim">
           {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
         </p>
-        <p class="tool-card-snippet">{{ hit.chunk_text }}</p>
-        <dl class="tool-meta-grid">
-          <div>
-            <dt>{{ t("search.result.published", { date: "" }).trim() }}</dt>
-            <dd>{{ formatDate(hit.published_at) }}</dd>
+        <p class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-app-text-muted [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{{ hit.chunk_text }}</p>
+        <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-app-text-dim">
+          <div class="min-w-0">
+            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("search.result.published", { date: "" }).trim() }}</dt>
+            <dd class="mt-0.5 truncate text-app-text-muted">{{ formatDate(hit.published_at) }}</dd>
           </div>
-          <div>
-            <dt>{{ t("search.result.score") }}</dt>
-            <dd>{{ formatScore(hit.score) }}</dd>
+          <div class="min-w-0">
+            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("search.result.score") }}</dt>
+            <dd class="mt-0.5 truncate text-app-text-muted">{{ formatScore(hit.score) }}</dd>
           </div>
         </dl>
       </article>

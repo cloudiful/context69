@@ -77,7 +77,7 @@ describe("SearchResultList", () => {
 
     expect(wrapper.text()).toContain("/Finance/Budget");
     expect(wrapper.find(".search-card-list").exists()).toBe(true);
-    expect(wrapper.find(".tool-card").text()).toContain("Budget Workbook");
+    expect(wrapper.get('[data-testid="search-result-card"]').text()).toContain("Budget Workbook");
     await wrapper.get('[data-testid="search-result-open"]').trigger("click");
     expect(wrapper.emitted("open")?.[0]).toEqual([
       expect.objectContaining({

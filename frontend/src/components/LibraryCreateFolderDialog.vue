@@ -48,20 +48,20 @@ function confirmCreate() {
 
 <template>
   <Dialog v-model:visible="visible" class="library-modal w-[32rem] max-w-[92vw]" modal :header="t('library.createDialog.title')">
-    <div class="library-modal-body">
-      <div class="library-modal-intro">
+    <div class="grid gap-6">
+      <div class="grid gap-2">
         <p class="section-label">{{ t("library.newFolder") }}</p>
-        <p class="library-modal-description">
+        <p class="text-sm leading-7 text-app-text-muted">
           {{ t("library.createDialog.description", { name: parentName }) }}
         </p>
       </div>
 
-      <label class="library-modal-field">
+      <label class="grid gap-2">
         <span class="form-label">{{ t("library.createDialog.nameLabel") }}</span>
         <InputText
           id="library-create-folder-name"
           v-model="folderName"
-          class="library-modal-control"
+          class="w-full"
           :placeholder="t('library.newFolderPlaceholder')"
           @keyup.enter="confirmCreate"
         />
@@ -69,7 +69,7 @@ function confirmCreate() {
     </div>
 
     <template #footer>
-      <div class="library-modal-footer">
+      <div class="flex flex-wrap justify-end gap-3">
         <Button severity="secondary" variant="outlined" :disabled="busy" @click="emit('cancel')">
           {{ t("common.cancel") }}
         </Button>

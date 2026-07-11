@@ -16,28 +16,32 @@ const props = withDefaults(defineProps<{
 
 <template>
   <div
-    class="app-form-field"
+    class="grid min-w-0 content-start self-start gap-3"
     :class="props.layout === 'inline'
       ? 'gap-2 md:grid-cols-[11rem_minmax(0,1fr)] md:items-center md:gap-x-4'
       : ''"
   >
     <label
       v-if="!props.floatLabel"
-      class="app-form-field-label"
+      class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim"
       :class="props.layout === 'inline' ? 'md:mb-0 md:self-center' : ''"
       :for="props.inputId"
     >
       {{ props.label }}
     </label>
     <div class="grid min-w-0 gap-2">
-      <FloatLabel v-if="props.floatLabel" variant="on" class="app-float-field">
+      <FloatLabel
+        v-if="props.floatLabel"
+        variant="on"
+        class="block [&>.p-inputnumber>.p-inputtext]:w-full [&>.p-inputnumber]:w-full [&>.p-inputtext]:w-full [&>.p-select]:w-full"
+      >
         <slot />
-        <label class="app-float-field-label" :for="props.inputId">
+        <label class="text-xs font-medium uppercase tracking-[0.08em] !bg-transparent !px-0" :for="props.inputId">
           {{ props.label }}
         </label>
       </FloatLabel>
       <slot v-else />
-      <p v-if="props.helper" class="app-form-field-help">{{ props.helper }}</p>
+      <p v-if="props.helper" class="text-xs leading-6 text-app-text-dim">{{ props.helper }}</p>
     </div>
   </div>
 </template>
