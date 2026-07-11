@@ -56,7 +56,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
     <div class="grid gap-6">
       <AppSettingsBlock id="settings-embedding" compact :title="t('settings.runtime.embeddingTitle')">
         <div class="grid gap-3">
-          <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(20rem,1fr)] xl:justify-start">
+          <div class="grid max-w-2xl gap-3">
             <AppTextField
               input-id="runtime-embedding-base-url"
               v-model="runtimeDraft.embedding.base_url"
@@ -73,7 +73,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
               placeholder="sk-..."
             />
           </div>
-          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(16rem,20rem)_minmax(10rem,12rem)_minmax(14rem,18rem)] xl:justify-start">
+          <div class="grid max-w-2xl gap-3">
             <AppTextField
               input-id="runtime-embedding-model"
               v-model="runtimeDraft.embedding.model"
@@ -98,7 +98,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       </AppSettingsBlock>
 
       <AppSettingsBlock id="settings-qdrant" compact :title="t('settings.runtime.qdrantTitle')">
-        <div class="grid gap-2 lg:items-start xl:grid-cols-[minmax(18rem,26rem)_minmax(18rem,24rem)_minmax(18rem,24rem)] xl:justify-start">
+        <div class="grid max-w-2xl gap-3">
           <AppTextField
             input-id="runtime-qdrant-url"
             v-model="runtimeDraft.qdrant.url"
@@ -112,7 +112,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
           />
           <AppToggleGroup
             :model-value="qdrantToggleModel"
-            columns-class="grid grid-cols-1 gap-2"
+            columns-class="grid max-w-2xl grid-cols-1 gap-2"
             :items="[
               { key: 'recreate_on_dimension_mismatch', inputId: 'runtime-qdrant-recreate', label: t('settings.runtime.recreateOnDimensionMismatch'), testId: 'runtime-qdrant-recreate' },
             ]"
@@ -122,7 +122,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       </AppSettingsBlock>
 
       <AppSettingsBlock id="settings-scheduler" compact :title="t('settings.runtime.schedulerTitle')">
-        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(16rem,20rem)_minmax(10rem,12rem)_minmax(14rem,18rem)] xl:justify-start">
+        <div class="grid max-w-2xl gap-3">
           <AppNumberField
             input-id="runtime-scheduler-interval"
             v-model="runtimeDraft.scheduler.interval_secs"
@@ -163,7 +163,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
           </div>
           <AppToggleGroup
             :model-value="schedulerToggleModel"
-            columns-class="grid grid-cols-1 gap-2"
+            columns-class="grid max-w-2xl grid-cols-1 gap-2"
             :items="[
               { key: 'run_on_start', inputId: 'runtime-scheduler-run-on-start', label: t('settings.runtime.runOnStart'), testId: 'runtime-scheduler-run-on-start' },
             ]"
@@ -173,7 +173,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       </AppSettingsBlock>
 
       <AppSettingsBlock id="settings-chunking" compact :title="t('settings.runtime.chunkingTitle')">
-        <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
+        <div class="grid max-w-2xl gap-3">
           <AppNumberField
             input-id="runtime-chunking-max-chars"
             v-model="runtimeDraft.chunking.max_chars"
@@ -192,7 +192,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       </AppSettingsBlock>
 
       <AppSettingsBlock id="settings-file-library" compact :title="t('settings.runtime.fileLibraryTitle')">
-        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(16rem,20rem))] xl:justify-start">
+        <div class="grid max-w-2xl gap-3">
           <AppTextField
             input-id="runtime-file-library-root"
             v-model="runtimeDraft.file_library.storage_root"
@@ -230,13 +230,13 @@ function updateS3PathStyle(value: Record<string, boolean>) {
         <div class="mt-3 grid gap-3">
           <AppToggleGroup
             helper-inline
-            columns-class="grid gap-3"
+            columns-class="grid max-w-2xl gap-3"
             :items="[{ inputId: 'runtime-file-library-s3-enabled', key: 's3_enabled', label: t('settings.runtime.s3Enabled') }]"
             :model-value="{ s3_enabled: runtimeDraft.file_library.s3_enabled }"
             @update:model-value="updateS3Toggle"
           />
           <div v-if="runtimeDraft.file_library.s3_enabled" class="grid gap-3">
-            <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
+            <div class="grid max-w-2xl gap-3">
               <AppTextField
                 input-id="runtime-file-library-s3-endpoint"
                 v-model="runtimeDraft.file_library.s3.endpoint"
@@ -271,10 +271,10 @@ function updateS3PathStyle(value: Record<string, boolean>) {
                 autocomplete="new-password"
               />
             </div>
-            <div class="flex items-center justify-between gap-3">
+            <div class="grid max-w-2xl gap-3">
               <AppToggleGroup
                 helper-inline
-                columns-class="grid gap-3"
+                columns-class="grid max-w-2xl gap-3"
                 :items="[{ inputId: 'runtime-file-library-s3-path-style', key: 'path_style', label: t('settings.runtime.s3PathStyle') }]"
                 :model-value="{ path_style: runtimeDraft.file_library.s3.path_style }"
                 @update:model-value="updateS3PathStyle"

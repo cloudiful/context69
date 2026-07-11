@@ -63,7 +63,7 @@ function confirmCreate() {
       </div>
 
       <label class="grid gap-2">
-        <span class="form-label">{{ t("library.createTextDialog.nameLabel") }}</span>
+        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.createTextDialog.nameLabel") }}</span>
         <InputText
           id="library-create-text-title"
           v-model="title"
@@ -74,7 +74,7 @@ function confirmCreate() {
       </label>
 
       <label class="grid gap-2">
-        <span class="form-label">{{ t("library.createTextDialog.contentLabel") }}</span>
+        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.createTextDialog.contentLabel") }}</span>
         <Textarea
           id="library-create-text-content"
           v-model="content"

@@ -246,47 +246,17 @@
     stroke: var(--color-app-text);
   }
 
-  .p-tag,
-  .p-tag-secondary,
-  .p-tag-contrast,
-  .p-tag-info {
-    display: inline-flex;
-    min-height: 1.5rem;
-    align-items: center;
-    border: 1px solid color-mix(in srgb, var(--color-app-border) 82%, transparent);
-    border-radius: 0.45rem;
-    background: color-mix(in srgb, var(--color-app-surface-soft) 48%, var(--color-app-surface) 52%);
-    color: var(--color-app-text-muted);
-    padding: 0.18rem 0.5rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    line-height: 1.15rem;
-  }
-
-  .tool-chip.p-tag {
-    max-width: 12rem;
-  }
-
-  .tool-chip .p-tag-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .p-tag-success,
   .p-message-success {
     border-color: color-mix(in srgb, var(--color-app-success) 34%, transparent);
     background: color-mix(in srgb, var(--color-app-success) 18%, transparent);
     color: color-mix(in srgb, var(--color-app-success) 78%, white 22%);
   }
 
-  .p-tag-danger,
   .p-message-error {
     background: color-mix(in srgb, var(--color-app-danger) 18%, transparent);
     color: color-mix(in srgb, var(--color-app-danger) 78%, white 22%);
   }
 
-  .p-tag-warn,
   .p-message-warn {
     background: color-mix(in srgb, var(--color-app-warning) 18%, transparent);
     color: color-mix(in srgb, var(--color-app-warning) 78%, white 22%);
@@ -304,17 +274,14 @@
     line-height: 1.45;
   }
 
-  :root[data-theme="light"] .p-tag-success,
   :root[data-theme="light"] .p-message-success {
     color: color-mix(in srgb, var(--color-app-success) 82%, black 18%);
   }
 
-  :root[data-theme="light"] .p-tag-danger,
   :root[data-theme="light"] .p-message-error {
     color: color-mix(in srgb, var(--color-app-danger) 82%, black 18%);
   }
 
-  :root[data-theme="light"] .p-tag-warn,
   :root[data-theme="light"] .p-message-warn {
     color: color-mix(in srgb, var(--color-app-warning) 82%, black 18%);
   }
@@ -368,16 +335,6 @@
 
   .app-data-table .p-datatable-tbody > tr:hover > td {
     background: color-mix(in srgb, var(--color-app-surface-soft) 36%, var(--color-app-surface) 64%);
-  }
-
-  .sources-panel.p-card {
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .sources-panel > .p-card-body {
-    gap: 1.5rem;
   }
 
   .source-data-table .p-datatable-table-container {
@@ -507,23 +464,6 @@
     background: color-mix(in srgb, var(--color-app-surface-soft) 66%, var(--color-app-surface) 34%);
   }
 
-  .library-workspace .p-tag {
-    display: inline-flex;
-    min-height: 1.35rem;
-    align-items: center;
-    border-radius: 0.45rem;
-    padding: 0.12rem 0.45rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    line-height: 1rem;
-  }
-
-  .library-workspace .p-tag-success {
-    border: 1px solid color-mix(in srgb, var(--color-app-success) 34%, transparent);
-    background: color-mix(in srgb, var(--color-app-success) 16%, var(--color-app-surface) 84%);
-    color: color-mix(in srgb, var(--color-app-success) 72%, var(--color-app-text) 28%);
-  }
-
   .library-workspace .p-tree {
     border: 0;
     background: transparent;
@@ -596,14 +536,6 @@
   }
 
   @media (max-width: 1023px) {
-    .sources-panel > .p-card-body {
-      padding: 1.25rem;
-    }
-
-    .search-form-body {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
     .library-workspace {
       height: calc(100dvh - var(--library-workspace-offset, 8.75rem));
       border-radius: 0.8rem;
@@ -619,18 +551,7 @@
   }
 
   @media (max-width: 767px) {
-    .tool-chip.p-tag,
-    .p-tag {
-      min-height: 1.25rem;
-      padding: 0.08rem 0.38rem;
-      font-size: 0.72rem;
-    }
-
     .library-layout,
-    .search-page-layout {
-      gap: 0.5rem;
-    }
-
     .library-workspace {
       height: auto;
       min-height: calc(100vh - 8.5rem);
@@ -644,62 +565,6 @@
       padding: 0.5rem;
     }
 
-    .search-form-layout {
-      border-radius: 0.8rem;
-      padding: 0.5rem;
-    }
-
-    .search-results-layout {
-      gap: 0.5rem;
-    }
-
-    .search-form-topline {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .search-form-actions {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      justify-content: stretch;
-    }
-
-    .search-form-advanced {
-      gap: 0.5rem;
-      padding-top: 0.5rem;
-    }
-
-    .search-form-grid,
-    .search-form-grid-primary,
-    .search-form-grid-secondary {
-      gap: 0.5rem;
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .search-form-layout .p-inputtext,
-    .search-form-layout .p-select,
-    .search-form-layout .p-inputnumber,
-    .search-form-layout .p-datepicker {
-      min-height: 2.05rem;
-      border-radius: 0.75rem;
-      font-size: 0.86rem;
-    }
-
-    .search-form-layout .p-inputtext,
-    .search-form-layout .p-inputnumber-input,
-    .search-form-layout .p-datepicker-input {
-      padding-block: 0.45rem;
-      padding-inline: 0.65rem;
-    }
-
-    .search-form-layout .p-select-label {
-      min-height: 2.05rem;
-      padding-block: 0.35rem;
-      padding-inline: 0.65rem;
-    }
-
-    .search-form-layout .p-datepicker-dropdown {
-      width: 2.05rem;
-    }
   }
 
 }

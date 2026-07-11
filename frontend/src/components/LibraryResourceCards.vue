@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Tag from "primevue/tag";
+import Tag from "./AppTag.vue";
 
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
 import { libraryRowActionButtonClass, libraryRowDangerActionButtonClass } from "../ui/button-classes";

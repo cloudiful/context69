@@ -6,7 +6,7 @@ import Column from "primevue/column";
 import DataTable, { type DataTableFilterEvent, type DataTableOperatorFilterMetaData } from "primevue/datatable";
 import Paginator from "primevue/paginator";
 import Select from "primevue/select";
-import Tag from "primevue/tag";
+import Tag from "./AppTag.vue";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import AppStateMessage from "./AppStateMessage.vue";

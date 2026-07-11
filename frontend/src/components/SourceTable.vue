@@ -4,7 +4,7 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
+import Tag from "./AppTag.vue";
 
 import AppTableToolbar from "./AppTableToolbar.vue";
 import type { SourceStatus } from "../services/api";
@@ -127,7 +127,7 @@ function handleRowSelect(source: SourceStatus) {
         :sort-order="1"
         state-storage="local"
         state-key="context69:table:sources:v2"
-        table-style="width: 100%"
+        table-class="w-full"
         @row-click="handleRowSelect($event.data)"
       >
         <template #empty>
@@ -142,7 +142,7 @@ function handleRowSelect(source: SourceStatus) {
           sortable
           header-class="source-table-header-nowrap"
           body-class="align-top"
-          style="min-width: 22rem"
+          class="min-w-[22rem]"
         >
           <template #body="{ data }">
             <div class="grid gap-3 py-1.5">
@@ -203,7 +203,7 @@ function handleRowSelect(source: SourceStatus) {
           sortable
           header-class="source-table-header-nowrap hidden lg:table-cell"
           body-class="hidden lg:table-cell align-top"
-          style="min-width: 14rem"
+          class="min-w-56"
         >
           <template #body="{ data }">
             <div class="grid gap-3">
@@ -231,7 +231,7 @@ function handleRowSelect(source: SourceStatus) {
           sortable
           header-class="source-table-header-nowrap hidden xl:table-cell"
           body-class="hidden xl:table-cell align-top"
-          style="min-width: 18rem"
+          class="min-w-72"
         >
           <template #body="{ data }">
             <div class="grid gap-1.5">
@@ -248,10 +248,9 @@ function handleRowSelect(source: SourceStatus) {
         <Column
           v-if="props.canManage"
           :header="t('sources.table.action')"
-          class="w-56"
+          class="w-56 min-w-48"
           header-class="source-table-header-nowrap"
           body-class="align-top"
-          style="min-width: 12rem"
         >
           <template #body="{ data }">
             <div class="flex flex-wrap justify-start gap-1 text-sm xl:justify-end">

@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Message from "primevue/message";
-import Tag from "primevue/tag";
+import Tag from "../AppTag.vue";
 
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
@@ -90,7 +90,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
         <div class="grid gap-3">
           <AppToggleGroup
             :model-value="personalAccessTokenScopeToggleModel"
-            columns-class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(16rem,20rem))] xl:justify-start [&_.app-toggle-field]:min-h-8 [&_.app-toggle-field]:px-2.5 [&_.app-toggle-field]:py-1.5"
+            columns-class="grid max-w-2xl gap-y-2 [&_.app-toggle-field]:min-h-8 [&_.app-toggle-field]:px-2.5 [&_.app-toggle-field]:py-1.5"
             helper-inline
             :items="personalAccessTokenScopeOptions.map((scope) => ({
               key: scope.key,

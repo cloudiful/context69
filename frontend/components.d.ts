@@ -28,6 +28,7 @@ declare module 'vue' {
     AppSidebarContent: typeof import('./src/components/AppSidebarContent.vue')['default']
     AppStateMessage: typeof import('./src/components/AppStateMessage.vue')['default']
     AppTableToolbar: typeof import('./src/components/AppTableToolbar.vue')['default']
+    AppTag: typeof import('./src/components/AppTag.vue')['default']
     AppTextField: typeof import('./src/components/AppTextField.vue')['default']
     AppToggleField: typeof import('./src/components/AppToggleField.vue')['default']
     AppToggleGroup: typeof import('./src/components/AppToggleGroup.vue')['default']

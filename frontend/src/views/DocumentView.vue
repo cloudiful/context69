@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Card from "primevue/card";
-import Tag from "primevue/tag";
+import Tag from "../components/AppTag.vue";
 
 import AppRecordCard from "../components/AppRecordCard.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";

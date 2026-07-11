@@ -221,7 +221,10 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
     Router::new()
         .route("/v1/library/tree", get(get_library_tree))
         .route("/v1/library/folders", post(create_library_folder))
-        .route("/v1/library/texts", post(create_library_text))
+        .route(
+            "/v1/library/texts",
+            post(create_library_text).layer(DefaultBodyLimit::max(upload_body_limit)),
+        )
         .route(
             "/v1/library/folders/{folder_id}/move",
             post(move_library_folder),
@@ -254,7 +257,9 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         )
         .route(
             "/v1/groups/by-path/{group_path}/library/texts",
-            post(create_group_library_text).put(upsert_group_library_text),
+            post(create_group_library_text)
+                .put(upsert_group_library_text)
+                .layer(DefaultBodyLimit::max(upload_body_limit)),
         )
         .route(
             "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move",

@@ -66,7 +66,7 @@ provide(groupWorkspaceStateKey, state);
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="form-label">{{ $t("groups.targetGroup") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ $t("groups.targetGroup") }}</label>
           <AutoComplete
             v-model="state.selectedTargetGroup"
             fluid

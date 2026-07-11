@@ -57,7 +57,7 @@ function confirmCreate() {
       </div>
 
       <label class="grid gap-2">
-        <span class="form-label">{{ t("library.createDialog.nameLabel") }}</span>
+        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.createDialog.nameLabel") }}</span>
         <InputText
           id="library-create-folder-name"
           v-model="folderName"

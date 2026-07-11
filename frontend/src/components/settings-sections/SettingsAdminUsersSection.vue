@@ -7,7 +7,7 @@ import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 import Password from "primevue/password";
-import Tag from "primevue/tag";
+import Tag from "../AppTag.vue";
 import ToggleSwitch from "primevue/toggleswitch";
 import { useConfirm } from "primevue/useconfirm";
 
@@ -136,7 +136,7 @@ function confirmEnable(loginNameValue: string) {
       scrollable
       state-storage="local"
       state-key="context69:table:admin-users:v2"
-      table-style="min-width: 100%"
+      table-class="min-w-full"
     >
       <Column field="login_name" :header="t('adminUsers.loginName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
       <Column field="display_name" :header="t('adminUsers.displayName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
@@ -194,15 +194,15 @@ function confirmEnable(loginNameValue: string) {
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.loginName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.loginName") }}</label>
           <InputText v-model="loginName" :placeholder="t('adminUsers.loginName')" />
         </div>
         <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.displayName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.displayName") }}</label>
           <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.password") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.password") }}</label>
           <Password v-model="password" fluid :feedback="false" toggle-mask />
         </div>
         <label class="flex items-center gap-2 text-sm text-app-text">
@@ -231,7 +231,7 @@ function confirmEnable(loginNameValue: string) {
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.displayName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.displayName") }}</label>
           <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <label class="flex items-center gap-2 text-sm text-app-text">
@@ -260,7 +260,7 @@ function confirmEnable(loginNameValue: string) {
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="form-label">{{ t("adminUsers.resetPassword") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.resetPassword") }}</label>
           <Password v-model="password" fluid :feedback="false" toggle-mask />
         </div>
       </div>

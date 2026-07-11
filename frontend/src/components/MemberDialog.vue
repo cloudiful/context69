@@ -106,7 +106,7 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
   >
     <div class="grid gap-3">
       <div v-if="allowUserSearch !== false" class="grid gap-2">
-        <label class="form-label">{{ t("members.user") }}</label>
+        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("members.user") }}</label>
         <AutoComplete
           v-model="selectedUserModel"
           fluid
@@ -126,7 +126,7 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
       </div>
 
       <div v-else class="grid gap-2">
-        <label class="form-label">{{ t("members.loginName") }}</label>
+        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("members.loginName") }}</label>
         <InputText
           v-model="manualLoginName"
           :placeholder="t('members.loginName')"
@@ -134,7 +134,7 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
       </div>
 
       <div class="grid gap-2">
-        <label class="form-label">{{ t("members.role") }}</label>
+        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("members.role") }}</label>
         <Select
           v-model="role"
           fluid

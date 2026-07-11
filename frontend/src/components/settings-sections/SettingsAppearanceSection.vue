@@ -49,7 +49,7 @@ function updateTheme(value: unknown) {
 <template>
   <AppSettingsSection :legend="t('settings.appearance.title')">
     <AppSettingsBlock id="settings-appearance">
-      <div class="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
+      <div class="grid max-w-sm gap-3">
         <AppSelectField
           :key="localeSelectKey"
           input-id="settings-locale-select"

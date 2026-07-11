@@ -2,7 +2,7 @@
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
+import Tag from "../../components/AppTag.vue";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
 
@@ -25,7 +25,7 @@ const state = useGroupWorkspaceContext();
       scrollable
       state-storage="local"
       state-key="context69:table:group-members:v2"
-      table-style="min-width: 100%"
+      table-class="min-w-full"
     >
       <Column field="login_name" :header="$t('adminUsers.loginName')" />
       <Column field="display_name" :header="$t('adminUsers.displayName')" />

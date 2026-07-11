@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import Tag from "./AppTag.vue";
 
 import type { LibraryFileDetailResponse } from "../services/api";
 import type { FolderSummary } from "../types/library";

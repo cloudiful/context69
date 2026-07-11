@@ -37,7 +37,7 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
     <div id="settings-search" class="grid gap-4">
       <AppSettingsBlock compact>
         <div class="grid gap-3">
-          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(14rem,18rem))] xl:justify-start">
+          <div class="grid max-w-2xl gap-3">
             <AppSelectField
               input-id="search-mode"
               v-model="searchDraft.mode"
@@ -67,14 +67,14 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
 
           <AppToggleGroup
             :model-value="rerankToggleModel"
-            columns-class="grid grid-cols-1 gap-2"
+            columns-class="grid max-w-2xl grid-cols-1 gap-2"
             :items="[
               { key: 'rerank_enabled', inputId: 'search-rerank-enabled', label: t('settings.search.rerankEnabled'), testId: 'search-rerank-enabled' },
             ]"
             @update:model-value="updateRerankToggleModel"
           />
 
-          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(16rem,20rem)_minmax(18rem,24rem)] xl:justify-start">
+          <div class="grid max-w-2xl gap-3">
             <AppTextField
               input-id="search-rerank-base-url"
               v-model="searchDraft.rerank_base_url"

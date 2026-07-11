@@ -3,7 +3,7 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
+import Tag from "./AppTag.vue";
 
 import type { SearchHit } from "../services/api";
 import { compactTableActionButtonClass, searchResultOpenButtonClass } from "../ui/button-classes";
@@ -35,13 +35,13 @@ const { t } = useI18n();
       scrollable
       state-storage="local"
       state-key="context69:table:search-results:v2"
-      table-style="min-width: 44rem"
+      table-class="min-w-[44rem]"
       class="search-results-table hidden md:block"
       @update:selection="emit('select', $event)"
       @row-click="emit('select', $event.data)"
       @row-dblclick="emit('open', $event.data)"
     >
-      <Column :header="t('search.resultsTitle')" field="title" style="min-width: 24rem">
+      <Column :header="t('search.resultsTitle')" field="title" class="min-w-96">
         <template #body="{ data: hit }">
           <div class="grid min-w-0 gap-2">
             <div class="flex min-w-0 flex-wrap items-start gap-2.5">
@@ -68,13 +68,13 @@ const { t } = useI18n();
         </template>
       </Column>
 
-      <Column :header="t('search.result.published', { date: '' }).trim()" style="width: 8.5rem">
+      <Column :header="t('search.result.published', { date: '' }).trim()" class="w-[8.5rem]">
         <template #body="{ data: hit }">
           <span class="text-sm text-app-text-muted">{{ formatDate(hit.published_at) }}</span>
         </template>
       </Column>
 
-      <Column :header="t('sources.table.action')" style="width: 7rem">
+      <Column :header="t('sources.table.action')" class="w-28">
         <template #body="{ data: hit }">
           <Button
             unstyled

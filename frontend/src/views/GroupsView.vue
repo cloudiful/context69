@@ -5,7 +5,7 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
+import Tag from "../components/AppTag.vue";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import { apiClient, type GroupResponse, type Visibility } from "../services/api";
@@ -85,7 +85,7 @@ onMounted(() => {
       scrollable
       state-storage="local"
       state-key="context69:table:groups:v2"
-      table-style="min-width: 100%"
+      table-class="min-w-full"
       @row-click="openGroup($event.data)"
     >
       <template #empty>

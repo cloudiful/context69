@@ -69,7 +69,7 @@ function confirmMove() {
       </div>
 
       <label class="grid gap-2">
-        <span class="form-label">{{ t("library.moveDialog.targetFolder") }}</span>
+        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.moveDialog.targetFolder") }}</span>
         <Select
           v-model="selectedValue"
           class="w-full"

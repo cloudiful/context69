@@ -87,10 +87,6 @@
     }
   }
 
-  .form-label {
-    @apply mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
-  }
-
   .search-results-panel.p-card {
     border-radius: 1.1rem;
   }
