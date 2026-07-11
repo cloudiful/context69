@@ -236,7 +236,8 @@ For the full surface:
 ## Security
 
 - Browser authentication uses the signed `context69_session_v2` HttpOnly cookie and a shared Valkey session store.
-- Configure `CONTEXT69_AUTH__SESSION_VALKEY_URL`, `CONTEXT69_AUTH__SESSION_SECRET_KEY`, and `CONTEXT69_AUTH__SESSION_COOKIE_SECURE=true` in production. Every instance must use the same Valkey and secret key.
+- Browser sessions reuse the runtime scheduler Valkey URL configured in Settings. If none is configured, the local default is `redis://127.0.0.1:6379`. Context69 generates the shared signing key once and stores it internally in PostgreSQL, so instances using the same database require no separate key configuration.
+- Set `CONTEXT69_AUTH__SESSION_VALKEY_URL` or `CONTEXT69_AUTH__SESSION_SECRET_KEY` only as break-glass overrides. Production deployments should set `CONTEXT69_AUTH__SESSION_COOKIE_SECURE=true`.
 - Browser UI and API must remain same-origin, either directly or through the documented frontend reverse proxy. Session cookies are not configured for cross-origin API access.
 - Personal access tokens are user-scoped bearer credentials for CLI, MCP, or automation callers.
 - Access token plaintext is returned only once at creation time; after that only metadata is listed in the UI and API.

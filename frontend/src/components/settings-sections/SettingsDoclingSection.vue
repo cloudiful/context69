@@ -2,6 +2,7 @@
 import { useI18n } from "vue-i18n";
 
 import AppNumberField from "../AppNumberField.vue";
+import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import type { DraftDoclingSettings } from "../../utils/settings";
@@ -17,9 +18,8 @@ const { t } = useI18n();
 <template>
   <AppSettingsSection :legend="t('settings.docling.title')">
     <div class="grid gap-6">
-      <section id="settings-connection" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t('settings.docling.connectionTitle') }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-connection">
+      <AppSettingsBlock id="settings-connection" compact :title="t('settings.docling.connectionTitle')">
+        <div class="grid gap-2 lg:items-start xl:grid-cols-[minmax(18rem,26rem)_minmax(18rem,24rem)_minmax(18rem,24rem)] xl:justify-start">
           <AppTextField
             input-id="docling-base-url"
             v-model="doclingDraft.connection.base_url"
@@ -42,12 +42,11 @@ const { t } = useI18n();
             :step="1"
           />
         </div>
-      </section>
+      </AppSettingsBlock>
 
-      <section id="settings-vlm" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t('settings.docling.vlmTitle') }}</h3>
+      <AppSettingsBlock id="settings-vlm" compact :title="t('settings.docling.vlmTitle')">
         <div class="grid gap-3">
-          <div class="settings-compact-grid settings-compact-grid-vlm-main">
+          <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(20rem,1fr)] xl:justify-start">
             <AppTextField
               input-id="docling-openai-base-url"
               v-model="doclingDraft.vlm.openai_base_url"
@@ -57,7 +56,7 @@ const { t } = useI18n();
             />
           </div>
 
-          <div class="settings-compact-grid settings-compact-grid-vlm-main">
+          <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(20rem,1fr)] xl:justify-start">
             <AppTextField
               input-id="docling-api-key"
               v-model="doclingDraft.vlm.api_key"
@@ -74,7 +73,7 @@ const { t } = useI18n();
             />
           </div>
 
-          <div class="settings-compact-grid settings-compact-grid-models">
+          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(16rem,20rem))] xl:justify-start">
             <AppTextField
               input-id="docling-picture-description-model"
               v-model="doclingDraft.vlm.picture_description_model"
@@ -89,7 +88,7 @@ const { t } = useI18n();
             />
           </div>
         </div>
-      </section>
+      </AppSettingsBlock>
     </div>
   </AppSettingsSection>
 </template>

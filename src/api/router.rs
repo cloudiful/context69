@@ -9,7 +9,6 @@ use axum::{
     routing::{get, post, put},
 };
 use axum_login::AuthManagerLayerBuilder;
-use sha2::{Digest, Sha512};
 use tower_http::cors::{Any, CorsLayer};
 use tower_sessions::{
     Expiry, SessionManagerLayer,
@@ -50,8 +49,8 @@ pub async fn router(app: Arc<Context69App>) -> Result<Router> {
     let upload_body_limit = app.library.max_upload_request_size_bytes();
     let api_state = build_api_state(app);
     let redis_pool = Builder::from_config(
-        FredConfig::from_url(&api_state.app.config.auth.session_valkey_url)
-            .context("failed to parse auth.session_valkey_url")?,
+        FredConfig::from_url(&api_state.app.browser_sessions.valkey_url)
+            .context("failed to parse browser session Valkey URL")?,
     )
     .set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2))
     .build_pool(6)
@@ -60,9 +59,7 @@ pub async fn router(app: Arc<Context69App>) -> Result<Router> {
         .init()
         .await
         .context("failed to connect auth session Valkey pool")?;
-    let session_key_material =
-        Sha512::digest(api_state.app.config.auth.session_secret_key.as_bytes());
-    let session_key = Key::from(session_key_material.as_slice());
+    let session_key = Key::from(&api_state.app.browser_sessions.signing_key);
     let session_store = RedisStore::new(redis_pool);
     let session_layer = SessionManagerLayer::new(session_store)
         .with_name(SESSION_COOKIE_NAME)

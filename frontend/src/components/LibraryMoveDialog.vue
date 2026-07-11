@@ -64,7 +64,7 @@ function confirmMove() {
   <Dialog v-model:visible="visible" class="library-modal w-[34rem] max-w-[92vw]" modal :header="title">
     <div class="grid gap-6">
       <div class="grid gap-2">
-        <p class="section-label">{{ t("library.moveDialog.label") }}</p>
+        <p class="text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim">{{ t("library.moveDialog.label") }}</p>
         <p class="text-sm leading-7 text-app-text-muted">{{ description }}</p>
       </div>
 

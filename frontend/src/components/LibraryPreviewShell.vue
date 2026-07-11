@@ -11,7 +11,7 @@ withDefaults(defineProps<{
   <div class="library-pane flex h-full min-h-[42rem] flex-col">
     <div v-if="showHeader" class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <div>
-        <h2 class="section-title">{{ title }}</h2>
+        <h2 class="text-base font-semibold text-app-text">{{ title }}</h2>
         <p class="library-pane-description">{{ $t("library.previewLabel") }}</p>
       </div>
       <slot name="header-actions" />

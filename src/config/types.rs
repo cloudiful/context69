@@ -10,7 +10,7 @@ use crate::serde_helpers;
 use super::{
     defaults::{
         DEFAULT_MCP_BIND_ADDR, default_scheduler_execution_guard_renew_interval,
-        default_scheduler_execution_guard_ttl,
+        default_scheduler_execution_guard_ttl, default_session_idle_ttl,
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
@@ -80,10 +80,17 @@ pub struct S3StorageConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
-    pub session_valkey_url: String,
-    pub session_secret_key: String,
-    #[serde(rename = "session_idle_ttl_secs", with = "serde_helpers::seconds")]
+    #[serde(default)]
+    pub session_valkey_url: Option<String>,
+    #[serde(default)]
+    pub session_secret_key: Option<String>,
+    #[serde(
+        default = "default_session_idle_ttl",
+        rename = "session_idle_ttl_secs",
+        with = "serde_helpers::seconds"
+    )]
     pub session_idle_ttl: Duration,
+    #[serde(default)]
     pub session_cookie_secure: bool,
     pub anonymous_mcp_enabled: bool,
     #[serde(default)]

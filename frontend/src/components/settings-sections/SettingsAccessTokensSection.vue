@@ -6,6 +6,7 @@ import Message from "primevue/message";
 import Tag from "primevue/tag";
 
 import AppSelectField from "../AppSelectField.vue";
+import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
@@ -85,11 +86,11 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
 <template>
   <AppSettingsSection :legend="t('settings.personalAccessTokens.title')">
     <div class="grid gap-4">
-      <section class="settings-block">
+      <AppSettingsBlock compact>
         <div class="grid gap-3">
           <AppToggleGroup
             :model-value="personalAccessTokenScopeToggleModel"
-            columns-class="settings-toggle-grid-three"
+            columns-class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(16rem,20rem))] xl:justify-start [&_.app-toggle-field]:min-h-8 [&_.app-toggle-field]:px-2.5 [&_.app-toggle-field]:py-1.5"
             helper-inline
             :items="personalAccessTokenScopeOptions.map((scope) => ({
               key: scope.key,
@@ -129,12 +130,13 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             </div>
           </div>
         </div>
-      </section>
+      </AppSettingsBlock>
 
-      <section v-if="personalAccessTokensReveal" class="settings-block">
-        <div class="settings-block-header">
-          <h3 class="settings-block-title">{{ t("settings.personalAccessTokens.revealTitle") }}</h3>
-        </div>
+      <AppSettingsBlock
+        v-if="personalAccessTokensReveal"
+        compact
+        :title="t('settings.personalAccessTokens.revealTitle')"
+      >
         <div class="grid gap-3">
           <Message severity="warn" :closable="false">
             {{ t("settings.personalAccessTokens.revealWarning") }}
@@ -152,9 +154,9 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             </Button>
           </div>
         </div>
-      </section>
+      </AppSettingsBlock>
 
-      <section class="settings-block">
+      <AppSettingsBlock compact>
         <div
           v-if="personalAccessTokensLoading"
           class="rounded-xl border border-app-border/60 bg-app-surface/20 px-4 py-6 text-sm text-app-text-dim"
@@ -211,7 +213,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             </tbody>
           </table>
         </div>
-      </section>
+      </AppSettingsBlock>
     </div>
   </AppSettingsSection>
 </template>

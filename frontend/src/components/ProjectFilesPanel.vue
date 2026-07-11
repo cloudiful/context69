@@ -414,7 +414,7 @@ onBeforeUnmount(() => {
   </Teleport>
 
   <section
-    class="library-workspace library-workspace-embedded grid h-full min-h-0 gap-2"
+    class="library-workspace library-workspace-embedded grid h-full min-h-0 gap-2 overflow-hidden rounded-[0.8rem] bg-app-surface"
     :class="treeState.breadcrumbItems.length > 0
       ? 'grid-rows-[auto_minmax(0,1fr)]'
       : 'grid-rows-[minmax(0,1fr)]'"

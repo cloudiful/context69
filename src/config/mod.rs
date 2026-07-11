@@ -6,7 +6,7 @@ mod validate;
 
 pub use defaults::{
     APP_DB_URL_ENV_VAR, DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
-    DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS,
+    DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, DEFAULT_SESSION_VALKEY_URL,
 };
 pub use load::load_app_db_url;
 pub use types::{
@@ -94,13 +94,32 @@ enabled = true
     fn browser_session_defaults_are_stable() {
         let config = FileConfig::default();
 
-        assert_eq!(config.auth.session_valkey_url, "redis://127.0.0.1:6379");
+        assert!(config.auth.session_valkey_url.is_none());
         assert_eq!(
             config.auth.session_idle_ttl,
             Duration::from_secs(60 * 60 * 24 * 7)
         );
         assert!(!config.auth.session_cookie_secure);
-        assert!(config.auth.session_secret_key.len() >= 32);
+        assert!(config.auth.session_secret_key.is_none());
+    }
+
+    #[test]
+    fn legacy_auth_config_uses_browser_session_defaults() {
+        let auth: super::AuthConfig = toml::from_str(
+            r#"
+issuer = "context69"
+access_token_ttl_secs = 900
+refresh_token_ttl_secs = 2592000
+refresh_cookie_secure = false
+anonymous_mcp_enabled = true
+"#,
+        )
+        .expect("legacy auth config should remain compatible");
+
+        assert_eq!(auth.session_idle_ttl, Duration::from_secs(60 * 60 * 24 * 7));
+        assert!(!auth.session_cookie_secure);
+        assert!(auth.session_valkey_url.is_none());
+        assert!(auth.session_secret_key.is_none());
     }
 
     #[test]

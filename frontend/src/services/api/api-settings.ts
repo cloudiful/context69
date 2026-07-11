@@ -1,5 +1,6 @@
 import type {
   RequestOptions,
+  TestRuntimeValkeyRequest,
   UpdateDoclingSettingsRequest,
   UpdateRuntimeSettingsRequest,
   UpdateRuntimeS3Settings,
@@ -31,6 +32,14 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
     testS3Connection(payload: UpdateRuntimeS3Settings, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.POST("/v1/settings/runtime/s3/test", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      );
+    },
+    testValkeyConnection(payload: TestRuntimeValkeyRequest, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/valkey/test", {
           body: payload,
           signal: options?.signal,
         }),

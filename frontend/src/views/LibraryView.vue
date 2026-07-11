@@ -224,7 +224,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="library-layout">
+  <div class="library-layout grid min-h-[calc(100vh-4.75rem)] gap-2">
     <ContextMenu ref="resourceContextMenu" unstyled :pt="appContextMenuPt" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
 
     <LibraryToolbar
@@ -235,8 +235,11 @@ defineExpose({
       @update:search-query="treeState.resourceSearchQuery = $event"
     />
 
-    <section class="library-workspace" :class="{ 'library-workspace-docked': previewState.showDockedPreview }">
-      <Splitter v-if="previewState.showDockedPreview" class="library-splitter">
+    <section
+      class="library-workspace h-[calc(100dvh-var(--library-workspace-offset,9.25rem))] min-h-0 overflow-hidden rounded-[0.8rem] bg-app-surface"
+      :class="{ 'library-workspace-docked': previewState.showDockedPreview }"
+    >
+      <Splitter v-if="previewState.showDockedPreview" class="bg-transparent">
         <SplitterPanel :size="62" :min-size="42">
           <LibraryResourceTable
             :create-folder-busy="actionsState.createFolderBusy"
@@ -264,7 +267,10 @@ defineExpose({
         </SplitterPanel>
 
         <SplitterPanel :size="38" :min-size="28">
-          <LibraryPreviewShell :title="previewState.previewTitle" class="library-docked-preview">
+          <LibraryPreviewShell
+            :title="previewState.previewTitle"
+            class="library-docked-preview border-l [border-color:color-mix(in_srgb,var(--color-app-border)_70%,transparent)]"
+          >
             <LibraryPreviewPanel
               :active-section-key="detailState.activeSectionKey"
               :detail="detailState.detail"

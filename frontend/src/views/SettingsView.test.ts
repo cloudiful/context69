@@ -90,6 +90,7 @@ function createApiSpies() {
   return {
     getRuntimeSettings: vi.spyOn(apiClient, "getRuntimeSettings").mockResolvedValue(runtimeResponse as never),
     updateRuntimeSettings: vi.spyOn(apiClient, "updateRuntimeSettings").mockResolvedValue(runtimeResponse as never),
+    testValkeyConnection: vi.spyOn(apiClient, "testValkeyConnection").mockResolvedValue(undefined as never),
     getDoclingSettings: vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never),
     getSearchSettings: vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never),
     updateDoclingSettings: vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never),
@@ -246,6 +247,19 @@ describe("SettingsView", () => {
         api_key: "embedding-secret",
       }),
     }));
+  });
+
+  it("tests the current Valkey URL without saving settings", async () => {
+    const { wrapper } = await mountSettingsView("/settings/runtime");
+
+    await wrapper.get("#runtime-scheduler-valkey-url").setValue(" redis://shared-valkey:6379/2 ");
+    await wrapper.get('[data-testid="runtime-valkey-test"]').trigger("click");
+    await flushPromises();
+
+    expect(apiSpies.testValkeyConnection).toHaveBeenCalledWith({
+      valkey_url: "redis://shared-valkey:6379/2",
+    });
+    expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
   });
 
   it("creates and reveals a personal access token", async () => {

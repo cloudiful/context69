@@ -49,7 +49,14 @@ onMounted(() => {
     <Toast position="bottom-right" :pt="appToastPt" />
     <AppSidebar />
 
-    <main :class="isLoginRoute ? 'flex min-h-screen min-w-0 flex-col px-0 py-0 pb-0' : 'flex min-h-screen min-w-0 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3'">
+    <main
+      :class="isLoginRoute
+        ? 'flex min-h-screen min-w-0 flex-col px-0 py-0 pb-0'
+        : [
+          'flex min-h-screen min-w-0 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3',
+          fillsRouteContent ? 'md:h-screen md:overflow-hidden' : '',
+        ]"
+    >
       <div
         v-if="authSessionState.restoreError && !authSessionState.user"
         class="grid flex-1 place-items-center px-4"

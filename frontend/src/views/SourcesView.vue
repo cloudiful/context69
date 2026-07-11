@@ -207,7 +207,7 @@ onMounted(async () => {
         <div class="grid h-full gap-4 rounded-[0.8rem] border border-app-border/80 bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p class="section-title">
+              <p class="text-base font-semibold text-app-text">
                 {{ editingSource ? t("sources.editSource") : t("sources.newSource") }}
               </p>
               <p class="text-sm text-app-text-dim">

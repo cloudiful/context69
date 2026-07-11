@@ -38,9 +38,9 @@ pub use settings::{
     DoclingVlmSettingsResponse, RuntimeChunkingSettings, RuntimeEmbeddingSettings,
     RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeS3SettingsResponse,
     RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse,
-    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings,
-    UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings, UpdateRuntimeS3Settings,
-    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
+    UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
 };
 pub use sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,

@@ -59,6 +59,7 @@ export type UpdateDoclingSettingsRequest = Schemas["UpdateDoclingSettingsRequest
 export type UpdateGroupRequest = Schemas["UpdateGroupRequest"];
 export type UpdateRuntimeSettingsRequest = Schemas["UpdateRuntimeSettingsRequest"];
 export type UpdateRuntimeS3Settings = Schemas["UpdateRuntimeS3Settings"];
+export type TestRuntimeValkeyRequest = Schemas["TestRuntimeValkeyRequest"];
 export type UpdateSearchSettingsRequest = Schemas["UpdateSearchSettingsRequest"];
 export type UpsertLibraryTextRequest = Schemas["UpsertLibraryTextRequest"];
 export type UpsertMembershipRequest = Schemas["UpsertMembershipRequest"];

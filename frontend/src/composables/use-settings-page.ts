@@ -39,6 +39,7 @@ export function useSettingsPage() {
   const loading = ref(false);
   const saving = ref(false);
   const s3Testing = ref(false);
+  const valkeyTesting = ref(false);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
@@ -218,6 +219,24 @@ export function useSettingsPage() {
     }
   }
 
+  async function testValkeyConnection() {
+    valkeyTesting.value = true;
+    try {
+      await apiClient.testValkeyConnection({
+        valkey_url: runtimeDraft.scheduler.valkey_url.trim(),
+      });
+      toast.add({
+        severity: "success",
+        summary: t("settings.runtime.valkeyTestSuccess"),
+        life: 2500,
+      });
+    } catch (error) {
+      showErrorToast(error, t("settings.runtime.valkeyTestFailed"));
+    } finally {
+      valkeyTesting.value = false;
+    }
+  }
+
   async function createAdminUser(payload: {
     login_name: string;
     display_name: string;
@@ -338,7 +357,9 @@ export function useSettingsPage() {
     searchModeOptions,
     runtimeDraft,
     testS3Connection,
+    testValkeyConnection,
     updateAdminUser,
+    valkeyTesting,
   };
 }
 

@@ -3,6 +3,7 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 
 import AppNumberField from "../AppNumberField.vue";
+import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
@@ -16,12 +17,14 @@ const props = defineProps<{
   runtimeDraft: DraftRuntimeSettings;
   schedulerToggleModel: SchedulerToggleModel;
   s3Testing: boolean;
+  valkeyTesting: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:qdrantToggleModel": [value: QdrantToggleModel];
   "update:schedulerToggleModel": [value: SchedulerToggleModel];
   "test-s3": [];
+  "test-valkey": [];
 }>();
 
 const { t } = useI18n();
@@ -51,10 +54,9 @@ function updateS3PathStyle(value: Record<string, boolean>) {
 <template>
   <AppSettingsSection :legend="t('settings.runtime.title')">
     <div class="grid gap-6">
-      <section id="settings-embedding" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.embeddingTitle") }}</h3>
+      <AppSettingsBlock id="settings-embedding" compact :title="t('settings.runtime.embeddingTitle')">
         <div class="grid gap-3">
-          <div class="settings-compact-grid settings-compact-grid-vlm-main">
+          <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[minmax(18rem,24rem)_minmax(20rem,1fr)] xl:justify-start">
             <AppTextField
               input-id="runtime-embedding-base-url"
               v-model="runtimeDraft.embedding.base_url"
@@ -71,7 +73,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
               placeholder="sk-..."
             />
           </div>
-          <div class="settings-compact-grid settings-compact-grid-conversion">
+          <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(16rem,20rem)_minmax(10rem,12rem)_minmax(14rem,18rem)] xl:justify-start">
             <AppTextField
               input-id="runtime-embedding-model"
               v-model="runtimeDraft.embedding.model"
@@ -93,11 +95,10 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             />
           </div>
         </div>
-      </section>
+      </AppSettingsBlock>
 
-      <section id="settings-qdrant" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.qdrantTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-connection">
+      <AppSettingsBlock id="settings-qdrant" compact :title="t('settings.runtime.qdrantTitle')">
+        <div class="grid gap-2 lg:items-start xl:grid-cols-[minmax(18rem,26rem)_minmax(18rem,24rem)_minmax(18rem,24rem)] xl:justify-start">
           <AppTextField
             input-id="runtime-qdrant-url"
             v-model="runtimeDraft.qdrant.url"
@@ -111,18 +112,17 @@ function updateS3PathStyle(value: Record<string, boolean>) {
           />
           <AppToggleGroup
             :model-value="qdrantToggleModel"
-            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+            columns-class="grid grid-cols-1 gap-2"
             :items="[
               { key: 'recreate_on_dimension_mismatch', inputId: 'runtime-qdrant-recreate', label: t('settings.runtime.recreateOnDimensionMismatch'), testId: 'runtime-qdrant-recreate' },
             ]"
             @update:model-value="updateQdrantToggleModel"
           />
         </div>
-      </section>
+      </AppSettingsBlock>
 
-      <section id="settings-scheduler" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.schedulerTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-conversion">
+      <AppSettingsBlock id="settings-scheduler" compact :title="t('settings.runtime.schedulerTitle')">
+        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[minmax(16rem,20rem)_minmax(10rem,12rem)_minmax(14rem,18rem)] xl:justify-start">
           <AppNumberField
             input-id="runtime-scheduler-interval"
             v-model="runtimeDraft.scheduler.interval_secs"
@@ -146,22 +146,34 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             input-id="runtime-scheduler-valkey-url"
             v-model="runtimeDraft.scheduler.valkey_url"
             :label="t('settings.runtime.schedulerValkeyUrl')"
+            :helper="t('settings.runtime.valkeyRestartRequired')"
             placeholder="redis://valkey:6379/0"
           />
+          <div class="flex items-end">
+            <Button
+              icon="pi pi-bolt"
+              :label="t('settings.runtime.valkeyTest')"
+              size="small"
+              severity="secondary"
+              :loading="valkeyTesting"
+              :disabled="valkeyTesting || !runtimeDraft.scheduler.valkey_url.trim()"
+              data-testid="runtime-valkey-test"
+              @click="emit('test-valkey')"
+            />
+          </div>
           <AppToggleGroup
             :model-value="schedulerToggleModel"
-            columns-class="settings-toggle-grid-inline settings-toggle-grid-inline-single"
+            columns-class="grid grid-cols-1 gap-2"
             :items="[
               { key: 'run_on_start', inputId: 'runtime-scheduler-run-on-start', label: t('settings.runtime.runOnStart'), testId: 'runtime-scheduler-run-on-start' },
             ]"
             @update:model-value="updateSchedulerToggleModel"
           />
         </div>
-      </section>
+      </AppSettingsBlock>
 
-      <section id="settings-chunking" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.chunkingTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-two">
+      <AppSettingsBlock id="settings-chunking" compact :title="t('settings.runtime.chunkingTitle')">
+        <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
           <AppNumberField
             input-id="runtime-chunking-max-chars"
             v-model="runtimeDraft.chunking.max_chars"
@@ -177,11 +189,10 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             :step="1"
           />
         </div>
-      </section>
+      </AppSettingsBlock>
 
-      <section id="settings-file-library" class="settings-block">
-        <h3 class="text-sm font-semibold text-app-text">{{ t("settings.runtime.fileLibraryTitle") }}</h3>
-        <div class="settings-compact-grid settings-compact-grid-models">
+      <AppSettingsBlock id="settings-file-library" compact :title="t('settings.runtime.fileLibraryTitle')">
+        <div class="grid gap-2 lg:grid-cols-3 lg:items-start xl:grid-cols-[repeat(3,minmax(16rem,20rem))] xl:justify-start">
           <AppTextField
             input-id="runtime-file-library-root"
             v-model="runtimeDraft.file_library.storage_root"
@@ -225,7 +236,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             @update:model-value="updateS3Toggle"
           />
           <div v-if="runtimeDraft.file_library.s3_enabled" class="grid gap-3">
-            <div class="settings-compact-grid settings-compact-grid-two">
+            <div class="grid gap-2 lg:grid-cols-2 lg:items-start xl:grid-cols-[repeat(2,minmax(18rem,24rem))] xl:justify-start">
               <AppTextField
                 input-id="runtime-file-library-s3-endpoint"
                 v-model="runtimeDraft.file_library.s3.endpoint"
@@ -280,7 +291,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             </div>
           </div>
         </div>
-      </section>
+      </AppSettingsBlock>
     </div>
   </AppSettingsSection>
 </template>

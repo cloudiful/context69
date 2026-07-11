@@ -46,12 +46,13 @@ and proxies `/healthz` and `/v1/*` to `http://127.0.0.1:8096`.
 
 ## Backend
 
-Browser sessions require Valkey. The local default is `redis://127.0.0.1:6379`; override it when your Context69 Valkey is exposed on another port:
+Browser sessions require Valkey. They reuse the scheduler Valkey URL saved in runtime Settings; when it is unset, the local default is `redis://127.0.0.1:6379`. The cookie signing key is generated once and stored internally in PostgreSQL. An environment override remains available for recovery when a saved Valkey URL is unavailable:
 
 ```bash
 export CONTEXT69_AUTH__SESSION_VALKEY_URL=redis://127.0.0.1:6382
-export CONTEXT69_AUTH__SESSION_SECRET_KEY=local-session-secret-at-least-32-bytes
 ```
+
+`CONTEXT69_AUTH__SESSION_SECRET_KEY` is an optional break-glass override and must contain at least 32 characters when set. All instances must use the same PostgreSQL database and Valkey; do not set different secret overrides per instance.
 
 Run the backend:
 

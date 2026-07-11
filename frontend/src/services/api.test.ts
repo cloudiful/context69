@@ -99,6 +99,21 @@ describe("apiClient", () => {
     });
   });
 
+  it("tests a Valkey connection without saving runtime settings", async () => {
+    POST.mockResolvedValue({
+      data: undefined,
+      response: { ok: true, status: 204 },
+    });
+
+    await expect(apiClient.testValkeyConnection({
+      valkey_url: "redis://valkey:6379/0",
+    })).resolves.toBeUndefined();
+    expect(POST).toHaveBeenCalledWith("/v1/settings/runtime/valkey/test", {
+      body: { valkey_url: "redis://valkey:6379/0" },
+      signal: undefined,
+    });
+  });
+
   it("gets and updates docling settings", async () => {
     GET.mockResolvedValueOnce({
       data: {

@@ -50,7 +50,7 @@ function confirmCreate() {
   <Dialog v-model:visible="visible" class="library-modal w-[32rem] max-w-[92vw]" modal :header="t('library.createDialog.title')">
     <div class="grid gap-6">
       <div class="grid gap-2">
-        <p class="section-label">{{ t("library.newFolder") }}</p>
+        <p class="text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim">{{ t("library.newFolder") }}</p>
         <p class="text-sm leading-7 text-app-text-muted">
           {{ t("library.createDialog.description", { name: parentName }) }}
         </p>

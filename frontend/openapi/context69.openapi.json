@@ -2493,6 +2493,47 @@
         }
       }
     },
+    "/v1/settings/runtime/valkey/test": {
+      "post": {
+        "tags": [],
+        "operationId": "test_valkey_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRuntimeValkeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/search": {
       "get": {
         "tags": [],
@@ -5128,6 +5169,17 @@
           "records_seen": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "TestRuntimeValkeyRequest": {
+        "type": "object",
+        "required": [
+          "valkey_url"
+        ],
+        "properties": {
+          "valkey_url": {
+            "type": "string"
           }
         }
       },

@@ -11,6 +11,8 @@ import Tag from "primevue/tag";
 import ToggleSwitch from "primevue/toggleswitch";
 import { useConfirm } from "primevue/useconfirm";
 
+import AppSettingsBlock from "../AppSettingsBlock.vue";
+
 import { appFormDialogPt } from "../app-dialog";
 import type { AdminUserResponse } from "../../services/api";
 
@@ -120,11 +122,10 @@ function confirmEnable(loginNameValue: string) {
 </script>
 
 <template>
-  <section id="settings-admin-users" class="settings-block">
-    <div class="settings-block-header">
-      <p class="settings-block-title">{{ t("adminUsers.title") }}</p>
+  <AppSettingsBlock id="settings-admin-users" compact :title="t('adminUsers.title')">
+    <template #actions>
       <Button :label="t('adminUsers.create')" size="small" :disabled="createBusy" @click="openCreate" />
-    </div>
+    </template>
 
     <DataTable
       class="app-data-table"
@@ -274,5 +275,5 @@ function confirmEnable(loginNameValue: string) {
         </div>
       </template>
     </Dialog>
-  </section>
+  </AppSettingsBlock>
 </template>

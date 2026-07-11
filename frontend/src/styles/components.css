@@ -87,20 +87,6 @@
     }
   }
 
-  .section-label {
-    @apply text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim;
-  }
-
-  .section-title {
-    @apply text-base font-semibold text-app-text;
-  }
-
-  .library-workspace {
-    border: 1px solid color-mix(in srgb, var(--color-app-border) 78%, transparent);
-    border-radius: 1.1rem;
-    background: color-mix(in srgb, var(--color-app-surface) 92%, transparent);
-  }
-
   .form-label {
     @apply mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim;
   }
@@ -141,200 +127,8 @@
     padding: 0.75rem;
   }
 
-  .settings-block {
-    @apply scroll-mt-16 grid gap-2.5 border-t border-app-border/60 pt-3 first:border-t-0 first:pt-0;
-  }
-
-  .settings-block-header {
-    @apply flex flex-wrap items-start justify-between gap-3;
-  }
-
-  .settings-block-copy {
-    @apply grid gap-0.5;
-  }
-
-  .settings-block-title {
-    @apply text-sm font-semibold text-app-text;
-  }
-
-  .settings-block-description {
-    @apply text-sm leading-6 text-app-text-dim;
-  }
-
-  .settings-compact-grid {
-    @apply grid gap-2;
-  }
-
-  .settings-toggle-grid {
-    @apply grid gap-2;
-  }
-
-  .settings-toggle-grid .app-toggle-field {
-    @apply min-h-8 px-2.5 py-1.5;
-  }
-
-  .settings-compact-grid-two {
-    @apply lg:grid-cols-2 lg:items-start;
-  }
-
-  .settings-compact-grid-connection {
-    @apply lg:items-start;
-  }
-
-  .settings-compact-grid-ocr {
-    @apply lg:items-start;
-  }
-
-  .settings-compact-grid-conversion {
-    @apply lg:grid-cols-3 lg:items-start;
-  }
-
-  .settings-compact-grid-vlm-main {
-    @apply lg:grid-cols-2 lg:items-start;
-  }
-
-  .settings-compact-grid-models {
-    @apply lg:grid-cols-3 lg:items-start;
-  }
-
-  .settings-toggle-grid-two {
-    @apply lg:grid-cols-2 lg:items-start;
-  }
-
-  .settings-toggle-grid-three {
-    @apply lg:grid-cols-3 lg:items-start;
-  }
-
-  .settings-toggle-grid-single {
-    @apply grid-cols-1;
-  }
-
-  .settings-toggle-grid-inline {
-    @apply grid gap-2;
-  }
-
-  .settings-toggle-grid-inline-two {
-    @apply sm:grid-cols-2 sm:items-start;
-  }
-
-  .settings-toggle-grid-inline-three {
-    @apply md:grid-cols-3 md:items-start;
-  }
-
-  .settings-toggle-grid-inline-single {
-    @apply grid-cols-1;
-  }
-
-  @media (min-width: 1280px) {
-    .settings-compact-grid-two {
-      grid-template-columns: repeat(2, minmax(18rem, 24rem));
-      justify-content: start;
-    }
-
-    .settings-compact-grid-connection {
-      grid-template-columns: minmax(18rem, 26rem) minmax(18rem, 24rem) minmax(18rem, 24rem);
-      justify-content: start;
-    }
-
-    .settings-compact-grid-ocr {
-      grid-template-columns: minmax(24rem, 34rem) minmax(14rem, 18rem) minmax(14rem, 18rem);
-      justify-content: start;
-    }
-
-    .settings-compact-grid-conversion {
-      grid-template-columns: minmax(16rem, 20rem) minmax(10rem, 12rem) minmax(14rem, 18rem);
-      justify-content: start;
-    }
-
-    .settings-compact-grid-vlm-main {
-      grid-template-columns: minmax(18rem, 24rem) minmax(20rem, 1fr);
-      justify-content: start;
-    }
-
-    .settings-compact-grid-models {
-      grid-template-columns: repeat(3, minmax(16rem, 20rem));
-      justify-content: start;
-    }
-
-    .settings-toggle-grid-two {
-      grid-template-columns: repeat(2, minmax(16rem, 20rem));
-      justify-content: start;
-    }
-
-    .settings-toggle-grid-three {
-      grid-template-columns: repeat(3, minmax(16rem, 20rem));
-      justify-content: start;
-    }
-
-    .settings-toggle-grid-inline-two {
-      grid-template-columns: repeat(2, minmax(11rem, 16rem));
-      justify-content: start;
-    }
-
-    .settings-toggle-grid-inline-three {
-      grid-template-columns: repeat(3, minmax(11rem, 15rem));
-      justify-content: start;
-    }
-  }
-
-  .source-data-table .p-datatable-tbody > tr {
-    cursor: pointer;
-  }
-
-
-  .library-layout {
-    @apply grid gap-2;
-    min-height: calc(100vh - 4.75rem);
-  }
-
-  .library-toolbar-shell {
-    @apply px-0 py-1 shadow-none;
-  }
-
-  .library-toolbar-main {
-    @apply flex min-w-0 flex-1 items-center gap-3 overflow-hidden;
-  }
-
-  .library-toolbar-breadcrumb {
-    @apply min-w-0;
-  }
-
-  .library-breadcrumb-link {
-    @apply text-left text-sm font-medium text-app-text transition hover:text-app-text-muted;
-  }
-
-  .library-workspace {
-    @apply min-h-0 overflow-hidden;
-    height: calc(100dvh - var(--library-workspace-offset, 9.25rem));
-    border-radius: 0.8rem;
-    background: var(--color-app-surface);
-  }
-
-  .library-workspace-embedded {
-    height: 100%;
-  }
-
   .library-pane {
     @apply bg-transparent px-3 py-3;
-  }
-
-  .library-pane-compact {
-    @apply h-full min-h-0 gap-2 px-2 py-2;
-  }
-
-  .library-entry-button {
-    @apply block w-full truncate text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted;
-  }
-
-  .library-entry-button:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-app-border-strong) 72%, transparent);
-    outline-offset: 3px;
-    border-radius: 0.65rem;
-  }
-
-  .library-resource-record {
-    padding-left: calc(var(--library-entry-depth, 0) * 0.9rem);
-    @apply py-0;
   }
 
   .library-folder-toggle {
@@ -374,14 +168,6 @@
 
   .library-preview-dialog .library-pane {
     @apply px-5 py-5;
-  }
-
-  .library-splitter {
-    background: transparent;
-  }
-
-  .library-docked-preview {
-    border-left: 1px solid color-mix(in srgb, var(--color-app-border) 70%, transparent);
   }
 
   .library-preview-plaintext {
@@ -451,21 +237,6 @@
 
   .library-markdown-pre code {
     @apply bg-transparent p-0;
-  }
-
-  .library-pane-compact .p-datatable {
-    @apply flex min-h-0 flex-1 flex-col;
-  }
-
-  .library-pane-compact .p-datatable-table-container {
-    @apply min-h-0 flex-1;
-  }
-
-  .library-pane-compact .p-datatable-thead > tr > th {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: color-mix(in srgb, var(--color-app-surface) 98%, transparent);
   }
 
 }

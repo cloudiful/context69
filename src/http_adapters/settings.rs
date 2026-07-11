@@ -36,6 +36,13 @@ impl SettingsApi for SettingsApiAdapter {
         self.service.test_s3_connection(request).await
     }
 
+    async fn test_valkey_connection(
+        &self,
+        request: &crate::contracts::TestRuntimeValkeyRequest,
+    ) -> anyhow::Result<()> {
+        self.service.test_valkey_connection(request).await
+    }
+
     async fn get_docling_settings(
         &self,
     ) -> anyhow::Result<crate::contracts::DoclingSettingsResponse> {

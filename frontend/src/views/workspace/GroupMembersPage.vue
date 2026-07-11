@@ -12,7 +12,7 @@ const state = useGroupWorkspaceContext();
 <template>
   <section class="grid gap-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
-      <p class="section-title">{{ $t("groups.membersTitle") }}</p>
+      <p class="text-base font-semibold text-app-text">{{ $t("groups.membersTitle") }}</p>
       <Button v-if="state.canManageGroup" :label="$t('members.add')" size="small" @click="state.openCreateMemberDialog" />
     </div>
 

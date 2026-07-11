@@ -116,7 +116,7 @@ function handleRowSelect(source: SourceStatus) {
     <div class="overflow-hidden rounded-[0.8rem] border border-app-border/90 bg-app-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <DataTable
         :value="filteredSources"
-        class="source-data-table hidden md:block"
+        class="source-data-table hidden md:block [&_.p-datatable-tbody>tr]:cursor-pointer"
         data-key="source_key"
         removable-sort
         resizable-columns

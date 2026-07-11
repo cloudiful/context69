@@ -9,6 +9,7 @@ use crate::domain::SyncCheckpoint;
 mod auth;
 mod docling_settings;
 mod documents;
+mod internal_secrets;
 mod namespaces;
 mod personal_access_tokens;
 mod rows;

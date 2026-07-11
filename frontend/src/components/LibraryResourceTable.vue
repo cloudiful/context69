@@ -272,8 +272,8 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
 </script>
 
 <template>
-  <div class="library-pane library-pane-compact flex h-full flex-col">
-    <div class="min-h-0 flex-1 overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
+  <div class="library-pane flex h-full min-h-0 flex-col gap-2 bg-transparent px-2 py-2">
+    <div class="flex min-h-0 flex-1 flex-col overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
       <AsyncStateBlock
         :error="props.error"
         :loading="props.loading"
@@ -292,7 +292,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
         </template>
 
         <DataTable
-          class="hidden md:block"
+          class="hidden min-h-0 flex-1 flex-col md:flex [&_.p-datatable-thead>tr>th]:!bg-app-surface [&_.p-paginator-content]:flex-nowrap [&_.p-paginator-rpp-dropdown]:!w-20 [&_.p-paginator-rpp-dropdown]:!min-w-20 [&_.p-paginator-rpp-dropdown]:!max-w-20 [&_.p-paginator-rpp-dropdown]:shrink-0"
           :selection="props.selection"
           :contextMenuSelection="props.tableContextSelection"
           :value="displayEntries"
@@ -316,7 +316,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           scroll-height="flex"
           state-storage="local"
           :state-key="tableStateKey"
-          :table-style="props.compact ? 'width: 100%; table-layout: fixed' : 'min-width: 52rem'"
+          :table-class="props.compact ? 'w-full table-fixed' : 'min-w-[52rem]'"
           @update:selection="handleSelectionUpdate"
           @update:contextMenuSelection="handleContextSelectionUpdate"
           @row-click="handleRowClick"
@@ -333,9 +333,9 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
             </div>
           </template>
 
-          <Column :header="$t('library.filename')" field="name" sort-field="name" :sortable="props.paginated" :style="props.compact ? 'width: 36%' : 'min-width: 18rem'">
+          <Column :header="$t('library.filename')" field="name" sort-field="name" :sortable="props.paginated" :class="props.compact ? 'w-[36%]' : 'min-w-72'">
             <template #body="{ data }">
-              <div class="library-resource-record" :style="entryIndentStyle(data)">
+              <div class="py-0 [padding-left:calc(var(--library-entry-depth,0)*0.9rem)]" :style="entryIndentStyle(data)">
                 <div class="flex min-w-0 items-start gap-1.5">
                   <button
                     v-if="data.kind === 'folder'"
@@ -355,7 +355,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
 
                   <div class="grid min-w-0 gap-1">
                     <button
-                      class="library-entry-button"
+                      class="block w-full truncate rounded-[0.65rem] text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[color:color-mix(in_srgb,var(--color-app-border-strong)_72%,transparent)]"
                       type="button"
                       :data-entry-key="data.key"
                       @click.stop="openEntry(data)"
@@ -374,7 +374,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
             </template>
           </Column>
 
-          <Column :header="$t('library.typeLabel')" sort-field="type" :sortable="props.paginated" :style="props.compact ? 'width: 11%' : undefined" class="w-24">
+          <Column :header="$t('library.typeLabel')" sort-field="type" :sortable="props.paginated" :class="props.compact ? 'w-[11%]' : 'w-24'">
             <template #body="{ data }">
               <span class="text-sm text-app-text-muted">{{ $t(resourceTypeLabel(data)) }}</span>
             </template>
@@ -388,8 +388,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
             :show-filter-match-modes="false"
             :show-filter-operator="false"
             :show-add-button="false"
-            :style="props.compact ? 'width: 16%' : undefined"
-            class="w-32"
+            :class="props.compact ? 'w-[16%]' : 'w-32'"
           >
             <template #filter="{ filterModel }">
               <Select
@@ -432,13 +431,13 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
             </template>
           </Column>
 
-          <Column :header="$t('library.sizeLabel')" sort-field="size" :sortable="props.paginated" :style="props.compact ? 'width: 12%' : undefined" class="w-24">
+          <Column :header="$t('library.sizeLabel')" sort-field="size" :sortable="props.paginated" :class="props.compact ? 'w-[12%]' : 'w-24'">
             <template #body="{ data }">
               <span class="tabular-nums text-sm text-app-text-muted">{{ resourceSizeLabel(data) }}</span>
             </template>
           </Column>
 
-          <Column :header="$t('library.updatedColumn')" sort-field="updated_at" :sortable="props.paginated" :style="props.compact ? 'width: 25%' : undefined" class="w-36">
+          <Column :header="$t('library.updatedColumn')" sort-field="updated_at" :sortable="props.paginated" :class="props.compact ? 'w-[25%]' : 'w-36'">
             <template #body="{ data }">
               <span class="whitespace-nowrap text-sm text-app-text-muted">
                 {{ data.updatedAt ? formatTimestamp(data.updatedAt) : "—" }}

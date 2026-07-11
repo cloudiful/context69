@@ -107,6 +107,28 @@ impl SettingsService {
             .await
     }
 
+    pub async fn test_valkey_connection(
+        &self,
+        request: &crate::contracts::TestRuntimeValkeyRequest,
+    ) -> Result<()> {
+        let valkey_url = request.valkey_url.trim();
+        if valkey_url.is_empty() {
+            return Err(anyhow!("runtime.scheduler.valkey_url must not be empty"));
+        }
+
+        let client =
+            redis::Client::open(valkey_url).context("invalid runtime.scheduler.valkey_url")?;
+        let mut connection = client
+            .get_connection_manager()
+            .await
+            .context("failed to connect to Valkey")?;
+        redis::cmd("PING")
+            .query_async::<String>(&mut connection)
+            .await
+            .context("Valkey PING failed")?;
+        Ok(())
+    }
+
     pub async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse> {
         if let Some(settings) = self.db.get_docling_settings().await? {
             return Ok(response_from_stored(

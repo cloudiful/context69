@@ -143,12 +143,22 @@ pub(super) fn validate_sources_config(
 }
 
 pub(super) fn validate_auth_config(config: &AuthConfig) -> Result<()> {
-    if config.session_valkey_url.trim().is_empty() {
-        return Err(anyhow!("auth.session_valkey_url must not be empty"));
-    }
-    if config.session_secret_key.trim().len() < 32 {
+    if config
+        .session_valkey_url
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
         return Err(anyhow!(
-            "auth.session_secret_key must be at least 32 characters"
+            "auth.session_valkey_url must not be empty when set"
+        ));
+    }
+    if config
+        .session_secret_key
+        .as_deref()
+        .is_some_and(|value| value.trim().len() < 32)
+    {
+        return Err(anyhow!(
+            "auth.session_secret_key must be at least 32 characters when set"
         ));
     }
     if config.session_idle_ttl.as_secs() == 0 {

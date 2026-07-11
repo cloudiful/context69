@@ -22,7 +22,7 @@ const { t } = useI18n();
     <div v-if="selectedHit" class="grid gap-3">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="section-label">{{ selectedHit.source_key }}</p>
+          <p class="text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim">{{ selectedHit.source_key }}</p>
           <h3 class="truncate text-base font-semibold text-app-text">{{ selectedHit.title }}</h3>
           <p class="text-xs leading-5 text-app-text-dim">
             {{ t("search.result.published", { date: formatDate(selectedHit.published_at) }) }}

@@ -83,6 +83,11 @@ pub struct RuntimeSchedulerSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TestRuntimeValkeyRequest {
+    pub valkey_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeChunkingSettings {
     pub max_chars: usize,
     pub overlap_chars: usize,

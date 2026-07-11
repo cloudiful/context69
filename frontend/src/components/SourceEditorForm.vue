@@ -130,7 +130,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
         <section class="min-h-0 min-w-0">
           <div class="rounded-[1.1rem] border border-app-border/80 bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             <div class="mb-4 grid gap-1">
-              <p class="section-title">{{ t("sources.form.sourceSectionTitle") }}</p>
+              <p class="text-base font-semibold text-app-text">{{ t("sources.form.sourceSectionTitle") }}</p>
               <p class="text-xs leading-6 text-app-text-dim">{{ t("sources.form.sourceSectionDescription") }}</p>
             </div>
 
@@ -298,7 +298,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
           <div class="grid h-full min-h-0 gap-3 p-3">
             <div class="grid gap-1">
               <div>
-                <p class="section-title">{{ t("sources.form.queryTitle") }}</p>
+                <p class="text-base font-semibold text-app-text">{{ t("sources.form.queryTitle") }}</p>
                 <p class="text-xs leading-6 text-app-text-dim">{{ t("sources.form.queryDescription") }}</p>
               </div>
             </div>

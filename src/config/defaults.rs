@@ -17,6 +17,7 @@ pub(super) const CONFIG_ENV_PREFIX: &str = "CONTEXT69_";
 pub const APP_DB_URL_ENV_VAR: &str = "CONTEXT69_APP_DB__URL";
 pub(super) const DEFAULT_MCP_BIND_ADDR: &str = "0.0.0.0:8097";
 pub const DEFAULT_SESSION_IDLE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
+pub const DEFAULT_SESSION_VALKEY_URL: &str = "redis://127.0.0.1:6379";
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
 
@@ -56,8 +57,8 @@ impl Default for FileConfig {
             },
             docling: None,
             auth: AuthConfig {
-                session_valkey_url: "redis://127.0.0.1:6379".to_string(),
-                session_secret_key: "replace-me-with-a-long-random-session-secret".to_string(),
+                session_valkey_url: None,
+                session_secret_key: None,
                 session_idle_ttl: default_session_idle_ttl(),
                 session_cookie_secure: false,
                 anonymous_mcp_enabled: true,

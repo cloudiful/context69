@@ -29,23 +29,23 @@ const { t } = useI18n();
 
 <template>
   <AppTableToolbar
-    class="library-toolbar-shell"
+    class="library-toolbar-shell px-0 py-1 shadow-none"
     :count-label="countLabel"
     :search-enabled="showSearch"
     :search-query="searchQuery"
     @update:search-query="emit('update:searchQuery', $event)"
   >
     <template #main>
-      <div class="library-toolbar-main">
+      <div class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
         <Breadcrumb
           v-if="breadcrumbItems.length > 0"
           :home="breadcrumbHome"
           :model="breadcrumbItems"
-          class="library-toolbar-breadcrumb"
+          class="min-w-0"
         >
           <template #item="{ item }">
             <button
-              class="library-breadcrumb-link"
+              class="text-left text-sm font-medium text-app-text transition hover:text-app-text-muted"
               type="button"
               @click="item.onSelect()"
             >
