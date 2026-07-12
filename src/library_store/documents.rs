@@ -54,6 +54,10 @@ impl LibraryStore {
                 document.visibility.as_str(),
                 document.section_key,
                 document.section_label,
+                document.section_external_id,
+                document.section_source_uri,
+                document.section_published_at,
+                document.section_metadata_json,
                 document.sort_order
             )
             .execute(&mut *tx)
@@ -88,6 +92,10 @@ impl LibraryStore {
                     .unwrap_or(crate::contracts::Visibility::Private),
                 section_key: row.section_key,
                 section_label: row.section_label,
+                section_external_id: row.section_external_id,
+                section_source_uri: row.section_source_uri,
+                section_published_at: row.section_published_at,
+                section_metadata_json: row.section_metadata_json,
                 sort_order: row.sort_order,
             })
             .collect())
@@ -193,20 +201,5 @@ impl LibraryStore {
         .await?;
 
         Ok(rows)
-    }
-
-    pub async fn update_document_metadata(
-        &self,
-        document_id: i64,
-        metadata_json: &serde_json::Value,
-    ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/library_store/documents/update_document_metadata.sql",
-            document_id,
-            metadata_json
-        )
-        .execute(self.db.pool())
-        .await?;
-        Ok(())
     }
 }

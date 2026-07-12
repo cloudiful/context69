@@ -1,4 +1,5 @@
 pub mod metadata;
+mod sorting;
 
 use std::sync::Arc;
 
@@ -7,7 +8,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use context69_contracts::{
     BatchDocumentItem, BatchGetDocumentsResponse, CreateMetadataIndexRequest, DocumentKey,
     DocumentQueryRequest, DocumentQueryResponse, DocumentResponse, DocumentSortField,
-    MetadataFilterOperator, MetadataIndexResponse, SortOrder, UpdateMetadataIndexRequest,
+    MetadataFilterOperator, MetadataIndexResponse, UpdateMetadataIndexRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -139,26 +140,52 @@ impl DocumentStoreService {
                 }
             }
         }
-        documents.sort_by(|left, right| compare_documents(left, right, request));
         let query_hash = query_hash(request)?;
-        let offset = decode_cursor(request.cursor.as_deref(), &query_hash)?;
-        let limit = request.limit;
-        let page = documents
+        let cursor = decode_cursor(request.cursor.as_deref(), &query_hash)?;
+        let mut rows = documents
             .into_iter()
-            .skip(offset)
-            .take(limit + 1)
-            .collect::<Vec<_>>();
+            .map(|document| {
+                let values = sorting::values_for_document(&document, &request.sort, &definitions)?;
+                Ok((document, values))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        rows.sort_by(|(left, left_values), (right, right_values)| {
+            sorting::compare_rows(
+                left_values,
+                left.document_id,
+                right_values,
+                right.document_id,
+                &request.sort,
+            )
+        });
+        if let Some(cursor) = cursor {
+            rows.retain(|(document, values)| {
+                sorting::compare_rows(
+                    values,
+                    document.document_id,
+                    &cursor.values,
+                    cursor.document_id,
+                    &request.sort,
+                )
+                .is_gt()
+            });
+        }
+        let limit = request.limit;
+        let page = rows.into_iter().take(limit + 1).collect::<Vec<_>>();
         let has_more = page.len() > limit;
-        let documents = page.into_iter().take(limit).collect::<Vec<_>>();
+        let rows = page.into_iter().take(limit).collect::<Vec<_>>();
         let next_cursor = has_more
-            .then(|| {
-                encode_cursor(&Cursor {
-                    version: 1,
+            .then(|| match rows.last() {
+                Some((document, values)) => encode_cursor(&Cursor {
+                    version: 2,
                     query_hash,
-                    offset: offset + documents.len(),
-                })
+                    values: values.clone(),
+                    document_id: document.document_id,
+                }),
+                None => unreachable!("a page with more rows cannot be empty"),
             })
             .transpose()?;
+        let documents = rows.into_iter().map(|(document, _)| document).collect();
         Ok(DocumentQueryResponse {
             documents,
             next_cursor,
@@ -365,7 +392,8 @@ impl DocumentStoreService {
 struct Cursor {
     version: u8,
     query_hash: String,
-    offset: usize,
+    values: Vec<sorting::SortValue>,
+    document_id: i64,
 }
 
 fn validate_query(request: &DocumentQueryRequest) -> Result<()> {
@@ -458,44 +486,6 @@ fn json_range(value: &Value, min: Option<&Value>, max: Option<&Value>) -> bool {
         && max.is_none_or(|bound| compare(value, bound).is_some_and(|order| order.is_le()))
 }
 
-fn compare_documents(
-    left: &DocumentResponse,
-    right: &DocumentResponse,
-    request: &DocumentQueryRequest,
-) -> std::cmp::Ordering {
-    for sort in &request.sort {
-        let values = match &sort.field {
-            DocumentSortField::PublishedAt => (
-                left.published_at.map(|v| v.to_rfc3339()),
-                right.published_at.map(|v| v.to_rfc3339()),
-            ),
-            DocumentSortField::UpdatedAt => (
-                Some(left.updated_at.to_rfc3339()),
-                Some(right.updated_at.to_rfc3339()),
-            ),
-            DocumentSortField::Metadata(path) => (
-                metadata::resolve_path(&left.metadata_json, path).map(Value::to_string),
-                metadata::resolve_path(&right.metadata_json, path).map(Value::to_string),
-            ),
-        };
-        let order = match values {
-            (Some(a), Some(b)) => a.cmp(&b),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            _ => std::cmp::Ordering::Equal,
-        };
-        let order = if sort.order == SortOrder::Desc {
-            order.reverse()
-        } else {
-            order
-        };
-        if !order.is_eq() {
-            return order;
-        }
-    }
-    left.document_id.cmp(&right.document_id)
-}
-
 fn query_hash(request: &DocumentQueryRequest) -> Result<String> {
     let mut normalized = request.clone();
     normalized.cursor = None;
@@ -506,19 +496,19 @@ fn query_hash(request: &DocumentQueryRequest) -> Result<String> {
 fn encode_cursor(cursor: &Cursor) -> Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(cursor)?))
 }
-fn decode_cursor(value: Option<&str>, hash: &str) -> Result<usize> {
+fn decode_cursor(value: Option<&str>, hash: &str) -> Result<Option<Cursor>> {
     let Some(value) = value else {
-        return Ok(0);
+        return Ok(None);
     };
     let cursor: Cursor = serde_json::from_slice(
         &URL_SAFE_NO_PAD
             .decode(value)
             .map_err(|_| anyhow!("invalid cursor"))?,
     )?;
-    if cursor.version != 1 || cursor.query_hash != hash {
+    if cursor.version != 2 || cursor.query_hash != hash {
         return Err(anyhow!("cursor does not match query"));
     }
-    Ok(cursor.offset)
+    Ok(Some(cursor))
 }
 
 fn data_type_str(value: context69_contracts::MetadataDataType) -> &'static str {

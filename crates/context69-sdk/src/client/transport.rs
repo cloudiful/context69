@@ -117,13 +117,21 @@ pub(crate) fn file_upload_form(folder_id: Option<Uuid>, files: Vec<Part>) -> For
 pub(crate) fn file_upload_form_with_sha256(
     folder_id: Option<Uuid>,
     sha256: String,
+    metadata: Option<&context69_contracts::LibraryFileUploadMetadata>,
     file: Part,
-) -> Form {
+) -> Result<Form, Error> {
     let mut form = Form::new();
     if let Some(folder_id) = folder_id {
         form = form.text("folder_id", folder_id.to_string());
     }
-    form.text("sha256", sha256).part("files", file)
+    form = form.text("sha256", sha256);
+    if let Some(metadata) = metadata {
+        form = form.part(
+            "metadata",
+            Part::text(serde_json::to_string(metadata)?).mime_str("application/json")?,
+        );
+    }
+    Ok(form.part("files", file))
 }
 
 pub(crate) fn validate_personal_access_token(token: String) -> Result<String, Error> {

@@ -245,7 +245,7 @@ Runtime endpoints include:
 - `POST /v1/search`
 - `GET /v1/groups/by-path/{group_path}/library/resources` for database-backed folder pagination, search, and sorting
 - `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/retry` to reprocess a failed file from its saved original
-- `POST /v1/groups/by-path/{group_path}/library/files/prepare-upload` to reuse an existing SHA-256 object inside the same group
+- `POST /v1/groups/by-path/{group_path}/library/files/prepare-upload` to reuse an existing SHA-256 object inside the same group while applying optional business metadata
 - `GET|POST /v1/auth/personal-access-tokens`
 - `DELETE /v1/auth/personal-access-tokens/{token_id}`
 - source and document management endpoints under `/v1/*`
@@ -255,6 +255,9 @@ For the full surface:
 - [API Reference](/Users/cloudiful/codes/research/context69/docs/api.md)
 - generated OpenAPI output at `frontend/openapi/context69.openapi.json`
 - JSON library text endpoints accept `content_format = plain_text | markdown`; Markdown requests are stored as `.md` with `text/markdown`, while multipart uploads already support `.md` files directly
+- Multipart file uploads accept an `application/json` `metadata` part immediately before its `files` part. It contains `external_id`, `source_uri`, RFC 3339 `published_at`, and object-valued `metadata_json`. Every parsed section inherits these fields.
+- Text JSON upserts and binary uploads share the same internal metadata composition path: section metadata, then file business metadata, then protected Context69 library fields.
+- A repeated `(group, external_id, SHA-256)` upload updates metadata without parsing or embedding again. A changed SHA-256 replaces and re-ingests that logical file. Reusing one SHA-256 with another external ID returns `409 external_id_content_conflict`.
 
 ## Security
 

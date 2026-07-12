@@ -1,7 +1,10 @@
 use axum::{Json, extract::Multipart, http::StatusCode, response::IntoResponse};
 use uuid::Uuid;
 
-use crate::{contracts::ApiErrorResponse, services::library::UploadedLibraryFile};
+use crate::{
+    contracts::{ApiErrorResponse, LibraryFileUploadMetadata},
+    services::library::UploadedLibraryFile,
+};
 
 pub(crate) async fn read_library_uploads(
     mut multipart: Multipart,
@@ -9,6 +12,7 @@ pub(crate) async fn read_library_uploads(
     let mut folder_id = None;
     let mut uploads = Vec::new();
     let mut declared_sha256 = None;
+    let mut metadata = None;
 
     loop {
         let field = match multipart.next_field().await {
@@ -72,6 +76,42 @@ pub(crate) async fn read_library_uploads(
             continue;
         }
 
+        if name == "metadata" {
+            metadata = match field.bytes().await {
+                Ok(value) => match serde_json::from_slice::<LibraryFileUploadMetadata>(&value) {
+                    Ok(value) if value.metadata_json.is_object() => Some(value),
+                    Ok(_) => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(ApiErrorResponse {
+                                error: "metadata_json must be an object".into(),
+                            }),
+                        )
+                            .into_response());
+                    }
+                    Err(error) => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(ApiErrorResponse {
+                                error: format!("invalid metadata JSON: {error}"),
+                            }),
+                        )
+                            .into_response());
+                    }
+                },
+                Err(error) => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(ApiErrorResponse {
+                            error: error.to_string(),
+                        }),
+                    )
+                        .into_response());
+                }
+            };
+            continue;
+        }
+
         if name != "files" {
             continue;
         }
@@ -103,6 +143,7 @@ pub(crate) async fn read_library_uploads(
             media_type,
             bytes,
             declared_sha256: declared_sha256.take(),
+            metadata: metadata.take(),
         });
     }
 

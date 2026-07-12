@@ -2,6 +2,32 @@
 
 Async Rust SDK for the Context69 HTTP API.
 
+Deduplicated uploads can carry typed business metadata:
+
+```rust,no_run
+use context69_contracts::LibraryFileUploadMetadata;
+use serde_json::json;
+
+# async fn example(client: &context69_sdk::Context69Client) -> Result<(), Box<dyn std::error::Error>> {
+client.group("research/news").library().files()
+    .upload_bytes_deduplicated_with_metadata(
+        None,
+        "announcement.pdf",
+        "application/pdf",
+        std::fs::read("announcement.pdf")?,
+        Some(LibraryFileUploadMetadata {
+            external_id: Some("announcement-42".into()),
+            source_uri: Some("https://example.test/announcements/42".into()),
+            published_at: Some("2026-07-12T09:30:00Z".parse()?),
+            metadata_json: json!({"ticker": "ACME", "score": 10}),
+        }),
+    ).await?;
+# Ok(())
+# }
+```
+
+The existing `upload_bytes_deduplicated` method sends no metadata, preserving stored business fields on a deduplication hit.
+
 `context69-sdk` is a PAT-only client. Initialize it with a personal access token that starts with `ctx_pat_`, then navigate the resource tree to call an API.
 
 ## Initialization

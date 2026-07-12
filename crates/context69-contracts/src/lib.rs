@@ -24,12 +24,12 @@ pub use documents::{
 };
 pub use library::{
     CreateFolderRequest, CreateTextRequest, LibraryDocumentSectionPreview,
-    LibraryFileDetailResponse, LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse,
-    LibraryIngestJobResponse, LibraryIngestStatus, LibraryPreviewContentFormat,
-    LibraryResourceItem, LibraryResourceKind, LibraryResourcePageQuery,
-    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTextContentFormat,
-    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
+    LibraryFileDetailResponse, LibraryFileSummary, LibraryFileUploadMetadata, LibraryFolderNode,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryIngestStatus,
+    LibraryPreviewContentFormat, LibraryResourceItem, LibraryResourceKind,
+    LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryResourceSortBy,
+    LibraryTextContentFormat, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
+    MoveFolderRequest, PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
     UpsertLibraryTextRequest,
 };
 pub use mcp::McpDocumentArgs;

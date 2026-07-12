@@ -104,6 +104,15 @@ pub struct LibraryFileSummary {
     pub visibility: Visibility,
     #[serde(default)]
     pub folder_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<DateTime<Utc>>,
+    #[serde(default = "default_metadata_json")]
+    #[schema(value_type = Object)]
+    pub metadata_json: Value,
     pub filename: String,
     pub media_type: String,
     pub size_bytes: i64,
@@ -346,6 +355,19 @@ pub struct LibraryUploadResponse {
     pub jobs: Vec<LibraryIngestJobResponse>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct LibraryFileUploadMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<DateTime<Utc>>,
+    #[serde(default = "default_metadata_json")]
+    #[schema(value_type = Object)]
+    pub metadata_json: Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PrepareLibraryUploadRequest {
     #[serde(default)]
@@ -354,6 +376,8 @@ pub struct PrepareLibraryUploadRequest {
     pub media_type: String,
     pub size_bytes: i64,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<LibraryFileUploadMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

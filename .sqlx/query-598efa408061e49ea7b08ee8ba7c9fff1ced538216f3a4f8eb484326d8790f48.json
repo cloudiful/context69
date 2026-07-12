@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT file_id, document_id, group_id, visibility, section_key, section_label, sort_order\nFROM context69.library_file_documents\nWHERE file_id = $1\nORDER BY sort_order ASC, section_key ASC\n",
+  "query": "SELECT file_id, document_id, group_id, visibility, section_key, section_label,\n       section_external_id, section_source_uri, section_published_at, section_metadata_json,\n       sort_order\nFROM context69.library_file_documents\nWHERE file_id = $1\nORDER BY sort_order ASC, section_key ASC\n",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,50 @@
       },
       {
         "ordinal": 6,
+        "name": "section_external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "section_source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "section_published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "section_metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
         "name": "sort_order",
         "type_info": "Int4",
         "origin": {
@@ -93,8 +137,12 @@
       false,
       false,
       false,
+      true,
+      true,
+      true,
+      false,
       false
     ]
   },
-  "hash": "bb3dccb4674620b756925fdebef4ebd75b81e3906ed8f9f8874a365804a4275e"
+  "hash": "598efa408061e49ea7b08ee8ba7c9fff1ced538216f3a4f8eb484326d8790f48"
 }

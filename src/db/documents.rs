@@ -168,6 +168,66 @@ impl Database {
         })
     }
 
+    pub async fn update_library_document_business_fields(
+        &self,
+        document_id: i64,
+        payload: &ChunkPayload,
+    ) -> Result<()> {
+        let definitions = self
+            .list_metadata_indexes(payload.group_id, &payload.source_key)
+            .await?
+            .into_iter()
+            .filter(|definition| definition.status == "ready")
+            .map(|definition| {
+                let values = crate::services::document_store::metadata::extract_values(
+                    &definition,
+                    &payload.metadata_json,
+                )?;
+                Ok((definition.index_id, values))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query_file!(
+            "src/sql/db/documents/update_library_business_fields.sql",
+            document_id,
+            payload.external_id,
+            payload.source_uri,
+            payload.published_at,
+            payload.updated_at_source,
+            payload.metadata_json,
+            payload.record_hash
+        )
+        .execute(&mut *tx)
+        .await?;
+        for (index_id, values) in definitions {
+            sqlx::query_file!(
+                "src/sql/db/metadata_indexes/delete_document_values.sql",
+                index_id,
+                document_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            for (ordinal, value) in values.iter().enumerate() {
+                sqlx::query_file!(
+                    "src/sql/db/metadata_indexes/insert_value.sql",
+                    index_id,
+                    document_id,
+                    ordinal as i32,
+                    value.keyword_value.as_deref(),
+                    value.integer_value,
+                    value.float_value,
+                    value.boolean_value,
+                    value.datetime_value
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn replace_document_chunks(
         &self,
         document_id: i64,

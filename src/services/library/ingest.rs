@@ -305,23 +305,39 @@ impl LibraryService {
         let mut mappings = Vec::new();
 
         for (index, section) in sections.into_iter().enumerate() {
-            let metadata_json = merge_library_metadata(
+            let metadata_json = compose_library_metadata(
                 &section.metadata_json,
-                build_library_metadata(file, &folder_path, &section),
+                &file.metadata_json,
+                library_system_metadata(
+                    file,
+                    &folder_path,
+                    &section.section_key,
+                    &section.section_label,
+                ),
             )?;
+            let external_id = file
+                .external_id
+                .as_ref()
+                .map(|base| {
+                    if index == 0 {
+                        base.clone()
+                    } else {
+                        format!("{base}:{}", section.section_key)
+                    }
+                })
+                .or_else(|| section.external_id.clone())
+                .unwrap_or_else(|| format!("{}:{}", file.id, section.section_key));
             let normalized = normalize_record(SourceRecord {
-                external_id: section
-                    .external_id
-                    .clone()
-                    .unwrap_or_else(|| format!("{}:{}", file.id, section.section_key)),
+                external_id,
                 title: section.title.clone(),
                 body_text: section.body_text.clone(),
-                source_uri: section
+                source_uri: file
                     .source_uri
                     .clone()
+                    .or_else(|| section.source_uri.clone())
                     .unwrap_or_else(|| format!("context69://library/files/{}", file.id)),
                 summary: section.summary.clone(),
-                published_at: section.published_at,
+                published_at: file.published_at.or(section.published_at),
                 updated_at: Utc::now(),
                 metadata_json,
             });
@@ -394,6 +410,10 @@ impl LibraryService {
                 visibility: file.visibility,
                 section_key: section.section_key,
                 section_label: section.section_label,
+                section_external_id: section.external_id,
+                section_source_uri: section.source_uri,
+                section_published_at: section.published_at,
+                section_metadata_json: section.metadata_json,
                 sort_order: index as i32,
             });
         }

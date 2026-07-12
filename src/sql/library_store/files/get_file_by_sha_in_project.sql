@@ -1,7 +1,4 @@
-UPDATE context69.library_files
-SET folder_id = $2, updated_at = now()
-WHERE id = $1
-RETURNING
+SELECT
     group_id,
     (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",
     (SELECT full_path FROM context69.groups WHERE id = group_id) AS "group_path!",
@@ -22,3 +19,8 @@ RETURNING
     created_at,
     updated_at,
     ingested_at
+FROM context69.library_files
+WHERE group_id = $1
+  AND sha256 = $2
+ORDER BY created_at, id
+LIMIT 1

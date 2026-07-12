@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\nFROM context69.library_files\nWHERE group_id = $1\n  AND external_id = $2\n",
+  "query": "SELECT\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\nFROM context69.library_files\nORDER BY filename, id\n",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,39 @@
       },
       {
         "ordinal": 7,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
         "name": "filename",
         "type_info": "Text",
         "origin": {
@@ -82,7 +115,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 11,
         "name": "media_type",
         "type_info": "Text",
         "origin": {
@@ -93,7 +126,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 12,
         "name": "size_bytes",
         "type_info": "Int8",
         "origin": {
@@ -104,7 +137,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "sha256",
         "type_info": "Text",
         "origin": {
@@ -115,7 +148,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 14,
         "name": "storage_rel_path",
         "type_info": "Text",
         "origin": {
@@ -126,7 +159,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 15,
         "name": "ingest_status",
         "type_info": "Text",
         "origin": {
@@ -137,7 +170,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 16,
         "name": "error_message",
         "type_info": "Text",
         "origin": {
@@ -148,7 +181,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 17,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -159,7 +192,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 18,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -170,7 +203,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 19,
         "name": "ingested_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -182,10 +215,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Int8",
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -195,6 +225,9 @@
       false,
       true,
       true,
+      true,
+      true,
+      false,
       false,
       false,
       false,
@@ -207,5 +240,5 @@
       true
     ]
   },
-  "hash": "1a7bcab27eee857110da95be08b06b2d993a29bb96c59cc91be6c3006ec5e473"
+  "hash": "31f93cd19372bb19b7bbc6287a155b6c6bd458882a285d040d3a6df031cf7c1f"
 }

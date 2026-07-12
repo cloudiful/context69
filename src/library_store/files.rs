@@ -5,10 +5,30 @@ use uuid::Uuid;
 use super::mappers::file_from_row;
 use super::{
     FileRow, LibraryFileRecord, LibraryIngestStatus, LibraryStore, NewLibraryFile,
-    UpdateLibraryTextFile,
+    UpdateLibraryFileContent,
 };
 
 impl LibraryStore {
+    pub async fn update_business_metadata(
+        &self,
+        group_id: i64,
+        file_id: Uuid,
+        metadata: &crate::contracts::LibraryFileUploadMetadata,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/update_business_metadata.sql",
+            group_id,
+            file_id,
+            metadata.external_id,
+            metadata.source_uri,
+            metadata.published_at,
+            metadata.metadata_json
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+        row.map(file_from_row).transpose()
+    }
     pub async fn list_files(&self) -> Result<Vec<LibraryFileRecord>> {
         let rows = sqlx::query_file_as!(FileRow, "src/sql/library_store/files/list_files.sql")
             .fetch_all(self.db.pool())
@@ -104,6 +124,22 @@ impl LibraryStore {
         row.map(file_from_row).transpose()
     }
 
+    pub async fn get_file_by_sha_in_project(
+        &self,
+        project_id: i64,
+        sha256: &str,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/get_file_by_sha_in_project.sql",
+            project_id,
+            sha256
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+        row.map(file_from_row).transpose()
+    }
+
     pub async fn create_file(&self, file: &NewLibraryFile) -> Result<LibraryFileRecord> {
         let row = sqlx::query_file_as!(
             FileRow,
@@ -149,15 +185,15 @@ impl LibraryStore {
         file_from_row(row)
     }
 
-    pub async fn update_text_file_in_project(
+    pub async fn update_file_content_in_project(
         &self,
         project_id: i64,
         file_id: Uuid,
-        update: &UpdateLibraryTextFile,
+        update: &UpdateLibraryFileContent,
     ) -> Result<Option<LibraryFileRecord>> {
         let row = sqlx::query_file_as!(
             FileRow,
-            "src/sql/library_store/files/update_text_file_in_project.sql",
+            "src/sql/library_store/files/update_file_content_in_project.sql",
             project_id,
             file_id,
             update.folder_id,
@@ -166,7 +202,8 @@ impl LibraryStore {
             update.media_type,
             update.size_bytes,
             update.sha256,
-            update.storage_rel_path
+            update.storage_rel_path,
+            update.storage_object_id
         )
         .fetch_optional(self.db.pool())
         .await?;

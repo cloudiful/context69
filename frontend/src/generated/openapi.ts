@@ -1234,6 +1234,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             error_message?: string | null;
+            external_id?: string | null;
             /** Format: uuid */
             file_id: string;
             filename: string;
@@ -1245,11 +1246,22 @@ export interface components {
             /** Format: date-time */
             ingested_at?: string | null;
             media_type: string;
+            metadata_json?: Record<string, never>;
+            /** Format: date-time */
+            published_at?: string | null;
             /** Format: int64 */
             size_bytes: number;
+            source_uri?: string | null;
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
+        };
+        LibraryFileUploadMetadata: {
+            external_id?: string | null;
+            metadata_json?: Record<string, never>;
+            /** Format: date-time */
+            published_at?: string | null;
+            source_uri?: string | null;
         };
         LibraryFolderNode: {
             children: components["schemas"]["LibraryFolderNode"][];
@@ -1428,6 +1440,7 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
             media_type: string;
+            metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
             sha256: string;
             /** Format: int64 */
             size_bytes: number;

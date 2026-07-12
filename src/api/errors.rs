@@ -45,6 +45,12 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
         || message.contains("stored file not found for file")
     {
         StatusCode::NOT_FOUND
+    } else if message.contains("external_id_content_conflict") {
+        StatusCode::CONFLICT
+    } else if message.contains("metadata_json must be an object")
+        || message.contains("metadata field '")
+    {
+        StatusCode::UNPROCESSABLE_ENTITY
     } else if message.contains("must not be empty")
         || message.contains("unsupported file type")
         || message.contains("cannot be moved")

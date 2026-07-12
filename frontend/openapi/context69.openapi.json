@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.6.0"
+    "version": "0.6.1"
   },
   "paths": {
     "/healthz": {
@@ -4519,6 +4519,12 @@
               "null"
             ]
           },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "file_id": {
             "type": "string",
             "format": "uuid"
@@ -4552,9 +4558,25 @@
           "media_type": {
             "type": "string"
           },
+          "metadata_json": {
+            "type": "object"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "size_bytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updated_at": {
             "type": "string",
@@ -4562,6 +4584,33 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
+          }
+        }
+      },
+      "LibraryFileUploadMetadata": {
+        "type": "object",
+        "properties": {
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata_json": {
+            "type": "object"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -5223,6 +5272,16 @@
           },
           "media_type": {
             "type": "string"
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryFileUploadMetadata"
+              }
+            ]
           },
           "sha256": {
             "type": "string"

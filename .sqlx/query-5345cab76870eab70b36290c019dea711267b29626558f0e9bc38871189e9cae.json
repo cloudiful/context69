@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_files\nSET\n    folder_id = $3,\n    external_id = $4,\n    filename = $5,\n    media_type = $6,\n    size_bytes = $7,\n    sha256 = $8,\n    storage_rel_path = $9,\n    ingest_status = 'pending',\n    error_message = NULL,\n    ingested_at = NULL,\n    updated_at = now()\nWHERE group_id = $1\n  AND id = $2\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
+  "query": "WITH folder_scope AS (\n    SELECT group_id, visibility\n    FROM context69.library_folders\n    WHERE id = $2\n),\ndefault_scope AS (\n    SELECT id AS group_id, visibility\n    FROM context69.groups\n    WHERE full_path = 'public'\n),\nresolved_scope AS (\n    SELECT group_id, visibility FROM folder_scope\n    UNION ALL\n    SELECT group_id, visibility FROM default_scope\n    LIMIT 1\n)\nINSERT INTO context69.library_files (\n    id,\n    group_id,\n    visibility,\n    folder_id,\n    external_id,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    storage_object_id,\n    ingest_status\n)\nSELECT\n    $1,\n    rs.group_id,\n    rs.visibility,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8,\n    $9,\n    'pending'\nFROM resolved_scope rs\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,39 @@
       },
       {
         "ordinal": 7,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
         "name": "filename",
         "type_info": "Text",
         "origin": {
@@ -82,7 +115,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 11,
         "name": "media_type",
         "type_info": "Text",
         "origin": {
@@ -93,7 +126,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 12,
         "name": "size_bytes",
         "type_info": "Int8",
         "origin": {
@@ -104,7 +137,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "sha256",
         "type_info": "Text",
         "origin": {
@@ -115,7 +148,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 14,
         "name": "storage_rel_path",
         "type_info": "Text",
         "origin": {
@@ -126,7 +159,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 15,
         "name": "ingest_status",
         "type_info": "Text",
         "origin": {
@@ -137,7 +170,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 16,
         "name": "error_message",
         "type_info": "Text",
         "origin": {
@@ -148,7 +181,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 17,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -159,7 +192,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 18,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -170,7 +203,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 19,
         "name": "ingested_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -183,7 +216,6 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
         "Uuid",
         "Uuid",
         "Text",
@@ -191,7 +223,8 @@
         "Text",
         "Int8",
         "Text",
-        "Text"
+        "Text",
+        "Uuid"
       ]
     },
     "nullable": [
@@ -202,6 +235,9 @@
       false,
       true,
       true,
+      true,
+      true,
+      false,
       false,
       false,
       false,
@@ -214,5 +250,5 @@
       true
     ]
   },
-  "hash": "edcd54ff511d53ccbd13a1d244b4a7bccfebcfaf3d4721730550e40f1f58d374"
+  "hash": "5345cab76870eab70b36290c019dea711267b29626558f0e9bc38871189e9cae"
 }

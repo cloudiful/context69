@@ -40,7 +40,7 @@ pub struct NewLibraryFile {
 }
 
 #[derive(Debug, Clone)]
-pub struct UpdateLibraryTextFile {
+pub struct UpdateLibraryFileContent {
     pub folder_id: Option<Uuid>,
     pub external_id: Option<String>,
     pub filename: String,
@@ -48,6 +48,7 @@ pub struct UpdateLibraryTextFile {
     pub size_bytes: i64,
     pub sha256: String,
     pub storage_rel_path: String,
+    pub storage_object_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -72,6 +73,9 @@ struct FileRow {
     id: Uuid,
     folder_id: Option<Uuid>,
     external_id: Option<String>,
+    source_uri: Option<String>,
+    published_at: Option<DateTime<Utc>>,
+    metadata_json: Value,
     filename: String,
     media_type: String,
     size_bytes: i64,
@@ -131,6 +135,10 @@ struct FileDocumentRow {
     visibility: String,
     section_key: String,
     section_label: String,
+    section_external_id: Option<String>,
+    section_source_uri: Option<String>,
+    section_published_at: Option<DateTime<Utc>>,
+    section_metadata_json: Value,
     sort_order: i32,
 }
 

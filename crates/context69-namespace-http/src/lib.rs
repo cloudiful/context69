@@ -208,7 +208,7 @@ async fn create_group(
 ) -> impl IntoResponse {
     match state.namespace.create_group(&user, &request).await {
         Ok(group) => (StatusCode::CREATED, axum::Json(group)).into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }
 
@@ -242,7 +242,7 @@ async fn update_group(
         .await
     {
         Ok(group) => (StatusCode::OK, axum::Json(group)).into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }
 
@@ -259,7 +259,7 @@ async fn move_group(
         .await
     {
         Ok(group) => (StatusCode::OK, axum::Json(group)).into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }
 
@@ -271,7 +271,7 @@ async fn delete_group(
 ) -> impl IntoResponse {
     match state.namespace.delete_group(&user, &group_path).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }
 
@@ -299,7 +299,7 @@ async fn list_group_members(
 ) -> impl IntoResponse {
     match state.namespace.list_group_members(&user, &group_path).await {
         Ok(members) => (StatusCode::OK, axum::Json(members)).into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }
 
@@ -316,7 +316,7 @@ async fn upsert_group_member(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }
 
@@ -332,6 +332,6 @@ async fn delete_group_member(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }

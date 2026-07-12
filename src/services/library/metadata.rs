@@ -1,7 +1,74 @@
 use super::*;
-use crate::domain::AccessScope;
+use crate::domain::{AccessScope, ChunkPayload, SourceRecord};
 
 impl LibraryService {
+    pub(super) async fn reuse_file_with_metadata(
+        &self,
+        mut file: crate::domain::LibraryFileRecord,
+        metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
+    ) -> Result<(
+        crate::domain::LibraryFileRecord,
+        Option<crate::domain::LibraryIngestJobRecord>,
+    )> {
+        if let Some(metadata) = metadata {
+            file = self.apply_file_business_metadata(file.id, metadata).await?;
+        }
+        let job = self
+            .store
+            .list_jobs_for_file(file.id)
+            .await?
+            .into_iter()
+            .next();
+        Ok((file, job))
+    }
+
+    pub(super) async fn apply_file_business_metadata(
+        &self,
+        file_id: Uuid,
+        metadata: &crate::contracts::LibraryFileUploadMetadata,
+    ) -> Result<crate::domain::LibraryFileRecord> {
+        if !metadata.metadata_json.is_object() {
+            return Err(anyhow!("metadata_json must be an object"));
+        }
+        let current = self
+            .store
+            .get_file(file_id)
+            .await?
+            .with_context(|| format!("unknown file {file_id}"))?;
+        let folder_path = self.folder_path_by_id(current.folder_id).await?;
+        let mappings = self.store.list_file_documents(file_id).await?;
+        for definition in self
+            .db
+            .list_metadata_indexes(current.group_id, FILE_LIBRARY_SOURCE_KEY)
+            .await?
+            .into_iter()
+            .filter(|definition| definition.status == "ready")
+        {
+            for mapping in &mappings {
+                let composed = compose_library_metadata(
+                    &mapping.section_metadata_json,
+                    &metadata.metadata_json,
+                    library_system_metadata(
+                        &current,
+                        &folder_path,
+                        &mapping.section_key,
+                        &mapping.section_label,
+                    ),
+                )?;
+                crate::services::document_store::metadata::extract_values(&definition, &composed)?;
+            }
+        }
+        let updated = self
+            .store
+            .update_business_metadata(current.group_id, file_id, metadata)
+            .await?
+            .with_context(|| format!("unknown file {file_id}"))?;
+        self.refresh_metadata_for_file(file_id).await?;
+        self.bump_search_generation("library file business metadata update")
+            .await?;
+        Ok(updated)
+    }
+
     pub(super) async fn cleanup_ingest_artifacts(&self, file_id: Uuid) -> Result<()> {
         let chunk_ids = self.store.list_chunk_ids_for_library_file(file_id).await?;
         if let Some(runtime) = &self.runtime {
@@ -30,15 +97,17 @@ impl LibraryService {
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
         let mappings = self.store.list_file_documents(file_id).await?;
         for mapping in mappings {
-            let mut metadata = json!({
-                "is_library_file": true,
-                "library_file_id": file.id,
-                "library_path": folder_path,
-                "library_section_key": mapping.section_key,
-                "library_section_label": mapping.section_label,
-                "library_filename": file.filename,
-                "library_media_type": file.media_type,
-            });
+            let system_metadata = library_system_metadata(
+                &file,
+                &folder_path,
+                &mapping.section_key,
+                &mapping.section_label,
+            );
+            let metadata = compose_library_metadata(
+                &mapping.section_metadata_json,
+                &file.metadata_json,
+                system_metadata,
+            )?;
             let scope = AccessScope {
                 user_id: None,
                 include_public: true,
@@ -46,9 +115,59 @@ impl LibraryService {
                 group_path: None,
             };
             if let Some(existing) = self.db.get_document(mapping.document_id, &scope).await? {
-                metadata["record_hash"] = json!(existing.record_hash);
-                self.store
-                    .update_document_metadata(mapping.document_id, &metadata)
+                let external_id = file
+                    .external_id
+                    .as_ref()
+                    .map(|base| {
+                        if mapping.sort_order == 0 {
+                            base.clone()
+                        } else {
+                            format!("{base}:{}", mapping.section_key)
+                        }
+                    })
+                    .or(mapping.section_external_id.clone())
+                    .unwrap_or_else(|| format!("{}:{}", file.id, mapping.section_key));
+                let body_text = existing
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let normalized = normalize_record(SourceRecord {
+                    external_id,
+                    title: existing.title.clone(),
+                    summary: existing.summary.clone(),
+                    body_text,
+                    source_uri: file
+                        .source_uri
+                        .clone()
+                        .or(mapping.section_source_uri.clone())
+                        .unwrap_or_else(|| format!("context69://library/files/{}", file.id)),
+                    published_at: file.published_at.or(mapping.section_published_at),
+                    updated_at: Utc::now(),
+                    metadata_json: metadata,
+                });
+                let payload = ChunkPayload {
+                    chunk_id: Uuid::nil(),
+                    document_id: mapping.document_id,
+                    group_id: file.group_id,
+                    group_key: file.group_key.clone(),
+                    group_path: file.group_path.clone(),
+                    visibility: file.visibility,
+                    source_key: FILE_LIBRARY_SOURCE_KEY.to_string(),
+                    external_id: normalized.external_id,
+                    title: normalized.title,
+                    summary: normalized.summary,
+                    source_uri: normalized.source_uri,
+                    published_at: normalized.published_at,
+                    updated_at_source: normalized.updated_at,
+                    record_hash: normalized.record_hash,
+                    chunk_index: 0,
+                    chunk_text: normalized.body_text,
+                    metadata_json: normalized.metadata_json,
+                };
+                self.db
+                    .update_library_document_business_fields(mapping.document_id, &payload)
                     .await?;
             }
         }

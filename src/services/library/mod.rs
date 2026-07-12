@@ -18,9 +18,10 @@ use crate::{
     config::FileLibraryConfig,
     contracts::{
         CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryFileSummary,
-        LibraryFolderNode, LibraryFolderResponse, LibraryIngestJobResponse, LibraryIngestStatus,
-        LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryTreeResponse,
-        LibraryUploadResponse, MoveFileRequest, MoveFolderRequest, UpsertLibraryTextRequest,
+        LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse,
+        LibraryIngestJobResponse, LibraryIngestStatus, LibraryResourcePageQuery,
+        LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
+        MoveFolderRequest, UpsertLibraryTextRequest,
     },
     db::Database,
     docling::DoclingXlsxClient,
@@ -43,7 +44,10 @@ pub use migration::StorageMigrationSummary;
 pub(crate) mod object_storage;
 mod resources;
 mod storage;
+mod text_creation;
+mod texts;
 mod tree;
+mod uploads;
 mod xlsx;
 
 const FILE_LIBRARY_SOURCE_KEY: &str = "file_library";
@@ -76,6 +80,7 @@ pub struct UploadedLibraryFile {
     pub media_type: String,
     pub bytes: Bytes,
     pub declared_sha256: Option<String>,
+    pub metadata: Option<LibraryFileUploadMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,31 +177,43 @@ fn library_runtime_unavailable() -> anyhow::Error {
     )
 }
 
-fn build_library_metadata(
+fn library_system_metadata(
     file: &crate::domain::LibraryFileRecord,
     folder_path: &str,
-    section: &IngestSection,
+    section_key: &str,
+    section_label: &str,
 ) -> Value {
     json!({
         "is_library_file": true,
         "library_file_id": file.id,
         "library_path": folder_path,
-        "library_section_key": section.section_key,
-        "library_section_label": section.section_label,
+        "library_section_key": section_key,
+        "library_section_label": section_label,
         "library_filename": file.filename,
         "library_media_type": file.media_type,
     })
 }
 
-fn merge_library_metadata(user_metadata: &Value, system_metadata: Value) -> Result<Value> {
+fn compose_library_metadata(
+    section_metadata: &Value,
+    file_metadata: &Value,
+    system_metadata: Value,
+) -> Result<Value> {
     let Some(system_object) = system_metadata.as_object() else {
         return Err(anyhow!("system library metadata must be an object"));
     };
-    let mut merged = match user_metadata {
+    let mut merged = match section_metadata {
         Value::Null => serde_json::Map::new(),
         Value::Object(map) => map.clone(),
         _ => return Err(anyhow!("metadata_json must be an object")),
     };
+    let file_object = file_metadata
+        .as_object()
+        .ok_or_else(|| anyhow!("file metadata_json must be an object"))?;
+    for (key, value) in file_object {
+        merged.insert(key.clone(), value.clone());
+    }
+    merged.remove("record_hash");
     for (key, value) in system_object {
         merged.insert(key.clone(), value.clone());
     }
@@ -207,7 +224,23 @@ fn merge_library_metadata(user_metadata: &Value, system_metadata: Value) -> Resu
 mod tests {
     use serde_json::json;
 
-    use super::xlsx::extract_xlsx_sections;
+    use super::{compose_library_metadata, xlsx::extract_xlsx_sections};
+
+    #[test]
+    fn file_metadata_overrides_section_and_system_fields_cannot_be_forged() {
+        let merged = compose_library_metadata(
+            &json!({"score": 1, "library_file_id": "section", "section_only": true}),
+            &json!({"score": 10, "library_file_id": "caller", "record_hash": "fake"}),
+            json!({"library_file_id": "system", "is_library_file": true}),
+        )
+        .expect("metadata");
+
+        assert_eq!(merged["score"], 10);
+        assert_eq!(merged["section_only"], true);
+        assert_eq!(merged["library_file_id"], "system");
+        assert_eq!(merged["is_library_file"], true);
+        assert!(merged.get("record_hash").is_none());
+    }
 
     #[test]
     fn xlsx_sections_are_split_by_sheet_groups() {

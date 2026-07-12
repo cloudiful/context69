@@ -1,18 +1,10 @@
 UPDATE context69.library_files
-SET
-    folder_id = $3,
-    external_id = $4,
-    filename = $5,
-    media_type = $6,
-    size_bytes = $7,
-    sha256 = $8,
-    storage_rel_path = $9,
-    ingest_status = 'pending',
-    error_message = NULL,
-    ingested_at = NULL,
+SET external_id = $3,
+    source_uri = $4,
+    published_at = $5,
+    metadata_json = $6,
     updated_at = now()
-WHERE group_id = $1
-  AND id = $2
+WHERE group_id = $1 AND id = $2
 RETURNING
     group_id,
     (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",
@@ -21,6 +13,9 @@ RETURNING
     id,
     folder_id,
     external_id,
+    source_uri,
+    published_at,
+    metadata_json,
     filename,
     media_type,
     size_bytes,

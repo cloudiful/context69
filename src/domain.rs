@@ -100,6 +100,9 @@ pub struct LibraryFileRecord {
     pub visibility: Visibility,
     pub folder_id: Option<Uuid>,
     pub external_id: Option<String>,
+    pub source_uri: Option<String>,
+    pub published_at: Option<DateTime<Utc>>,
+    pub metadata_json: Value,
     pub filename: String,
     pub media_type: String,
     pub size_bytes: i64,
@@ -137,6 +140,10 @@ pub struct LibraryFileDocumentRecord {
     pub visibility: Visibility,
     pub section_key: String,
     pub section_label: String,
+    pub section_external_id: Option<String>,
+    pub section_source_uri: Option<String>,
+    pub section_published_at: Option<DateTime<Utc>>,
+    pub section_metadata_json: Value,
     pub sort_order: i32,
 }
 
