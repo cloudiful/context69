@@ -7,7 +7,6 @@ import Dialog from "primevue/dialog";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
-import { appContextMenuPt } from "../components/app-context-menu";
 import LibraryCreateFolderDialog from "../components/LibraryCreateFolderDialog.vue";
 import LibraryMoveDialog from "../components/LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "../components/LibraryPreviewPanel.vue";
@@ -17,7 +16,6 @@ import LibraryToolbar from "../components/LibraryToolbar.vue";
 import { useLibraryActions } from "../composables/library/use-library-actions";
 import { useLibraryDetail } from "../composables/library/use-library-detail";
 import { useLibraryPreview } from "../composables/library/use-library-preview";
-import { libraryPreviewDialogPt } from "../components/app-dialog";
 import { useLibraryTree } from "../composables/library/use-library-tree";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry } from "../types/library";
@@ -228,8 +226,8 @@ defineExpose({
 </script>
 
 <template>
-  <div class="library-layout grid min-h-[calc(100vh-4.75rem)] gap-2">
-    <ContextMenu ref="resourceContextMenu" unstyled :pt="appContextMenuPt" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
+  <div class="grid min-h-[calc(100vh-4.75rem)] gap-2">
+    <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
 
     <LibraryToolbar
       :breadcrumb-home="treeState.breadcrumbHome"
@@ -240,8 +238,7 @@ defineExpose({
     />
 
     <section
-      class="library-workspace h-[calc(100dvh-var(--library-workspace-offset,9.25rem))] min-h-0 overflow-hidden rounded-[0.8rem] bg-app-surface"
-      :class="{ 'library-workspace-docked': previewState.showDockedPreview }"
+      class="h-auto min-h-[calc(100vh-8.5rem)] overflow-hidden rounded-lg bg-(--p-content-background) md:h-[calc(100dvh-var(--library-workspace-offset,9.25rem))] md:min-h-0"
     >
       <Splitter v-if="previewState.showDockedPreview" class="bg-transparent">
         <SplitterPanel :size="62" :min-size="42">
@@ -273,7 +270,7 @@ defineExpose({
         <SplitterPanel :size="38" :min-size="28">
           <LibraryPreviewShell
             :title="previewState.previewTitle"
-            class="library-docked-preview border-l [border-color:color-mix(in_srgb,var(--color-app-border)_70%,transparent)]"
+            class="library-docked-preview border-l border-(--p-content-border-color)"
           >
             <LibraryPreviewPanel
               :active-section-key="detailState.activeSectionKey"
@@ -318,7 +315,6 @@ defineExpose({
       class="library-preview-dialog w-[min(96vw,58rem)]"
       :modal="true"
       :header="previewState.previewTitle"
-      :pt="libraryPreviewDialogPt"
     >
       <LibraryPreviewShell :title="previewState.previewTitle" :show-header="false">
         <LibraryPreviewPanel

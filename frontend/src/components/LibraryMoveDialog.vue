@@ -61,15 +61,15 @@ function confirmMove() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="library-modal w-[34rem] max-w-[92vw]" modal :header="title">
+  <Dialog v-model:visible="visible" class="w-[34rem] max-w-[92vw]" modal :header="title">
     <div class="grid gap-6">
       <div class="grid gap-2">
-        <p class="text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim">{{ t("library.moveDialog.label") }}</p>
-        <p class="text-sm leading-7 text-app-text-muted">{{ description }}</p>
+        <p class="text-xs font-medium uppercase tracking-[0.18em] text-(--p-text-muted-color)">{{ t("library.moveDialog.label") }}</p>
+        <p class="text-sm leading-7 text-(--p-text-muted-color)">{{ description }}</p>
       </div>
 
       <label class="grid gap-2">
-        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.moveDialog.targetFolder") }}</span>
+        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.moveDialog.targetFolder") }}</span>
         <Select
           v-model="selectedValue"
           class="w-full"

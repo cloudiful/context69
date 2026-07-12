@@ -44,12 +44,12 @@ const emit = defineEmits<{
         >
           <template #default="{ node }">
             <div
-              class="min-w-0 rounded-2xl px-2.5 py-2 transition hover:bg-app-surface-soft/70"
+              class="min-w-0 rounded-2xl px-2.5 py-2 transition hover:bg-(--p-content-hover-background)/70"
               @contextmenu.prevent.stop="emit('node-contextmenu', $event, node.data.folder)"
             >
               <div class="min-w-0">
-                <p class="truncate text-sm font-semibold leading-6 text-app-text">{{ node.label }}</p>
-                <p class="truncate text-xs leading-5 text-app-text-dim">{{ node.data.countsLabel }}</p>
+                <p class="truncate text-sm font-semibold leading-6 text-(--p-text-color)">{{ node.label }}</p>
+                <p class="truncate text-xs leading-5 text-(--p-text-muted-color)">{{ node.data.countsLabel }}</p>
               </div>
             </div>
           </template>

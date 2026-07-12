@@ -38,10 +38,10 @@ function submit() {
 </script>
 
 <template>
-  <section class="grid gap-3 rounded-[1.1rem] border border-app-border/70 bg-app-surface-muted/20 p-3">
+  <section class="grid gap-3 rounded-[1.1rem] border border-(--p-content-border-color)/70 bg-(--p-content-hover-background)/20 p-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <p class="text-base font-semibold text-app-text">{{ title }}</p>
+        <p class="text-base font-semibold text-(--p-text-color)">{{ title }}</p>
       </div>
     </div>
 
@@ -57,7 +57,7 @@ function submit() {
       <div v-for="member in members" :key="member.user_id" class="flex flex-wrap items-center justify-between gap-3">
         <div class="grid gap-0.5 text-sm">
           <strong>{{ member.display_name }}</strong>
-          <span class="text-app-text-dim">{{ member.login_name }} · {{ member.role }}</span>
+          <span class="text-(--p-text-muted-color)">{{ member.login_name }} · {{ member.role }}</span>
         </div>
         <Button :class="settingsDangerButtonClass" :disabled="busy" @click="emit('remove', member.login_name)">
           {{ t("common.delete") }}

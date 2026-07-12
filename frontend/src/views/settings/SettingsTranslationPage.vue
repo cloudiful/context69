@@ -12,7 +12,6 @@ import AppSelectField from "../../components/AppSelectField.vue";
 import AppSettingsSection from "../../components/AppSettingsSection.vue";
 import AppTextField from "../../components/AppTextField.vue";
 import AppSwitch from "../../components/AppSwitch.vue";
-import { appFormDialogPt } from "../../components/app-dialog";
 import { useSettingsPageContext } from "../../composables/settings-page-context";
 import type { TranslationProviderInput } from "../../services/api";
 
@@ -71,7 +70,7 @@ function usageLabel(provider: ProviderDraft) {
 
 <template>
   <AppSettingsSection :legend="t('settings.translation.title')">
-    <DataTable class="app-data-table" :value="providers" data-key="provider" size="small" table-class="min-w-full">
+    <DataTable :value="providers" data-key="provider" size="small" table-class="min-w-full">
       <Column :header="t('settings.translation.provider')">
         <template #body="{ data }"><strong>{{ providerLabels[data.provider as keyof typeof providerLabels] }}</strong></template>
       </Column>
@@ -84,7 +83,7 @@ function usageLabel(provider: ProviderDraft) {
         <template #body="{ data }"><span class="whitespace-nowrap">{{ quotaLabel(data) }}</span></template>
       </Column>
       <Column :header="t('settings.translation.usage')">
-        <template #body="{ data }"><span class="whitespace-nowrap text-app-text-dim">{{ usageLabel(data) }}</span></template>
+        <template #body="{ data }"><span class="whitespace-nowrap text-(--p-text-muted-color)">{{ usageLabel(data) }}</span></template>
       </Column>
       <Column :header="t('settings.translation.configuration')">
         <template #body="{ data }">
@@ -102,7 +101,7 @@ function usageLabel(provider: ProviderDraft) {
       </Column>
     </DataTable>
 
-    <Dialog v-model:visible="dialogVisible" modal :header="editing ? providerLabels[editing.provider] : ''" :pt="appFormDialogPt" class="w-[38rem] max-w-[96vw]">
+    <Dialog v-model:visible="dialogVisible" modal :header="editing ? providerLabels[editing.provider] : ''" class="w-[38rem] max-w-[96vw]">
       <div v-if="editing" class="grid gap-3">
         <AppTextField v-model="editing.endpoint" :input-id="`translation-${editing.provider}-endpoint`" :label="t('settings.translation.endpoint')" type="url" />
         <AppTextField v-model="editing.api_key" :input-id="`translation-${editing.provider}-api-key`" :label="t('settings.translation.apiKey')" type="password" autocomplete="new-password" :placeholder="editing.has_api_key ? t('settings.translation.keyStored') : ''" />

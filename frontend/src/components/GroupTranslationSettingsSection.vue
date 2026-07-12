@@ -74,10 +74,10 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4">
+  <section class="grid gap-3 rounded-[1rem] border border-(--p-content-border-color)/65 bg-(--p-content-hover-background)/18 p-4">
     <div class="flex items-center justify-between gap-2">
       <strong>{{ t("groups.translation.title") }}</strong>
-      <span class="text-xs text-app-text-dim">{{ t("groups.translation.stats", stats) }}</span>
+      <span class="text-xs text-(--p-text-muted-color)">{{ t("groups.translation.stats", stats) }}</span>
     </div>
     <AppToggleGroup
       :model-value="{ enabled }"

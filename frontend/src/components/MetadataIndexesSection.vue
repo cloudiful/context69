@@ -47,9 +47,9 @@ async function remove(row: MetadataIndexResponse) { await apiClient.deleteMetada
 </script>
 
 <template>
-  <section class="grid gap-3 border-t border-app-border/60 pt-4">
+  <section class="grid gap-3 border-t border-(--p-content-border-color)/60 pt-4">
     <div class="flex flex-wrap items-end gap-2">
-      <label class="grid min-w-56 flex-1 gap-1 text-xs font-medium text-app-text-dim">
+      <label class="grid min-w-56 flex-1 gap-1 text-xs font-medium text-(--p-text-muted-color)">
         {{ t("metadataIndexes.sourceKey") }}
         <InputText v-model="sourceKey" @keyup.enter="load" />
       </label>

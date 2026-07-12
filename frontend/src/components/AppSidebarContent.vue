@@ -22,6 +22,7 @@ const { t } = useI18n();
 const preferences = useUiPreferences();
 const items = useAppNavigation();
 const mdiLogoutVariant = "M14.08,15.59L16.67,13H7V11H16.67L14.08,8.41L15.5,7L20.5,12L15.5,17L14.08,15.59M4,19H10V21H4C2.89,21 2,20.1 2,19V5C2,3.89 2.89,3 4,3H10V5H4V19Z";
+const sidebarTransitionClass = "overflow-hidden transition-[opacity,max-width,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 
 function isActive(itemTo: string) {
   return route.path === itemTo || route.path.startsWith(`${itemTo}/`);
@@ -60,7 +61,7 @@ async function signOut() {
         :to="item.to"
         :class="[
           'group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm transition',
-          isItemActive(item) ? 'is-active bg-app-surface-soft/70 text-app-text' : 'text-app-text-muted hover:bg-app-surface-soft/40 hover:text-app-text',
+          isItemActive(item) ? 'is-active bg-(--p-content-hover-background)/70 text-(--p-text-color)' : 'text-(--p-text-muted-color) hover:bg-(--p-content-hover-background)/40 hover:text-(--p-text-color)',
         ]"
         :data-nav-key="item.activePrefix ?? item.to"
         :title="item.label"
@@ -68,11 +69,18 @@ async function signOut() {
       >
         <span :class="[
           'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
-          isItemActive(item) ? 'border-app-border-strong bg-app-surface-soft text-app-text' : 'border-app-border/60 bg-app-surface-soft/45 text-app-text-dim group-hover:text-app-text',
+          isItemActive(item) ? 'border-(--p-form-field-hover-border-color) bg-(--p-content-hover-background) text-(--p-text-color)' : 'border-(--p-content-border-color)/60 bg-(--p-content-hover-background)/45 text-(--p-text-muted-color) group-hover:text-(--p-text-color)',
         ]">
           <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon h-4 w-4" />
         </span>
-        <Transition name="sidebar-label">
+        <Transition
+          :enter-active-class="`${sidebarTransitionClass} inline-block whitespace-nowrap`"
+          :leave-active-class="`${sidebarTransitionClass} inline-block whitespace-nowrap`"
+          enter-from-class="max-w-0 -translate-x-1.5 opacity-0"
+          enter-to-class="max-w-32 translate-x-0 opacity-100"
+          leave-from-class="max-w-32 translate-x-0 opacity-100"
+          leave-to-class="max-w-0 -translate-x-1.5 opacity-0"
+        >
           <span v-if="!collapsed">{{ item.label }}</span>
         </Transition>
       </RouterLink>
@@ -87,7 +95,7 @@ async function signOut() {
           :to="child.to"
           :class="[
             'flex min-w-0 items-center rounded-lg px-2.5 py-1.5 text-xs transition',
-            isActive(child.to) ? 'is-active bg-app-surface-soft/55 text-app-text' : 'text-app-text-dim hover:bg-app-surface-soft/35 hover:text-app-text',
+            isActive(child.to) ? 'is-active bg-(--p-content-hover-background)/55 text-(--p-text-color)' : 'text-(--p-text-muted-color) hover:bg-(--p-content-hover-background)/35 hover:text-(--p-text-color)',
           ]"
           :data-nav-child-key="child.to"
         >
@@ -97,19 +105,26 @@ async function signOut() {
     </div>
   </nav>
 
-  <div class="app-sidebar-footer mt-auto shrink-0 border-t border-app-border/50 pt-3">
+  <div class="app-sidebar-footer mt-auto shrink-0 border-t border-(--p-content-border-color)/50 pt-3">
     <div
       class="flex items-end gap-2"
       :class="{ 'justify-center': collapsed }"
     >
-      <Transition name="sidebar-user-card">
+      <Transition
+        :enter-active-class="sidebarTransitionClass"
+        :leave-active-class="sidebarTransitionClass"
+        enter-from-class="max-w-0 -translate-x-2 opacity-0"
+        enter-to-class="max-w-44 translate-x-0 opacity-100"
+        leave-from-class="max-w-44 translate-x-0 opacity-100"
+        leave-to-class="max-w-0 -translate-x-2 opacity-0"
+      >
         <div
           v-if="authSessionState.user && !collapsed"
-          class="grid grow gap-1 rounded-xl border border-app-border/70 bg-app-surface-muted/35 px-3 py-2.5"
+          class="grid grow gap-1 rounded-xl border border-(--p-content-border-color)/70 bg-(--p-content-hover-background)/35 px-3 py-2.5"
           data-testid="sidebar-user-card"
         >
           <div class="flex items-start justify-between gap-2">
-            <span data-testid="sidebar-user-name" class="truncate text-sm font-semibold text-app-text">
+            <span data-testid="sidebar-user-name" class="truncate text-sm font-semibold text-(--p-text-color)">
               {{ authSessionState.user.display_name }}
             </span>
             <Tag
@@ -120,7 +135,7 @@ async function signOut() {
               class="shrink-0 text-[0.68rem] font-semibold uppercase tracking-[0.08em]"
             />
           </div>
-          <span data-testid="sidebar-user-login" class="truncate text-xs text-app-text-dim">
+          <span data-testid="sidebar-user-login" class="truncate text-xs text-(--p-text-muted-color)">
             @{{ authSessionState.user.login_name }}
           </span>
         </div>

@@ -12,10 +12,10 @@ defineProps<{
       <div v-if="$slots.tags" class="flex flex-wrap items-center gap-2">
         <slot name="tags" />
       </div>
-      <h3 class="text-lg font-semibold text-app-text">{{ title }}</h3>
-      <p v-if="subtitle" class="text-sm text-app-text-muted">{{ subtitle }}</p>
-      <p v-if="description" class="text-sm leading-6 text-app-text-muted">{{ description }}</p>
-      <div v-if="$slots.meta" class="text-xs text-app-text-dim">
+      <h3 class="text-lg font-semibold text-(--p-text-color)">{{ title }}</h3>
+      <p v-if="subtitle" class="text-sm text-(--p-text-muted-color)">{{ subtitle }}</p>
+      <p v-if="description" class="text-sm leading-6 text-(--p-text-muted-color)">{{ description }}</p>
+      <div v-if="$slots.meta" class="text-xs text-(--p-text-muted-color)">
         <slot name="meta" />
       </div>
     </div>

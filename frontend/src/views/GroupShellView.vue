@@ -6,7 +6,6 @@ import Dialog from "primevue/dialog";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import MemberDialog from "../components/MemberDialog.vue";
-import { appFormDialogPt } from "../components/app-dialog";
 import { groupWorkspaceStateKey } from "../composables/group-workspace-context";
 import { useGroupWorkspace } from "../composables/use-group-workspace";
 
@@ -61,12 +60,11 @@ provide(groupWorkspaceStateKey, state);
       v-model:visible="state.moveGroupDialogVisible"
       modal
       :header="$t('groups.moveGroup')"
-      :pt="appFormDialogPt"
       class="w-[30rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ $t("groups.targetGroup") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ $t("groups.targetGroup") }}</label>
           <AutoComplete
             v-model="state.selectedTargetGroup"
             fluid
@@ -79,7 +77,7 @@ provide(groupWorkspaceStateKey, state);
             <template #option="{ option }">
               <div class="grid gap-0.5">
                 <span>{{ option.name }}</span>
-                <span class="text-sm text-app-text-dim">{{ option.group_key }}</span>
+                <span class="text-sm text-(--p-text-muted-color)">{{ option.group_key }}</span>
               </div>
             </template>
           </AutoComplete>

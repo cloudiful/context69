@@ -15,6 +15,7 @@ const { t } = useI18n();
 const preferences = useUiPreferences();
 const mdiChevronLeft = "M15.41,16.59L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.59Z";
 const mdiChevronRight = "M8.59,16.59L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.59Z";
+const sidebarTransitionClass = "overflow-hidden transition-[opacity,max-width,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 
 const showSidebar = computed(() => route.name !== "login");
 
@@ -44,15 +45,22 @@ const desktopSidebarPt = {
       :pt="desktopSidebarPt"
     >
       <template #container>
-        <div class="flex h-full flex-col border-r border-app-border/70 bg-app-bg/98 px-2.5 py-3 md:bg-app-surface-muted/20">
-          <div class="border-b border-app-border/50 pb-3">
+        <div class="flex h-full flex-col border-r border-(--p-content-border-color)/70 bg-(--p-content-background)/98 px-2.5 py-3 md:bg-(--p-content-hover-background)/20">
+          <div class="border-b border-(--p-content-border-color)/50 pb-3">
             <div
               class="flex items-center gap-2"
               :class="preferences.state.sidebarCollapsed ? 'justify-center' : 'justify-between'"
             >
-              <Transition name="sidebar-brand">
+              <Transition
+                :enter-active-class="sidebarTransitionClass"
+                :leave-active-class="sidebarTransitionClass"
+                enter-from-class="max-w-0 -translate-x-2 opacity-0"
+                enter-to-class="max-w-44 translate-x-0 opacity-100"
+                leave-from-class="max-w-44 translate-x-0 opacity-100"
+                leave-to-class="max-w-0 -translate-x-2 opacity-0"
+              >
                 <div v-if="!preferences.state.sidebarCollapsed" class="flex items-center gap-2">
-                  <span class="flex h-9 w-9 items-center justify-center rounded-xl border border-app-border bg-app-surface-soft/60 text-sm font-bold">C</span>
+                  <span class="flex h-9 w-9 items-center justify-center rounded-xl border border-(--p-content-border-color) bg-(--p-content-hover-background)/60 text-sm font-bold">C</span>
                   <span class="text-[0.98rem] font-semibold">Context69</span>
                 </div>
               </Transition>

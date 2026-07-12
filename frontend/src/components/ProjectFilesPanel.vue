@@ -9,7 +9,6 @@ import InputIcon from "primevue/inputicon";
 import InputText from "primevue/inputtext";
 import { useToast } from "primevue/usetoast";
 
-import { appContextMenuPt } from "./app-context-menu";
 import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
 import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
 import LibraryMoveDialog from "./LibraryMoveDialog.vue";
@@ -23,7 +22,6 @@ import { useProjectLibraryDetail } from "../composables/project-library/use-proj
 import { useProjectLibraryPage } from "../composables/project-library/use-project-library-page";
 import { useGroupBrowserEntries } from "../composables/project-library/use-group-browser-entries";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
-import { libraryPreviewDialogPt } from "./app-dialog";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
 import { apiClient, type GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
@@ -394,9 +392,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ContextMenu ref="resourceContextMenu" unstyled :pt="appContextMenuPt" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
-  <ContextMenu ref="groupContextMenu" unstyled :pt="appContextMenuPt" :model="groupMenuItems" @hide="groupContextEntry = null" />
-  <ContextMenu ref="surfaceContextMenu" unstyled :pt="appContextMenuPt" :model="surfaceMenuItems" />
+  <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
+  <ContextMenu ref="groupContextMenu" :model="groupMenuItems" @hide="groupContextEntry = null" />
+  <ContextMenu ref="surfaceContextMenu" :model="surfaceMenuItems" />
   <input
     ref="uploadInput"
     class="sr-only"
@@ -407,7 +405,7 @@ onBeforeUnmount(() => {
   >
   <Teleport to="#app-route-actions">
     <IconField class="relative w-56 [&.p-iconfield]:w-full">
-      <InputIcon class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-dim" />
+      <InputIcon class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-(--p-text-muted-color)" />
       <InputText
         v-model="pageState.query"
         class="w-full !pl-10"
@@ -417,7 +415,7 @@ onBeforeUnmount(() => {
   </Teleport>
 
   <section
-    class="library-workspace library-workspace-embedded grid h-full min-h-0 gap-2 overflow-hidden rounded-[0.8rem] bg-app-surface"
+    class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-(--p-content-background)"
     :class="treeState.breadcrumbItems.length > 0
       ? 'grid-rows-[auto_minmax(0,1fr)]'
       : 'grid-rows-[minmax(0,1fr)]'"
@@ -527,7 +525,6 @@ onBeforeUnmount(() => {
     modal
     :header="previewState.previewTitle"
     class="library-preview-dialog w-[min(96vw,58rem)]"
-    :pt="libraryPreviewDialogPt"
   >
     <LibraryPreviewPanel
       :active-section-key="detailState.activeSectionKey"

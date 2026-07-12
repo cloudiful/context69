@@ -9,8 +9,6 @@ import AppMobileNav from "./components/AppMobileNav.vue";
 import AppStateMessage from "./components/AppStateMessage.vue";
 import AppRouteBreadcrumbs from "./components/AppRouteBreadcrumbs.vue";
 import AppSidebar from "./components/AppSidebar.vue";
-import { appConfirmDialogPt } from "./components/app-dialog";
-import { appToastPt } from "./components/app-toast";
 import { useUiPreferences } from "./composables/use-ui-preferences";
 import { authSessionState, restoreSession } from "./services/auth/session";
 
@@ -39,14 +37,14 @@ onMounted(() => {
 <template>
   <div
     :class="isLoginRoute
-      ? 'block min-h-screen bg-app-bg text-app-text'
+      ? 'block min-h-screen bg-(--p-content-background) text-(--p-text-color)'
       : [
-        'grid min-h-screen items-start bg-app-bg text-app-text md:grid-cols-[auto_minmax(0,1fr)] md:pl-[14rem] md:transition-[padding-left] md:duration-[220ms] md:ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+        'grid min-h-screen items-start bg-(--p-content-background) text-(--p-text-color) md:grid-cols-[auto_minmax(0,1fr)] md:pl-[14rem] md:transition-[padding-left] md:duration-[220ms] md:ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
         preferences.state.sidebarCollapsed ? 'md:pl-[4.75rem]' : '',
       ]"
   >
-    <ConfirmDialog :draggable="false" :pt="appConfirmDialogPt" />
-    <Toast position="bottom-right" :pt="appToastPt" />
+    <ConfirmDialog :draggable="false" />
+    <Toast position="bottom-right" />
     <AppSidebar />
 
     <main

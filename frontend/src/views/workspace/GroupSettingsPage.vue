@@ -38,19 +38,19 @@ function save() {
 
 <template>
   <div class="grid gap-3 xl:max-w-[28rem]">
-    <section class="grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4">
+    <section class="grid gap-3 rounded-[1rem] border border-(--p-content-border-color)/65 bg-(--p-content-hover-background)/18 p-4">
       <form class="grid gap-3" @submit.prevent="save">
         <dl class="grid gap-2">
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupKey") }}</dt>
-          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.group_key || state.groupKey }}</dd>
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-(--p-content-border-color)/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-(--p-text-muted-color)">{{ $t("groups.groupKey") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-(--p-text-color)">{{ state.group?.group_key || state.groupKey }}</dd>
         </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupPath") }}</dt>
-          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">{{ state.group?.group_path || state.groupPath }}</dd>
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-(--p-content-border-color)/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-(--p-text-muted-color)">{{ $t("groups.groupPath") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-(--p-text-color)">{{ state.group?.group_path || state.groupPath }}</dd>
         </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.groupName") }}</dt>
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-(--p-content-border-color)/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-(--p-text-muted-color)">{{ $t("groups.groupName") }}</dt>
           <dd class="min-w-0">
             <InputText
               v-if="state.canManageGroup"
@@ -58,11 +58,11 @@ function save() {
               class="w-48 text-right"
               :aria-label="$t('groups.groupName')"
             />
-            <span v-else class="block text-right text-sm font-semibold text-app-text">{{ state.group?.name || "--" }}</span>
+            <span v-else class="block text-right text-sm font-semibold text-(--p-text-color)">{{ state.group?.name || "--" }}</span>
           </dd>
         </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.visibility") }}</dt>
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-(--p-content-border-color)/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-(--p-text-muted-color)">{{ $t("groups.visibility") }}</dt>
           <dd class="min-w-0">
             <Select
               v-if="state.canManageGroup"
@@ -76,9 +76,9 @@ function save() {
             <Tag v-else class="justify-self-end" :value="state.group?.visibility || '--'" severity="secondary" />
           </dd>
         </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-app-border/40 pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-app-text-dim">{{ $t("groups.kind") }}</dt>
-          <dd class="min-w-0 text-right text-sm font-semibold text-app-text">
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-(--p-content-border-color)/40 pb-2 last:border-b-0 last:pb-0">
+          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-(--p-text-muted-color)">{{ $t("groups.kind") }}</dt>
+          <dd class="min-w-0 text-right text-sm font-semibold text-(--p-text-color)">
             <Tag class="justify-self-end" :value="state.group?.kind || '--'" severity="contrast" />
           </dd>
         </div>
@@ -95,7 +95,7 @@ function save() {
     <MetadataIndexesSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
     <GroupTranslationSettingsSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
 
-    <section class="grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4">
+    <section class="grid gap-3 rounded-[1rem] border border-(--p-content-border-color)/65 bg-(--p-content-hover-background)/18 p-4">
       <div class="flex flex-wrap items-center gap-2">
         <Button v-if="state.canManageGroup" severity="secondary" variant="outlined" @click="state.openMoveCurrentGroupDialog">
           {{ $t("common.move") }}

@@ -128,16 +128,16 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
     >
       <div class="grid min-h-0 gap-4 [grid-template-columns:minmax(19rem,22rem)_minmax(0,1fr)] max-md:grid-cols-1">
         <section class="min-h-0 min-w-0">
-          <div class="rounded-[1.1rem] border border-app-border/80 bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div class="rounded-[1.1rem] border border-(--p-content-border-color)/80 bg-(--p-content-hover-background)/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             <div class="mb-4 grid gap-1">
-              <p class="text-base font-semibold text-app-text">{{ t("sources.form.sourceSectionTitle") }}</p>
-              <p class="text-xs leading-6 text-app-text-dim">{{ t("sources.form.sourceSectionDescription") }}</p>
+              <p class="text-base font-semibold text-(--p-text-color)">{{ t("sources.form.sourceSectionTitle") }}</p>
+              <p class="text-xs leading-6 text-(--p-text-muted-color)">{{ t("sources.form.sourceSectionDescription") }}</p>
             </div>
 
             <div class="grid gap-4">
               <FormField v-slot="$field" name="source_key" :initial-value="initialValues.source_key">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.sourceKey") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.sourceKey") }}</span>
                   <InputText
                     id="source-key"
                     v-bind="$field.props"
@@ -152,11 +152,11 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
                 </label>
               </FormField>
 
-              <p class="text-xs leading-6 text-app-text-dim">{{ t("sources.form.lockedHint") }}</p>
+              <p class="text-xs leading-6 text-(--p-text-muted-color)">{{ t("sources.form.lockedHint") }}</p>
 
               <FormField v-slot="$field" name="display_name" :initial-value="initialValues.display_name">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.displayName") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.displayName") }}</span>
                   <InputText
                     id="source-display-name"
                     v-bind="$field.props"
@@ -170,7 +170,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
 
               <FormField v-slot="$field" name="description" :initial-value="initialValues.description">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.description") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.description") }}</span>
                   <Textarea
                     id="source-description"
                     v-bind="$field.props"
@@ -185,7 +185,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
 
               <FormField v-slot="$field" name="example_queries_text" :initial-value="initialValues.example_queries_text">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.exampleQueries") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.exampleQueries") }}</span>
                   <Textarea
                     id="source-example-queries"
                     v-bind="$field.props"
@@ -195,7 +195,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
                     :placeholder="t('sources.form.exampleQueriesPlaceholder')"
                     @update:model-value="$field.props.onInput({ value: $event })"
                   />
-                  <p class="text-xs leading-6 text-app-text-dim">{{ t("sources.form.exampleQueriesHint") }}</p>
+                  <p class="text-xs leading-6 text-(--p-text-muted-color)">{{ t("sources.form.exampleQueriesHint") }}</p>
                   <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
                     {{ $field.error?.message }}
                   </Message>
@@ -204,7 +204,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
 
               <FormField v-slot="$field" name="connection" :initial-value="initialValues.connection">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.connection") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.connection") }}</span>
                   <Select
                     id="source-connection"
                     v-bind="$field.props"
@@ -224,7 +224,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
 
               <FormField v-slot="$field" name="database_url" :initial-value="initialValues.database_url">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.databaseUrl") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.databaseUrl") }}</span>
                   <Password
                     id="source-database-url"
                     v-bind="$field.props"
@@ -236,13 +236,13 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
                     autocomplete="new-password"
                     @update:model-value="$field.props.onInput({ value: $event })"
                   />
-                  <p class="text-xs leading-6 text-app-text-dim">{{ t("sources.form.databaseUrlHint") }}</p>
+                  <p class="text-xs leading-6 text-(--p-text-muted-color)">{{ t("sources.form.databaseUrlHint") }}</p>
                 </label>
               </FormField>
 
               <FormField v-slot="$field" name="sync_strategy" :initial-value="initialValues.sync_strategy">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.strategy") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.strategy") }}</span>
                   <Select
                     id="source-strategy"
                     v-bind="$field.props"
@@ -258,7 +258,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
 
               <FormField v-slot="$field" name="connector_type" :initial-value="initialValues.connector_type">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.connector") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.connector") }}</span>
                   <InputText
                     id="source-connector"
                     v-bind="$field.props"
@@ -275,7 +275,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
 
               <FormField v-slot="$field" name="batch_size" :initial-value="initialValues.batch_size">
                 <label class="grid min-w-0 content-start self-start gap-3">
-                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.batchSize") }}</span>
+                  <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.batchSize") }}</span>
                   <InputNumber
                     id="source-batch-size"
                     v-bind="$field.props"
@@ -298,14 +298,14 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
           <div class="grid h-full min-h-0 gap-3 p-3">
             <div class="grid gap-1">
               <div>
-                <p class="text-base font-semibold text-app-text">{{ t("sources.form.queryTitle") }}</p>
-                <p class="text-xs leading-6 text-app-text-dim">{{ t("sources.form.queryDescription") }}</p>
+                <p class="text-base font-semibold text-(--p-text-color)">{{ t("sources.form.queryTitle") }}</p>
+                <p class="text-xs leading-6 text-(--p-text-muted-color)">{{ t("sources.form.queryDescription") }}</p>
               </div>
             </div>
 
             <FormField v-slot="$field" name="base_query" :initial-value="initialValues.base_query">
               <label class="grid min-w-0 content-start self-start gap-3">
-                <span class="text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("sources.form.baseQuery") }}</span>
+                <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.form.baseQuery") }}</span>
                 <AppMonacoEditor
                   input-id="source-base-query"
                   :model-value="$field.value"
@@ -322,7 +322,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
         </section>
       </div>
 
-      <div class="flex flex-wrap items-center gap-3 border-t border-app-border/70 pt-4">
+      <div class="flex flex-wrap items-center gap-3 border-t border-(--p-content-border-color)/70 pt-4">
         <Button class="min-w-32" type="submit" :disabled="busy">
           {{ props.source ? t("sources.form.save") : t("sources.form.create") }}
         </Button>

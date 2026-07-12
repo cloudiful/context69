@@ -13,7 +13,7 @@ import AppStateMessage from "./AppStateMessage.vue";
 import LibraryResourceCards from "./LibraryResourceCards.vue";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
 import type { LibraryIngestStatus } from "../services/api";
-import { libraryRowActionButtonClass, libraryRowDangerActionButtonClass, toolPrimaryButtonClass } from "../ui/button-classes";
+import { toolPrimaryButtonClass } from "../ui/button-classes";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import { formatBytes, formatTimestamp } from "../utils/format";
 
@@ -292,7 +292,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
         </template>
 
         <DataTable
-          class="hidden min-h-0 flex-1 flex-col md:flex [&_.p-datatable-thead>tr>th]:!bg-app-surface [&_.p-paginator-content]:flex-nowrap [&_.p-paginator-rpp-dropdown]:!w-20 [&_.p-paginator-rpp-dropdown]:!min-w-20 [&_.p-paginator-rpp-dropdown]:!max-w-20 [&_.p-paginator-rpp-dropdown]:shrink-0"
+          class="hidden min-h-0 flex-1 flex-col md:flex [&_.p-datatable-thead>tr>th]:!bg-(--p-content-background) [&_.p-paginator-content]:flex-nowrap [&_.p-paginator-rpp-dropdown]:!w-20 [&_.p-paginator-rpp-dropdown]:!min-w-20 [&_.p-paginator-rpp-dropdown]:!max-w-20 [&_.p-paginator-rpp-dropdown]:shrink-0"
           :selection="props.selection"
           :contextMenuSelection="props.tableContextSelection"
           :value="displayEntries"
@@ -328,7 +328,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           @state-save="persistColumnLayout"
         >
           <template #empty>
-            <div class="py-8 text-center text-sm text-app-text-dim">
+            <div class="py-8 text-center text-sm text-(--p-text-muted-color)">
               {{ hasActiveResourceFilter ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
             </div>
           </template>
@@ -339,33 +339,36 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                 <div class="flex min-w-0 items-start gap-1.5">
                   <Button
                     v-if="data.kind === 'folder'"
-                    unstyled
-                    class="library-folder-toggle"
+                    class="library-folder-toggle mt-0.5 h-6 w-6 shrink-0 p-0"
                     type="button"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
                     :aria-label="isFolderExpanded(data) ? 'Collapse folder' : 'Expand folder'"
                     @click.stop="emit('toggle-folder', data)"
                   >
                     <span
-                      class="library-folder-toggle-icon"
-                      :class="{ 'library-folder-toggle-icon-expanded': isFolderExpanded(data) }"
+                      class="transition-transform duration-150"
+                      :class="{ 'rotate-90': isFolderExpanded(data) }"
                     >
                       &gt;
                     </span>
                   </Button>
-                  <span v-else-if="data.kind === 'file'" class="library-folder-toggle library-folder-toggle-placeholder" aria-hidden="true" />
+                  <span v-else-if="data.kind === 'file'" class="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
 
                   <div class="grid min-w-0 flex-1 gap-1">
                     <span
-                      class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-6 text-app-text"
+                      class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-6 text-(--p-text-color)"
                       :data-entry-key="data.key"
                       @click.stop="openEntry(data)"
                     >
                       {{ data.name }}
                     </span>
-                    <p v-if="data.kind === 'folder'" class="text-xs leading-4 text-app-text-dim">
+                    <p v-if="data.kind === 'folder'" class="text-xs leading-4 text-(--p-text-muted-color)">
                       {{ $t("library.treeCounts", { folders: data.childFolderCount, files: data.fileCount }) }}
                     </p>
-                    <p v-else-if="data.kind === 'group' && !props.hideGroupPaths" class="text-xs leading-4 text-app-text-dim">
+                    <p v-else-if="data.kind === 'group' && !props.hideGroupPaths" class="text-xs leading-4 text-(--p-text-muted-color)">
                       {{ data.path }}
                     </p>
                   </div>
@@ -376,7 +379,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
 
           <Column :header="$t('library.typeLabel')" sort-field="type" :sortable="props.paginated" :class="props.compact ? 'w-[11%]' : 'w-24'">
             <template #body="{ data }">
-              <span class="text-sm text-app-text-muted">{{ $t(resourceTypeLabel(data)) }}</span>
+              <span class="text-sm text-(--p-text-muted-color)">{{ $t(resourceTypeLabel(data)) }}</span>
             </template>
           </Column>
 
@@ -411,9 +414,12 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                 </span>
                 <Button
                   v-if="data.ingestStatus === 'failed' && !props.unavailableFileIds.includes(data.id)"
-                  unstyled
-                  :class="[libraryRowActionButtonClass, 'h-7 w-7 px-0']"
+                  class="h-7 w-7 p-0"
                   icon="pi pi-refresh"
+                  text
+                  rounded
+                  size="small"
+                  severity="secondary"
                   :loading="isRetrying(data)"
                   :disabled="isRetrying(data)"
                   :aria-label="$t('common.retry')"
@@ -421,7 +427,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                   @click.stop="emit('retry-entry', data)"
                 />
               </span>
-              <span v-else class="text-sm text-app-text-muted">
+              <span v-else class="text-sm text-(--p-text-muted-color)">
                 {{
                   data.processingCount > 0
                     ? $t(resourceStatusLabel(data), { count: data.processingCount })
@@ -433,13 +439,13 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
 
           <Column :header="$t('library.sizeLabel')" sort-field="size" :sortable="props.paginated" :class="props.compact ? 'w-[12%]' : 'w-24'">
             <template #body="{ data }">
-              <span class="tabular-nums text-sm text-app-text-muted">{{ resourceSizeLabel(data) }}</span>
+              <span class="tabular-nums text-sm text-(--p-text-muted-color)">{{ resourceSizeLabel(data) }}</span>
             </template>
           </Column>
 
           <Column :header="$t('library.updatedColumn')" sort-field="updated_at" :sortable="props.paginated" :class="props.compact ? 'w-[25%]' : 'w-36'">
             <template #body="{ data }">
-              <span class="whitespace-nowrap text-sm text-app-text-muted">
+              <span class="whitespace-nowrap text-sm text-(--p-text-muted-color)">
                 {{ data.updatedAt ? formatTimestamp(data.updatedAt) : "—" }}
               </span>
             </template>
@@ -450,8 +456,9 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
               <div class="flex flex-nowrap items-center justify-start gap-1 whitespace-nowrap">
                 <Button
                   v-if="data.kind === 'folder' && data.isSourceFolder"
-                  unstyled
-                  :class="libraryRowActionButtonClass"
+                  text
+                  size="small"
+                  severity="secondary"
                   :aria-label="$t('sources.sync')"
                   :title="$t('sources.sync')"
                   @click.stop="emit('sync-source-folder', data)"
@@ -459,8 +466,9 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                   {{ $t("sources.sync") }}
                 </Button>
                 <Button
-                  unstyled
-                  :class="libraryRowActionButtonClass"
+                  text
+                  size="small"
+                  severity="secondary"
                   :aria-label="data.kind === 'group' ? $t('common.open') : data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
                   :title="data.kind === 'group' ? $t('common.open') : data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
                   @click.stop="openEntry(data)"
@@ -469,8 +477,9 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                 </Button>
                 <Button
                   v-if="data.kind === 'group'"
-                  unstyled
-                  :class="libraryRowActionButtonClass"
+                  text
+                  size="small"
+                  severity="secondary"
                   :aria-label="$t('common.edit')"
                   :title="$t('common.edit')"
                   @click.stop="emit('edit-group', data)"
@@ -479,8 +488,9 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                 </Button>
                 <Button
                   v-if="canMoveEntry(data)"
-                  unstyled
-                  :class="libraryRowActionButtonClass"
+                  text
+                  size="small"
+                  severity="secondary"
                   :aria-label="$t('common.move')"
                   :title="$t('common.move')"
                   @click.stop="moveEntry(data)"
@@ -489,8 +499,9 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                 </Button>
                 <Button
                   v-if="canDeleteEntry(data)"
-                  unstyled
-                  :class="libraryRowDangerActionButtonClass"
+                  text
+                  size="small"
+                  severity="danger"
                   :aria-label="$t('common.delete')"
                   :title="$t('common.delete')"
                   @click.stop="deleteEntry(data)"
@@ -503,7 +514,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
         </DataTable>
 
         <div class="px-3 py-2 md:hidden">
-          <label class="grid gap-1 text-sm font-medium text-app-text-muted">
+          <label class="grid gap-1 text-sm font-medium text-(--p-text-muted-color)">
             <span>{{ $t("library.statusLabel") }}</span>
             <Select
               :model-value="props.statusFilter"

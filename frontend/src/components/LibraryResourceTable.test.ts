@@ -51,7 +51,7 @@ describe("LibraryResourceTable", () => {
     const table = wrapper.findComponent({ name: "DataTable" });
 
     expect(table.classes()).toContain("md:flex");
-    expect(table.classes()).toContain("[&_.p-datatable-thead>tr>th]:!bg-app-surface");
+    expect(table.classes()).toContain("[&_.p-datatable-thead>tr>th]:!bg-(--p-content-background)");
 
     table.vm.$emit("page", { first: 50, rows: 50 });
     table.vm.$emit("sort", { sortField: "updated_at", sortOrder: -1 });

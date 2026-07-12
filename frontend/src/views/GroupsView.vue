@@ -74,7 +74,6 @@ onMounted(() => {
     </div>
 
     <DataTable
-      class="app-data-table"
       :value="groups"
       :loading="loading"
       data-key="group_id"

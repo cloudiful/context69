@@ -6,7 +6,6 @@ import DataTable from "primevue/datatable";
 import Tag from "./AppTag.vue";
 
 import type { SearchHit } from "../services/api";
-import { compactTableActionButtonClass, searchResultOpenButtonClass } from "../ui/button-classes";
 import { formatDate, formatScore } from "../utils/format";
 
 defineProps<{
@@ -36,7 +35,7 @@ const { t } = useI18n();
       state-storage="local"
       state-key="context69:table:search-results:v2"
       table-class="min-w-[44rem]"
-      class="search-results-table hidden md:block"
+      class="hidden md:block"
       @update:selection="emit('select', $event)"
       @row-click="emit('select', $event.data)"
       @row-dblclick="emit('open', $event.data)"
@@ -46,9 +45,11 @@ const { t } = useI18n();
           <div class="grid min-w-0 gap-2">
             <div class="flex min-w-0 flex-wrap items-start gap-2.5">
               <Button
-                unstyled
-                class="min-w-0 flex-1 text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+                class="min-w-0 flex-1 justify-start px-0 text-left text-sm font-semibold leading-6 [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
                 type="button"
+                text
+                size="small"
+                severity="secondary"
                 @click.stop="emit('select', hit)"
               >
                 {{ hit.title }}
@@ -62,7 +63,7 @@ const { t } = useI18n();
             <p v-if="hit.library_path" class="break-words">
               {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
             </p>
-            <p class="text-[0.88rem] leading-[1.55rem] text-app-text-muted [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            <p class="text-[0.88rem] leading-[1.55rem] text-(--p-text-muted-color) [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
               {{ hit.chunk_text }}
             </p>
           </div>
@@ -71,17 +72,18 @@ const { t } = useI18n();
 
       <Column :header="t('search.result.published', { date: '' }).trim()" class="w-[8.5rem]">
         <template #body="{ data: hit }">
-          <span class="text-sm text-app-text-muted">{{ formatDate(hit.published_at) }}</span>
+          <span class="text-sm text-(--p-text-muted-color)">{{ formatDate(hit.published_at) }}</span>
         </template>
       </Column>
 
       <Column :header="t('sources.table.action')" class="w-28">
         <template #body="{ data: hit }">
           <Button
-            unstyled
-            :class="compactTableActionButtonClass"
             data-testid="search-result-open"
             :label="t('common.open')"
+            text
+            size="small"
+            severity="secondary"
             @click.stop="emit('open', hit)"
           />
         </template>
@@ -92,18 +94,20 @@ const { t } = useI18n();
       <article
         v-for="hit in hits"
         :key="hit.chunk_id"
-        class="grid gap-[0.45rem] border-b border-app-border/70 bg-app-surface px-3 py-[0.65rem] text-sm last:border-b-0"
+        class="grid gap-[0.45rem] border-b border-(--p-content-border-color)/70 bg-(--p-content-background) px-3 py-[0.65rem] text-sm last:border-b-0"
         data-testid="search-result-card"
-        :class="{ 'bg-[color-mix(in_srgb,var(--color-app-surface-soft)_54%,var(--color-app-surface)_46%)]': selectedHit?.chunk_id === hit.chunk_id }"
+        :class="{ 'bg-(--p-highlight-background)': selectedHit?.chunk_id === hit.chunk_id }"
         @click="emit('select', hit)"
         @dblclick="emit('open', hit)"
       >
         <div class="flex min-w-0 items-start justify-between gap-3">
           <div class="min-w-0">
             <Button
-              unstyled
-              class="min-w-0 flex-1 text-left text-sm font-semibold leading-6 text-app-text transition hover:text-app-text-muted [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+              class="min-w-0 flex-1 justify-start px-0 text-left text-sm font-semibold leading-6 [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
               type="button"
+              text
+              size="small"
+              severity="secondary"
               @click.stop="emit('select', hit)"
             >
               {{ hit.title }}
@@ -114,26 +118,28 @@ const { t } = useI18n();
             </div>
           </div>
           <Button
-            unstyled
-            :class="searchResultOpenButtonClass"
+            class="shrink-0"
             data-testid="search-result-open"
             :label="t('common.open')"
+            text
+            size="small"
+            severity="secondary"
             @click.stop="emit('open', hit)"
           />
         </div>
 
-        <p v-if="hit.library_path" class="mt-0.5 truncate text-xs leading-5 text-app-text-dim">
+        <p v-if="hit.library_path" class="mt-0.5 truncate text-xs leading-5 text-(--p-text-muted-color)">
           {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
         </p>
-        <p class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-app-text-muted [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{{ hit.chunk_text }}</p>
-        <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-app-text-dim">
+        <p class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-(--p-text-muted-color) [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{{ hit.chunk_text }}</p>
+        <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-(--p-text-muted-color)">
           <div class="min-w-0">
-            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("search.result.published", { date: "" }).trim() }}</dt>
-            <dd class="mt-0.5 truncate text-app-text-muted">{{ formatDate(hit.published_at) }}</dd>
+            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("search.result.published", { date: "" }).trim() }}</dt>
+            <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ formatDate(hit.published_at) }}</dd>
           </div>
           <div class="min-w-0">
-            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("search.result.score") }}</dt>
-            <dd class="mt-0.5 truncate text-app-text-muted">{{ formatScore(hit.score) }}</dd>
+            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("search.result.score") }}</dt>
+            <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ formatScore(hit.score) }}</dd>
           </div>
         </dl>
       </article>

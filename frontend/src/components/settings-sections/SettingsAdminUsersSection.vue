@@ -13,7 +13,6 @@ import { useConfirm } from "primevue/useconfirm";
 
 import AppSettingsBlock from "../AppSettingsBlock.vue";
 
-import { appFormDialogPt } from "../app-dialog";
 import type { AdminUserResponse } from "../../services/api";
 
 const props = defineProps<{
@@ -128,7 +127,6 @@ function confirmEnable(loginNameValue: string) {
     </template>
 
     <DataTable
-      class="app-data-table"
       :value="users"
       data-key="user_id"
       resizable-columns
@@ -189,23 +187,22 @@ function confirmEnable(loginNameValue: string) {
       v-model:visible="createDialogVisible"
       modal
       :header="t('adminUsers.create')"
-      :pt="appFormDialogPt"
       class="w-[30rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.loginName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.loginName") }}</label>
           <InputText v-model="loginName" :placeholder="t('adminUsers.loginName')" />
         </div>
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.displayName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.displayName") }}</label>
           <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.password") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.password") }}</label>
           <Password v-model="password" fluid :feedback="false" toggle-mask />
         </div>
-        <label class="flex items-center gap-2 text-sm text-app-text">
+        <label class="flex items-center gap-2 text-sm text-(--p-text-color)">
           <span>{{ t("adminUsers.isAdmin") }}</span>
           <ToggleSwitch v-model="isAdmin" />
         </label>
@@ -226,15 +223,14 @@ function confirmEnable(loginNameValue: string) {
       v-model:visible="editDialogVisible"
       modal
       :header="t('common.edit')"
-      :pt="appFormDialogPt"
       class="w-[28rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.displayName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.displayName") }}</label>
           <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
-        <label class="flex items-center gap-2 text-sm text-app-text">
+        <label class="flex items-center gap-2 text-sm text-(--p-text-color)">
           <span>{{ t("adminUsers.isAdmin") }}</span>
           <ToggleSwitch v-model="isAdmin" />
         </label>
@@ -255,12 +251,11 @@ function confirmEnable(loginNameValue: string) {
       v-model:visible="resetDialogVisible"
       modal
       :header="t('adminUsers.resetPasswordAction')"
-      :pt="appFormDialogPt"
       class="w-[28rem] max-w-[96vw]"
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("adminUsers.resetPassword") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.resetPassword") }}</label>
           <Password v-model="password" fluid :feedback="false" toggle-mask />
         </div>
       </div>

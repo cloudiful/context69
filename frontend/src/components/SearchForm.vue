@@ -138,7 +138,7 @@ function resetForm() {
 
 <template>
   <Fluid class="block w-full">
-    <form class="grid w-full gap-2 rounded-[1.1rem] border border-app-border/80 bg-app-surface/92 p-2" @submit.prevent="emit('submit')">
+    <form class="grid w-full gap-2 rounded-[1.1rem] border border-(--p-content-border-color)/80 bg-(--p-content-background)/92 p-2" @submit.prevent="emit('submit')">
       <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
         <AutoComplete
           input-id="query"
@@ -174,7 +174,7 @@ function resetForm() {
         </div>
       </div>
 
-      <div v-if="advancedFiltersOpen" class="grid gap-2 border-t border-app-border/70 pt-2">
+      <div v-if="advancedFiltersOpen" class="grid gap-2 border-t border-(--p-content-border-color)/70 pt-2">
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_8rem]">
           <AppFormField input-id="source" :label="t('search.form.source')">
             <Select

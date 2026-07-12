@@ -204,21 +204,23 @@ onMounted(async () => {
       </div>
 
       <section v-else class="min-h-[calc(100vh-8.25rem)] max-md:min-h-0 xl:min-h-[calc(100vh-8.5rem)]">
-        <div class="grid h-full gap-4 rounded-[0.8rem] border border-app-border/80 bg-app-surface-muted/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        <div class="grid h-full gap-4 rounded-[0.8rem] border border-(--p-content-border-color)/80 bg-(--p-content-hover-background)/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p class="text-base font-semibold text-app-text">
+              <p class="text-base font-semibold text-(--p-text-color)">
                 {{ editingSource ? t("sources.editSource") : t("sources.newSource") }}
               </p>
-              <p class="text-sm text-app-text-dim">
+              <p class="text-sm text-(--p-text-muted-color)">
                 {{ t("sources.editorDescription") }}
               </p>
             </div>
             <Button
               v-if="sources.length > 0"
-              unstyled
               :class="[toolSecondaryButtonClass, 'min-w-24']"
               type="button"
+              outlined
+              size="small"
+              severity="secondary"
               @click="resetEditor"
             >
               {{ t("common.close") }}

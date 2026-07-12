@@ -47,17 +47,17 @@ function confirmCreate() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="library-modal w-[32rem] max-w-[92vw]" modal :header="t('library.createDialog.title')">
+  <Dialog v-model:visible="visible" class="w-[32rem] max-w-[92vw]" modal :header="t('library.createDialog.title')">
     <div class="grid gap-6">
       <div class="grid gap-2">
-        <p class="text-xs font-medium uppercase tracking-[0.18em] text-app-text-dim">{{ t("library.newFolder") }}</p>
-        <p class="text-sm leading-7 text-app-text-muted">
+        <p class="text-xs font-medium uppercase tracking-[0.18em] text-(--p-text-muted-color)">{{ t("library.newFolder") }}</p>
+        <p class="text-sm leading-7 text-(--p-text-muted-color)">
           {{ t("library.createDialog.description", { name: parentName }) }}
         </p>
       </div>
 
       <label class="grid gap-2">
-        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-app-text-dim">{{ t("library.createDialog.nameLabel") }}</span>
+        <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.createDialog.nameLabel") }}</span>
         <InputText
           id="library-create-folder-name"
           v-model="folderName"
