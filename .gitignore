@@ -6,3 +6,4 @@ Cargo.lock
 /.idea/
 /ci-image-input/
 /docs
+/data/

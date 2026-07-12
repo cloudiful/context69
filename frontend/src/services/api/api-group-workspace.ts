@@ -10,6 +10,8 @@ import type {
   LibraryResourceSortBy,
   LibraryIngestStatus,
   SortDirection,
+  CreateMetadataIndexRequest,
+  UpdateMetadataIndexRequest,
 } from "./api-types";
 
 type Deps = {
@@ -32,6 +34,31 @@ export function createGroupWorkspaceApi({
   unwrapResponse,
 }: Deps) {
   return {
+    listMetadataIndexes(groupPath: string, sourceKey: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/metadata-indexes", {
+        params: { path: { group_path: groupPath }, query: { source_key: sourceKey } }, signal: options?.signal,
+      }));
+    },
+    createMetadataIndex(groupPath: string, sourceKey: string, payload: CreateMetadataIndexRequest) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/metadata-indexes", {
+        params: { path: { group_path: groupPath }, query: { source_key: sourceKey } }, body: payload,
+      }));
+    },
+    updateMetadataIndex(groupPath: string, indexId: string, payload: UpdateMetadataIndexRequest) {
+      return unwrapResponse(openapiClient.PUT("/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}", {
+        params: { path: { group_path: groupPath, index_id: indexId } }, body: payload,
+      }));
+    },
+    retryMetadataIndex(groupPath: string, indexId: string) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}/retry", {
+        params: { path: { group_path: groupPath, index_id: indexId } },
+      }));
+    },
+    deleteMetadataIndex(groupPath: string, indexId: string) {
+      return unwrapResponse(openapiClient.DELETE("/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}", {
+        params: { path: { group_path: groupPath, index_id: indexId } },
+      }));
+    },
     createGroupSourceFolder(groupPath: string, payload: CreateSourceFolderRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/source-folders", {
         params: { path: { group_path: groupPath } },

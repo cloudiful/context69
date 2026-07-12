@@ -15,6 +15,7 @@ async fn search_executes_borrowed_request() {
         group_path: None,
         published_after: None,
         published_before: None,
+        metadata_filters: vec![],
     };
     let result = client(&base_url)
         .search()

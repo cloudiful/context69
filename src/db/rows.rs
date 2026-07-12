@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -27,7 +27,7 @@ pub(super) struct DocumentRow {
     pub(super) title: String,
     pub(super) summary: Option<String>,
     pub(super) source_uri: String,
-    pub(super) published_at: Option<NaiveDate>,
+    pub(super) published_at: Option<DateTime<Utc>>,
     pub(super) updated_at_source: DateTime<Utc>,
     pub(super) record_hash: String,
     pub(super) metadata_json: Value,
@@ -52,7 +52,7 @@ pub(super) struct SearchHitRow {
     pub(super) title: String,
     pub(super) summary: Option<String>,
     pub(super) source_uri: String,
-    pub(super) published_at: Option<NaiveDate>,
+    pub(super) published_at: Option<DateTime<Utc>>,
     pub(super) chunk_index: i32,
     pub(super) chunk_text: String,
     pub(super) metadata_json: Value,
@@ -71,7 +71,7 @@ pub(super) struct ReindexChunkRow {
     pub(super) title: String,
     pub(super) summary: Option<String>,
     pub(super) source_uri: String,
-    pub(super) published_at: Option<NaiveDate>,
+    pub(super) published_at: Option<DateTime<Utc>>,
     pub(super) updated_at_source: DateTime<Utc>,
     pub(super) record_hash: String,
     pub(super) chunk_index: i32,
@@ -124,7 +124,7 @@ pub(super) struct KeywordSearchHitRow {
     pub(super) title: String,
     pub(super) summary: Option<String>,
     pub(super) source_uri: String,
-    pub(super) published_at: Option<NaiveDate>,
+    pub(super) published_at: Option<DateTime<Utc>>,
     pub(super) chunk_index: i32,
     pub(super) chunk_text: String,
     pub(super) metadata_json: Value,

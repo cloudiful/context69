@@ -25,23 +25,27 @@ use tower_sessions_redis_store::{
 use crate::services::app::Context69App;
 
 use super::{
-    ApiState, auth_middleware, build_api_state, create_admin_user, create_group_library_folder,
-    create_group_library_text, create_group_source_folder, create_library_folder,
-    create_library_text, create_personal_access_token, create_source, create_source_connection,
-    delete_group_library_file, delete_group_library_folder, delete_library_file,
-    delete_library_folder, delete_source, delete_source_connection, disable_admin_user,
-    enable_admin_user, forbid_personal_access_token_middleware, get_group_library_file,
+    ApiState, auth_middleware, batch_get_group_documents, build_api_state, create_admin_user,
+    create_group_library_folder, create_group_library_text, create_group_source_folder,
+    create_library_folder, create_library_text, create_metadata_index,
+    create_personal_access_token, create_source, create_source_connection,
+    delete_group_document_by_key, delete_group_library_file, delete_group_library_folder,
+    delete_library_file, delete_library_folder, delete_metadata_index, delete_source,
+    delete_source_connection, disable_admin_user, enable_admin_user,
+    forbid_personal_access_token_middleware, get_group_document_by_key, get_group_library_file,
     get_group_library_job, get_group_library_resources, get_group_library_tree, get_library_file,
-    get_library_job, get_library_tree, healthz, list_admin_users, list_personal_access_tokens,
-    list_source_connections, list_sources, login, logout, me, move_group_library_file,
-    move_group_library_folder, move_library_file, move_library_folder, openapi_json,
-    prepare_group_library_upload, require_admin_scope_middleware, require_library_scope_middleware,
+    get_library_job, get_library_tree, healthz, list_admin_users, list_metadata_indexes,
+    list_personal_access_tokens, list_source_connections, list_sources, login, logout, me,
+    move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
+    openapi_json, prepare_group_library_upload, query_group_documents,
+    require_admin_scope_middleware, require_library_scope_middleware,
     require_search_scope_middleware, require_settings_scope_middleware,
     require_sources_scope_middleware, require_workspace_scope_middleware,
-    reset_admin_user_password, retry_group_library_file, revoke_personal_access_token,
-    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
-    update_admin_user, update_group_source_folder_config, update_source, update_source_connection,
-    upload_group_library_files, upload_library_files, upsert_group_library_text,
+    reset_admin_user_password, retry_group_library_file, retry_metadata_index,
+    revoke_personal_access_token, sync_group_source_folder, sync_source,
+    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
+    update_metadata_index, update_source, update_source_connection, upload_group_library_files,
+    upload_library_files, upsert_group_library_text,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -104,7 +108,40 @@ fn protected_routes(upload_body_limit: usize, api_state: ApiState) -> Router<Api
         .merge(workspace_routes(api_state.clone()))
         .merge(sources_routes(api_state.clone()))
         .merge(settings_routes(api_state.clone()))
-        .merge(library_routes(upload_body_limit, api_state))
+        .merge(library_routes(upload_body_limit, api_state.clone()))
+        .merge(document_routes(api_state))
+}
+
+fn document_routes(api_state: ApiState) -> Router<ApiState> {
+    Router::new()
+        .route(
+            "/v1/groups/by-path/{group_path}/documents/query",
+            post(query_group_documents),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/documents/batch-get",
+            post(batch_get_group_documents),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/documents/by-external-id",
+            get(get_group_document_by_key).delete(delete_group_document_by_key),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/metadata-indexes",
+            get(list_metadata_indexes).post(create_metadata_index),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}",
+            put(update_metadata_index).delete(delete_metadata_index),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}/retry",
+            post(retry_metadata_index),
+        )
+        .layer(from_fn_with_state(
+            api_state,
+            require_library_scope_middleware,
+        ))
 }
 
 fn general_protected_routes(api_state: ApiState) -> Router<ApiState> {

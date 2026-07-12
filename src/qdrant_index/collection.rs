@@ -12,6 +12,39 @@ use super::{QdrantIndex, collection_vector_size};
 use crate::config::QdrantConfig;
 
 impl QdrantIndex {
+    pub async fn ensure_metadata_field_index(&self, path: &str, data_type: &str) -> Result<()> {
+        let field_type = match data_type {
+            "keyword" | "datetime" => FieldType::Keyword,
+            "integer" | "boolean" => FieldType::Integer,
+            "float" => FieldType::Float,
+            value => return Err(anyhow!("unsupported qdrant metadata type {value}")),
+        };
+        self.client
+            .create_field_index(
+                CreateFieldIndexCollectionBuilder::new(
+                    self.collection_name.clone(),
+                    metadata_payload_key(path),
+                    field_type,
+                )
+                .wait(true),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_metadata_field_index(&self, path: &str) -> Result<()> {
+        self.client
+            .delete_field_index(
+                qdrant_client::qdrant::DeleteFieldIndexCollectionBuilder::new(
+                    self.collection_name.clone(),
+                    metadata_payload_key(path),
+                )
+                .wait(true),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn connect(config: &QdrantConfig, dimensions: usize) -> Result<(Self, bool)> {
         let client = Qdrant::from_url(&config.url).build()?;
         let index = Self {
@@ -109,4 +142,8 @@ impl QdrantIndex {
         }
         Ok(())
     }
+}
+
+pub(crate) fn metadata_payload_key(path: &str) -> String {
+    format!("metadata_index.{path}")
 }

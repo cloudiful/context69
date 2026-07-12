@@ -12,6 +12,22 @@
 - Exposes a search API and MCP endpoints
 - Includes an optional Vue-based web UI
 
+## Structured Document Store
+
+Context69 stores normalized document text and arbitrary JSON metadata. Source systems remain
+responsible for vendor payloads and original HTML/PDF/image retention; `source_uri` links back to
+those objects.
+
+Document identity is `(group, source_key, external_id)`. Group-scoped APIs support exact and batch
+lookup, deletion, filtered cursor pagination, and up to three sort fields. `published_at`,
+`published_after`, and `published_before` use RFC 3339 timestamps. Migrated dates use UTC midnight
+unless `metadata_json.published_at` contained a precise RFC 3339 value.
+
+Metadata remains schema-free for writes. Filtering or sorting requires a group/source metadata
+index declaration. Dot paths such as `provider.name` are supported. Indexes build in the
+background and become queryable only in `ready` state. Scalars support `eq`, `in`, `range`, and
+`exists`; arrays support `contains` and `exists`.
+
 ## Current Scope
 
 - Retrieval only, no answer-generation layer

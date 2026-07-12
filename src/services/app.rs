@@ -16,9 +16,10 @@ use crate::{
     embedding::{EmbeddingProvider, OpenAiCompatibleEmbeddingProvider},
     qdrant_index::QdrantIndex,
     services::{
-        auth::AuthService, library::LibraryService, namespace::NamespaceService,
-        personal_access_tokens::PersonalAccessTokenService, query::QueryService,
-        settings::SettingsService, source_folders::SourceFoldersService, sync::SyncService,
+        auth::AuthService, document_store::DocumentStoreService, library::LibraryService,
+        namespace::NamespaceService, personal_access_tokens::PersonalAccessTokenService,
+        query::QueryService, settings::SettingsService, source_folders::SourceFoldersService,
+        sync::SyncService,
     },
     source_store::SourceStore,
 };
@@ -41,6 +42,7 @@ pub struct Context69App {
     pub settings: SettingsService,
     pub library: LibraryService,
     pub source_folders: SourceFoldersService,
+    pub document_store: DocumentStoreService,
     pub browser_sessions: BrowserSessionConfig,
 }
 
@@ -155,6 +157,8 @@ impl Context69App {
             config.file_library.clone(),
         )?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
+        let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
+        document_store.resume_pending();
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
             warn!(error = %error, "failed to prune expired rerank item scores during startup");
         }
@@ -183,6 +187,7 @@ impl Context69App {
             settings,
             library,
             source_folders,
+            document_store,
             browser_sessions,
         })
     }

@@ -24,8 +24,8 @@ scored AS (
     INNER JOIN context69.groups g ON g.id = d.group_id
     WHERE ($4::text IS NULL OR d.source_key = $4)
       AND ($5::text IS NULL OR g.full_path = $5)
-      AND ($6::date IS NULL OR d.published_at >= $6)
-      AND ($7::date IS NULL OR d.published_at <= $7)
+      AND ($6::timestamptz IS NULL OR d.published_at >= $6)
+      AND ($7::timestamptz IS NULL OR d.published_at <= $7)
       AND (d.visibility = 'public' OR d.group_id = ANY($8))
       AND (
         lower(d.title) LIKE $2

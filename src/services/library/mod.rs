@@ -95,7 +95,7 @@ struct IngestSection {
     body_text: String,
     source_uri: Option<String>,
     external_id: Option<String>,
-    published_at: Option<chrono::NaiveDate>,
+    published_at: Option<chrono::DateTime<chrono::Utc>>,
     metadata_json: Value,
 }
 

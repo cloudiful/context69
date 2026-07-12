@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "paths": {
     "/healthz": {
@@ -831,6 +831,184 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/documents/batch-get": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_get_group_documents",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchGetDocumentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchGetDocumentsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/documents/by-external-id": {
+      "get": {
+        "tags": [],
+        "operationId": "get_group_document_by_key",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "external_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "delete_group_document_by_key",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "external_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/documents/query": {
+      "post": {
+        "tags": [],
+        "operationId": "query_group_documents",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/library/files/prepare-upload": {
       "post": {
         "tags": [],
@@ -1583,6 +1761,201 @@
         "responses": {
           "204": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/metadata-indexes": {
+      "get": {
+        "tags": [],
+        "operationId": "list_metadata_indexes",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MetadataIndexResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "create_metadata_index",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMetadataIndexRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataIndexResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}": {
+      "put": {
+        "tags": [],
+        "operationId": "update_metadata_index",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMetadataIndexRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataIndexResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "delete_metadata_index",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}/retry": {
+      "post": {
+        "tags": [],
+        "operationId": "retry_metadata_index",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataIndexResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -3270,6 +3643,55 @@
           }
         }
       },
+      "BatchDocumentItem": {
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "document": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentResponse"
+              }
+            ]
+          },
+          "key": {
+            "$ref": "#/components/schemas/DocumentKey"
+          }
+        }
+      },
+      "BatchGetDocumentsRequest": {
+        "type": "object",
+        "required": [
+          "keys"
+        ],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentKey"
+            }
+          }
+        }
+      },
+      "BatchGetDocumentsResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchDocumentItem"
+            }
+          }
+        }
+      },
       "CreateAdminUserRequest": {
         "type": "object",
         "required": [
@@ -3343,6 +3765,28 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
+          }
+        }
+      },
+      "CreateMetadataIndexRequest": {
+        "type": "object",
+        "required": [
+          "path",
+          "data_type",
+          "value_kind"
+        ],
+        "properties": {
+          "data_type": {
+            "$ref": "#/components/schemas/MetadataDataType"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sortable": {
+            "type": "boolean"
+          },
+          "value_kind": {
+            "$ref": "#/components/schemas/MetadataValueKind"
           }
         }
       },
@@ -3556,6 +4000,103 @@
           }
         }
       },
+      "DocumentKey": {
+        "type": "object",
+        "required": [
+          "source_key",
+          "external_id"
+        ],
+        "properties": {
+          "external_id": {
+            "type": "string"
+          },
+          "source_key": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentLookupQuery": {
+        "type": "object",
+        "required": [
+          "source_key",
+          "external_id"
+        ],
+        "properties": {
+          "external_id": {
+            "type": "string"
+          },
+          "source_key": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentQueryRequest": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "metadata_filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetadataFilter"
+            }
+          },
+          "published_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "published_before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentSort"
+            }
+          },
+          "source_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DocumentQueryResponse": {
+        "type": "object",
+        "required": [
+          "documents"
+        ],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentResponse"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "DocumentResponse": {
         "type": "object",
         "required": [
@@ -3621,7 +4162,7 @@
               "string",
               "null"
             ],
-            "format": "date"
+            "format": "date-time"
           },
           "record_hash": {
             "type": "string"
@@ -3649,6 +4190,48 @@
             "$ref": "#/components/schemas/Visibility"
           }
         }
+      },
+      "DocumentSort": {
+        "type": "object",
+        "required": [
+          "field",
+          "order"
+        ],
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/DocumentSortField"
+          },
+          "order": {
+            "$ref": "#/components/schemas/SortOrder"
+          }
+        }
+      },
+      "DocumentSortField": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "published_at"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "updated_at"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "metadata"
+            ],
+            "properties": {
+              "metadata": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       },
       "GroupKind": {
         "type": "string",
@@ -4382,6 +4965,141 @@
           "viewer"
         ]
       },
+      "MetadataDataType": {
+        "type": "string",
+        "enum": [
+          "keyword",
+          "integer",
+          "float",
+          "boolean",
+          "datetime"
+        ]
+      },
+      "MetadataFilter": {
+        "type": "object",
+        "required": [
+          "path",
+          "operator"
+        ],
+        "properties": {
+          "max": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "min": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "operator": {
+            "$ref": "#/components/schemas/MetadataFilterOperator"
+          },
+          "path": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "MetadataFilterOperator": {
+        "type": "string",
+        "enum": [
+          "eq",
+          "in",
+          "range",
+          "exists",
+          "contains"
+        ]
+      },
+      "MetadataIndexResponse": {
+        "type": "object",
+        "required": [
+          "index_id",
+          "group_path",
+          "source_key",
+          "path",
+          "data_type",
+          "value_kind",
+          "sortable",
+          "status",
+          "processed_documents",
+          "total_documents",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_type": {
+            "$ref": "#/components/schemas/MetadataDataType"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_path": {
+            "type": "string"
+          },
+          "index_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "path": {
+            "type": "string"
+          },
+          "processed_documents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sortable": {
+            "type": "boolean"
+          },
+          "source_key": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MetadataIndexStatus"
+          },
+          "total_documents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "value_kind": {
+            "$ref": "#/components/schemas/MetadataValueKind"
+          }
+        }
+      },
+      "MetadataIndexStatus": {
+        "type": "string",
+        "enum": [
+          "building",
+          "ready",
+          "failed",
+          "deleting"
+        ]
+      },
+      "MetadataValueKind": {
+        "type": "string",
+        "enum": [
+          "scalar",
+          "array"
+        ]
+      },
       "MoveFileRequest": {
         "type": "object",
         "properties": {
@@ -4843,7 +5561,7 @@
               "string",
               "null"
             ],
-            "format": "date"
+            "format": "date-time"
           },
           "rerank_score": {
             "type": [
@@ -4906,19 +5624,25 @@
             "type": "integer",
             "minimum": 0
           },
+          "metadata_filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetadataFilter"
+            }
+          },
           "published_after": {
             "type": [
               "string",
               "null"
             ],
-            "format": "date"
+            "format": "date-time"
           },
           "published_before": {
             "type": [
               "string",
               "null"
             ],
-            "format": "date"
+            "format": "date-time"
           },
           "query": {
             "type": "string"
@@ -4988,6 +5712,13 @@
         }
       },
       "SortDirection": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "SortOrder": {
         "type": "string",
         "enum": [
           "asc",
@@ -5357,6 +6088,24 @@
           }
         }
       },
+      "UpdateMetadataIndexRequest": {
+        "type": "object",
+        "required": [
+          "data_type",
+          "value_kind"
+        ],
+        "properties": {
+          "data_type": {
+            "$ref": "#/components/schemas/MetadataDataType"
+          },
+          "sortable": {
+            "type": "boolean"
+          },
+          "value_kind": {
+            "$ref": "#/components/schemas/MetadataValueKind"
+          }
+        }
+      },
       "UpdateRuntimeEmbeddingSettings": {
         "type": "object",
         "required": [
@@ -5568,7 +6317,7 @@
               "string",
               "null"
             ],
-            "format": "date"
+            "format": "date-time"
           },
           "source_uri": {
             "type": [

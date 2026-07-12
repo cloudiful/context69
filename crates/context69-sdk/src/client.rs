@@ -15,8 +15,8 @@ use tokio::sync::RwLock;
 use crate::Error;
 
 pub use groups::{
-    GroupApi, GroupChildrenApi, GroupMemberApi, GroupMembersApi, GroupSourceFolderApi,
-    GroupSourceFoldersApi, GroupsApi,
+    GroupApi, GroupChildrenApi, GroupDocumentsApi, GroupMemberApi, GroupMembersApi,
+    GroupMetadataIndexesApi, GroupSourceFolderApi, GroupSourceFoldersApi, GroupsApi,
 };
 pub use library::{
     GroupLibraryApi, GroupLibraryTextsApi, LibraryApi, LibraryFileApi, LibraryFilesApi,

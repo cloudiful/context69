@@ -1,3 +1,4 @@
+mod documents;
 mod members;
 mod source_folders;
 
@@ -9,6 +10,7 @@ use reqwest::Method;
 use super::{Context69Client, GroupLibraryApi};
 use crate::{Error, client::transport::group_path};
 
+pub use documents::{GroupDocumentsApi, GroupMetadataIndexesApi};
 pub use members::{GroupMemberApi, GroupMembersApi};
 pub use source_folders::{GroupSourceFolderApi, GroupSourceFoldersApi};
 
@@ -113,6 +115,14 @@ impl<'a> GroupApi<'a> {
 
     pub fn source_folders(&self) -> GroupSourceFoldersApi<'a> {
         GroupSourceFoldersApi::new(self.client, self.group_path.clone())
+    }
+
+    pub fn documents(&self) -> GroupDocumentsApi<'a> {
+        GroupDocumentsApi::new(self.client, self.group_path.clone())
+    }
+
+    pub fn metadata_indexes(&self, source_key: impl Into<String>) -> GroupMetadataIndexesApi<'a> {
+        GroupMetadataIndexesApi::new(self.client, self.group_path.clone(), source_key.into())
     }
 
     pub fn source_folder(&self, folder_id: uuid::Uuid) -> GroupSourceFolderApi<'a> {

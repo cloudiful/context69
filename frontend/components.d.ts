@@ -48,6 +48,7 @@ declare module 'vue' {
     LibraryTreePane: typeof import('./src/components/LibraryTreePane.vue')['default']
     MemberDialog: typeof import('./src/components/MemberDialog.vue')['default']
     MemberManagementSection: typeof import('./src/components/MemberManagementSection.vue')['default']
+    MetadataIndexesSection: typeof import('./src/components/MetadataIndexesSection.vue')['default']
     ProjectFilesPanel: typeof import('./src/components/ProjectFilesPanel.vue')['default']
     ProjectSourceFolderDialog: typeof import('./src/components/ProjectSourceFolderDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

@@ -8,6 +8,7 @@ import { useI18n } from "vue-i18n";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
 import type { Visibility } from "../../services/api";
+import MetadataIndexesSection from "../../components/MetadataIndexesSection.vue";
 
 const state = useGroupWorkspaceContext();
 const { t } = useI18n();
@@ -89,6 +90,8 @@ function save() {
         </div>
       </form>
     </section>
+
+    <MetadataIndexesSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
 
     <section class="grid gap-3 rounded-[1rem] border border-app-border/65 bg-app-surface-muted/18 p-4">
       <div class="flex flex-wrap items-center gap-2">

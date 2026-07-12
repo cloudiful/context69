@@ -23,7 +23,7 @@ struct SourceRecordJson {
     #[serde(default)]
     summary: Option<String>,
     #[serde(default)]
-    published_at: Option<chrono::NaiveDate>,
+    published_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
     metadata_json: Value,
 }

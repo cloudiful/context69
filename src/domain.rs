@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -18,7 +18,7 @@ pub struct SourceRecord {
     pub body_text: String,
     pub source_uri: String,
     pub summary: Option<String>,
-    pub published_at: Option<NaiveDate>,
+    pub published_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
     pub metadata_json: Value,
 }
@@ -30,7 +30,7 @@ pub struct NormalizedDocument {
     pub summary: Option<String>,
     pub body_text: String,
     pub source_uri: String,
-    pub published_at: Option<NaiveDate>,
+    pub published_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
     pub metadata_json: Value,
     pub record_hash: String,
@@ -64,7 +64,7 @@ pub struct ChunkPayload {
     pub title: String,
     pub summary: Option<String>,
     pub source_uri: String,
-    pub published_at: Option<NaiveDate>,
+    pub published_at: Option<DateTime<Utc>>,
     pub updated_at_source: DateTime<Utc>,
     pub record_hash: String,
     pub chunk_index: i32,

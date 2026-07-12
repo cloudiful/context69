@@ -15,6 +15,54 @@ use crate::domain::{AccessScope, ChunkPayload, DocumentChunk};
 use crate::normalize::is_meaningful_text;
 
 impl Database {
+    pub async fn find_document_id_by_key(
+        &self,
+        group_id: i64,
+        source_key: &str,
+        external_id: &str,
+    ) -> Result<Option<i64>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/documents/find_id_by_key.sql",
+            group_id,
+            source_key,
+            external_id
+        )
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_document_candidate_ids(
+        &self,
+        group_id: i64,
+        source_key: Option<&str>,
+        published_after: Option<chrono::DateTime<chrono::Utc>>,
+        published_before: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<i64>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/documents/list_candidate_ids.sql",
+            group_id,
+            source_key,
+            published_after,
+            published_before
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn document_chunk_ids(&self, document_id: i64) -> Result<Vec<Uuid>> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/documents/list_chunk_ids.sql", document_id)
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn delete_document_by_id(&self, document_id: i64) -> Result<()> {
+        sqlx::query_file!("src/sql/db/documents/delete_by_id.sql", document_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
     pub async fn upsert_document(&self, payload: &ChunkPayload) -> Result<UpsertedDocument> {
         let mut tx = self.pool.begin().await?;
         let existing = sqlx::query_file_as!(
@@ -101,6 +149,19 @@ impl Database {
         }
 
         tx.commit().await?;
+        for definition in self
+            .list_metadata_indexes(payload.group_id, &payload.source_key)
+            .await?
+            .into_iter()
+            .filter(|definition| definition.status == "ready")
+        {
+            let values = crate::services::document_store::metadata::extract_values(
+                &definition,
+                &payload.metadata_json,
+            )?;
+            self.replace_metadata_values(definition.index_id, document_id, &values)
+                .await?;
+        }
         Ok(UpsertedDocument {
             document_id,
             changed,

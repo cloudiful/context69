@@ -150,7 +150,9 @@ mod tests {
             title: title.to_string(),
             summary: None,
             source_uri: "https://example.com".to_string(),
-            published_at: chrono::NaiveDate::from_ymd_opt(2025, 1, 1),
+            published_at: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .ok()
+                .map(|value| value.with_timezone(&chrono::Utc)),
             chunk_index: 0,
             chunk_text: chunk_text.to_string(),
             score: 0.0,

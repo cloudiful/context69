@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{AssertSqlSafe, PgPool, Row};
 
@@ -103,7 +103,7 @@ impl SourceConnector for PostgresSqlSourceConnector {
                     source_uri: row.try_get("source_uri")?,
                     summary: row.try_get("summary").ok(),
                     published_at: row
-                        .try_get::<Option<NaiveDate>, _>("published_at")
+                        .try_get::<Option<DateTime<Utc>>, _>("published_at")
                         .ok()
                         .flatten(),
                     updated_at: row.try_get("updated_at")?,

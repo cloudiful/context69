@@ -16,6 +16,7 @@ use crate::{
 mod admin_users;
 mod auth;
 mod docs;
+mod documents;
 mod errors;
 mod group_access;
 mod group_library;
@@ -43,7 +44,11 @@ pub(crate) fn build_api_state(app: Arc<Context69App>) -> ApiState {
             user_directory: Arc::new(UserDirectoryApiAdapter::new(app.auth.clone())),
         },
         search_http: SearchHttpState {
-            search: Arc::new(SearchApiAdapter::new(app.query.clone(), app.auth.clone())),
+            search: Arc::new(SearchApiAdapter::new(
+                app.query.clone(),
+                app.auth.clone(),
+                app.db.clone(),
+            )),
         },
         settings_http: SettingsHttpState {
             settings: Arc::new(SettingsApiAdapter::new(
@@ -93,6 +98,11 @@ pub(crate) use auth::{
     touch_personal_access_token_middleware,
 };
 pub(crate) use docs::openapi_json;
+pub(crate) use documents::{
+    batch_get_group_documents, create_metadata_index, delete_group_document_by_key,
+    delete_metadata_index, get_group_document_by_key, list_metadata_indexes, query_group_documents,
+    retry_metadata_index, update_metadata_index,
+};
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
     delete_group_library_folder, get_group_library_file, get_group_library_job,

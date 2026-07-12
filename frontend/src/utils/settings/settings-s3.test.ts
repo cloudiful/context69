@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import { buildRuntimePayload, createRuntimeDraft } from "../settings";
 
 describe("runtime S3 settings", () => {
+  it("defaults the S3 region for S3-compatible storage", () => {
+    expect(createRuntimeDraft().file_library.s3.region).toBe("us-east-1");
+  });
+
   it("omits S3 when disabled", () => {
     const draft = createRuntimeDraft();
     expect(buildRuntimePayload(draft).file_library.s3).toBeUndefined();

@@ -43,7 +43,7 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       s3_enabled: false,
       s3: {
         endpoint: "",
-        region: "",
+        region: "us-east-1",
         bucket: "",
         prefix: "",
         path_style: false,

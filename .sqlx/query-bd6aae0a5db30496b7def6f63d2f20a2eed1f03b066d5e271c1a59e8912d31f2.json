@@ -24,7 +24,7 @@
         "Text",
         "Text",
         "Text",
-        "Date",
+        "Timestamptz",
         "Timestamptz",
         "Jsonb",
         "Text"

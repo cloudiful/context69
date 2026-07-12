@@ -70,20 +70,7 @@ impl SearchCache {
     }
 
     pub fn request_hash(request: &SearchRequest) -> String {
-        hash_string(&format!(
-            "query={}\nlimit={}\nsource_key={}\npublished_after={}\npublished_before={}",
-            request.query.trim(),
-            request.limit,
-            request.source_key.as_deref().unwrap_or(""),
-            request
-                .published_after
-                .map(|value| value.to_string())
-                .unwrap_or_default(),
-            request
-                .published_before
-                .map(|value| value.to_string())
-                .unwrap_or_default()
-        ))
+        hash_string(&serde_json::to_string(request).unwrap_or_default())
     }
 
     pub fn settings_hash(settings: &SearchSettings) -> String {

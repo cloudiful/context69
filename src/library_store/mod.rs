@@ -147,7 +147,7 @@ struct ChunkPayloadRow {
     title: String,
     summary: Option<String>,
     source_uri: String,
-    published_at: Option<chrono::NaiveDate>,
+    published_at: Option<chrono::DateTime<chrono::Utc>>,
     updated_at_source: DateTime<Utc>,
     record_hash: String,
     chunk_index: i32,

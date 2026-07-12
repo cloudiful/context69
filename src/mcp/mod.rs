@@ -22,7 +22,8 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     api::{RequestAuth, optional_auth_middleware},
     contracts::{
-        DocumentResponse, ListSourcesResponse, McpDocumentArgs, SearchRequest, SearchResponse,
+        DocumentKey, DocumentQueryRequest, DocumentQueryResponse, DocumentResponse,
+        ListSourcesResponse, McpDocumentArgs, SearchRequest, SearchResponse,
     },
     domain::AccessScope,
     services::app::Context69App,
@@ -136,6 +137,68 @@ impl Context69McpServer {
     }
 
     #[tool(
+        name = "query_documents",
+        description = "List and filter structured documents in one group."
+    )]
+    async fn query_documents(
+        &self,
+        Parameters(request): Parameters<McpDocumentQueryArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<DocumentQueryResponse>, McpError> {
+        let user_id = self
+            .user_id_from_context(&context)?
+            .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
+        let group = self
+            .app
+            .namespace
+            .get_group_for_user(user_id, &request.group_path)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        let scope = self
+            .scope_from_context(&context, Some(request.group_path))
+            .await?;
+        Ok(Json(
+            self.app
+                .document_store
+                .query(group.id, &request.query, &scope)
+                .await
+                .map_err(internal_error)?,
+        ))
+    }
+
+    #[tool(
+        name = "get_document_by_external_id",
+        description = "Fetch a structured document by group, source key and external id."
+    )]
+    async fn get_document_by_external_id(
+        &self,
+        Parameters(request): Parameters<McpDocumentKeyArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<DocumentResponse>, McpError> {
+        let user_id = self
+            .user_id_from_context(&context)?
+            .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
+        let group = self
+            .app
+            .namespace
+            .get_group_for_user(user_id, &request.group_path)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        let scope = self
+            .scope_from_context(&context, Some(request.group_path))
+            .await?;
+        Ok(Json(
+            self.app
+                .document_store
+                .get_by_key(group.id, &request.key, &scope)
+                .await
+                .map_err(internal_error)?,
+        ))
+    }
+
+    #[tool(
         name = "list_sources",
         description = "List configured source connectors and checkpoint status."
     )]
@@ -161,6 +224,17 @@ impl Context69McpServer {
         }
         Ok(sources)
     }
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct McpDocumentQueryArgs {
+    group_path: String,
+    query: DocumentQueryRequest,
+}
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct McpDocumentKeyArgs {
+    group_path: String,
+    key: DocumentKey,
 }
 
 #[tool_handler(router = self.tool_router)]

@@ -82,5 +82,6 @@ fn search_request(query: &str) -> SearchRequest {
         group_path: None,
         published_after: None,
         published_before: None,
+        metadata_filters: vec![],
     }
 }

@@ -10,6 +10,12 @@ use crate::api::{
         __path_list_admin_users, __path_reset_admin_user_password, __path_update_admin_user,
     },
     auth::{__path_login, __path_logout, __path_me},
+    documents::{
+        __path_batch_get_group_documents, __path_create_metadata_index,
+        __path_delete_group_document_by_key, __path_delete_metadata_index,
+        __path_get_group_document_by_key, __path_list_metadata_indexes,
+        __path_query_group_documents, __path_retry_metadata_index, __path_update_metadata_index,
+    },
     errors::internal_error_response,
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
@@ -43,15 +49,19 @@ use crate::api::{
 };
 use crate::contracts::{
     AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse,
-    CreateAdminUserRequest, CreateFolderRequest, CreatePersonalAccessTokenRequest,
-    CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest,
-    HealthResponse, HealthStatus, LibraryFileDetailResponse, LibraryFolderResponse,
-    LibraryIngestJobResponse, LibraryResourceItem, LibraryResourceKind,
+    BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CreateAdminUserRequest,
+    CreateFolderRequest, CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
+    CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest, DocumentKey,
+    DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentSort,
+    DocumentSortField, HealthResponse, HealthStatus, LibraryFileDetailResponse,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, LibraryUploadResponse,
-    MoveFileRequest, MoveFolderRequest, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, ResetAdminUserPasswordRequest,
-    SearchMode, SortDirection, SourceConfigInput, SourceConnectionResponse, SourceFolderResponse,
-    SourceStatus, SyncOutcome, UpdateAdminUserRequest, UpsertLibraryTextRequest,
+    MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataIndexResponse,
+    MetadataIndexStatus, MetadataValueKind, MoveFileRequest, MoveFolderRequest,
+    PersonalAccessTokenResponse, PersonalAccessTokenScope, PrepareLibraryUploadRequest,
+    PrepareLibraryUploadResponse, ResetAdminUserPasswordRequest, SearchMode, SortDirection,
+    SortOrder, SourceConfigInput, SourceConnectionResponse, SourceFolderResponse, SourceStatus,
+    SyncOutcome, UpdateAdminUserRequest, UpdateMetadataIndexRequest, UpsertLibraryTextRequest,
     UpsertSourceConnectionRequest,
 };
 
@@ -106,7 +116,16 @@ use crate::contracts::{
         get_group_library_job,
         create_group_source_folder,
         update_group_source_folder_config,
-        sync_group_source_folder
+        sync_group_source_folder,
+        query_group_documents,
+        get_group_document_by_key,
+        batch_get_group_documents,
+        delete_group_document_by_key,
+        list_metadata_indexes,
+        create_metadata_index,
+        update_metadata_index,
+        retry_metadata_index,
+        delete_metadata_index
     ),
     components(schemas(
         HealthStatus,
@@ -147,7 +166,25 @@ use crate::contracts::{
         LibraryFileDetailResponse,
         LibraryUploadResponse,
         PrepareLibraryUploadRequest,
-        PrepareLibraryUploadResponse
+        PrepareLibraryUploadResponse,
+        BatchGetDocumentsRequest,
+        BatchGetDocumentsResponse,
+        BatchDocumentItem,
+        CreateMetadataIndexRequest,
+        DocumentKey,
+        DocumentLookupQuery,
+        DocumentQueryRequest,
+        DocumentQueryResponse,
+        DocumentSort,
+        DocumentSortField,
+        MetadataDataType,
+        MetadataFilter,
+        MetadataFilterOperator,
+        MetadataIndexResponse,
+        MetadataIndexStatus,
+        MetadataValueKind,
+        SortOrder,
+        UpdateMetadataIndexRequest
     ))
 )]
 pub struct ApiDoc;

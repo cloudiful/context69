@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use chrono::NaiveDate;
+use chrono::{DateTime, Utc};
 use qdrant_client::{
     Payload, Qdrant,
     qdrant::{
@@ -189,13 +189,11 @@ fn point_id_to_uuid(point_id: PointId) -> Result<Uuid> {
     Ok(Uuid::parse_str(&raw)?)
 }
 
-fn date_to_timestamp(date: NaiveDate) -> i64 {
-    date.and_hms_opt(0, 0, 0)
-        .map(|value| value.and_utc().timestamp())
-        .unwrap_or_default()
+fn date_to_timestamp(date: DateTime<Utc>) -> i64 {
+    date.timestamp()
 }
 
-fn date_to_timestamp_f64(date: NaiveDate) -> f64 {
+fn date_to_timestamp_f64(date: DateTime<Utc>) -> f64 {
     date_to_timestamp(date) as f64
 }
 
@@ -228,6 +226,7 @@ fn chunk_payload_json(payload: &ChunkPayload) -> serde_json::Value {
     if let Some(value) = payload.metadata_json.get("library_section_label") {
         payload_json["library_section_label"] = value.clone();
     }
+    payload_json["metadata_index"] = payload.metadata_json.clone();
 
     payload_json
 }

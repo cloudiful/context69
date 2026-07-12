@@ -116,7 +116,7 @@
       {
         "ordinal": 10,
         "name": "published_at",
-        "type_info": "Date",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
             "table": "context69.documents",

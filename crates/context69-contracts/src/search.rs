@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,9 +17,11 @@ pub struct SearchRequest {
     #[serde(default)]
     pub group_path: Option<String>,
     #[serde(default)]
-    pub published_after: Option<NaiveDate>,
+    pub published_after: Option<DateTime<Utc>>,
     #[serde(default)]
-    pub published_before: Option<NaiveDate>,
+    pub published_before: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub metadata_filters: Vec<crate::MetadataFilter>,
 }
 
 fn default_limit() -> usize {
@@ -54,7 +56,7 @@ pub struct SearchHit {
     pub title: String,
     pub summary: Option<String>,
     pub source_uri: String,
-    pub published_at: Option<NaiveDate>,
+    pub published_at: Option<DateTime<Utc>>,
     pub chunk_index: i32,
     pub chunk_text: String,
     pub score: f32,
@@ -96,7 +98,7 @@ pub struct DocumentResponse {
     pub title: String,
     pub summary: Option<String>,
     pub source_uri: String,
-    pub published_at: Option<NaiveDate>,
+    pub published_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
     pub record_hash: String,
     #[serde(default)]

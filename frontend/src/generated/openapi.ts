@@ -244,6 +244,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/documents/batch-get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_get_group_documents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/documents/by-external-id": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_document_by_key"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_group_document_by_key"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/documents/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["query_group_documents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/prepare-upload": {
         parameters: {
             query?: never;
@@ -463,6 +511,54 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["delete_group_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/metadata-indexes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_metadata_indexes"];
+        put?: never;
+        post: operations["create_metadata_index"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["update_metadata_index"];
+        post?: never;
+        delete: operations["delete_metadata_index"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_metadata_index"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -922,6 +1018,16 @@ export interface components {
             /** Format: int64 */
             user_id: number;
         };
+        BatchDocumentItem: {
+            document?: null | components["schemas"]["DocumentResponse"];
+            key: components["schemas"]["DocumentKey"];
+        };
+        BatchGetDocumentsRequest: {
+            keys: components["schemas"]["DocumentKey"][];
+        };
+        BatchGetDocumentsResponse: {
+            items: components["schemas"]["BatchDocumentItem"][];
+        };
         CreateAdminUserRequest: {
             display_name: string;
             is_admin: boolean;
@@ -939,6 +1045,12 @@ export interface components {
             name: string;
             parent_group_path?: string | null;
             visibility: components["schemas"]["Visibility"];
+        };
+        CreateMetadataIndexRequest: {
+            data_type: components["schemas"]["MetadataDataType"];
+            path: string;
+            sortable?: boolean;
+            value_kind: components["schemas"]["MetadataValueKind"];
         };
         CreatePersonalAccessTokenRequest: {
             /** Format: int32 */
@@ -994,6 +1106,29 @@ export interface components {
             chunk_index: number;
             text: string;
         };
+        DocumentKey: {
+            external_id: string;
+            source_key: string;
+        };
+        DocumentLookupQuery: {
+            external_id: string;
+            source_key: string;
+        };
+        DocumentQueryRequest: {
+            cursor?: string | null;
+            limit?: number;
+            metadata_filters?: components["schemas"]["MetadataFilter"][];
+            /** Format: date-time */
+            published_after?: string | null;
+            /** Format: date-time */
+            published_before?: string | null;
+            sort?: components["schemas"]["DocumentSort"][];
+            source_key?: string | null;
+        };
+        DocumentQueryResponse: {
+            documents: components["schemas"]["DocumentResponse"][];
+            next_cursor?: string | null;
+        };
         DocumentResponse: {
             chunks: components["schemas"]["DocumentChunkResponse"][];
             /** Format: int64 */
@@ -1007,7 +1142,7 @@ export interface components {
             library_path?: string | null;
             library_section_label?: string | null;
             metadata_json?: Record<string, never>;
-            /** Format: date */
+            /** Format: date-time */
             published_at?: string | null;
             record_hash: string;
             source_key: string;
@@ -1017,6 +1152,13 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
+        };
+        DocumentSort: {
+            field: components["schemas"]["DocumentSortField"];
+            order: components["schemas"]["SortOrder"];
+        };
+        DocumentSortField: "published_at" | "updated_at" | {
+            metadata: string;
         };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
@@ -1216,6 +1358,41 @@ export interface components {
         };
         /** @enum {string} */
         MembershipRole: "owner" | "maintainer" | "viewer";
+        /** @enum {string} */
+        MetadataDataType: "keyword" | "integer" | "float" | "boolean" | "datetime";
+        MetadataFilter: {
+            max?: Record<string, never> | null;
+            min?: Record<string, never> | null;
+            operator: components["schemas"]["MetadataFilterOperator"];
+            path: string;
+            value?: Record<string, never> | null;
+        };
+        /** @enum {string} */
+        MetadataFilterOperator: "eq" | "in" | "range" | "exists" | "contains";
+        MetadataIndexResponse: {
+            /** Format: date-time */
+            created_at: string;
+            data_type: components["schemas"]["MetadataDataType"];
+            error_message?: string | null;
+            group_path: string;
+            /** Format: uuid */
+            index_id: string;
+            path: string;
+            /** Format: int64 */
+            processed_documents: number;
+            sortable: boolean;
+            source_key: string;
+            status: components["schemas"]["MetadataIndexStatus"];
+            /** Format: int64 */
+            total_documents: number;
+            /** Format: date-time */
+            updated_at: string;
+            value_kind: components["schemas"]["MetadataValueKind"];
+        };
+        /** @enum {string} */
+        MetadataIndexStatus: "building" | "ready" | "failed" | "deleting";
+        /** @enum {string} */
+        MetadataValueKind: "scalar" | "array";
         MoveFileRequest: {
             /** Format: uuid */
             target_folder_id?: string | null;
@@ -1333,7 +1510,7 @@ export interface components {
             library_section_label?: string | null;
             match_reason?: string | null;
             metadata_json?: Record<string, never>;
-            /** Format: date */
+            /** Format: date-time */
             published_at?: string | null;
             /** Format: float */
             rerank_score?: number | null;
@@ -1352,9 +1529,10 @@ export interface components {
         SearchRequest: {
             group_path?: string | null;
             limit?: number;
-            /** Format: date */
+            metadata_filters?: components["schemas"]["MetadataFilter"][];
+            /** Format: date-time */
             published_after?: string | null;
-            /** Format: date */
+            /** Format: date-time */
             published_before?: string | null;
             query: string;
             source_key?: string | null;
@@ -1375,6 +1553,8 @@ export interface components {
         };
         /** @enum {string} */
         SortDirection: "asc" | "desc";
+        /** @enum {string} */
+        SortOrder: "asc" | "desc";
         SourceConfigInput: {
             base_query: string;
             /** Format: int64 */
@@ -1463,6 +1643,11 @@ export interface components {
             name?: string | null;
             visibility?: null | components["schemas"]["Visibility"];
         };
+        UpdateMetadataIndexRequest: {
+            data_type: components["schemas"]["MetadataDataType"];
+            sortable?: boolean;
+            value_kind: components["schemas"]["MetadataValueKind"];
+        };
         UpdateRuntimeEmbeddingSettings: {
             api_key?: string | null;
             base_url: string;
@@ -1514,7 +1699,7 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
             metadata_json?: Record<string, never>;
-            /** Format: date */
+            /** Format: date-time */
             published_at?: string | null;
             source_uri?: string | null;
             summary?: string | null;
@@ -2269,6 +2454,124 @@ export interface operations {
             };
         };
     };
+    batch_get_group_documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchGetDocumentsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchGetDocumentsResponse"];
+                };
+            };
+        };
+    };
+    get_group_document_by_key: {
+        parameters: {
+            query: {
+                source_key: string;
+                external_id: string;
+            };
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_group_document_by_key: {
+        parameters: {
+            query: {
+                source_key: string;
+                external_id: string;
+            };
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    query_group_documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentQueryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentQueryResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     prepare_group_library_upload: {
         parameters: {
             query?: never;
@@ -2880,6 +3183,124 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_metadata_indexes: {
+        parameters: {
+            query: {
+                source_key: string;
+            };
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataIndexResponse"][];
+                };
+            };
+        };
+    };
+    create_metadata_index: {
+        parameters: {
+            query: {
+                source_key: string;
+            };
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMetadataIndexRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataIndexResponse"];
+                };
+            };
+        };
+    };
+    update_metadata_index: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                index_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMetadataIndexRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataIndexResponse"];
+                };
+            };
+        };
+    };
+    delete_metadata_index: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                index_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retry_metadata_index: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                index_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataIndexResponse"];
+                };
             };
         };
     };

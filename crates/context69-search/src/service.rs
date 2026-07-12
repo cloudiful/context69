@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use context69_contracts::{DocumentResponse, SearchMode, SearchRequest, SearchResponse};
+use serde_json::Value;
 use tracing::warn;
 
 use crate::ranking::{
@@ -108,11 +109,20 @@ impl SearchService {
                         hydrated_hit
                     })
             })
-            .filter(|hit| is_meaningful_text(&hit.chunk_text))
+            .filter(|hit| {
+                is_meaningful_text(&hit.chunk_text)
+                    && metadata_filters_match(&hit.metadata_json, &request)
+            })
             .collect::<Vec<_>>();
 
         let mut results = if settings.mode == SearchMode::Hybrid {
-            let keyword_results = self.repository.keyword_search(&request, &scope, 80).await?;
+            let keyword_results = self
+                .repository
+                .keyword_search(&request, &scope, 80)
+                .await?
+                .into_iter()
+                .filter(|hit| metadata_filters_match(&hit.metadata_json, &request))
+                .collect();
             let mut candidates = merge_candidates(vector_results, keyword_results, &request.query);
             candidates.sort_by(compare_hits);
             let rerank_limit = settings.candidate_limit.min(candidates.len());
@@ -268,6 +278,49 @@ impl SearchService {
             .await?
             .context("document not found")
     }
+}
+
+fn metadata_filters_match(metadata: &Value, request: &SearchRequest) -> bool {
+    request.metadata_filters.iter().all(|filter| {
+        let found = filter
+            .path
+            .split('.')
+            .try_fold(metadata, |current, segment| {
+                current.as_object()?.get(segment)
+            });
+        match filter.operator {
+            context69_contracts::MetadataFilterOperator::Exists => {
+                found.is_some_and(|value| !value.is_null())
+                    == filter
+                        .value
+                        .as_ref()
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true)
+            }
+            context69_contracts::MetadataFilterOperator::Eq => found == filter.value.as_ref(),
+            context69_contracts::MetadataFilterOperator::In => filter
+                .value
+                .as_ref()
+                .and_then(Value::as_array)
+                .is_some_and(|values| found.is_some_and(|value| values.contains(value))),
+            context69_contracts::MetadataFilterOperator::Contains => {
+                found.and_then(Value::as_array).is_some_and(|values| {
+                    filter
+                        .value
+                        .as_ref()
+                        .is_some_and(|value| values.contains(value))
+                })
+            }
+            context69_contracts::MetadataFilterOperator::Range => found.is_some_and(|value| {
+                let number = value.as_f64();
+                let lower = filter.min.as_ref().and_then(Value::as_f64);
+                let upper = filter.max.as_ref().and_then(Value::as_f64);
+                number.is_some_and(|value| {
+                    lower.is_none_or(|min| value >= min) && upper.is_none_or(|max| value <= max)
+                })
+            }),
+        }
+    })
 }
 
 fn is_meaningful_text(value: &str) -> bool {

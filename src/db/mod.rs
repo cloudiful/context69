@@ -10,6 +10,7 @@ mod auth;
 mod docling_settings;
 mod documents;
 mod internal_secrets;
+mod metadata_indexes;
 mod namespaces;
 mod personal_access_tokens;
 mod rows;
@@ -21,6 +22,7 @@ mod sync_runs;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
+pub use metadata_indexes::StoredMetadataIndex;
 pub use personal_access_tokens::PersonalAccessTokenRecord;
 use rows::*;
 pub use vector_index_state::VectorIndexState;
@@ -40,6 +42,11 @@ pub struct RunHandle {
 pub struct UpsertedDocument {
     pub document_id: i64,
     pub changed: bool,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DocumentCandidate {
+    pub id: i64,
 }
 
 #[derive(Debug, Clone)]

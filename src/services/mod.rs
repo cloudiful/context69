@@ -1,5 +1,6 @@
 pub mod app;
 pub mod auth;
+pub mod document_store;
 pub mod library;
 pub mod namespace;
 pub mod personal_access_tokens;

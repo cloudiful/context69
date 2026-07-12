@@ -16,6 +16,7 @@ fn serializes_and_deserializes_core_requests() {
         group_path: None,
         published_after: None,
         published_before: None,
+        metadata_filters: vec![],
     };
 
     let value = serde_json::to_value(&request).expect("serialize request");
@@ -75,7 +76,7 @@ fn serializes_and_deserializes_core_requests() {
         "external_id": "doc-1",
         "title": "Doc",
         "content": "Hello",
-        "published_at": "2026-06-10"
+        "published_at": "2026-06-10T08:30:00Z"
     }))
     .expect("deserialize upsert request");
     assert_eq!(upsert_request.metadata_json, json!({}));

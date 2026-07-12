@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use utoipa::{IntoParams, ToSchema};
@@ -90,7 +90,7 @@ pub struct UpsertLibraryTextRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub published_at: Option<NaiveDate>,
+    pub published_at: Option<DateTime<Utc>>,
     #[serde(default = "default_metadata_json")]
     #[schema(value_type = Object)]
     pub metadata_json: Value,

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod common;
+pub mod documents;
 pub mod library;
 pub mod mcp;
 pub mod namespace;
@@ -14,6 +15,13 @@ pub use auth::{
     UpdateAdminUserRequest,
 };
 pub use common::{ApiErrorResponse, HealthResponse, HealthStatus};
+pub use documents::{
+    BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
+    CreateMetadataIndexRequest, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,
+    DocumentQueryResponse, DocumentSort, DocumentSortField, MetadataDataType, MetadataFilter,
+    MetadataFilterOperator, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
+    SortOrder, UpdateMetadataIndexRequest,
+};
 pub use library::{
     CreateFolderRequest, CreateTextRequest, LibraryDocumentSectionPreview,
     LibraryFileDetailResponse, LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse,

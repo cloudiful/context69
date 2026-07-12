@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.document_metadata_values WHERE index_id = $1 AND document_id = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "602071de07b16293317164952cfec68578919a1477d7afdbe28e87629cb6fe7a"
+}
