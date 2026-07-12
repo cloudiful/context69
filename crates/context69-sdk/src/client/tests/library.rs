@@ -1,5 +1,8 @@
 use axum::http::{Method, StatusCode, header};
-use context69_contracts::{LibraryTextContentFormat, MoveFolderRequest, UpsertLibraryTextRequest};
+use context69_contracts::{
+    ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata, LibraryTextContentFormat,
+    MoveFolderRequest, UpsertLibraryTextRequest,
+};
 use reqwest::multipart::Part;
 use serde_json::json;
 use uuid::Uuid;
@@ -25,6 +28,67 @@ fn file_json(file_id: Uuid) -> serde_json::Value {
         "created_at": "2026-07-10T00:00:00Z", "updated_at": "2026-07-10T00:00:00Z",
         "ingested_at": "2026-07-10T00:00:00Z", "sections": [], "jobs": []
     })
+}
+
+fn url_import_job_json(job_id: Uuid) -> serde_json::Value {
+    json!({
+        "import_job_id": job_id, "group_path": "ops/platform",
+        "source_url": "https://files.example.test/report.pdf", "status": "queued",
+        "attempt_count": 0, "created_at": "2026-07-12T00:00:00Z",
+        "started_at": null, "finished_at": null, "updated_at": "2026-07-12T00:00:00Z"
+    })
+}
+
+#[tokio::test]
+async fn group_library_imports_public_url() {
+    let job_id = Uuid::new_v4();
+    let (base_url, captured) = spawn_json(StatusCode::ACCEPTED, &url_import_job_json(job_id)).await;
+    let request = ImportLibraryFileFromUrlRequest {
+        url: "https://files.example.test/report.pdf".into(),
+        folder_id: None,
+        filename: None,
+        media_type: None,
+        metadata: Some(LibraryFileUploadMetadata {
+            external_id: Some("report-42".into()),
+            ..Default::default()
+        }),
+    };
+    let job = client(&base_url)
+        .group("ops/platform")
+        .library()
+        .files()
+        .import_url(&request)
+        .await
+        .expect("import URL");
+    let captured = captured.await.expect("captured request");
+    assert_eq!(job.import_job_id, job_id);
+    assert_eq!(captured.method, Method::POST);
+    assert_eq!(
+        captured.uri.path(),
+        "/v1/groups/by-path/ops%2Fplatform/library/files/import-url"
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&captured.body).unwrap()["metadata"]["external_id"],
+        "report-42"
+    );
+}
+
+#[tokio::test]
+async fn group_library_url_import_job_get_uses_group_scope() {
+    let job_id = Uuid::new_v4();
+    let (base_url, captured) = spawn_json(StatusCode::OK, &url_import_job_json(job_id)).await;
+    client(&base_url)
+        .group("ops/platform")
+        .library()
+        .url_import_job(job_id)
+        .get()
+        .await
+        .expect("get URL import job");
+    let captured = captured.await.expect("captured request");
+    assert_eq!(
+        captured.uri.path(),
+        format!("/v1/groups/by-path/ops%2Fplatform/library/url-import-jobs/{job_id}")
+    );
 }
 
 #[tokio::test]

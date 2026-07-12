@@ -7,11 +7,98 @@ use axum::{
 use uuid::Uuid;
 
 use crate::contracts::{
-    CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryIngestJobResponse,
-    LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryTreeResponse,
-    LibraryUploadResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
+    CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
+    LibraryFileDetailResponse, LibraryIngestJobResponse, LibraryResourcePageQuery,
+    LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse,
+    LibraryUrlImportJobResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
     PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
+
+#[utoipa::path(
+    post,
+    path = "/v1/groups/by-path/{group_path}/library/files/import-url",
+    params(("group_path" = String, Path)),
+    request_body = ImportLibraryFileFromUrlRequest,
+    responses((status = 202, body = LibraryUrlImportJobResponse), (status = 403), (status = 404))
+)]
+pub(crate) async fn import_group_library_file_url(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(group_path): Path<String>,
+    Json(request): Json<ImportLibraryFileFromUrlRequest>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+        return group_access_error_response(error);
+    }
+    match state
+        .app
+        .library
+        .import_url_in_project(&group, &request)
+        .await
+    {
+        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}",
+    params(("group_path" = String, Path), ("job_id" = Uuid, Path)),
+    responses((status = 200, body = LibraryUrlImportJobResponse), (status = 404))
+)]
+pub(crate) async fn get_group_library_url_import_job(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path((group_path, job_id)): Path<(String, Uuid)>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    match state
+        .app
+        .library
+        .get_url_import_job_in_project(group.id, job_id)
+        .await
+    {
+        Ok(job) => (StatusCode::OK, Json(job)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry",
+    params(("group_path" = String, Path), ("job_id" = Uuid, Path)),
+    responses((status = 202, body = LibraryUrlImportJobResponse), (status = 404), (status = 409))
+)]
+pub(crate) async fn retry_group_library_url_import_job(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path((group_path, job_id)): Path<(String, Uuid)>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+        return group_access_error_response(error);
+    }
+    match state
+        .app
+        .library
+        .retry_url_import_job_in_project(group.id, job_id)
+        .await
+    {
+        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
 
 use super::{
     ApiState,

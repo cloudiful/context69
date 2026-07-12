@@ -18,6 +18,7 @@ mod jobs;
 mod mappers;
 pub(crate) mod objects;
 mod resources;
+mod url_imports;
 pub use resources::ResourceListQuery;
 
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format, job_to_response};
@@ -50,6 +51,50 @@ pub struct UpdateLibraryFileContent {
     pub sha256: String,
     pub storage_rel_path: String,
     pub storage_object_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewLibraryUrlImportJob {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub visibility: String,
+    pub folder_id: Option<Uuid>,
+    pub source_url: String,
+    pub dedupe_key: String,
+    pub requested_filename: Option<String>,
+    pub requested_media_type: Option<String>,
+    pub external_id: Option<String>,
+    pub source_uri: Option<String>,
+    pub published_at: Option<DateTime<Utc>>,
+    pub metadata_json: Value,
+    pub metadata_provided: bool,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct UrlImportJobRecord {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub visibility: String,
+    pub folder_id: Option<Uuid>,
+    pub source_url: String,
+    pub dedupe_key: String,
+    pub requested_filename: Option<String>,
+    pub requested_media_type: Option<String>,
+    pub external_id: Option<String>,
+    pub source_uri: Option<String>,
+    pub published_at: Option<DateTime<Utc>>,
+    pub metadata_json: Value,
+    pub metadata_provided: bool,
+    pub status: String,
+    pub attempt_count: i32,
+    pub file_id: Option<Uuid>,
+    pub ingest_job_id: Option<Uuid>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, FromRow)]

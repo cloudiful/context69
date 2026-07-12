@@ -1,5 +1,6 @@
 use context69_contracts::{
-    LibraryFileDetailResponse, LibraryFileUploadMetadata, LibraryUploadResponse, MoveFileRequest,
+    ImportLibraryFileFromUrlRequest, LibraryFileDetailResponse, LibraryFileUploadMetadata,
+    LibraryUploadResponse, LibraryUrlImportJobResponse, MoveFileRequest,
     PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
 };
 use reqwest::{Method, multipart::Part};
@@ -43,6 +44,21 @@ impl<'a> LibraryFilesApi<'a> {
         request: &PrepareLibraryUploadRequest,
     ) -> Result<PrepareLibraryUploadResponse, Error> {
         let path = format!("{}/files/prepare-upload", self.base_path);
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::POST, &path)
+                    .await?
+                    .json(request),
+            )
+            .await
+    }
+
+    pub async fn import_url(
+        &self,
+        request: &ImportLibraryFileFromUrlRequest,
+    ) -> Result<LibraryUrlImportJobResponse, Error> {
+        let path = format!("{}/files/import-url", self.base_path);
         self.client
             .execute_json(
                 self.client

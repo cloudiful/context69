@@ -256,6 +256,8 @@ For the full surface:
 - generated OpenAPI output at `frontend/openapi/context69.openapi.json`
 - JSON library text endpoints accept `content_format = plain_text | markdown`; Markdown requests are stored as `.md` with `text/markdown`, while multipart uploads already support `.md` files directly
 - Multipart file uploads accept an `application/json` `metadata` part immediately before its `files` part. It contains `external_id`, `source_uri`, RFC 3339 `published_at`, and object-valued `metadata_json`. Every parsed section inherits these fields.
+- `POST /v1/groups/by-path/{group_path}/library/files/import-url` accepts a public HTTPS file URL and returns an asynchronous URL import job. Context69 validates every DNS/redirect target against private and special-use networks, limits downloads to `max_upload_size_mb`, persists the original in the configured S3/local content store, then reuses the normal SHA deduplication and ingest pipeline. URL imports do not send cookies, authorization, or custom headers and do not parse HTML landing pages.
+- URL import jobs are read at `GET .../library/url-import-jobs/{job_id}` and failed jobs can be retried with `POST .../{job_id}/retry`. Originals remain managed library files until deletion; ingest-only retries reuse the stored original without downloading it again.
 - Text JSON upserts and binary uploads share the same internal metadata composition path: section metadata, then file business metadata, then protected Context69 library fields.
 - A repeated `(group, external_id, SHA-256)` upload updates metadata without parsing or embedding again. A changed SHA-256 replaces and re-ingests that logical file. Reusing one SHA-256 with another external ID returns `409 external_id_content_conflict`.
 

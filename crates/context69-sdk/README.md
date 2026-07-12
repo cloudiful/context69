@@ -28,6 +28,39 @@ client.group("research/news").library().files()
 
 The existing `upload_bytes_deduplicated` method sends no metadata, preserving stored business fields on a deduplication hit.
 
+For public HTTPS file URLs, let Context69 download and ingest asynchronously:
+
+```rust,no_run
+use context69_sdk::contracts::{
+    ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata, LibraryUrlImportStatus,
+};
+use serde_json::json;
+
+# async fn example(client: &context69_sdk::Context69Client) -> Result<(), Box<dyn std::error::Error>> {
+let library = client.group("research/news").library();
+let job = library.files().import_url(&ImportLibraryFileFromUrlRequest {
+    url: "https://files.example.com/announcement.pdf".into(),
+    folder_id: None,
+    filename: None,
+    media_type: None,
+    metadata: Some(LibraryFileUploadMetadata {
+        external_id: Some("announcement-42".into()),
+        source_uri: None,
+        published_at: Some("2026-07-12T09:30:00Z".parse()?),
+        metadata_json: json!({"ticker": "ACME"}),
+    }),
+}).await?;
+
+let current = library.url_import_job(job.import_job_id).get().await?;
+if current.status == LibraryUrlImportStatus::Failed {
+    library.url_import_job(job.import_job_id).retry().await?;
+}
+# Ok(())
+# }
+```
+
+Only direct public HTTPS files are accepted. Private-network targets, authenticated downloads, and HTML attachment discovery are intentionally rejected.
+
 `context69-sdk` is a PAT-only client. Initialize it with a personal access token that starts with `ctx_pat_`, then navigate the resource tree to call an API.
 
 ## Initialization

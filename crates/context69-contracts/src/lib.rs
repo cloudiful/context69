@@ -23,13 +23,14 @@ pub use documents::{
     SortOrder, UpdateMetadataIndexRequest,
 };
 pub use library::{
-    CreateFolderRequest, CreateTextRequest, LibraryDocumentSectionPreview,
-    LibraryFileDetailResponse, LibraryFileSummary, LibraryFileUploadMetadata, LibraryFolderNode,
-    LibraryFolderResponse, LibraryIngestJobResponse, LibraryIngestStatus,
-    LibraryPreviewContentFormat, LibraryResourceItem, LibraryResourceKind,
+    CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
+    LibraryDocumentSectionPreview, LibraryFileDetailResponse, LibraryFileSummary,
+    LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse, LibraryIngestJobResponse,
+    LibraryIngestStatus, LibraryPreviewContentFormat, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryResourceSortBy,
-    LibraryTextContentFormat, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
-    MoveFolderRequest, PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
+    LibraryTextContentFormat, LibraryTreeResponse, LibraryUploadResponse,
+    LibraryUrlImportJobResponse, LibraryUrlImportStatus, MoveFileRequest, MoveFolderRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
     UpsertLibraryTextRequest,
 };
 pub use mcp::McpDocumentArgs;

@@ -1,0 +1,8 @@
+UPDATE context69.library_url_import_jobs
+SET status = $2,
+    error_code = $3,
+    error_message = $4,
+    finished_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING *

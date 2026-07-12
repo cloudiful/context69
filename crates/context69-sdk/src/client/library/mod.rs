@@ -2,7 +2,9 @@ mod files;
 mod folders;
 mod texts;
 
-use context69_contracts::{LibraryIngestJobResponse, LibraryTreeResponse};
+use context69_contracts::{
+    LibraryIngestJobResponse, LibraryTreeResponse, LibraryUrlImportJobResponse,
+};
 use reqwest::Method;
 use uuid::Uuid;
 
@@ -51,6 +53,36 @@ impl<'a> LibraryApi<'a> {
     }
 }
 
+pub struct LibraryUrlImportJobApi<'a> {
+    client: &'a Context69Client,
+    base_path: String,
+    job_id: Uuid,
+}
+
+impl<'a> LibraryUrlImportJobApi<'a> {
+    fn new(client: &'a Context69Client, base_path: String, job_id: Uuid) -> Self {
+        Self {
+            client,
+            base_path,
+            job_id,
+        }
+    }
+
+    pub async fn get(&self) -> Result<LibraryUrlImportJobResponse, Error> {
+        let path = format!("{}/url-import-jobs/{}", self.base_path, self.job_id);
+        self.client
+            .execute_json(self.client.authorized_request(Method::GET, &path).await?)
+            .await
+    }
+
+    pub async fn retry(&self) -> Result<LibraryUrlImportJobResponse, Error> {
+        let path = format!("{}/url-import-jobs/{}/retry", self.base_path, self.job_id);
+        self.client
+            .execute_json(self.client.authorized_request(Method::POST, &path).await?)
+            .await
+    }
+}
+
 pub struct GroupLibraryApi<'a> {
     client: &'a Context69Client,
     base_path: String,
@@ -90,6 +122,10 @@ impl<'a> GroupLibraryApi<'a> {
 
     pub fn job(&self, job_id: Uuid) -> LibraryJobApi<'a> {
         LibraryJobApi::new(self.client, self.base_path.clone(), job_id)
+    }
+
+    pub fn url_import_job(&self, job_id: Uuid) -> LibraryUrlImportJobApi<'a> {
+        LibraryUrlImportJobApi::new(self.client, self.base_path.clone(), job_id)
     }
 }
 

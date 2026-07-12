@@ -33,16 +33,17 @@ use super::{
     delete_library_file, delete_library_folder, delete_metadata_index, delete_source,
     delete_source_connection, disable_admin_user, enable_admin_user,
     forbid_personal_access_token_middleware, get_group_document_by_key, get_group_library_file,
-    get_group_library_job, get_group_library_resources, get_group_library_tree, get_library_file,
-    get_library_job, get_library_tree, healthz, list_admin_users, list_metadata_indexes,
+    get_group_library_job, get_group_library_resources, get_group_library_tree,
+    get_group_library_url_import_job, get_library_file, get_library_job, get_library_tree, healthz,
+    import_group_library_file_url, list_admin_users, list_metadata_indexes,
     list_personal_access_tokens, list_source_connections, list_sources, login, logout, me,
     move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
     openapi_json, prepare_group_library_upload, query_group_documents,
     require_admin_scope_middleware, require_library_scope_middleware,
     require_search_scope_middleware, require_settings_scope_middleware,
     require_sources_scope_middleware, require_workspace_scope_middleware,
-    reset_admin_user_password, retry_group_library_file, retry_metadata_index,
-    revoke_personal_access_token, sync_group_source_folder, sync_source,
+    reset_admin_user_password, retry_group_library_file, retry_group_library_url_import_job,
+    retry_metadata_index, revoke_personal_access_token, sync_group_source_folder, sync_source,
     touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
     update_metadata_index, update_source, update_source_connection, upload_group_library_files,
     upload_library_files, upsert_group_library_text,
@@ -313,6 +314,18 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         .route(
             "/v1/groups/by-path/{group_path}/library/files/upload",
             post(upload_group_library_files).layer(DefaultBodyLimit::max(upload_body_limit)),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/library/files/import-url",
+            post(import_group_library_file_url),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}",
+            get(get_group_library_url_import_job),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry",
+            post(retry_group_library_url_import_job),
         )
         .route(
             "/v1/groups/by-path/{group_path}/library/files/{file_id}",

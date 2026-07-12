@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.6.1"
+    "version": "0.6.2"
   },
   "paths": {
     "/healthz": {
@@ -1009,6 +1009,50 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/library/files/import-url": {
+      "post": {
+        "tags": [],
+        "operationId": "import_group_library_file_url",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportLibraryFileFromUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryUrlImportJobResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/library/files/prepare-upload": {
       "post": {
         "tags": [],
@@ -1672,6 +1716,89 @@
           },
           "404": {
             "description": "Group not found"
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_group_library_url_import_job",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryUrlImportJobResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry": {
+      "post": {
+        "tags": [],
+        "operationId": "retry_group_library_url_import_job",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryUrlImportJobResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": ""
           }
         }
       }
@@ -4362,6 +4489,46 @@
           "degraded"
         ]
       },
+      "ImportLibraryFileFromUrlRequest": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "media_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryFileUploadMetadata"
+              }
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
       "LibraryDocumentSectionPreview": {
         "type": "object",
         "required": [
@@ -5005,6 +5172,101 @@
             }
           }
         }
+      },
+      "LibraryUrlImportJobResponse": {
+        "type": "object",
+        "required": [
+          "import_job_id",
+          "group_path",
+          "source_url",
+          "status",
+          "attempt_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryFileSummary"
+              }
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "group_path": {
+            "type": "string"
+          },
+          "import_job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ingest_job": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryIngestJobResponse"
+              }
+            ]
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LibraryUrlImportStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LibraryUrlImportStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "downloading",
+          "ingesting",
+          "succeeded",
+          "failed"
+        ]
       },
       "MembershipRole": {
         "type": "string",

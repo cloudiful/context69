@@ -137,9 +137,17 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
         upload: UploadedLibraryFile,
     ) -> Result<(LibraryFileSummary, LibraryIngestJobResponse)> {
+        self.upload_file_for_group(project.id, upload).await
+    }
+
+    pub(super) async fn upload_file_for_group(
+        &self,
+        group_id: i64,
+        upload: UploadedLibraryFile,
+    ) -> Result<(LibraryFileSummary, LibraryIngestJobResponse)> {
         if let Some(folder_id) = upload.folder_id {
             self.store
-                .get_folder_in_project(project.id, folder_id)
+                .get_folder_in_project(group_id, folder_id)
                 .await?
                 .with_context(|| format!("unknown folder {folder_id}"))?;
         }
@@ -153,7 +161,7 @@ impl LibraryService {
             .and_then(|metadata| metadata.external_id.as_deref())
             && let Some(existing) = self
                 .store
-                .get_file_by_external_id_in_project(project.id, external_id)
+                .get_file_by_external_id_in_project(group_id, external_id)
                 .await?
         {
             if existing.sha256 == sha256 {
@@ -166,13 +174,13 @@ impl LibraryService {
                 .list_storage_paths_for_files(&[existing.id])
                 .await?;
             let object = self
-                .store_project_content(project.id, &sha256, upload.bytes.clone())
+                .store_project_content(group_id, &sha256, upload.bytes.clone())
                 .await?;
             self.cleanup_ingest_artifacts(existing.id).await?;
             let mut updated = self
                 .store
                 .update_file_content_in_project(
-                    project.id,
+                    group_id,
                     existing.id,
                     &crate::library_store::UpdateLibraryFileContent {
                         folder_id: upload.folder_id.or(existing.folder_id),
@@ -203,7 +211,7 @@ impl LibraryService {
         }
         if let Some(existing) = self
             .store
-            .get_file_by_sha_in_project(project.id, &sha256)
+            .get_file_by_sha_in_project(group_id, &sha256)
             .await?
         {
             let requested_external_id = upload
@@ -220,13 +228,13 @@ impl LibraryService {
                 .await;
         }
         let object = self
-            .store_project_content(project.id, &sha256, upload.bytes.clone())
+            .store_project_content(group_id, &sha256, upload.bytes.clone())
             .await?;
 
         let mut created = self
             .store
             .create_file_in_project(
-                project.id,
+                group_id,
                 &NewLibraryFile {
                     id: file_id,
                     folder_id: upload.folder_id,

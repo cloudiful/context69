@@ -157,6 +157,7 @@ impl Context69App {
             config.file_library.clone(),
         )?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
+        library.resume_url_imports().await?;
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
         document_store.resume_pending();
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {

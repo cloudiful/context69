@@ -292,6 +292,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/library/files/import-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["import_group_library_file_url"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/prepare-upload": {
         parameters: {
             query?: never;
@@ -478,6 +494,38 @@ export interface paths {
         get: operations["get_group_library_tree"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_library_url_import_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_group_library_url_import_job"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1193,6 +1241,14 @@ export interface components {
         };
         /** @enum {string} */
         HealthStatus: "ok" | "degraded";
+        ImportLibraryFileFromUrlRequest: {
+            filename?: string | null;
+            /** Format: uuid */
+            folder_id?: string | null;
+            media_type?: string | null;
+            metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
+            url: string;
+        };
         LibraryDocumentSectionPreview: {
             content_format?: components["schemas"]["LibraryPreviewContentFormat"];
             /** Format: int64 */
@@ -1368,6 +1424,29 @@ export interface components {
             files: components["schemas"]["LibraryFileSummary"][];
             jobs: components["schemas"]["LibraryIngestJobResponse"][];
         };
+        LibraryUrlImportJobResponse: {
+            /** Format: int32 */
+            attempt_count: number;
+            /** Format: date-time */
+            created_at: string;
+            error_code?: string | null;
+            error_message?: string | null;
+            file?: null | components["schemas"]["LibraryFileSummary"];
+            /** Format: date-time */
+            finished_at?: string | null;
+            group_path: string;
+            /** Format: uuid */
+            import_job_id: string;
+            ingest_job?: null | components["schemas"]["LibraryIngestJobResponse"];
+            source_url: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["LibraryUrlImportStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @enum {string} */
+        LibraryUrlImportStatus: "queued" | "downloading" | "ingesting" | "succeeded" | "failed";
         /** @enum {string} */
         MembershipRole: "owner" | "maintainer" | "viewer";
         /** @enum {string} */
@@ -2585,6 +2664,43 @@ export interface operations {
             };
         };
     };
+    import_group_library_file_url: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportLibraryFileFromUrlRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryUrlImportJobResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     prepare_group_library_upload: {
         parameters: {
             query?: never;
@@ -3128,6 +3244,68 @@ export interface operations {
             };
             /** @description Group not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_group_library_url_import_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryUrlImportJobResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retry_group_library_url_import_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryUrlImportJobResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

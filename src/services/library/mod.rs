@@ -42,12 +42,14 @@ mod metadata;
 mod migration;
 pub use migration::StorageMigrationSummary;
 pub(crate) mod object_storage;
+mod remote_download;
 mod resources;
 mod storage;
 mod text_creation;
 mod texts;
 mod tree;
 mod uploads;
+mod url_imports;
 mod xlsx;
 
 const FILE_LIBRARY_SOURCE_KEY: &str = "file_library";

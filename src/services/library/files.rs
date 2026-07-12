@@ -123,7 +123,7 @@ impl LibraryService {
         Ok(job_to_response(job))
     }
 
-    async fn run_retry_ingest(
+    pub(super) async fn run_retry_ingest(
         &self,
         file_id: Uuid,
         job_id: Uuid,

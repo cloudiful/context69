@@ -14,7 +14,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -28,14 +28,14 @@ bytes = "1.12.0"
 base64 = "0.22.1"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.2" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.6.1" }
-context69-db-schema = { path = "crates/context69-db-schema", version = "0.6.1" }
-context69-http-support = { path = "crates/context69-http-support", version = "0.6.1" }
-context69-namespace = { path = "crates/context69-namespace", version = "0.6.1" }
-context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.6.1" }
-context69-search = { path = "crates/context69-search", version = "0.6.1" }
-context69-search-http = { path = "crates/context69-search-http", version = "0.6.1" }
-context69-settings-http = { path = "crates/context69-settings-http", version = "0.6.1" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.6.2" }
+context69-db-schema = { path = "crates/context69-db-schema", version = "0.6.2" }
+context69-http-support = { path = "crates/context69-http-support", version = "0.6.2" }
+context69-namespace = { path = "crates/context69-namespace", version = "0.6.2" }
+context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.6.2" }
+context69-search = { path = "crates/context69-search", version = "0.6.2" }
+context69-search-http = { path = "crates/context69-search-http", version = "0.6.2" }
+context69-settings-http = { path = "crates/context69-settings-http", version = "0.6.2" }
 docling-convert = { package = "cloudiful-docling-convert", version = "0.2.4" }
 futures = "0.3.32"
 getrandom = "0.3.4"
@@ -106,7 +106,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
 sqlx = { workspace = true, features = ["chrono", "json", "macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "tls-rustls", "uuid"] }
-tokio = { workspace = true, features = [ "macros", "rt-multi-thread", "signal", "sync", "time" ] }
+tokio = { workspace = true, features = [ "macros", "net", "rt-multi-thread", "signal", "sync", "time" ] }
 time.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }

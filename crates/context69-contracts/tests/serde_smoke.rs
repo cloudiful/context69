@@ -1,8 +1,9 @@
 use context69_contracts::{
     AuthLoginRequest, CreatePersonalAccessTokenRequest, CreateTextRequest, GroupKind,
-    GroupResponse, HealthResponse, HealthStatus, LibraryTextContentFormat, LibraryUploadResponse,
-    ListSourcesResponse, MembershipRole, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    SearchRequest, SourceOriginStatusKind, SourceStatus, UpsertLibraryTextRequest, Visibility,
+    GroupResponse, HealthResponse, HealthStatus, ImportLibraryFileFromUrlRequest,
+    LibraryTextContentFormat, LibraryUploadResponse, ListSourcesResponse, MembershipRole,
+    PersonalAccessTokenResponse, PersonalAccessTokenScope, SearchRequest, SourceOriginStatusKind,
+    SourceStatus, UpsertLibraryTextRequest, Visibility,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -85,6 +86,12 @@ fn serializes_and_deserializes_core_requests() {
         upsert_request.content_format,
         LibraryTextContentFormat::PlainText
     );
+
+    let import: ImportLibraryFileFromUrlRequest = serde_json::from_value(json!({
+        "url": "https://files.example.test/report.pdf"
+    }))
+    .expect("deserialize URL import");
+    assert!(import.metadata.is_none());
 }
 
 #[test]
