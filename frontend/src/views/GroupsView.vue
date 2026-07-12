@@ -5,11 +5,10 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "../components/AppTag.vue";
+import Tag from "primevue/tag";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import { apiClient, type GroupResponse, type Visibility } from "../services/api";
-import { toolPrimaryButtonClass } from "../ui/button-classes";
 import { useErrorToast } from "../composables/use-error-toast";
 
 const router = useRouter();
@@ -66,14 +65,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="grid gap-2">
+  <div class="grid min-w-0 gap-2">
     <div class="flex justify-end">
-      <Button :class="toolPrimaryButtonClass" @click="createDialogVisible = true">
+      <Button @click="createDialogVisible = true">
         {{ t("groups.create") }}
       </Button>
     </div>
 
     <DataTable
+      class="min-w-0 max-w-full"
       :value="groups"
       :loading="loading"
       data-key="group_id"
@@ -83,7 +83,7 @@ onMounted(() => {
       column-resize-mode="expand"
       scrollable
       state-storage="local"
-      state-key="context69:table:groups:v2"
+      state-key="context69:table:groups:v5"
       table-class="min-w-full"
       @row-click="openGroup($event.data)"
     >

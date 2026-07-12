@@ -169,8 +169,7 @@ describe("LibraryView", () => {
     });
 
     expect(wrapper.find(".library-folder-toggle").exists()).toBe(true);
-    expect(wrapper.find(".library-card-list").exists()).toBe(true);
-    expect(wrapper.get('[data-testid="library-resource-card"]').text()).toContain("Policies");
+    expect(wrapper.text()).toContain("Policies");
     await wrapper.get("[data-entry-key='folder:folder-1']").trigger("click");
     await vi.waitFor(() => {
       expect(router.currentRoute.value.query.folder).toBe("folder-1");

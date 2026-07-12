@@ -4,15 +4,10 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "./AppTag.vue";
+import Tag from "primevue/tag";
 
 import AppTableToolbar from "./AppTableToolbar.vue";
 import type { SourceStatus } from "../services/api";
-import {
-  compactTableActionButtonClass,
-  toolPrimaryButtonClass,
-  toolSecondaryButtonClass,
-} from "../ui/button-classes";
 import { formatTimestamp } from "../utils/format";
 
 const props = withDefaults(defineProps<{
@@ -92,6 +87,10 @@ function handleRowSelect(source: SourceStatus) {
   }
   emit("select", source);
 }
+
+function sourceRowClass() {
+  return props.canManage ? "cursor-pointer" : "";
+}
 </script>
 
 <template>
@@ -104,19 +103,19 @@ function handleRowSelect(source: SourceStatus) {
       @update:search-query="searchQuery = $event"
     >
       <template #actions>
-        <Button :class="toolSecondaryButtonClass" @click="emit('refresh')">
+        <Button severity="secondary" variant="outlined" @click="emit('refresh')">
           {{ t("sources.refresh") }}
         </Button>
-        <Button v-if="props.canManage" :class="toolPrimaryButtonClass" type="button" @click="emit('create')">
+        <Button v-if="props.canManage" type="button" @click="emit('create')">
           {{ t("sources.newSource") }}
         </Button>
       </template>
     </AppTableToolbar>
 
-    <div class="overflow-hidden rounded-[0.8rem] border border-surface bg-surface-0 dark:bg-surface-950">
-      <DataTable
+    <DataTable
+        class="min-w-0 max-w-full"
         :value="filteredSources"
-        class="hidden md:block [&_.p-datatable-tbody>tr]:cursor-pointer"
+        :row-class="sourceRowClass"
         data-key="source_key"
         removable-sort
         resizable-columns
@@ -126,7 +125,7 @@ function handleRowSelect(source: SourceStatus) {
         sort-field="source_key"
         :sort-order="1"
         state-storage="local"
-        state-key="context69:table:sources:v2"
+        state-key="context69:table:sources:v5"
         table-class="w-full"
         @row-click="handleRowSelect($event.data)"
       >
@@ -152,9 +151,9 @@ function handleRowSelect(source: SourceStatus) {
                   {{ data.source_key }}
                 </span>
                 <div class="flex flex-wrap gap-1">
-                  <Tag class="tool-chip" :value="data.connector_type" severity="secondary" />
-                  <Tag class="tool-chip" :value="data.connection" severity="secondary" />
-                  <Tag class="tool-chip" :value="data.sync_strategy" severity="secondary" />
+                  <Tag :value="data.connector_type" severity="secondary" />
+                  <Tag :value="data.connection" severity="secondary" />
+                  <Tag :value="data.sync_strategy" severity="secondary" />
                 </div>
               </div>
               <p v-if="data.description" class="text-sm leading-6 text-muted-color">
@@ -167,13 +166,12 @@ function handleRowSelect(source: SourceStatus) {
                 <Tag
                   v-for="query in (data.example_queries ?? []).slice(0, 3)"
                   :key="query"
-                  class="tool-chip"
                   :value="query"
                   severity="contrast"
                 />
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <Tag class="tool-chip" :value="originLabel(data)" :severity="originSeverity(data)" />
+                <Tag :value="originLabel(data)" :severity="originSeverity(data)" />
                 <span v-if="data.origin_message" class="break-words text-sm leading-6 text-muted-color">{{ data.origin_message }}</span>
               </div>
 
@@ -254,11 +252,13 @@ function handleRowSelect(source: SourceStatus) {
         >
           <template #body="{ data }">
             <div class="flex flex-wrap justify-start gap-1 text-sm xl:justify-end">
-              <Button :class="compactTableActionButtonClass" type="button" @click.stop="emit('edit', data)">
+              <Button size="small" text severity="secondary" type="button" @click.stop="emit('edit', data)">
                 {{ t("common.edit") }}
               </Button>
               <Button
-                :class="compactTableActionButtonClass"
+                size="small"
+                text
+                severity="danger"
                 type="button"
                 :disabled="deletingMap[data.source_key]"
                 @click.stop="emit('delete', data.source_key)"
@@ -266,7 +266,9 @@ function handleRowSelect(source: SourceStatus) {
                 {{ deletingMap[data.source_key] ? t("sources.deleting") : t("common.delete") }}
               </Button>
               <Button
-                :class="compactTableActionButtonClass"
+                size="small"
+                text
+                severity="secondary"
                 type="button"
                 :disabled="syncingMap[data.source_key] || deletingMap[data.source_key]"
                 @click.stop="emit('sync', data.source_key)"
@@ -276,89 +278,6 @@ function handleRowSelect(source: SourceStatus) {
             </div>
           </template>
         </Column>
-      </DataTable>
-
-      <div class="hidden grid-cols-1 md:hidden source-card-list">
-        <div v-if="filteredSources.length === 0" class="px-3 py-8 text-center text-sm text-muted-color">
-          {{ t("sources.emptyMessage") }}
-        </div>
-        <article v-for="source in filteredSources" :key="source.source_key" data-testid="source-card" class="grid gap-[0.45rem] border-b border-surface bg-surface-0 dark:bg-surface-950 px-3 py-[0.65rem] text-sm last:border-b-0">
-          <div class="flex min-w-0 items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h3 class="block min-w-0 truncate text-left text-sm font-semibold leading-5 text-color">{{ source.display_name }}</h3>
-              <p v-if="source.display_name !== source.source_key" class="text-xs leading-5 text-muted-color">
-                {{ source.source_key }}
-              </p>
-              <div class="mt-1 flex min-w-0 flex-wrap gap-1">
-                <Tag class="tool-chip" :value="source.connector_type" severity="secondary" />
-                <Tag class="tool-chip" :value="source.connection" severity="secondary" />
-                <Tag class="tool-chip" :value="source.sync_strategy" severity="secondary" />
-              </div>
-            </div>
-          </div>
-
-          <p v-if="source.description" class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-            {{ source.description }}
-          </p>
-          <p class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]" :title="source.base_query">{{ source.base_query }}</p>
-          <div v-if="(source.example_queries ?? []).length > 0" class="mt-1 flex min-w-0 flex-wrap gap-1">
-            <Tag
-              v-for="query in (source.example_queries ?? []).slice(0, 3)"
-              :key="query"
-              class="tool-chip"
-              :value="query"
-              severity="contrast"
-            />
-          </div>
-
-          <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-muted-color">
-            <div class="min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.batchSize") }}</dt>
-              <dd class="mt-0.5 truncate text-muted-color">{{ source.batch_size }}</dd>
-            </div>
-            <div class="min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.lastSuccess") }}</dt>
-              <dd class="mt-0.5 truncate text-muted-color">{{ formatTimestamp(source.last_success_at) }}</dd>
-            </div>
-            <div class="col-span-full min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.cursor") }}</dt>
-              <dd class="mt-0.5 break-all whitespace-normal text-muted-color">{{ source.last_cursor_external_id ?? formatTimestamp(source.last_cursor_updated_at) }}</dd>
-            </div>
-            <div class="col-span-full min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.origin") }}</dt>
-              <dd class="mt-0.5 break-all whitespace-normal text-muted-color">
-                <Tag class="tool-chip" :value="originLabel(source)" :severity="originSeverity(source)" />
-              </dd>
-            </div>
-          </dl>
-
-          <p v-if="source.origin_message" class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-            {{ source.origin_message }}
-          </p>
-
-          <div v-if="props.canManage" class="flex flex-wrap items-center justify-start gap-1">
-            <Button :class="compactTableActionButtonClass" type="button" @click="emit('edit', source)">
-              {{ t("common.edit") }}
-            </Button>
-            <Button
-              :class="compactTableActionButtonClass"
-              type="button"
-              :disabled="deletingMap[source.source_key]"
-              @click="emit('delete', source.source_key)"
-            >
-              {{ deletingMap[source.source_key] ? t("sources.deleting") : t("common.delete") }}
-            </Button>
-            <Button
-              :class="compactTableActionButtonClass"
-              type="button"
-              :disabled="syncingMap[source.source_key] || deletingMap[source.source_key]"
-              @click="emit('sync', source.source_key)"
-            >
-              {{ syncingMap[source.source_key] ? t("sources.syncing") : t("sources.sync") }}
-            </Button>
-          </div>
-        </article>
-      </div>
-    </div>
+    </DataTable>
   </div>
 </template>

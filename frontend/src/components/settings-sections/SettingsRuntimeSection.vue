@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
+import ProgressSpinner from "primevue/progressspinner";
 
 import AppNumberField from "../AppNumberField.vue";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
@@ -153,15 +154,17 @@ function updateS3PathStyle(value: Record<string, boolean>) {
           />
           <div class="flex items-end">
             <Button
-              icon="pi pi-bolt"
-              :label="t('settings.runtime.valkeyTest')"
               size="small"
               severity="secondary"
-              :loading="valkeyTesting"
               :disabled="valkeyTesting || !runtimeDraft.scheduler.valkey_url.trim()"
+              :aria-busy="valkeyTesting"
               data-testid="runtime-valkey-test"
               @click="emit('test-valkey')"
-            />
+            >
+              <ProgressSpinner v-if="valkeyTesting" class="h-4 w-4" :stroke-width="6" />
+              <i v-else class="pi pi-bolt" aria-hidden="true" />
+              <span>{{ t("settings.runtime.valkeyTest") }}</span>
+            </Button>
           </div>
           <AppToggleGroup
             :model-value="schedulerToggleModel"
@@ -282,14 +285,16 @@ function updateS3PathStyle(value: Record<string, boolean>) {
                 @update:model-value="updateS3PathStyle"
               />
               <Button
-                icon="pi pi-bolt"
-                :label="t('settings.runtime.s3Test')"
                 size="small"
                 severity="secondary"
-                :loading="s3Testing"
                 :disabled="s3Testing"
+                :aria-busy="s3Testing"
                 @click="emit('test-s3')"
-              />
+              >
+                <ProgressSpinner v-if="s3Testing" class="h-4 w-4" :stroke-width="6" />
+                <i v-else class="pi pi-bolt" aria-hidden="true" />
+                <span>{{ t("settings.runtime.s3Test") }}</span>
+              </Button>
             </div>
           </div>
         </div>

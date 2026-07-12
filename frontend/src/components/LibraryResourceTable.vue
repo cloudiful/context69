@@ -4,16 +4,15 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable, { type DataTableFilterEvent, type DataTableOperatorFilterMetaData } from "primevue/datatable";
-import Paginator from "primevue/paginator";
+import FileUpload, { type FileUploadUploaderEvent } from "primevue/fileupload";
+import ProgressSpinner from "primevue/progressspinner";
 import Select from "primevue/select";
-import Tag from "./AppTag.vue";
+import Tag from "primevue/tag";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import AppStateMessage from "./AppStateMessage.vue";
-import LibraryResourceCards from "./LibraryResourceCards.vue";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
 import type { LibraryIngestStatus } from "../services/api";
-import { toolPrimaryButtonClass } from "../ui/button-classes";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import { formatBytes, formatTimestamp } from "../utils/format";
 
@@ -89,6 +88,10 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const { statusLabel, statusSeverity } = createLibraryStatusHelpers();
 const displayEntries = computed<LibraryBrowserEntry[]>(() => [...props.groupEntries, ...props.entries]);
+
+function handleUpload(event: FileUploadUploaderEvent) {
+  emit("upload-select", { files: Array.isArray(event.files) ? event.files : [event.files] });
+}
 const hasActiveResourceFilter = computed(() => !!props.resourceSearchQuery || !!props.statusFilter);
 const filters = ref({
   status: {
@@ -105,7 +108,7 @@ const statusOptions = computed(() => [
 ]);
 const tableStateKey = computed(() => props.compact
   ? "context69:table:group-library:v5"
-  : "context69:table:library:v3");
+  : "context69:table:library:v5");
 
 function resourceTypeLabel(entry: LibraryBrowserEntry): string {
   if (entry.kind === "group") return "groups.groupType";
@@ -254,10 +257,6 @@ function handleFilter(event: DataTableFilterEvent) {
   emit("status-filter", typeof value === "string" ? value as LibraryIngestStatus : null);
 }
 
-function handleMobileStatusFilter(value: LibraryIngestStatus | null) {
-  emit("status-filter", value);
-}
-
 watch(() => props.statusFilter, (status) => {
   filters.value.status.constraints[0]!.value = status;
 });
@@ -285,14 +284,14 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
             <AppStateMessage severity="error" :title="$t('common.error')">
               {{ props.error }}
             </AppStateMessage>
-            <Button :class="toolPrimaryButtonClass" size="small" @click="emit('retry')">
+            <Button size="small" @click="emit('retry')">
               {{ $t("common.retry") }}
             </Button>
           </div>
         </template>
 
         <DataTable
-          class="hidden min-h-0 flex-1 flex-col md:flex [&_.p-paginator-content]:flex-nowrap [&_.p-paginator-rpp-dropdown]:!w-20 [&_.p-paginator-rpp-dropdown]:!min-w-20 [&_.p-paginator-rpp-dropdown]:!max-w-20 [&_.p-paginator-rpp-dropdown]:shrink-0"
+          class="flex min-h-0 min-w-0 flex-1 flex-col"
           :selection="props.selection"
           :contextMenuSelection="props.tableContextSelection"
           :value="displayEntries"
@@ -327,6 +326,39 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           @filter="handleFilter"
           @state-save="persistColumnLayout"
         >
+          <template v-if="!props.hideActions" #header>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                id="library-open-create-folder"
+                type="button"
+                severity="secondary"
+                variant="outlined"
+                :disabled="props.createFolderBusy || !props.selectedFolderReady"
+                @click="emit('create-folder')"
+              >
+                {{ $t("library.newFolder") }}
+              </Button>
+              <Button
+                type="button"
+                severity="secondary"
+                variant="outlined"
+                :disabled="props.createSourceFolderBusy || !props.selectedFolderReady"
+                @click="emit('create-source-folder')"
+              >
+                {{ $t("library.newSourceFolder") }}
+              </Button>
+              <FileUpload
+                mode="basic"
+                multiple
+                auto
+                custom-upload
+                :disabled="props.uploadBusy || !props.selectedFolderReady"
+                accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
+                :choose-label="$t('common.upload')"
+                @uploader="handleUpload"
+              />
+            </div>
+          </template>
           <template #empty>
             <div class="py-8 text-center text-sm text-muted-color">
               {{ hasActiveResourceFilter ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
@@ -415,17 +447,19 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                 <Button
                   v-if="data.ingestStatus === 'failed' && !props.unavailableFileIds.includes(data.id)"
                   class="h-7 w-7 p-0"
-                  icon="pi pi-refresh"
                   text
                   rounded
                   size="small"
                   severity="secondary"
-                  :loading="isRetrying(data)"
                   :disabled="isRetrying(data)"
+                  :aria-busy="isRetrying(data)"
                   :aria-label="$t('common.retry')"
                   :title="$t('common.retry')"
                   @click.stop="emit('retry-entry', data)"
-                />
+                >
+                  <ProgressSpinner v-if="isRetrying(data)" class="h-4 w-4" :stroke-width="6" />
+                  <i v-else class="pi pi-refresh" aria-hidden="true" />
+                </Button>
               </span>
               <span v-else class="text-sm text-muted-color">
                 {{
@@ -513,47 +547,6 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           </Column>
         </DataTable>
 
-        <div class="px-3 py-2 md:hidden">
-          <label class="grid gap-1 text-sm font-medium text-muted-color">
-            <span>{{ $t("library.statusLabel") }}</span>
-            <Select
-              :model-value="props.statusFilter"
-              :aria-label="$t('library.filterByStatus')"
-              class="w-full"
-              :options="statusOptions"
-              option-label="label"
-              option-value="value"
-              @update:model-value="handleMobileStatusFilter"
-            />
-          </label>
-        </div>
-
-        <LibraryResourceCards
-          :entries="displayEntries"
-          :expanded-keys="props.expandedKeys"
-          :hide-group-paths="props.hideGroupPaths"
-          :resource-filter-active="hasActiveResourceFilter"
-          :resource-search-query="props.resourceSearchQuery"
-          :selection="props.selection"
-          @delete="deleteEntry"
-          @edit-group="emit('edit-group', $event)"
-          @move="moveEntry"
-          @open="openEntry"
-          @row-click="handleRowClick({ data: $event })"
-          @row-contextmenu="handleRowContextMenu"
-          @row-dblclick="handleRowDoubleClick({ data: $event })"
-          @toggle-folder="emit('toggle-folder', $event)"
-        />
-
-        <Paginator
-          v-if="props.paginated"
-          class="md:hidden"
-          :first="props.first"
-          :rows="props.pageSize"
-          :rows-per-page-options="[25, 50, 100]"
-          :total-records="props.totalRecords"
-          @page="emit('page', { first: $event.first, rows: $event.rows })"
-        />
       </AsyncStateBlock>
     </div>
   </div>

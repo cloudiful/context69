@@ -7,7 +7,7 @@ import Button from "primevue/button";
 import Fluid from "primevue/fluid";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
-import Password from "primevue/password";
+import InputPassword from "primevue/inputpassword";
 import Select from "primevue/select";
 import Message from "primevue/message";
 import Textarea from "primevue/textarea";
@@ -225,7 +225,7 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
               <FormField v-slot="$field" name="database_url" :initial-value="initialValues.database_url">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.databaseUrl") }}</span>
-                  <Password
+                  <InputPassword
                     id="source-database-url"
                     v-bind="$field.props"
                     :model-value="$field.value"

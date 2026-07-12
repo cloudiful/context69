@@ -79,15 +79,15 @@ describe("AppRouteBreadcrumbs", () => {
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).not.toContain("Search");
 
-    const stockButton = wrapper.findAll("button").find((button) => button.text() === "stock");
-    expect(stockButton).toBeDefined();
-    await stockButton!.trigger("click");
+    const stockLink = wrapper.findAll("a").find((link) => link.text() === "stock");
+    expect(stockLink).toBeDefined();
+    await stockLink!.trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe("/groups/stock");
 
-    const browserButton = wrapper.findAll("button").find((button) => button.text() === "Browser");
-    expect(browserButton).toBeDefined();
-    await browserButton!.trigger("click");
+    const browserLink = wrapper.findAll("a").find((link) => link.text() === "Browser");
+    expect(browserLink).toBeDefined();
+    await browserLink!.trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.name).toBe("groups");
   });

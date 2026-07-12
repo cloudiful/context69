@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import Button from "primevue/button";
+import ProgressSpinner from "primevue/progressspinner";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 
@@ -73,7 +74,8 @@ watch(
         <Button severity="secondary" text :disabled="busy" @click="emit('cancel')">
           {{ $t("common.cancel") }}
         </Button>
-        <Button :loading="busy" @click="emit('confirm', { folderName: draftFolderName, value })">
+        <Button :disabled="busy" :aria-busy="busy" @click="emit('confirm', { folderName: draftFolderName, value })">
+          <ProgressSpinner v-if="busy" class="h-4 w-4" :stroke-width="6" />
           {{ $t("common.save") }}
         </Button>
       </div>

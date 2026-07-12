@@ -19,6 +19,7 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
 export const testPrimeVuePlugin = {
   install(app: App) {
     app.use(PrimeVue, {
+      license: import.meta.env.VITE_PRIMEUI_LICENSE,
       theme: {
         preset: Aura,
         options: {

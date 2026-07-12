@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
+import ProgressSpinner from "primevue/progressspinner";
 
 import type { VectorIndexRebuildStatus } from "../../services/api";
 
@@ -26,15 +27,17 @@ const progress = computed(() => {
   <div class="grid gap-2">
     <div>
       <Button
-        icon="pi pi-refresh"
-        :label="t('settings.runtime.vectorRebuild')"
         size="small"
         severity="secondary"
-        :loading="running"
         :disabled="running"
+        :aria-busy="running"
         data-testid="runtime-vector-rebuild"
         @click="$emit('rebuild')"
-      />
+      >
+        <ProgressSpinner v-if="running" class="h-4 w-4" :stroke-width="6" />
+        <i v-else class="pi pi-refresh" aria-hidden="true" />
+        <span>{{ t("settings.runtime.vectorRebuild") }}</span>
+      </Button>
     </div>
     <p v-if="running" class="m-0 text-sm text-muted-color">
       {{ progress || t('settings.runtime.vectorRebuilding') }}

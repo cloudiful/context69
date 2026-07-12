@@ -12,11 +12,6 @@ import AppFormField from "./AppFormField.vue";
 import type { SourceStatus } from "../services/api";
 import type { SearchFilters } from "../types/ui";
 import type { SearchHistoryEntry } from "../utils/search-history";
-import {
-  settingsPrimaryButtonClass,
-  settingsSecondaryButtonClass,
-  subtleTextButtonClass,
-} from "../ui/button-classes";
 
 const props = defineProps<{
   filters: SearchFilters;
@@ -138,7 +133,7 @@ function resetForm() {
 
 <template>
   <Fluid class="block w-full">
-    <form class="grid w-full gap-2 rounded-[1.1rem] border border-surface bg-surface-0 dark:bg-surface-950 p-2" @submit.prevent="emit('submit')">
+    <form class="grid w-full gap-2" @submit.prevent="emit('submit')">
       <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
         <AutoComplete
           input-id="query"
@@ -158,19 +153,23 @@ function resetForm() {
 
         <div class="flex items-stretch justify-end gap-1.5">
           <Button
-            :class="[subtleTextButtonClass, 'min-w-0 justify-center']"
+            class="min-w-0"
             data-testid="search-toggle-advanced"
             type="button"
-            :label="advancedFiltersOpen ? t('search.form.hideFilters') : t('search.form.moreFilters')"
+            text
+            severity="secondary"
             @click="advancedFiltersOpen = !advancedFiltersOpen"
-          />
+          >
+            {{ advancedFiltersOpen ? t("search.form.hideFilters") : t("search.form.moreFilters") }}
+          </Button>
           <Button
-            :class="[settingsPrimaryButtonClass, 'min-h-[2.35rem] w-full min-w-0 justify-center whitespace-nowrap lg:w-auto lg:min-w-[7.25rem]']"
+            class="w-full min-w-0 lg:w-auto lg:min-w-[7.25rem]"
             data-testid="search-submit"
             type="submit"
             :disabled="busy"
-            :label="busy ? t('search.form.running') : t('search.form.run')"
-          />
+          >
+            {{ busy ? t("search.form.running") : t("search.form.run") }}
+          </Button>
         </div>
       </div>
 
@@ -223,12 +222,15 @@ function resetForm() {
 
         <div class="flex justify-end">
           <Button
-            :class="[settingsSecondaryButtonClass, 'min-w-20 justify-center']"
+            class="min-w-20"
             data-testid="search-reset"
             type="button"
-            :label="t('common.reset')"
+            severity="secondary"
+            variant="outlined"
             @click="resetForm"
-          />
+          >
+            {{ t("common.reset") }}
+          </Button>
         </div>
       </div>
     </form>

@@ -4,15 +4,14 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Card from "primevue/card";
-import Tag from "../components/AppTag.vue";
+import Tag from "primevue/tag";
 
 import AppRecordCard from "../components/AppRecordCard.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import AppInfoCard from "../components/AppInfoCard.vue";
 import AppPanel from "../components/AppPanel.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
-import { apiClient, type DocumentResponse } from "../services/api";
-import { toolSecondaryButtonClass } from "../ui/button-classes";
+import { apiClient, ApiError, type DocumentResponse } from "../services/api";
 import { formatDate, formatJson, formatTimestamp } from "../utils/format";
 import { useErrorToast } from "../composables/use-error-toast";
 
@@ -22,6 +21,7 @@ const { t } = useI18n();
 const showErrorToast = useErrorToast();
 
 const documentData = ref<DocumentResponse | null>(null);
+const loadError = ref<string | null>(null);
 const loading = ref(false);
 const expanded = ref(false);
 
@@ -52,6 +52,8 @@ async function loadDocument() {
   const documentId = Number.parseInt(String(route.params.id), 10);
 
   if (!Number.isFinite(documentId)) {
+    documentData.value = null;
+    loadError.value = t("document.invalidId");
     showErrorToast(null, t("document.invalidId"));
     return;
   }
@@ -59,6 +61,7 @@ async function loadDocument() {
   controller?.abort();
   controller = new AbortController();
   loading.value = true;
+  loadError.value = null;
 
   try {
     documentData.value = await apiClient.getDocument(documentId, {
@@ -66,6 +69,9 @@ async function loadDocument() {
     });
   } catch (error) {
     documentData.value = null;
+    loadError.value = error instanceof ApiError
+      ? `${error.status}: ${error.message}`
+      : t("document.loadFailed");
     showErrorToast(error, t("document.loadFailed"));
   } finally {
     loading.value = false;
@@ -104,6 +110,8 @@ onBeforeUnmount(() => {
   <AppPanel :title="t('document.title')">
     <AsyncStateBlock
       :loading="loading"
+      :error="loadError"
+      :error-title="t('document.loadFailed')"
       loading-test-id="document-loading"
       :loading-title="t('common.loading')"
       :loading-message="t('document.loadingMessage')"
@@ -116,8 +124,8 @@ onBeforeUnmount(() => {
           >
             <template #tags>
               <div class="flex flex-wrap items-center gap-2">
-                <Tag class="tool-chip" :value="documentData.source_key" severity="secondary" />
-                <Tag class="tool-chip" :value="documentData.external_id" severity="secondary" />
+                <Tag :value="documentData.source_key" severity="secondary" />
+                <Tag :value="documentData.external_id" severity="secondary" />
               </div>
             </template>
 
@@ -153,11 +161,13 @@ onBeforeUnmount(() => {
 
           <Button
             v-if="documentData.chunks.length > 3"
-            :class="toolSecondaryButtonClass"
+            severity="secondary"
+            variant="outlined"
             type="button"
-            :label="expanded ? t('document.collapse') : t('document.showAll', { count: documentData.chunks.length })"
             @click="expanded = !expanded"
-          />
+          >
+            {{ expanded ? t("document.collapse") : t("document.showAll", { count: documentData.chunks.length }) }}
+          </Button>
         </div>
 
         <aside class="grid gap-2">
@@ -165,10 +175,12 @@ onBeforeUnmount(() => {
           <AppInfoCard :label="t('document.updated')" :value="formatTimestamp(documentData.updated_at)" />
           <AppInfoCard :label="t('document.sourceLink')">
             <Button
-              :class="toolSecondaryButtonClass"
-              :label="libraryRoute ? t('document.openLibraryFile') : t('document.openOrigin')"
+              severity="secondary"
+              variant="outlined"
               @click="openSourceTarget"
-            />
+            >
+              {{ libraryRoute ? t("document.openLibraryFile") : t("document.openOrigin") }}
+            </Button>
           </AppInfoCard>
           <AppInfoCard
             v-if="documentData.library_path"

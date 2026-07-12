@@ -15,7 +15,7 @@ withDefaults(defineProps<{
 <template>
   <section
     :id="id"
-    class="scroll-mt-16 grid border-t border-surface first:border-t-0 first:pt-0"
+    class="scroll-mt-16 grid min-w-0 border-t border-surface first:border-t-0 first:pt-0"
     :class="compact ? 'gap-2.5 pt-3' : 'gap-4 pt-5'"
   >
     <div

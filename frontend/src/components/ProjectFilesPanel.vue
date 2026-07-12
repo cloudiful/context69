@@ -4,6 +4,7 @@ import { proxyRefs, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import ContextMenu from "primevue/contextmenu";
 import Dialog from "primevue/dialog";
+import FileUpload, { type FileUploadUploaderEvent } from "primevue/fileupload";
 import IconField from "primevue/iconfield";
 import InputIcon from "primevue/inputicon";
 import InputText from "primevue/inputtext";
@@ -40,6 +41,11 @@ const emit = defineEmits<{
   "move-child-group": [GroupResponse];
   "open-child-group": [GroupResponse];
 }>();
+
+type FileUploadController = {
+  choose: () => void;
+  clear: () => void;
+};
 
 const { t } = useI18n();
 const toast = useToast();
@@ -118,7 +124,7 @@ const resourceContextMenu = ref();
 const groupContextMenu = ref();
 const groupContextEntry = ref<GroupExplorerEntry | null>(null);
 const surfaceContextMenu = ref();
-const uploadInput = ref<HTMLInputElement | null>(null);
+const fileUpload = ref<FileUploadController | null>(null);
 const resourceMenuItems = computed(() => {
   const entry = treeState.resourceContextEntry;
   if (!entry) return [];
@@ -194,7 +200,7 @@ const surfaceMenuItems = computed(() => [
   {
     label: t("common.upload"),
     icon: "pi pi-upload",
-    command: () => { uploadInput.value?.click(); },
+    command: () => { fileUpload.value?.choose(); },
   },
   {
     label: t("sources.refresh"),
@@ -342,14 +348,10 @@ function handleSurfaceContextMenu(event: { originalEvent: MouseEvent }) {
   surfaceContextMenu.value?.show(event.originalEvent);
 }
 
-function handleUploadInputChange(event: Event) {
-  const input = event.target;
-  if (!(input instanceof HTMLInputElement)) {
-    return;
-  }
-
-  actionsState.handleFileSelection({ files: Array.from(input.files ?? []) });
-  input.value = "";
+function handleFileUpload(event: FileUploadUploaderEvent) {
+  const files = Array.isArray(event.files) ? event.files : [event.files];
+  actionsState.handleFileSelection({ files });
+  fileUpload.value?.clear();
 }
 
 watch(tree.selectedFileId, (fileId) => {
@@ -395,17 +397,19 @@ onBeforeUnmount(() => {
   <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
   <ContextMenu ref="groupContextMenu" :model="groupMenuItems" @hide="groupContextEntry = null" />
   <ContextMenu ref="surfaceContextMenu" :model="surfaceMenuItems" />
-  <input
-    ref="uploadInput"
+  <FileUpload
+    ref="fileUpload"
     class="sr-only"
-    type="file"
+    mode="basic"
     multiple
     accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
-    @change="handleUploadInputChange"
-  >
+    auto
+    custom-upload
+    @uploader="handleFileUpload"
+  />
   <Teleport to="#app-route-actions">
-    <IconField class="relative w-56 [&.p-iconfield]:w-full">
-      <InputIcon class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-color" />
+    <IconField class="w-56">
+      <InputIcon class="pi pi-search" />
       <InputText
         v-model="pageState.query"
         class="w-full !pl-10"

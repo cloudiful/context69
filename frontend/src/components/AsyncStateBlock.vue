@@ -34,7 +34,7 @@ withDefaults(defineProps<{
 <template>
   <slot v-if="loading" name="loading">
     <div class="flex flex-col items-center justify-center gap-4 py-12 text-center">
-      <ProgressSpinner :data-testid="loadingTestId || undefined" class="h-12 w-12" stroke-width="4" />
+      <ProgressSpinner :data-testid="loadingTestId || undefined" class="h-12 w-12" :stroke-width="4" />
       <div>
         <p v-if="loadingTitle">{{ loadingTitle }}</p>
         <p v-if="loadingMessage">{{ loadingMessage }}</p>

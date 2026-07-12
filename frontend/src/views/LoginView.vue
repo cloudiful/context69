@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import { Form, FormField } from "@primevue/forms";
 import { zodResolver } from "@primevue/forms/resolvers/zod";
 import Button from "primevue/button";
+import ProgressSpinner from "primevue/progressspinner";
 import Fluid from "primevue/fluid";
 import InputText from "primevue/inputtext";
 import Message from "primevue/message";
@@ -13,7 +14,6 @@ import * as z from "zod";
 import AppPanel from "../components/AppPanel.vue";
 import { useErrorToast } from "../composables/use-error-toast";
 import { AuthError, authSessionState, login } from "../services/auth/session";
-import { authSubmitButtonClass } from "../ui/button-classes";
 
 const route = useRoute();
 const router = useRouter();
@@ -149,11 +149,12 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
 
           <div class="pt-1">
             <Button
-              :class="authSubmitButtonClass"
+              class="w-full"
               type="submit"
               :disabled="busy"
-              :loading="busy"
+              :aria-busy="busy"
             >
+              <ProgressSpinner v-if="busy" class="h-4 w-4" :stroke-width="6" />
               {{ busy ? t("auth.signingIn") : t("auth.signIn") }}
             </Button>
           </div>

@@ -8,7 +8,7 @@ import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import { useI18n } from "vue-i18n";
-import AppTag from "./AppTag.vue";
+import Tag from "primevue/tag";
 import { apiClient, type CreateMetadataIndexRequest, type MetadataIndexResponse } from "../services/api";
 
 const props = defineProps<{ groupPath: string; canManage: boolean }>();
@@ -56,12 +56,12 @@ async function remove(row: MetadataIndexResponse) { await apiClient.deleteMetada
       <Button severity="secondary" variant="outlined" :disabled="loading || !sourceKey.trim()" @click="load">{{ t("common.refresh") }}</Button>
       <Button v-if="canManage" :disabled="!sourceKey.trim()" @click="dialogVisible = true">{{ t("metadataIndexes.add") }}</Button>
     </div>
-    <DataTable :value="rows" :loading="loading" size="small" data-key="index_id" :empty-message="t('metadataIndexes.empty')">
+    <DataTable class="min-w-0 max-w-full" :value="rows" :loading="loading" size="small" data-key="index_id" scrollable :empty-message="t('metadataIndexes.empty')">
       <Column field="path" :header="t('metadataIndexes.path')" />
       <Column field="data_type" :header="t('metadataIndexes.type')" />
       <Column field="value_kind" :header="t('metadataIndexes.kind')" />
       <Column :header="t('metadataIndexes.status')">
-        <template #body="{ data }"><AppTag :value="data.status" :severity="data.status === 'ready' ? 'success' : data.status === 'failed' ? 'danger' : 'secondary'" /></template>
+        <template #body="{ data }"><Tag :value="data.status" :severity="data.status === 'ready' ? 'success' : data.status === 'failed' ? 'danger' : 'secondary'" /></template>
       </Column>
       <Column v-if="canManage" :header="t('common.actions')">
         <template #body="{ data }">

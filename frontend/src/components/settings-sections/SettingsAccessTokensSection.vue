@@ -2,8 +2,11 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
+import Column from "primevue/column";
+import DataTable from "primevue/datatable";
 import Message from "primevue/message";
-import Tag from "../AppTag.vue";
+import ProgressSpinner from "primevue/progressspinner";
+import Tag from "primevue/tag";
 
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
@@ -14,11 +17,6 @@ import type {
   CreatePersonalAccessTokenResponse,
   PersonalAccessTokenResponse,
 } from "../../services/api";
-import {
-  settingsDangerButtonClass,
-  settingsPrimaryButtonClass,
-  settingsSecondaryButtonClass,
-} from "../../ui/button-classes";
 
 const props = defineProps<{
   createPersonalAccessToken: () => Promise<void>;
@@ -118,13 +116,13 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             />
             <div class="flex items-end">
               <Button
-                :class="settingsPrimaryButtonClass"
                 data-testid="personal-access-token-create"
                 type="button"
                 :disabled="personalAccessTokensCreating || !personalAccessTokenCanCreate"
-                :loading="personalAccessTokensCreating"
+                :aria-busy="personalAccessTokensCreating"
                 @click="createPersonalAccessToken"
               >
+                <ProgressSpinner v-if="personalAccessTokensCreating" class="h-4 w-4" :stroke-width="6" />
                 {{ t("settings.personalAccessTokens.createAction") }}
               </Button>
             </div>
@@ -146,10 +144,10 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface-0 dark:bg-surface-950 p-3 font-mono text-xs text-color"
           >{{ personalAccessTokensReveal.access_token }}</pre>
           <div class="flex flex-wrap items-center gap-3">
-            <Button :class="settingsSecondaryButtonClass" type="button" @click="copyPersonalAccessToken">
+            <Button severity="secondary" variant="outlined" type="button" @click="copyPersonalAccessToken">
               {{ t("settings.personalAccessTokens.copyAction") }}
             </Button>
-            <Button :class="settingsSecondaryButtonClass" type="button" @click="dismissPersonalAccessTokenReveal">
+            <Button severity="secondary" variant="outlined" type="button" @click="dismissPersonalAccessTokenReveal">
               {{ t("common.close") }}
             </Button>
           </div>
@@ -157,62 +155,42 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
       </AppSettingsBlock>
 
       <AppSettingsBlock compact>
-        <div
-          v-if="personalAccessTokensLoading"
-          class="rounded-xl border border-surface bg-surface-0 dark:bg-surface-950 px-4 py-6 text-sm text-muted-color"
+        <DataTable
+          class="min-w-0 max-w-full"
+          :value="tokenRows"
+          :loading="personalAccessTokensLoading"
+          data-key="token_id"
+          scrollable
+          table-class="min-w-[68rem]"
         >
-          {{ t("common.loading") }}
-        </div>
-
-        <div
-          v-else-if="tokenRows.length === 0"
-          class="rounded-xl border border-surface bg-surface-0 dark:bg-surface-950 px-4 py-6 text-sm text-muted-color"
-        >
-          {{ t("settings.personalAccessTokens.empty") }}
-        </div>
-
-        <div v-else class="overflow-x-auto rounded-xl border border-surface bg-surface-0 dark:bg-surface-950">
-          <table class="min-w-[68rem] w-full text-left">
-            <thead>
-              <tr class="border-b border-surface">
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.name") }}</th>
-                <th class="min-w-56 px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.scopes") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.createdAt") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.expiresAt") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.lastUsedAt") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.status") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.actions") }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="token in tokenRows"
-                :key="token.token_id"
-                class="border-b border-surface last:border-b-0"
+          <template #empty>
+            {{ t("settings.personalAccessTokens.empty") }}
+          </template>
+          <Column field="name" :header="t('settings.personalAccessTokens.name')" />
+          <Column field="scopeSummary" :header="t('settings.personalAccessTokens.scopes')" class="min-w-64" />
+          <Column field="createdLabel" :header="t('settings.personalAccessTokens.createdAt')" />
+          <Column field="expiresLabel" :header="t('settings.personalAccessTokens.expiresAt')" />
+          <Column field="lastUsedLabel" :header="t('settings.personalAccessTokens.lastUsedAt')" />
+          <Column :header="t('settings.personalAccessTokens.status')">
+            <template #body="{ data }">
+              <Tag :value="data.status.label" :severity="data.status.severity" />
+            </template>
+          </Column>
+          <Column :header="t('settings.personalAccessTokens.actions')">
+            <template #body="{ data }">
+              <Button
+                type="button"
+                size="small"
+                severity="danger"
+                variant="outlined"
+                :disabled="!!data.revoked_at"
+                @click="confirmRevokePersonalAccessToken(data)"
               >
-                <td class="whitespace-nowrap px-4 py-3 align-top text-base font-medium text-color">{{ token.name }}</td>
-                <td class="min-w-64 px-4 py-3 align-top text-sm leading-6 text-muted-color">{{ token.scopeSummary }}</td>
-                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-color">{{ token.createdLabel }}</td>
-                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-color">{{ token.expiresLabel }}</td>
-                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-color">{{ token.lastUsedLabel }}</td>
-                <td class="whitespace-nowrap px-4 py-3 align-top">
-                  <Tag :value="token.status.label" :severity="token.status.severity" />
-                </td>
-                <td class="whitespace-nowrap px-4 py-3 align-top">
-                  <Button
-                    :class="settingsDangerButtonClass"
-                    type="button"
-                    size="small"
-                    :disabled="!!token.revoked_at"
-                    @click="confirmRevokePersonalAccessToken(token)"
-                  >
-                    {{ t("settings.personalAccessTokens.revokeAction") }}
-                  </Button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                {{ t("settings.personalAccessTokens.revokeAction") }}
+              </Button>
+            </template>
+          </Column>
+        </DataTable>
       </AppSettingsBlock>
     </div>
   </AppSettingsSection>

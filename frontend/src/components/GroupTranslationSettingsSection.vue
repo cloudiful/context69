@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import Button from "primevue/button";
+import ProgressSpinner from "primevue/progressspinner";
 import Textarea from "primevue/textarea";
 import { useI18n } from "vue-i18n";
 import { useToast } from "primevue/usetoast";
@@ -91,7 +92,10 @@ onMounted(load);
       <Textarea id="group-translation-glossary" v-model="glossary" rows="4" :disabled="!canManage" placeholder="stock = 股票" />
     </AppFormField>
     <div v-if="canManage" class="flex justify-end">
-      <Button type="button" :loading="saving" :disabled="loading || saving" :label="t('common.save')" @click="save" />
+      <Button type="button" :disabled="loading || saving" :aria-busy="saving" @click="save">
+        <ProgressSpinner v-if="saving" class="h-4 w-4" :stroke-width="6" />
+        <span>{{ t("common.save") }}</span>
+      </Button>
     </div>
   </section>
 </template>

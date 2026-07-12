@@ -15,7 +15,6 @@ import {
   type SourceConnectionResponse,
   type SourceStatus,
 } from "../services/api";
-import { toolSecondaryButtonClass } from "../ui/button-classes";
 import { useErrorToast } from "../composables/use-error-toast";
 
 const { t } = useI18n();
@@ -216,7 +215,7 @@ onMounted(async () => {
             </div>
             <Button
               v-if="sources.length > 0"
-              :class="[toolSecondaryButtonClass, 'min-w-24']"
+              class="min-w-24"
               type="button"
               outlined
               size="small"

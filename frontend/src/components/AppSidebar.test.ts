@@ -17,7 +17,7 @@ describe("AppSidebar", () => {
     preferences.state.sidebarCollapsed = false;
   });
 
-  it("renders the desktop PrimeVue sidebar instead of the old aside shell", async () => {
+  it("renders the PrimeVue compound sidebar", async () => {
     setAuthenticatedUser();
 
     const router = createRouter({
@@ -40,7 +40,8 @@ describe("AppSidebar", () => {
     });
 
     expect(wrapper.findAllComponents(Sidebar)).toHaveLength(1);
-    expect(wrapper.find("aside.app-sidebar").exists()).toBe(false);
+    expect(wrapper.find(".p-sidebar-panel").exists()).toBe(true);
+    expect(wrapper.find(".p-sidebar-spacer").exists()).toBe(true);
   });
 
 });

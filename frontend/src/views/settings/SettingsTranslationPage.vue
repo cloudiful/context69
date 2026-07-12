@@ -4,14 +4,14 @@ import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
-import Tag from "../../components/AppTag.vue";
+import Tag from "primevue/tag";
+import ToggleSwitch from "primevue/toggleswitch";
 import { useI18n } from "vue-i18n";
 
 import AppNumberField from "../../components/AppNumberField.vue";
 import AppSelectField from "../../components/AppSelectField.vue";
 import AppSettingsSection from "../../components/AppSettingsSection.vue";
 import AppTextField from "../../components/AppTextField.vue";
-import AppSwitch from "../../components/AppSwitch.vue";
 import { useSettingsPageContext } from "../../composables/settings-page-context";
 import type { TranslationProviderInput } from "../../services/api";
 
@@ -70,13 +70,13 @@ function usageLabel(provider: ProviderDraft) {
 
 <template>
   <AppSettingsSection :legend="t('settings.translation.title')">
-    <DataTable :value="providers" data-key="provider" size="small" table-class="min-w-full">
+    <DataTable class="min-w-0 max-w-full" :value="providers" data-key="provider" size="small" scrollable table-class="min-w-full">
       <Column :header="t('settings.translation.provider')">
         <template #body="{ data }"><strong>{{ providerLabels[data.provider as keyof typeof providerLabels] }}</strong></template>
       </Column>
       <Column :header="t('settings.translation.enabled')" body-class="w-24">
         <template #body="{ data }">
-          <AppSwitch :input-id="`translation-${data.provider}-enabled`" v-model="data.enabled" />
+          <ToggleSwitch :input-id="`translation-${data.provider}-enabled`" v-model="data.enabled" />
         </template>
       </Column>
       <Column :header="t('settings.translation.quota')">
@@ -93,9 +93,9 @@ function usageLabel(provider: ProviderDraft) {
       <Column :header="t('common.actions')" body-class="w-36">
         <template #body="{ data, index }">
           <div class="flex items-center gap-1">
-            <Button type="button" icon="pi pi-pencil" severity="secondary" text :aria-label="t('common.edit')" @click="openEdit(data, index)" />
-            <Button type="button" icon="pi pi-arrow-up" severity="secondary" text :disabled="index === 0" :aria-label="t('common.move')" @click="move(index, -1)" />
-            <Button type="button" icon="pi pi-arrow-down" severity="secondary" text :disabled="index === providers.length - 1" :aria-label="t('common.move')" @click="move(index, 1)" />
+            <Button type="button" severity="secondary" text :aria-label="t('common.edit')" @click="openEdit(data, index)"><i class="pi pi-pencil" aria-hidden="true" /></Button>
+            <Button type="button" severity="secondary" text :disabled="index === 0" :aria-label="t('common.move')" @click="move(index, -1)"><i class="pi pi-arrow-up" aria-hidden="true" /></Button>
+            <Button type="button" severity="secondary" text :disabled="index === providers.length - 1" :aria-label="t('common.move')" @click="move(index, 1)"><i class="pi pi-arrow-down" aria-hidden="true" /></Button>
           </div>
         </template>
       </Column>
@@ -112,8 +112,8 @@ function usageLabel(provider: ProviderDraft) {
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <Button type="button" severity="secondary" variant="outlined" :label="t('common.cancel')" @click="dialogVisible = false" />
-          <Button type="button" :label="t('common.confirm')" @click="applyEdit" />
+          <Button type="button" severity="secondary" variant="outlined" @click="dialogVisible = false">{{ t("common.cancel") }}</Button>
+          <Button type="button" @click="applyEdit">{{ t("common.confirm") }}</Button>
         </div>
       </template>
     </Dialog>

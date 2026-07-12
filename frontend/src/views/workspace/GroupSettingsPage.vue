@@ -3,7 +3,7 @@ import { computed, ref, watch } from "vue";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
-import Tag from "../../components/AppTag.vue";
+import Tag from "primevue/tag";
 import { useI18n } from "vue-i18n";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";

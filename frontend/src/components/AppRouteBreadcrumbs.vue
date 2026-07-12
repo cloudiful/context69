@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Breadcrumb from "primevue/breadcrumb";
-import Button from "primevue/button";
+import type { MenuItemCommandEvent } from "primevue/menuitem";
 
 import { resolveSettingsSectionNav } from "../settings/navigation";
 import { authSessionState } from "../services/auth/session";
@@ -73,6 +73,18 @@ const items = computed<Crumb[]>(() => {
   return [];
 });
 
+const breadcrumbItems = computed(() => items.value.map((item) => ({
+  label: item.label,
+  to: item.to ?? route.path,
+  url: item.to ?? route.path,
+  command: item.to
+    ? ({ originalEvent }: MenuItemCommandEvent) => {
+      originalEvent.preventDefault();
+      navigate(item.to);
+    }
+    : undefined,
+})));
+
 function navigate(to?: string) {
   if (!to || to === route.path) {
     return;
@@ -85,26 +97,9 @@ function navigate(to?: string) {
   <div class="flex min-w-0 items-center gap-3">
     <Breadcrumb
       v-if="items.length > 1"
-      :model="items"
+      :model="breadcrumbItems"
       class="min-w-0 flex-1"
-    >
-      <template #item="{ item }">
-        <Button
-          v-if="item.to"
-          class="min-w-0 max-w-full justify-start px-0"
-          type="button"
-          size="small"
-          severity="secondary"
-          text
-          @click="navigate(item.to)"
-        >
-          <span class="truncate">{{ item.label }}</span>
-        </Button>
-        <span v-else class="truncate text-sm font-semibold text-color">
-          {{ item.label }}
-        </span>
-      </template>
-    </Breadcrumb>
+    />
     <div id="app-route-actions" class="flex shrink-0 items-center justify-end" />
   </div>
 </template>

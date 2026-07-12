@@ -50,7 +50,7 @@ describe("LibraryResourceTable", () => {
     });
     const table = wrapper.findComponent({ name: "DataTable" });
 
-    expect(table.classes()).toContain("md:flex");
+    expect(table.classes()).toContain("flex");
 
     table.vm.$emit("page", { first: 50, rows: 50 });
     table.vm.$emit("sort", { sortField: "updated_at", sortOrder: -1 });
@@ -62,7 +62,7 @@ describe("LibraryResourceTable", () => {
     expect(wrapper.emitted("sort")?.[1]).toEqual([{ sortField: "updated_at", sortOrder: 1 }]);
   });
 
-  it("forwards desktop and mobile status filters", async () => {
+  it("forwards the DataTable status filter", async () => {
     const wrapper = mount(LibraryResourceTable, {
       props: {
         ...baseProps,
@@ -79,14 +79,9 @@ describe("LibraryResourceTable", () => {
         },
       },
     });
-    const mobileStatusSelect = wrapper
-      .findAllComponents({ name: "Select" })
-      .find((select) => select.props("ariaLabel") === "Filter by status");
-    mobileStatusSelect?.vm.$emit("update:modelValue", "running");
     await wrapper.vm.$nextTick();
 
     expect(wrapper.emitted("status-filter")?.[0]).toEqual(["failed"]);
-    expect(wrapper.emitted("status-filter")?.[1]).toEqual(["running"]);
   });
 
   it("persists column widths without restoring backend sort state", async () => {

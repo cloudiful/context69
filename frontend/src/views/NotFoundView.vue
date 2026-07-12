@@ -29,7 +29,7 @@ function returnToSearch() {
           </AppStateMessage>
 
           <div class="flex justify-center">
-            <Button :label="t('notFound.action')" @click="returnToSearch" />
+            <Button @click="returnToSearch">{{ t("notFound.action") }}</Button>
           </div>
         </div>
       </template>

@@ -46,8 +46,8 @@ describe("AppSidebarContent", () => {
     expect(wrapper.text()).toContain("Administrator");
     expect(wrapper.get('[data-testid="sidebar-user-login"]').text()).toBe("@admin");
     expect(wrapper.get('[data-testid="sidebar-user-badge"]').text()).toContain("Administrator");
-    expect(wrapper.find('[data-nav-key="/search"]').classes()).toContain("is-active");
-    expect(wrapper.findAll(".app-sidebar-link-icon")).toHaveLength(4);
+    expect(wrapper.find('[data-nav-key="/search"]').attributes("data-active")).toBe("true");
+    expect(wrapper.findAll(".p-sidebar-menu-button svg")).toHaveLength(3);
     expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
   });
 
@@ -78,8 +78,8 @@ describe("AppSidebarContent", () => {
       },
     });
 
-    expect(wrapper.find('[data-nav-key="/settings"]').classes()).toContain("is-active");
-    expect(wrapper.get('[data-nav-child-key="/settings/access-tokens"]').classes()).toContain("is-active");
+    expect(wrapper.find('[data-nav-key="/settings"]').attributes("data-active")).toBe("true");
+    expect(wrapper.get('[data-nav-child-key="/settings/access-tokens"]').attributes("data-active")).toBe("true");
     expect(wrapper.text()).toContain("访问令牌");
     expect(wrapper.text()).toContain("运行时");
   });
@@ -108,9 +108,9 @@ describe("AppSidebarContent", () => {
       },
     });
 
-    expect(wrapper.find('[data-nav-key="/groups"]').classes()).toContain("is-active");
+    expect(wrapper.find('[data-nav-key="/groups"]').attributes("data-active")).toBe("true");
     expect(wrapper.get('[data-nav-key="/groups"]').attributes("href")).toBe("/groups/stock");
-    expect(wrapper.get('[data-nav-child-key="/groups/stock/members"]').classes()).toContain("is-active");
+    expect(wrapper.get('[data-nav-child-key="/groups/stock/members"]').attributes("data-active")).toBe("true");
     expect(wrapper.text()).toContain("Members");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).not.toContain("Overview");
@@ -166,7 +166,7 @@ describe("AppSidebarContent", () => {
     });
 
     expect(wrapper.text()).not.toContain("Administrator");
-    expect(wrapper.get(".app-sidebar-footer > div").classes()).toContain("justify-center");
+    expect(wrapper.get(".p-sidebar-footer > div").classes()).toContain("justify-center");
     expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
   });
 

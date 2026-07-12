@@ -240,7 +240,7 @@ defineExpose({
     <section
       class="h-auto min-h-[calc(100vh-8.5rem)] overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950 md:h-[calc(100dvh-var(--library-workspace-offset,9.25rem))] md:min-h-0"
     >
-      <Splitter v-if="previewState.showDockedPreview" class="bg-transparent">
+      <Splitter v-if="previewState.showDockedPreview">
         <SplitterPanel :size="62" :min-size="42">
           <LibraryResourceTable
             :create-folder-busy="actionsState.createFolderBusy"

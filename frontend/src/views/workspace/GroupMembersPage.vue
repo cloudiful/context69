@@ -2,7 +2,7 @@
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "../../components/AppTag.vue";
+import Tag from "primevue/tag";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
 
@@ -13,17 +13,20 @@ const state = useGroupWorkspaceContext();
   <section class="grid gap-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <p class="text-base font-semibold text-color">{{ $t("groups.membersTitle") }}</p>
-      <Button v-if="state.canManageGroup" :label="$t('members.add')" size="small" @click="state.openCreateMemberDialog" />
+      <Button v-if="state.canManageGroup" size="small" @click="state.openCreateMemberDialog">
+        {{ $t("members.add") }}
+      </Button>
     </div>
 
     <DataTable
+      class="min-w-0 max-w-full"
       :value="state.members"
       data-key="user_id"
       resizable-columns
       column-resize-mode="expand"
       scrollable
       state-storage="local"
-      state-key="context69:table:group-members:v2"
+      state-key="context69:table:group-members:v5"
       table-class="min-w-full"
     >
       <Column field="login_name" :header="$t('adminUsers.loginName')" />

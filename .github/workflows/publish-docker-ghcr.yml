@@ -73,7 +73,11 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        run: bun run build
+        env:
+          VITE_PRIMEUI_LICENSE: ${{ secrets.PRIMEUI_LICENSE }}
+        run: |
+          test -n "$VITE_PRIMEUI_LICENSE"
+          bun run build
 
       - name: Build backend binary
         run: cargo build --release --bin context69

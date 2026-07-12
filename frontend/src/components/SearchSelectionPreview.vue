@@ -35,9 +35,10 @@ const { t } = useI18n();
           size="small"
           severity="secondary"
           variant="outlined"
-          :label="t('common.open')"
           @click="emit('open', selectedHit)"
-        />
+        >
+          {{ t("common.open") }}
+        </Button>
       </div>
 
       <p v-if="selectedHit.library_path" class="text-xs leading-5 text-muted-color">

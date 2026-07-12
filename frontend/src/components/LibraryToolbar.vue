@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { useI18n } from "vue-i18n";
+import { computed } from "vue";
 import Breadcrumb from "primevue/breadcrumb";
-import Button from "primevue/button";
+import type { MenuItem } from "primevue/menuitem";
 
 import AppTableToolbar from "./AppTableToolbar.vue";
 
@@ -10,7 +10,7 @@ interface BreadcrumbItem {
   onSelect: () => void;
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   breadcrumbHome: BreadcrumbItem;
   breadcrumbItems: BreadcrumbItem[];
   countLabel?: string;
@@ -25,12 +25,19 @@ const emit = defineEmits<{
   "update:searchQuery": [value: string];
 }>();
 
-const { t } = useI18n();
+const breadcrumbHomeItem = computed<MenuItem>(() => ({
+  label: props.breadcrumbHome.label,
+  command: props.breadcrumbHome.onSelect,
+}));
+const breadcrumbModel = computed<MenuItem[]>(() => props.breadcrumbItems.map((item) => ({
+  label: item.label,
+  command: item.onSelect,
+})));
 </script>
 
 <template>
   <AppTableToolbar
-    class="library-toolbar-shell px-0 py-1 shadow-none"
+    class="library-toolbar-shell"
     :count-label="countLabel"
     :search-enabled="showSearch"
     :search-query="searchQuery"
@@ -40,23 +47,10 @@ const { t } = useI18n();
       <div class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
         <Breadcrumb
           v-if="breadcrumbItems.length > 0"
-          :home="breadcrumbHome"
-          :model="breadcrumbItems"
+          :home="breadcrumbHomeItem"
+          :model="breadcrumbModel"
           class="min-w-0"
-        >
-          <template #item="{ item }">
-            <Button
-              class="min-w-0 max-w-full justify-start px-0"
-              type="button"
-              size="small"
-              severity="secondary"
-              text
-              @click="item.onSelect()"
-            >
-              <span class="truncate">{{ item.label }}</span>
-            </Button>
-          </template>
-        </Breadcrumb>
+        />
       </div>
     </template>
     <template #actions>

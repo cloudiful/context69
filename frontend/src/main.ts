@@ -15,6 +15,7 @@ async function bootstrap() {
 
   createApp(App)
     .use(PrimeVue, {
+      license: import.meta.env.VITE_PRIMEUI_LICENSE,
       theme: {
         preset: Aura,
         options: {

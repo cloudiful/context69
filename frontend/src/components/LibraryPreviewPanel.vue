@@ -2,9 +2,10 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
+import ProgressSpinner from "primevue/progressspinner";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "./AppTag.vue";
+import Tag from "primevue/tag";
 
 import type { LibraryFileDetailResponse } from "../services/api";
 import type { FolderSummary } from "../types/library";
@@ -99,6 +100,10 @@ const activeSection = computed(() => {
       <div v-if="selectedFileId && detail" class="space-y-3">
         <dl class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-4 gap-y-2">
           <div class="grid gap-1">
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.pathLabel") }}</dt>
+            <dd class="break-all text-sm text-color">{{ detail.folder_path }}</dd>
+          </div>
+          <div class="grid gap-1">
             <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.statusLabel") }}</dt>
             <dd><Tag :value="statusLabel(detail.ingest_status)" :severity="statusSeverity(detail.ingest_status)" /></dd>
           </div>
@@ -139,12 +144,14 @@ const activeSection = computed(() => {
           </AppStateMessage>
           <Button
             v-else
-            icon="pi pi-refresh"
-            :label="retrying ? t('library.retrying') : t('common.retry')"
-            :loading="retrying"
             :disabled="retrying"
+            :aria-busy="retrying"
             @click="emit('retry', detail.file_id)"
-          />
+          >
+            <ProgressSpinner v-if="retrying" class="h-4 w-4" :stroke-width="6" />
+            <i v-else class="pi pi-refresh" aria-hidden="true" />
+            <span>{{ retrying ? t("library.retrying") : t("common.retry") }}</span>
+          </Button>
         </div>
 
         <section v-if="detail.sections.length > 0" class="grid gap-3">
@@ -170,7 +177,7 @@ const activeSection = computed(() => {
 
         <section v-if="detail.jobs.length > 0" class="grid gap-2">
           <h2 class="text-sm font-semibold text-color">{{ t("library.jobsTitle") }}</h2>
-          <DataTable :value="detail.jobs" data-key="job_id" size="small">
+          <DataTable class="min-w-0 max-w-full" :value="detail.jobs" data-key="job_id" size="small" scrollable>
             <Column field="job_id" :header="t('library.jobsTitle')">
               <template #body="{ data }">
                 <span class="block max-w-96 truncate font-mono text-xs text-color" :title="data.job_id">

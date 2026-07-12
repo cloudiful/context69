@@ -3,7 +3,7 @@ import { useI18n } from "vue-i18n";
 import Button from "primevue/button";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
-import Tag from "./AppTag.vue";
+import Tag from "primevue/tag";
 
 import type { SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
@@ -33,9 +33,9 @@ const { t } = useI18n();
       size="small"
       scrollable
       state-storage="local"
-      state-key="context69:table:search-results:v2"
+      state-key="context69:table:search-results:v5"
       table-class="min-w-[44rem]"
-      class="hidden md:block"
+      class="min-w-0 max-w-full"
       @update:selection="emit('select', $event)"
       @row-click="emit('select', $event.data)"
       @row-dblclick="emit('open', $event.data)"
@@ -55,9 +55,9 @@ const { t } = useI18n();
                 {{ hit.title }}
               </Button>
               <div class="flex shrink-0 flex-wrap items-center gap-1.5">
-                <Tag class="tool-chip" :value="hit.source_key" severity="secondary" />
-                <Tag class="tool-chip" :value="hit.external_id" severity="secondary" />
-                <Tag class="tool-chip" :value="formatScore(hit.score)" severity="secondary" />
+                <Tag :value="hit.source_key" severity="secondary" />
+                <Tag :value="hit.external_id" severity="secondary" />
+                <Tag :value="formatScore(hit.score)" severity="secondary" />
               </div>
             </div>
             <p v-if="hit.library_path" class="break-words">
@@ -80,69 +80,16 @@ const { t } = useI18n();
         <template #body="{ data: hit }">
           <Button
             data-testid="search-result-open"
-            :label="t('common.open')"
             text
             size="small"
             severity="secondary"
             @click.stop="emit('open', hit)"
-          />
+          >
+            {{ t("common.open") }}
+          </Button>
         </template>
       </Column>
     </DataTable>
 
-    <div class="hidden grid-cols-1 md:hidden search-card-list">
-      <article
-        v-for="hit in hits"
-        :key="hit.chunk_id"
-        class="grid gap-[0.45rem] border-b border-surface bg-surface-0 dark:bg-surface-950 px-3 py-[0.65rem] text-sm last:border-b-0"
-        data-testid="search-result-card"
-        :class="{ 'bg-highlight': selectedHit?.chunk_id === hit.chunk_id }"
-        @click="emit('select', hit)"
-        @dblclick="emit('open', hit)"
-      >
-        <div class="flex min-w-0 items-start justify-between gap-3">
-          <div class="min-w-0">
-            <Button
-              class="min-w-0 flex-1 justify-start px-0 text-left text-sm font-semibold leading-6 [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
-              type="button"
-              text
-              size="small"
-              severity="secondary"
-              @click.stop="emit('select', hit)"
-            >
-              {{ hit.title }}
-            </Button>
-            <div class="mt-1 flex min-w-0 flex-wrap gap-1">
-              <Tag class="tool-chip" :value="hit.source_key" severity="secondary" />
-              <Tag class="tool-chip" :value="formatScore(hit.score)" severity="secondary" />
-            </div>
-          </div>
-          <Button
-            class="shrink-0"
-            data-testid="search-result-open"
-            :label="t('common.open')"
-            text
-            size="small"
-            severity="secondary"
-            @click.stop="emit('open', hit)"
-          />
-        </div>
-
-        <p v-if="hit.library_path" class="mt-0.5 truncate text-xs leading-5 text-muted-color">
-          {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
-        </p>
-        <p class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{{ hit.chunk_text }}</p>
-        <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-muted-color">
-          <div class="min-w-0">
-            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("search.result.published", { date: "" }).trim() }}</dt>
-            <dd class="mt-0.5 truncate text-muted-color">{{ formatDate(hit.published_at) }}</dd>
-          </div>
-          <div class="min-w-0">
-            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("search.result.score") }}</dt>
-            <dd class="mt-0.5 truncate text-muted-color">{{ formatScore(hit.score) }}</dd>
-          </div>
-        </dl>
-      </article>
-    </div>
   </div>
 </template>

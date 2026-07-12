@@ -12,7 +12,6 @@ import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
 import { normalizeAppLocale, persistLocale, type AppLocale } from "../i18n/locale";
 import type { SettingsSectionKey } from "../settings/navigation";
-import { settingsFloatingSaveButtonClass } from "../ui/button-classes";
 import SettingsAccessTokensPage from "./settings/SettingsAccessTokensPage.vue";
 import SettingsAdminUsersPage from "./settings/SettingsAdminUsersPage.vue";
 import SettingsAppearancePage from "./settings/SettingsAppearancePage.vue";
@@ -82,7 +81,7 @@ function switchLocale(nextLocale: AppLocale) {
       :loading-title="t('settings.loadingTitle')"
       :loading-message="t('settings.loadingMessage')"
     >
-      <form class="grid gap-2 pb-24" @submit.prevent="state.saveSettings">
+      <form class="grid min-w-0 gap-2 pb-24" @submit.prevent="state.saveSettings">
         <div class="grid gap-4">
           <SettingsAppearancePage
             v-if="currentSection === 'appearance'"
@@ -101,12 +100,13 @@ function switchLocale(nextLocale: AppLocale) {
 
         <div class="fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6">
           <Button
-            :class="settingsFloatingSaveButtonClass"
+            class="min-w-28"
             data-testid="settings-save"
             type="submit"
             :disabled="saving || !hasChanges"
-            :label="saving ? t('common.loading') : t('common.save')"
-          />
+          >
+            {{ saving ? t("common.loading") : t("common.save") }}
+          </Button>
         </div>
       </form>
     </AsyncStateBlock>

@@ -3,7 +3,8 @@ import { computed } from "vue";
 import InputText from "primevue/inputtext";
 import IconField from "primevue/iconfield";
 import InputIcon from "primevue/inputicon";
-import Tag from "./AppTag.vue";
+import Tag from "primevue/tag";
+import Toolbar from "primevue/toolbar";
 
 const props = withDefaults(defineProps<{
   countLabel?: string;
@@ -25,27 +26,27 @@ const showSearchIcon = computed(() => !(props.searchQuery ?? "").trim());
 </script>
 
 <template>
-  <div class="grid gap-2 rounded-lg border border-surface bg-surface-0 px-2 py-1.5 dark:bg-surface-950 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-      <slot name="main" />
-      <Tag v-if="countLabel" class="rounded-md px-2 py-1 text-xs font-semibold" :value="countLabel" severity="secondary" />
-    </div>
+  <Toolbar>
+    <template #start>
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <slot name="main" />
+        <Tag v-if="countLabel" :value="countLabel" severity="secondary" />
+      </div>
+    </template>
 
-    <div class="flex flex-wrap items-center gap-1.5 max-md:w-full md:justify-end">
-      <IconField v-if="searchEnabled" class="relative min-w-0 md:w-72 [&.p-iconfield]:w-full">
-        <InputIcon
-          v-if="showSearchIcon"
-          class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-color"
-        />
-        <InputText
-          :model-value="searchQuery"
-          :class="['w-full min-w-0', showSearchIcon ? 'pl-10' : 'pl-3']"
-          :placeholder="searchPlaceholder"
-          @update:model-value="emit('update:searchQuery', String($event ?? ''))"
-        />
-      </IconField>
-
-      <slot name="actions" />
-    </div>
-  </div>
+    <template #end>
+      <div class="flex flex-wrap items-center gap-2">
+        <IconField v-if="searchEnabled" class="w-full min-w-0 md:w-72">
+          <InputIcon v-if="showSearchIcon" class="pi pi-search" />
+          <InputText
+            :model-value="searchQuery"
+            fluid
+            :placeholder="searchPlaceholder"
+            @update:model-value="emit('update:searchQuery', String($event ?? ''))"
+          />
+        </IconField>
+        <slot name="actions" />
+      </div>
+    </template>
+  </Toolbar>
 </template>

@@ -6,8 +6,8 @@ import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
-import Password from "primevue/password";
-import Tag from "../AppTag.vue";
+import InputPassword from "primevue/inputpassword";
+import Tag from "primevue/tag";
 import ToggleSwitch from "primevue/toggleswitch";
 import { useConfirm } from "primevue/useconfirm";
 
@@ -123,17 +123,18 @@ function confirmEnable(loginNameValue: string) {
 <template>
   <AppSettingsBlock id="settings-admin-users" compact :title="t('adminUsers.title')">
     <template #actions>
-      <Button :label="t('adminUsers.create')" size="small" :disabled="createBusy" @click="openCreate" />
+      <Button size="small" :disabled="createBusy" @click="openCreate">{{ t("adminUsers.create") }}</Button>
     </template>
 
     <DataTable
+      class="min-w-0 max-w-full"
       :value="users"
       data-key="user_id"
       resizable-columns
       column-resize-mode="expand"
       scrollable
       state-storage="local"
-      state-key="context69:table:admin-users:v2"
+      state-key="context69:table:admin-users:v5"
       table-class="min-w-full"
     >
       <Column field="login_name" :header="t('adminUsers.loginName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
@@ -160,24 +161,26 @@ function confirmEnable(loginNameValue: string) {
       <Column :header="t('common.edit')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
         <template #body="{ data }">
           <div class="flex flex-nowrap items-center gap-2 whitespace-nowrap">
-            <Button :label="t('common.edit')" severity="secondary" variant="outlined" size="small" @click="openEdit(data)" />
-            <Button :label="t('adminUsers.resetPasswordAction')" severity="secondary" variant="outlined" size="small" @click="openReset(data)" />
+            <Button severity="secondary" variant="outlined" size="small" @click="openEdit(data)">{{ t("common.edit") }}</Button>
+            <Button severity="secondary" variant="outlined" size="small" @click="openReset(data)">{{ t("adminUsers.resetPasswordAction") }}</Button>
             <Button
               v-if="!data.disabled_at"
-              :label="t('adminUsers.disableUser')"
               severity="danger"
               variant="outlined"
               size="small"
               @click="confirmDisable(data.login_name)"
-            />
+            >
+              {{ t("adminUsers.disableUser") }}
+            </Button>
             <Button
               v-else
-              :label="t('adminUsers.enableUser')"
               severity="secondary"
               variant="outlined"
               size="small"
               @click="confirmEnable(data.login_name)"
-            />
+            >
+              {{ t("adminUsers.enableUser") }}
+            </Button>
           </div>
         </template>
       </Column>
@@ -200,7 +203,7 @@ function confirmEnable(loginNameValue: string) {
         </div>
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.password") }}</label>
-          <Password v-model="password" fluid :feedback="false" toggle-mask />
+          <InputPassword v-model="password" fluid :feedback="false" toggle-mask />
         </div>
         <label class="flex items-center gap-2 text-sm text-color">
           <span>{{ t("adminUsers.isAdmin") }}</span>
@@ -256,7 +259,7 @@ function confirmEnable(loginNameValue: string) {
       <div class="grid gap-3">
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.resetPassword") }}</label>
-          <Password v-model="password" fluid :feedback="false" toggle-mask />
+          <InputPassword v-model="password" fluid :feedback="false" toggle-mask />
         </div>
       </div>
       <template #footer>
