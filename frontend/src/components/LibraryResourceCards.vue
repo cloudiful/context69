@@ -38,17 +38,17 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
 
 <template>
   <div class="hidden grid-cols-1 md:hidden library-card-list">
-    <div v-if="entries.length === 0" class="px-3 py-8 text-center text-sm text-(--p-text-muted-color)">
+    <div v-if="entries.length === 0" class="px-3 py-8 text-center text-sm text-muted-color">
       {{ resourceFilterActive ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
     </div>
 
     <article
       v-for="entry in entries"
       :key="entry.key"
-      class="grid gap-[0.45rem] border-b border-(--p-content-border-color)/70 bg-(--p-content-background) px-3 py-[0.65rem] text-sm last:border-b-0"
+      class="grid gap-[0.45rem] border-b border-surface bg-surface-0 dark:bg-surface-950 px-3 py-[0.65rem] text-sm last:border-b-0"
       data-testid="library-resource-card"
       data-library-card
-      :class="{ 'bg-(--p-highlight-background)': selection?.key === entry.key }"
+      :class="{ 'bg-highlight': selection?.key === entry.key }"
       :style="entryIndentStyle(entry)"
       @click="emit('row-click', entry)"
       @dblclick="emit('row-dblclick', entry)"
@@ -77,16 +77,16 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
           <span v-else-if="entry.kind === 'file'" class="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           <div class="min-w-0">
             <span
-              class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-5 text-(--p-text-color)"
+              class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-5 text-color"
               :data-entry-key="entry.key"
               @click.stop="emit('open', entry)"
             >
               {{ entry.name }}
             </span>
-            <p v-if="entry.kind === 'folder'" class="mt-0.5 truncate text-xs leading-5 text-(--p-text-muted-color)">
+            <p v-if="entry.kind === 'folder'" class="mt-0.5 truncate text-xs leading-5 text-muted-color">
               {{ $t("library.treeCounts", { folders: entry.childFolderCount, files: entry.fileCount }) }}
             </p>
-            <p v-else-if="entry.kind === 'group' && !props.hideGroupPaths" class="mt-0.5 truncate text-xs leading-5 text-(--p-text-muted-color)">{{ entry.path }}</p>
+            <p v-else-if="entry.kind === 'group' && !props.hideGroupPaths" class="mt-0.5 truncate text-xs leading-5 text-muted-color">{{ entry.path }}</p>
           </div>
         </div>
         <Tag v-if="entry.kind === 'group'" class="tool-chip" :value="entry.visibility" severity="secondary" />
@@ -103,18 +103,18 @@ function isFolderExpanded(entry: LibraryBrowserEntry) {
         </span>
       </div>
 
-      <dl v-if="entry.kind === 'file'" class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-(--p-text-muted-color)">
+      <dl v-if="entry.kind === 'file'" class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-muted-color">
         <div class="min-w-0">
-          <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ $t("library.typeLabel") }}</dt>
-          <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ $t("library.fileType") }}</dd>
+          <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ $t("library.typeLabel") }}</dt>
+          <dd class="mt-0.5 truncate text-muted-color">{{ $t("library.fileType") }}</dd>
         </div>
         <div class="min-w-0">
-          <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ $t("library.sizeLabel") }}</dt>
-          <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ formatBytes(entry.sizeBytes) }}</dd>
+          <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ $t("library.sizeLabel") }}</dt>
+          <dd class="mt-0.5 truncate text-muted-color">{{ formatBytes(entry.sizeBytes) }}</dd>
         </div>
         <div class="min-w-0">
-          <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ $t("library.updatedColumn") }}</dt>
-          <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ entry.updatedAt ? formatTimestamp(entry.updatedAt) : "—" }}</dd>
+          <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ $t("library.updatedColumn") }}</dt>
+          <dd class="mt-0.5 truncate text-muted-color">{{ entry.updatedAt ? formatTimestamp(entry.updatedAt) : "—" }}</dd>
         </div>
       </dl>
       <div class="flex flex-wrap items-center justify-start gap-1">

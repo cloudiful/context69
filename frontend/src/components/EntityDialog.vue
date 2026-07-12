@@ -75,7 +75,7 @@ function handleSubmit() {
   >
     <div class="grid gap-3">
       <div v-if="showKey" class="grid gap-2">
-        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ entityKeyLabel || t("groups.groupKey") }}</label>
+        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ entityKeyLabel || t("groups.groupKey") }}</label>
         <InputText
           v-model="entityKey"
           :placeholder="entityKeyLabel || t('groups.groupKey')"
@@ -83,7 +83,7 @@ function handleSubmit() {
       </div>
 
       <div class="grid gap-2">
-        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ entityNameLabel || t("groups.groupName") }}</label>
+        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ entityNameLabel || t("groups.groupName") }}</label>
         <InputText
           v-model="entityName"
           :placeholder="entityNameLabel || t('groups.groupName')"
@@ -91,7 +91,7 @@ function handleSubmit() {
       </div>
 
       <div class="grid gap-2">
-        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("groups.visibility") }}</label>
+        <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("groups.visibility") }}</label>
         <Select
           v-model="visibility"
           fluid

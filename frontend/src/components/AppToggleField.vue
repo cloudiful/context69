@@ -28,10 +28,10 @@ const emit = defineEmits<{
           ? 'flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1'
           : ''"
       >
-        <p class="text-sm font-medium text-(--p-text-color)">{{ props.label }}</p>
+        <p class="text-sm font-medium text-color">{{ props.label }}</p>
         <p
           v-if="props.helper"
-          class="text-xs leading-5 text-(--p-text-muted-color)"
+          class="text-xs leading-5 text-muted-color"
           :class="props.helperInline ? 'min-w-0' : ''"
         >
           {{ props.helper }}

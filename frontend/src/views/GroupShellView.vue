@@ -64,7 +64,7 @@ provide(groupWorkspaceStateKey, state);
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ $t("groups.targetGroup") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ $t("groups.targetGroup") }}</label>
           <AutoComplete
             v-model="state.selectedTargetGroup"
             fluid
@@ -77,7 +77,7 @@ provide(groupWorkspaceStateKey, state);
             <template #option="{ option }">
               <div class="grid gap-0.5">
                 <span>{{ option.name }}</span>
-                <span class="text-sm text-(--p-text-muted-color)">{{ option.group_key }}</span>
+                <span class="text-sm text-muted-color">{{ option.group_key }}</span>
               </div>
             </template>
           </AutoComplete>

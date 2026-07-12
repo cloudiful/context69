@@ -18,13 +18,13 @@ const { t } = useI18n();
 </script>
 
 <template>
-  <aside class="min-w-0 rounded-[1.1rem] border border-(--p-content-border-color) bg-(--p-content-hover-background)/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] xl:sticky xl:top-3 xl:max-h-[calc(100vh-6rem)] xl:overflow-auto">
+  <aside class="min-w-0 rounded-[1.1rem] border border-surface bg-emphasis p-3 xl:sticky xl:top-3 xl:max-h-[calc(100vh-6rem)] xl:overflow-auto">
     <div v-if="selectedHit" class="grid gap-3">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="text-xs font-medium uppercase tracking-[0.18em] text-(--p-text-muted-color)">{{ selectedHit.source_key }}</p>
-          <h3 class="truncate text-base font-semibold text-(--p-text-color)">{{ selectedHit.title }}</h3>
-          <p class="text-xs leading-5 text-(--p-text-muted-color)">
+          <p class="text-xs font-medium uppercase tracking-[0.18em] text-muted-color">{{ selectedHit.source_key }}</p>
+          <h3 class="truncate text-base font-semibold text-color">{{ selectedHit.title }}</h3>
+          <p class="text-xs leading-5 text-muted-color">
             {{ t("search.result.published", { date: formatDate(selectedHit.published_at) }) }}
             · {{ t("search.result.score") }} {{ formatScore(selectedHit.score) }}
           </p>
@@ -40,11 +40,11 @@ const { t } = useI18n();
         />
       </div>
 
-      <p v-if="selectedHit.library_path" class="text-xs leading-5 text-(--p-text-muted-color)">
+      <p v-if="selectedHit.library_path" class="text-xs leading-5 text-muted-color">
         {{ selectedHit.library_path }}<span v-if="selectedHit.library_section_label"> · {{ selectedHit.library_section_label }}</span>
       </p>
 
-      <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-(--p-content-hover-background)/72 px-3 py-2 text-sm leading-6 text-(--p-text-muted-color)">{{ selectedHit.chunk_text }}</pre>
+      <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ selectedHit.chunk_text }}</pre>
     </div>
 
     <AppStateMessage v-else :title="t('search.noMatchesTitle')">

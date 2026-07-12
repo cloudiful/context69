@@ -143,7 +143,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
           </Message>
           <pre
             data-testid="personal-access-token-secret"
-            class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-(--p-content-background) p-3 font-mono text-xs text-(--p-text-color)"
+            class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface-0 dark:bg-surface-950 p-3 font-mono text-xs text-color"
           >{{ personalAccessTokensReveal.access_token }}</pre>
           <div class="flex flex-wrap items-center gap-3">
             <Button :class="settingsSecondaryButtonClass" type="button" @click="copyPersonalAccessToken">
@@ -159,42 +159,42 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
       <AppSettingsBlock compact>
         <div
           v-if="personalAccessTokensLoading"
-          class="rounded-xl border border-(--p-content-border-color)/60 bg-(--p-content-background)/20 px-4 py-6 text-sm text-(--p-text-muted-color)"
+          class="rounded-xl border border-surface bg-surface-0 dark:bg-surface-950 px-4 py-6 text-sm text-muted-color"
         >
           {{ t("common.loading") }}
         </div>
 
         <div
           v-else-if="tokenRows.length === 0"
-          class="rounded-xl border border-(--p-content-border-color)/60 bg-(--p-content-background)/20 px-4 py-6 text-sm text-(--p-text-muted-color)"
+          class="rounded-xl border border-surface bg-surface-0 dark:bg-surface-950 px-4 py-6 text-sm text-muted-color"
         >
           {{ t("settings.personalAccessTokens.empty") }}
         </div>
 
-        <div v-else class="overflow-x-auto rounded-xl border border-(--p-content-border-color)/60 bg-(--p-content-background)/20">
+        <div v-else class="overflow-x-auto rounded-xl border border-surface bg-surface-0 dark:bg-surface-950">
           <table class="min-w-[68rem] w-full text-left">
             <thead>
-              <tr class="border-b border-(--p-content-border-color)/60">
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-(--p-text-color)">{{ t("settings.personalAccessTokens.name") }}</th>
-                <th class="min-w-56 px-4 py-3 text-sm font-semibold text-(--p-text-color)">{{ t("settings.personalAccessTokens.scopes") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-(--p-text-color)">{{ t("settings.personalAccessTokens.createdAt") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-(--p-text-color)">{{ t("settings.personalAccessTokens.expiresAt") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-(--p-text-color)">{{ t("settings.personalAccessTokens.lastUsedAt") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-(--p-text-color)">{{ t("settings.personalAccessTokens.status") }}</th>
-                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-(--p-text-color)">{{ t("settings.personalAccessTokens.actions") }}</th>
+              <tr class="border-b border-surface">
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.name") }}</th>
+                <th class="min-w-56 px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.scopes") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.createdAt") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.expiresAt") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.lastUsedAt") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.status") }}</th>
+                <th class="whitespace-nowrap px-4 py-3 text-sm font-semibold text-color">{{ t("settings.personalAccessTokens.actions") }}</th>
               </tr>
             </thead>
             <tbody>
               <tr
                 v-for="token in tokenRows"
                 :key="token.token_id"
-                class="border-b border-(--p-content-border-color)/50 last:border-b-0"
+                class="border-b border-surface last:border-b-0"
               >
-                <td class="whitespace-nowrap px-4 py-3 align-top text-base font-medium text-(--p-text-color)">{{ token.name }}</td>
-                <td class="min-w-64 px-4 py-3 align-top text-sm leading-6 text-(--p-text-muted-color)">{{ token.scopeSummary }}</td>
-                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-(--p-text-color)">{{ token.createdLabel }}</td>
-                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-(--p-text-color)">{{ token.expiresLabel }}</td>
-                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-(--p-text-color)">{{ token.lastUsedLabel }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top text-base font-medium text-color">{{ token.name }}</td>
+                <td class="min-w-64 px-4 py-3 align-top text-sm leading-6 text-muted-color">{{ token.scopeSummary }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-color">{{ token.createdLabel }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-color">{{ token.expiresLabel }}</td>
+                <td class="whitespace-nowrap px-4 py-3 align-top text-sm text-color">{{ token.lastUsedLabel }}</td>
                 <td class="whitespace-nowrap px-4 py-3 align-top">
                   <Tag :value="token.status.label" :severity="token.status.severity" />
                 </td>

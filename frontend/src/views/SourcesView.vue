@@ -204,13 +204,13 @@ onMounted(async () => {
       </div>
 
       <section v-else class="min-h-[calc(100vh-8.25rem)] max-md:min-h-0 xl:min-h-[calc(100vh-8.5rem)]">
-        <div class="grid h-full gap-4 rounded-[0.8rem] border border-(--p-content-border-color)/80 bg-(--p-content-hover-background)/36 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        <div class="grid h-full gap-4 rounded-[0.8rem] border border-surface bg-emphasis p-3">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p class="text-base font-semibold text-(--p-text-color)">
+              <p class="text-base font-semibold text-color">
                 {{ editingSource ? t("sources.editSource") : t("sources.newSource") }}
               </p>
-              <p class="text-sm text-(--p-text-muted-color)">
+              <p class="text-sm text-muted-color">
                 {{ t("sources.editorDescription") }}
               </p>
             </div>

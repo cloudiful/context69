@@ -53,23 +53,23 @@ const activeSection = computed(() => {
     >
       <template #empty>
         <div v-if="selectedFolderSummary" class="space-y-4">
-          <section class="grid gap-4 rounded-xl border border-(--p-content-border-color)/65 bg-(--p-content-background)/35 px-4 py-4">
-            <h2 class="truncate text-base font-semibold text-(--p-text-color)">{{ selectedFolderSummary.name }}</h2>
+          <section class="grid gap-4 rounded-xl border border-surface bg-surface-0 dark:bg-surface-950 px-4 py-4">
+            <h2 class="truncate text-base font-semibold text-color">{{ selectedFolderSummary.name }}</h2>
 
             <div class="grid gap-3">
-              <div class="flex items-start justify-between gap-4 border-b border-(--p-content-border-color)/55 pb-3 last:border-b-0 last:pb-0">
-                <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.pathLabel") }}</span>
-                <span class="min-w-0 break-all text-right text-sm text-(--p-text-color)">{{ selectedFolderSummary.path }}</span>
+              <div class="flex items-start justify-between gap-4 border-b border-surface pb-3 last:border-b-0 last:pb-0">
+                <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.pathLabel") }}</span>
+                <span class="min-w-0 break-all text-right text-sm text-color">{{ selectedFolderSummary.path }}</span>
               </div>
-              <div class="flex items-start justify-between gap-4 border-b border-(--p-content-border-color)/55 pb-3 last:border-b-0 last:pb-0">
-                <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.contentLabel") }}</span>
-                <p class="text-right text-sm text-(--p-text-color)">
+              <div class="flex items-start justify-between gap-4 border-b border-surface pb-3 last:border-b-0 last:pb-0">
+                <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.contentLabel") }}</span>
+                <p class="text-right text-sm text-color">
                   {{ selectedFolderSummary.childFolderCount }} folders · {{ selectedFolderSummary.fileCount }} files
                 </p>
               </div>
-              <div class="flex items-start justify-between gap-4 border-b border-(--p-content-border-color)/55 pb-3 last:border-b-0 last:pb-0">
-                <span class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.statusLabel") }}</span>
-                <p class="text-right text-sm text-(--p-text-color)">
+              <div class="flex items-start justify-between gap-4 border-b border-surface pb-3 last:border-b-0 last:pb-0">
+                <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.statusLabel") }}</span>
+                <p class="text-right text-sm text-color">
                   {{
                     selectedFolderSummary.processingCount > 0
                       ? t("library.folderProcessing", { count: selectedFolderSummary.processingCount })
@@ -99,20 +99,20 @@ const activeSection = computed(() => {
       <div v-if="selectedFileId && detail" class="space-y-3">
         <dl class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-4 gap-y-2">
           <div class="grid gap-1">
-            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.statusLabel") }}</dt>
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.statusLabel") }}</dt>
             <dd><Tag :value="statusLabel(detail.ingest_status)" :severity="statusSeverity(detail.ingest_status)" /></dd>
           </div>
           <div class="grid gap-1">
-            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.sizeLabel") }}</dt>
-            <dd class="text-sm text-(--p-text-color)">{{ formatBytes(detail.size_bytes) }}</dd>
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.sizeLabel") }}</dt>
+            <dd class="text-sm text-color">{{ formatBytes(detail.size_bytes) }}</dd>
           </div>
           <div class="grid gap-1">
-            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.updatedColumn") }}</dt>
-            <dd class="text-sm text-(--p-text-color)">{{ formatTimestamp(detail.updated_at) }}</dd>
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.updatedColumn") }}</dt>
+            <dd class="text-sm text-color">{{ formatTimestamp(detail.updated_at) }}</dd>
           </div>
           <div class="grid gap-1">
-            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("library.ingestedAt") }}</dt>
-            <dd class="text-sm text-(--p-text-color)">{{ detail.ingested_at ? formatTimestamp(detail.ingested_at) : "—" }}</dd>
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.ingestedAt") }}</dt>
+            <dd class="text-sm text-color">{{ detail.ingested_at ? formatTimestamp(detail.ingested_at) : "—" }}</dd>
           </div>
         </dl>
 
@@ -169,18 +169,18 @@ const activeSection = computed(() => {
         </section>
 
         <section v-if="detail.jobs.length > 0" class="grid gap-2">
-          <h2 class="text-sm font-semibold text-(--p-text-color)">{{ t("library.jobsTitle") }}</h2>
+          <h2 class="text-sm font-semibold text-color">{{ t("library.jobsTitle") }}</h2>
           <DataTable :value="detail.jobs" data-key="job_id" size="small">
             <Column field="job_id" :header="t('library.jobsTitle')">
               <template #body="{ data }">
-                <span class="block max-w-96 truncate font-mono text-xs text-(--p-text-color)" :title="data.job_id">
+                <span class="block max-w-96 truncate font-mono text-xs text-color" :title="data.job_id">
                   {{ data.job_id }}
                 </span>
               </template>
             </Column>
             <Column field="updated_at" :header="t('library.updatedColumn')" class="w-40">
               <template #body="{ data }">
-                <span class="whitespace-nowrap text-xs text-(--p-text-muted-color)">{{ formatTimestamp(data.updated_at) }}</span>
+                <span class="whitespace-nowrap text-xs text-muted-color">{{ formatTimestamp(data.updated_at) }}</span>
               </template>
             </Column>
             <Column field="status" :header="t('library.statusLabel')" class="w-24">

@@ -191,18 +191,18 @@ function confirmEnable(loginNameValue: string) {
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.loginName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.loginName") }}</label>
           <InputText v-model="loginName" :placeholder="t('adminUsers.loginName')" />
         </div>
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.displayName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.displayName") }}</label>
           <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.password") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.password") }}</label>
           <Password v-model="password" fluid :feedback="false" toggle-mask />
         </div>
-        <label class="flex items-center gap-2 text-sm text-(--p-text-color)">
+        <label class="flex items-center gap-2 text-sm text-color">
           <span>{{ t("adminUsers.isAdmin") }}</span>
           <ToggleSwitch v-model="isAdmin" />
         </label>
@@ -227,10 +227,10 @@ function confirmEnable(loginNameValue: string) {
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.displayName") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.displayName") }}</label>
           <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
-        <label class="flex items-center gap-2 text-sm text-(--p-text-color)">
+        <label class="flex items-center gap-2 text-sm text-color">
           <span>{{ t("adminUsers.isAdmin") }}</span>
           <ToggleSwitch v-model="isAdmin" />
         </label>
@@ -255,7 +255,7 @@ function confirmEnable(loginNameValue: string) {
     >
       <div class="grid gap-3">
         <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("adminUsers.resetPassword") }}</label>
+          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.resetPassword") }}</label>
           <Password v-model="password" fluid :feedback="false" toggle-mask />
         </div>
       </div>

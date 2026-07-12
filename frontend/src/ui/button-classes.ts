@@ -33,4 +33,4 @@ export const libraryBrowserButtonClass =
 export const libraryUploadButtonClass = `${libraryBrowserButtonClass} gap-0 leading-5`;
 
 export const subtleTextButtonClass =
-  "inline-flex min-h-[2.35rem] items-center justify-center px-2 text-sm text-(--p-text-muted-color) transition hover:bg-(--p-content-hover-background)/35 hover:text-(--p-text-color) disabled:text-(--p-text-muted-color) disabled:opacity-100";
+  "inline-flex min-h-[2.35rem] items-center justify-center px-2 text-sm text-muted-color transition hover:bg-emphasis hover:text-color disabled:text-muted-color disabled:opacity-100";

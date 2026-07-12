@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<{
       : ''"
   >
     <label
-      class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)"
+      class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color"
       :class="props.layout === 'inline' ? 'md:mb-0 md:self-center' : ''"
       :for="props.inputId"
     >
@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
     </label>
     <div class="grid min-w-0 gap-2">
       <slot />
-      <p v-if="props.helper" class="text-xs leading-6 text-(--p-text-muted-color)">{{ props.helper }}</p>
+      <p v-if="props.helper" class="text-xs leading-6 text-muted-color">{{ props.helper }}</p>
     </div>
   </div>
 </template>

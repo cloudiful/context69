@@ -45,8 +45,8 @@ const desktopSidebarPt = {
       :pt="desktopSidebarPt"
     >
       <template #container>
-        <div class="flex h-full flex-col border-r border-(--p-content-border-color)/70 bg-(--p-content-background)/98 px-2.5 py-3 md:bg-(--p-content-hover-background)/20">
-          <div class="border-b border-(--p-content-border-color)/50 pb-3">
+        <div class="flex h-full flex-col border-r border-surface bg-surface-0 dark:bg-surface-950 px-2.5 py-3 md:bg-emphasis">
+          <div class="border-b border-surface pb-3">
             <div
               class="flex items-center gap-2"
               :class="preferences.state.sidebarCollapsed ? 'justify-center' : 'justify-between'"
@@ -60,7 +60,7 @@ const desktopSidebarPt = {
                 leave-to-class="max-w-0 -translate-x-2 opacity-0"
               >
                 <div v-if="!preferences.state.sidebarCollapsed" class="flex items-center gap-2">
-                  <span class="flex h-9 w-9 items-center justify-center rounded-xl border border-(--p-content-border-color) bg-(--p-content-hover-background)/60 text-sm font-bold">C</span>
+                  <span class="flex h-9 w-9 items-center justify-center rounded-xl border border-surface bg-emphasis text-sm font-bold">C</span>
                   <span class="text-[0.98rem] font-semibold">Context69</span>
                 </div>
               </Transition>

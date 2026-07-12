@@ -135,10 +135,10 @@ onBeforeUnmount(() => {
               :key="chunk.chunk_id"
             >
               <template #content>
-                <p class="text-xs font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">
+                <p class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">
                   {{ t("document.chunkLabel", { index: chunk.chunk_index }) }}
                 </p>
-                <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-(--p-content-hover-background)/72 px-3 py-2 text-sm leading-6 text-(--p-text-muted-color)">{{ chunk.text }}</pre>
+                <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ chunk.text }}</pre>
               </template>
             </Card>
 
@@ -177,7 +177,7 @@ onBeforeUnmount(() => {
             :meta="documentData.library_section_label"
           />
           <AppInfoCard :label="t('document.metadata')">
-            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-(--p-content-hover-background)/72 px-3 py-2 text-sm leading-6 text-(--p-text-muted-color)">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
+            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
           </AppInfoCard>
         </aside>
       </div>

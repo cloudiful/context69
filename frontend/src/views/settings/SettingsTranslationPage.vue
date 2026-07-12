@@ -83,7 +83,7 @@ function usageLabel(provider: ProviderDraft) {
         <template #body="{ data }"><span class="whitespace-nowrap">{{ quotaLabel(data) }}</span></template>
       </Column>
       <Column :header="t('settings.translation.usage')">
-        <template #body="{ data }"><span class="whitespace-nowrap text-(--p-text-muted-color)">{{ usageLabel(data) }}</span></template>
+        <template #body="{ data }"><span class="whitespace-nowrap text-muted-color">{{ usageLabel(data) }}</span></template>
       </Column>
       <Column :header="t('settings.translation.configuration')">
         <template #body="{ data }">

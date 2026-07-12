@@ -292,7 +292,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
         </template>
 
         <DataTable
-          class="hidden min-h-0 flex-1 flex-col md:flex [&_.p-datatable-thead>tr>th]:!bg-(--p-content-background) [&_.p-paginator-content]:flex-nowrap [&_.p-paginator-rpp-dropdown]:!w-20 [&_.p-paginator-rpp-dropdown]:!min-w-20 [&_.p-paginator-rpp-dropdown]:!max-w-20 [&_.p-paginator-rpp-dropdown]:shrink-0"
+          class="hidden min-h-0 flex-1 flex-col md:flex [&_.p-paginator-content]:flex-nowrap [&_.p-paginator-rpp-dropdown]:!w-20 [&_.p-paginator-rpp-dropdown]:!min-w-20 [&_.p-paginator-rpp-dropdown]:!max-w-20 [&_.p-paginator-rpp-dropdown]:shrink-0"
           :selection="props.selection"
           :contextMenuSelection="props.tableContextSelection"
           :value="displayEntries"
@@ -328,7 +328,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
           @state-save="persistColumnLayout"
         >
           <template #empty>
-            <div class="py-8 text-center text-sm text-(--p-text-muted-color)">
+            <div class="py-8 text-center text-sm text-muted-color">
               {{ hasActiveResourceFilter ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
             </div>
           </template>
@@ -359,16 +359,16 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
 
                   <div class="grid min-w-0 flex-1 gap-1">
                     <span
-                      class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-6 text-(--p-text-color)"
+                      class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-6 text-color"
                       :data-entry-key="data.key"
                       @click.stop="openEntry(data)"
                     >
                       {{ data.name }}
                     </span>
-                    <p v-if="data.kind === 'folder'" class="text-xs leading-4 text-(--p-text-muted-color)">
+                    <p v-if="data.kind === 'folder'" class="text-xs leading-4 text-muted-color">
                       {{ $t("library.treeCounts", { folders: data.childFolderCount, files: data.fileCount }) }}
                     </p>
-                    <p v-else-if="data.kind === 'group' && !props.hideGroupPaths" class="text-xs leading-4 text-(--p-text-muted-color)">
+                    <p v-else-if="data.kind === 'group' && !props.hideGroupPaths" class="text-xs leading-4 text-muted-color">
                       {{ data.path }}
                     </p>
                   </div>
@@ -379,7 +379,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
 
           <Column :header="$t('library.typeLabel')" sort-field="type" :sortable="props.paginated" :class="props.compact ? 'w-[11%]' : 'w-24'">
             <template #body="{ data }">
-              <span class="text-sm text-(--p-text-muted-color)">{{ $t(resourceTypeLabel(data)) }}</span>
+              <span class="text-sm text-muted-color">{{ $t(resourceTypeLabel(data)) }}</span>
             </template>
           </Column>
 
@@ -427,7 +427,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
                   @click.stop="emit('retry-entry', data)"
                 />
               </span>
-              <span v-else class="text-sm text-(--p-text-muted-color)">
+              <span v-else class="text-sm text-muted-color">
                 {{
                   data.processingCount > 0
                     ? $t(resourceStatusLabel(data), { count: data.processingCount })
@@ -439,13 +439,13 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
 
           <Column :header="$t('library.sizeLabel')" sort-field="size" :sortable="props.paginated" :class="props.compact ? 'w-[12%]' : 'w-24'">
             <template #body="{ data }">
-              <span class="tabular-nums text-sm text-(--p-text-muted-color)">{{ resourceSizeLabel(data) }}</span>
+              <span class="tabular-nums text-sm text-muted-color">{{ resourceSizeLabel(data) }}</span>
             </template>
           </Column>
 
           <Column :header="$t('library.updatedColumn')" sort-field="updated_at" :sortable="props.paginated" :class="props.compact ? 'w-[25%]' : 'w-36'">
             <template #body="{ data }">
-              <span class="whitespace-nowrap text-sm text-(--p-text-muted-color)">
+              <span class="whitespace-nowrap text-sm text-muted-color">
                 {{ data.updatedAt ? formatTimestamp(data.updatedAt) : "—" }}
               </span>
             </template>
@@ -514,7 +514,7 @@ function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unkno
         </DataTable>
 
         <div class="px-3 py-2 md:hidden">
-          <label class="grid gap-1 text-sm font-medium text-(--p-text-muted-color)">
+          <label class="grid gap-1 text-sm font-medium text-muted-color">
             <span>{{ $t("library.statusLabel") }}</span>
             <Select
               :model-value="props.statusFilter"

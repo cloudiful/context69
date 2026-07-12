@@ -405,7 +405,7 @@ onBeforeUnmount(() => {
   >
   <Teleport to="#app-route-actions">
     <IconField class="relative w-56 [&.p-iconfield]:w-full">
-      <InputIcon class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-(--p-text-muted-color)" />
+      <InputIcon class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-color" />
       <InputText
         v-model="pageState.query"
         class="w-full !pl-10"
@@ -415,7 +415,7 @@ onBeforeUnmount(() => {
   </Teleport>
 
   <section
-    class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-(--p-content-background)"
+    class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950"
     :class="treeState.breadcrumbItems.length > 0
       ? 'grid-rows-[auto_minmax(0,1fr)]'
       : 'grid-rows-[minmax(0,1fr)]'"

@@ -63,7 +63,7 @@ const { t } = useI18n();
             <p v-if="hit.library_path" class="break-words">
               {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
             </p>
-            <p class="text-[0.88rem] leading-[1.55rem] text-(--p-text-muted-color) [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            <p class="text-[0.88rem] leading-[1.55rem] text-muted-color [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
               {{ hit.chunk_text }}
             </p>
           </div>
@@ -72,7 +72,7 @@ const { t } = useI18n();
 
       <Column :header="t('search.result.published', { date: '' }).trim()" class="w-[8.5rem]">
         <template #body="{ data: hit }">
-          <span class="text-sm text-(--p-text-muted-color)">{{ formatDate(hit.published_at) }}</span>
+          <span class="text-sm text-muted-color">{{ formatDate(hit.published_at) }}</span>
         </template>
       </Column>
 
@@ -94,9 +94,9 @@ const { t } = useI18n();
       <article
         v-for="hit in hits"
         :key="hit.chunk_id"
-        class="grid gap-[0.45rem] border-b border-(--p-content-border-color)/70 bg-(--p-content-background) px-3 py-[0.65rem] text-sm last:border-b-0"
+        class="grid gap-[0.45rem] border-b border-surface bg-surface-0 dark:bg-surface-950 px-3 py-[0.65rem] text-sm last:border-b-0"
         data-testid="search-result-card"
-        :class="{ 'bg-(--p-highlight-background)': selectedHit?.chunk_id === hit.chunk_id }"
+        :class="{ 'bg-highlight': selectedHit?.chunk_id === hit.chunk_id }"
         @click="emit('select', hit)"
         @dblclick="emit('open', hit)"
       >
@@ -128,18 +128,18 @@ const { t } = useI18n();
           />
         </div>
 
-        <p v-if="hit.library_path" class="mt-0.5 truncate text-xs leading-5 text-(--p-text-muted-color)">
+        <p v-if="hit.library_path" class="mt-0.5 truncate text-xs leading-5 text-muted-color">
           {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
         </p>
-        <p class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-(--p-text-muted-color) [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{{ hit.chunk_text }}</p>
-        <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-(--p-text-muted-color)">
+        <p class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{{ hit.chunk_text }}</p>
+        <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-muted-color">
           <div class="min-w-0">
-            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("search.result.published", { date: "" }).trim() }}</dt>
-            <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ formatDate(hit.published_at) }}</dd>
+            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("search.result.published", { date: "" }).trim() }}</dt>
+            <dd class="mt-0.5 truncate text-muted-color">{{ formatDate(hit.published_at) }}</dd>
           </div>
           <div class="min-w-0">
-            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("search.result.score") }}</dt>
-            <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ formatScore(hit.score) }}</dd>
+            <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("search.result.score") }}</dt>
+            <dd class="mt-0.5 truncate text-muted-color">{{ formatScore(hit.score) }}</dd>
           </div>
         </dl>
       </article>

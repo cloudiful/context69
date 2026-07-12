@@ -36,13 +36,13 @@ const progress = computed(() => {
         @click="$emit('rebuild')"
       />
     </div>
-    <p v-if="running" class="m-0 text-sm text-(--p-text-muted-color)">
+    <p v-if="running" class="m-0 text-sm text-muted-color">
       {{ progress || t('settings.runtime.vectorRebuilding') }}
     </p>
-    <p v-else-if="status?.state === 'succeeded'" class="m-0 text-sm text-(--p-green-500)">
+    <p v-else-if="status?.state === 'succeeded'" class="m-0 text-sm text-green-500">
       {{ t('settings.runtime.vectorRebuildSucceeded', { count: status.processed_chunks }) }}
     </p>
-    <p v-else-if="status?.state === 'failed'" class="m-0 text-sm text-(--p-red-500)">
+    <p v-else-if="status?.state === 'failed'" class="m-0 text-sm text-red-500">
       {{ status.error_message || t('settings.runtime.vectorRebuildFailed') }}
     </p>
   </div>

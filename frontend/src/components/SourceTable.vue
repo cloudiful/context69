@@ -113,7 +113,7 @@ function handleRowSelect(source: SourceStatus) {
       </template>
     </AppTableToolbar>
 
-    <div class="overflow-hidden rounded-[0.8rem] border border-(--p-content-border-color)/90 bg-(--p-content-background) shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <div class="overflow-hidden rounded-[0.8rem] border border-surface bg-surface-0 dark:bg-surface-950">
       <DataTable
         :value="filteredSources"
         class="hidden md:block [&_.p-datatable-tbody>tr]:cursor-pointer"
@@ -131,7 +131,7 @@ function handleRowSelect(source: SourceStatus) {
         @row-click="handleRowSelect($event.data)"
       >
         <template #empty>
-          <div class="py-8 text-center text-sm text-(--p-text-muted-color)">
+          <div class="py-8 text-center text-sm text-muted-color">
             {{ t("sources.emptyMessage") }}
           </div>
         </template>
@@ -147,8 +147,8 @@ function handleRowSelect(source: SourceStatus) {
           <template #body="{ data }">
             <div class="grid gap-3 py-1.5">
               <div class="grid gap-2">
-                <span class="text-base leading-6 font-semibold text-(--p-text-color)">{{ data.display_name }}</span>
-                <span v-if="data.display_name !== data.source_key" class="text-xs leading-5 text-(--p-text-muted-color)">
+                <span class="text-base leading-6 font-semibold text-color">{{ data.display_name }}</span>
+                <span v-if="data.display_name !== data.source_key" class="text-xs leading-5 text-muted-color">
                   {{ data.source_key }}
                 </span>
                 <div class="flex flex-wrap gap-1">
@@ -157,10 +157,10 @@ function handleRowSelect(source: SourceStatus) {
                   <Tag class="tool-chip" :value="data.sync_strategy" severity="secondary" />
                 </div>
               </div>
-              <p v-if="data.description" class="text-sm leading-6 text-(--p-text-muted-color)">
+              <p v-if="data.description" class="text-sm leading-6 text-muted-color">
                 {{ data.description }}
               </p>
-              <p class="text-sm leading-6 text-(--p-text-muted-color)">
+              <p class="text-sm leading-6 text-muted-color">
                 {{ t("sources.table.summary", { batchSize: data.batch_size }) }}
               </p>
               <div v-if="(data.example_queries ?? []).length > 0" class="flex flex-wrap gap-1">
@@ -174,13 +174,13 @@ function handleRowSelect(source: SourceStatus) {
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <Tag class="tool-chip" :value="originLabel(data)" :severity="originSeverity(data)" />
-                <span v-if="data.origin_message" class="break-words text-sm leading-6 text-(--p-text-muted-color)">{{ data.origin_message }}</span>
+                <span v-if="data.origin_message" class="break-words text-sm leading-6 text-muted-color">{{ data.origin_message }}</span>
               </div>
 
-              <dl class="grid gap-2 text-xs text-(--p-text-muted-color) lg:hidden">
+              <dl class="grid gap-2 text-xs text-muted-color lg:hidden">
                 <div class="flex items-start justify-between gap-3">
                   <dt>{{ t("sources.table.batchSize") }}</dt>
-                  <dd class="whitespace-nowrap tabular-nums text-sm text-(--p-text-color)">{{ data.batch_size }}</dd>
+                  <dd class="whitespace-nowrap tabular-nums text-sm text-color">{{ data.batch_size }}</dd>
                 </div>
                 <div class="flex items-start justify-between gap-3">
                   <dt>{{ t("sources.table.lastSuccess") }}</dt>
@@ -188,7 +188,7 @@ function handleRowSelect(source: SourceStatus) {
                 </div>
                 <div class="grid gap-1">
                   <dt>{{ t("sources.table.cursor") }}</dt>
-                  <dd class="break-all text-sm leading-6 text-(--p-text-muted-color)">
+                  <dd class="break-all text-sm leading-6 text-muted-color">
                     {{ data.last_cursor_external_id ?? formatTimestamp(data.last_cursor_updated_at) }}
                   </dd>
                 </div>
@@ -208,16 +208,16 @@ function handleRowSelect(source: SourceStatus) {
           <template #body="{ data }">
             <div class="grid gap-3">
               <div class="flex items-start justify-between gap-3">
-                <span class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">
+                <span class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">
                   {{ t("sources.table.batchSize") }}
                 </span>
-                <span class="whitespace-nowrap tabular-nums text-sm text-(--p-text-color)">{{ data.batch_size }}</span>
+                <span class="whitespace-nowrap tabular-nums text-sm text-color">{{ data.batch_size }}</span>
               </div>
               <div class="grid gap-0.5">
-                <span class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">
+                <span class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">
                   {{ t("sources.table.lastSuccess") }}
                 </span>
-                <span class="whitespace-nowrap text-sm text-(--p-text-muted-color)">
+                <span class="whitespace-nowrap text-sm text-muted-color">
                   {{ formatTimestamp(data.last_success_at) }}
                 </span>
               </div>
@@ -235,10 +235,10 @@ function handleRowSelect(source: SourceStatus) {
         >
           <template #body="{ data }">
             <div class="grid gap-1.5">
-              <p class="whitespace-nowrap text-sm text-(--p-text-muted-color)">
+              <p class="whitespace-nowrap text-sm text-muted-color">
                 {{ formatTimestamp(data.last_cursor_updated_at) }}
               </p>
-              <p class="break-all text-sm leading-6 text-(--p-text-muted-color)">
+              <p class="break-all text-sm leading-6 text-muted-color">
                 {{ data.last_cursor_external_id ?? "--" }}
               </p>
             </div>
@@ -279,14 +279,14 @@ function handleRowSelect(source: SourceStatus) {
       </DataTable>
 
       <div class="hidden grid-cols-1 md:hidden source-card-list">
-        <div v-if="filteredSources.length === 0" class="px-3 py-8 text-center text-sm text-(--p-text-muted-color)">
+        <div v-if="filteredSources.length === 0" class="px-3 py-8 text-center text-sm text-muted-color">
           {{ t("sources.emptyMessage") }}
         </div>
-        <article v-for="source in filteredSources" :key="source.source_key" data-testid="source-card" class="grid gap-[0.45rem] border-b border-(--p-content-border-color)/70 bg-(--p-content-background) px-3 py-[0.65rem] text-sm last:border-b-0">
+        <article v-for="source in filteredSources" :key="source.source_key" data-testid="source-card" class="grid gap-[0.45rem] border-b border-surface bg-surface-0 dark:bg-surface-950 px-3 py-[0.65rem] text-sm last:border-b-0">
           <div class="flex min-w-0 items-start justify-between gap-3">
             <div class="min-w-0">
-              <h3 class="block min-w-0 truncate text-left text-sm font-semibold leading-5 text-(--p-text-color)">{{ source.display_name }}</h3>
-              <p v-if="source.display_name !== source.source_key" class="text-xs leading-5 text-(--p-text-muted-color)">
+              <h3 class="block min-w-0 truncate text-left text-sm font-semibold leading-5 text-color">{{ source.display_name }}</h3>
+              <p v-if="source.display_name !== source.source_key" class="text-xs leading-5 text-muted-color">
                 {{ source.source_key }}
               </p>
               <div class="mt-1 flex min-w-0 flex-wrap gap-1">
@@ -297,10 +297,10 @@ function handleRowSelect(source: SourceStatus) {
             </div>
           </div>
 
-          <p v-if="source.description" class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-(--p-text-muted-color) [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <p v-if="source.description" class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {{ source.description }}
           </p>
-          <p class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-(--p-text-muted-color) [-webkit-box-orient:vertical] [-webkit-line-clamp:2]" :title="source.base_query">{{ source.base_query }}</p>
+          <p class="max-w-[44rem] [display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]" :title="source.base_query">{{ source.base_query }}</p>
           <div v-if="(source.example_queries ?? []).length > 0" class="mt-1 flex min-w-0 flex-wrap gap-1">
             <Tag
               v-for="query in (source.example_queries ?? []).slice(0, 3)"
@@ -311,28 +311,28 @@ function handleRowSelect(source: SourceStatus) {
             />
           </div>
 
-          <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-(--p-text-muted-color)">
+          <dl class="grid grid-cols-2 gap-x-3 gap-y-[0.35rem] text-xs text-muted-color">
             <div class="min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.table.batchSize") }}</dt>
-              <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ source.batch_size }}</dd>
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.batchSize") }}</dt>
+              <dd class="mt-0.5 truncate text-muted-color">{{ source.batch_size }}</dd>
             </div>
             <div class="min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.table.lastSuccess") }}</dt>
-              <dd class="mt-0.5 truncate text-(--p-text-muted-color)">{{ formatTimestamp(source.last_success_at) }}</dd>
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.lastSuccess") }}</dt>
+              <dd class="mt-0.5 truncate text-muted-color">{{ formatTimestamp(source.last_success_at) }}</dd>
             </div>
             <div class="col-span-full min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.table.cursor") }}</dt>
-              <dd class="mt-0.5 break-all whitespace-normal text-(--p-text-muted-color)">{{ source.last_cursor_external_id ?? formatTimestamp(source.last_cursor_updated_at) }}</dd>
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.cursor") }}</dt>
+              <dd class="mt-0.5 break-all whitespace-normal text-muted-color">{{ source.last_cursor_external_id ?? formatTimestamp(source.last_cursor_updated_at) }}</dd>
             </div>
             <div class="col-span-full min-w-0">
-              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-(--p-text-muted-color)">{{ t("sources.table.origin") }}</dt>
-              <dd class="mt-0.5 break-all whitespace-normal text-(--p-text-muted-color)">
+              <dt class="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.table.origin") }}</dt>
+              <dd class="mt-0.5 break-all whitespace-normal text-muted-color">
                 <Tag class="tool-chip" :value="originLabel(source)" :severity="originSeverity(source)" />
               </dd>
             </div>
           </dl>
 
-          <p v-if="source.origin_message" class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-(--p-text-muted-color) [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <p v-if="source.origin_message" class="[display:-webkit-box] [overflow:hidden] text-[0.82rem] leading-5 text-muted-color [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {{ source.origin_message }}
           </p>
 

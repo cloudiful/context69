@@ -45,7 +45,7 @@ watch(
   >
     <div class="grid gap-4">
       <label class="grid gap-2">
-        <span class="text-sm font-medium text-(--p-text-color)">{{ $t("library.sourceFolderName") }}</span>
+        <span class="text-sm font-medium text-color">{{ $t("library.sourceFolderName") }}</span>
         <InputText
           :model-value="draftFolderName"
           fluid
@@ -56,8 +56,8 @@ watch(
       </label>
 
       <label class="grid gap-2">
-        <span class="text-sm font-medium text-(--p-text-color)">{{ $t("library.sourceConfigLabel") }}</span>
-        <div class="min-h-[26rem] overflow-hidden rounded-xl border border-(--p-content-border-color)/60">
+        <span class="text-sm font-medium text-color">{{ $t("library.sourceConfigLabel") }}</span>
+        <div class="min-h-[26rem] overflow-hidden rounded-xl border border-surface">
           <AppMonacoEditor
             :model-value="value"
             language="json"

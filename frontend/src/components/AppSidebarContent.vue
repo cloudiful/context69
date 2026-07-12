@@ -61,7 +61,7 @@ async function signOut() {
         :to="item.to"
         :class="[
           'group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm transition',
-          isItemActive(item) ? 'is-active bg-(--p-content-hover-background)/70 text-(--p-text-color)' : 'text-(--p-text-muted-color) hover:bg-(--p-content-hover-background)/40 hover:text-(--p-text-color)',
+          isItemActive(item) ? 'is-active bg-emphasis text-color' : 'text-muted-color hover:bg-emphasis hover:text-color',
         ]"
         :data-nav-key="item.activePrefix ?? item.to"
         :title="item.label"
@@ -69,7 +69,7 @@ async function signOut() {
       >
         <span :class="[
           'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
-          isItemActive(item) ? 'border-(--p-form-field-hover-border-color) bg-(--p-content-hover-background) text-(--p-text-color)' : 'border-(--p-content-border-color)/60 bg-(--p-content-hover-background)/45 text-(--p-text-muted-color) group-hover:text-(--p-text-color)',
+          isItemActive(item) ? 'border-surface bg-emphasis text-color' : 'border-surface bg-emphasis text-muted-color group-hover:text-color',
         ]">
           <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon h-4 w-4" />
         </span>
@@ -95,7 +95,7 @@ async function signOut() {
           :to="child.to"
           :class="[
             'flex min-w-0 items-center rounded-lg px-2.5 py-1.5 text-xs transition',
-            isActive(child.to) ? 'is-active bg-(--p-content-hover-background)/55 text-(--p-text-color)' : 'text-(--p-text-muted-color) hover:bg-(--p-content-hover-background)/35 hover:text-(--p-text-color)',
+            isActive(child.to) ? 'is-active bg-emphasis text-color' : 'text-muted-color hover:bg-emphasis hover:text-color',
           ]"
           :data-nav-child-key="child.to"
         >
@@ -105,7 +105,7 @@ async function signOut() {
     </div>
   </nav>
 
-  <div class="app-sidebar-footer mt-auto shrink-0 border-t border-(--p-content-border-color)/50 pt-3">
+  <div class="app-sidebar-footer mt-auto shrink-0 border-t border-surface pt-3">
     <div
       class="flex items-end gap-2"
       :class="{ 'justify-center': collapsed }"
@@ -120,11 +120,11 @@ async function signOut() {
       >
         <div
           v-if="authSessionState.user && !collapsed"
-          class="grid grow gap-1 rounded-xl border border-(--p-content-border-color)/70 bg-(--p-content-hover-background)/35 px-3 py-2.5"
+          class="grid grow gap-1 rounded-xl border border-surface bg-emphasis px-3 py-2.5"
           data-testid="sidebar-user-card"
         >
           <div class="flex items-start justify-between gap-2">
-            <span data-testid="sidebar-user-name" class="truncate text-sm font-semibold text-(--p-text-color)">
+            <span data-testid="sidebar-user-name" class="truncate text-sm font-semibold text-color">
               {{ authSessionState.user.display_name }}
             </span>
             <Tag
@@ -135,7 +135,7 @@ async function signOut() {
               class="shrink-0 text-[0.68rem] font-semibold uppercase tracking-[0.08em]"
             />
           </div>
-          <span data-testid="sidebar-user-login" class="truncate text-xs text-(--p-text-muted-color)">
+          <span data-testid="sidebar-user-login" class="truncate text-xs text-muted-color">
             @{{ authSessionState.user.login_name }}
           </span>
         </div>

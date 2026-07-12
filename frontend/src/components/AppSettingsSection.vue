@@ -8,7 +8,7 @@ defineProps<{
 <template>
   <section class="min-w-0" :aria-label="legend">
     <div class="grid gap-6">
-      <p v-if="description" class="text-sm leading-6 text-(--p-text-muted-color)">{{ description }}</p>
+      <p v-if="description" class="text-sm leading-6 text-muted-color">{{ description }}</p>
       <slot />
     </div>
   </section>

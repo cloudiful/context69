@@ -82,11 +82,11 @@ function navigate(to?: string) {
 </script>
 
 <template>
-  <div class="flex min-w-0 items-center gap-3 rounded-[1rem] border border-(--p-content-border-color)/60 bg-(--p-content-hover-background)/18 px-3 py-2">
+  <div class="flex min-w-0 items-center gap-3">
     <Breadcrumb
       v-if="items.length > 1"
       :model="items"
-      class="min-w-0 flex-1 [&.p-breadcrumb]:border-0 [&.p-breadcrumb]:bg-transparent [&.p-breadcrumb]:p-0"
+      class="min-w-0 flex-1"
     >
       <template #item="{ item }">
         <Button
@@ -100,7 +100,7 @@ function navigate(to?: string) {
         >
           <span class="truncate">{{ item.label }}</span>
         </Button>
-        <span v-else class="truncate text-sm font-semibold text-(--p-text-color)">
+        <span v-else class="truncate text-sm font-semibold text-color">
           {{ item.label }}
         </span>
       </template>

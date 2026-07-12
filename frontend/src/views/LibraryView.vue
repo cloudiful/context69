@@ -238,7 +238,7 @@ defineExpose({
     />
 
     <section
-      class="h-auto min-h-[calc(100vh-8.5rem)] overflow-hidden rounded-lg bg-(--p-content-background) md:h-[calc(100dvh-var(--library-workspace-offset,9.25rem))] md:min-h-0"
+      class="h-auto min-h-[calc(100vh-8.5rem)] overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950 md:h-[calc(100dvh-var(--library-workspace-offset,9.25rem))] md:min-h-0"
     >
       <Splitter v-if="previewState.showDockedPreview" class="bg-transparent">
         <SplitterPanel :size="62" :min-size="42">
@@ -270,7 +270,7 @@ defineExpose({
         <SplitterPanel :size="38" :min-size="28">
           <LibraryPreviewShell
             :title="previewState.previewTitle"
-            class="library-docked-preview border-l border-(--p-content-border-color)"
+            class="library-docked-preview border-l border-surface"
           >
             <LibraryPreviewPanel
               :active-section-key="detailState.activeSectionKey"
