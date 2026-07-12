@@ -24,19 +24,17 @@ impl LibraryService {
             .metadata
             .as_ref()
             .and_then(|metadata| metadata.external_id.as_deref())
-        {
-            if let Some(existing) = self
+            && let Some(existing) = self
                 .store
                 .get_file_by_external_id_in_project(project.id, external_id)
                 .await?
-            {
-                if existing.sha256 == request.sha256 {
-                    return self
-                        .reuse_prepared_file(existing, request.metadata.as_ref())
-                        .await;
-                }
-                return Ok(upload_required());
+        {
+            if existing.sha256 == request.sha256 {
+                return self
+                    .reuse_prepared_file(existing, request.metadata.as_ref())
+                    .await;
             }
+            return Ok(upload_required());
         }
 
         if let Some(existing) = self

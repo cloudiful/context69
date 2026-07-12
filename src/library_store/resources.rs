@@ -9,6 +9,17 @@ use crate::contracts::{
     SortDirection, Visibility,
 };
 
+pub struct ResourceListQuery<'a> {
+    pub project_id: i64,
+    pub folder_id: Option<Uuid>,
+    pub query: Option<&'a str>,
+    pub status: Option<LibraryIngestStatus>,
+    pub sort_by: LibraryResourceSortBy,
+    pub sort_direction: SortDirection,
+    pub limit: i64,
+    pub offset: i64,
+}
+
 impl LibraryStore {
     pub async fn count_resources_in_project_folder(
         &self,
@@ -28,29 +39,21 @@ impl LibraryStore {
         .await?)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn list_resources_in_project_folder(
         &self,
-        project_id: i64,
-        folder_id: Option<Uuid>,
-        query: Option<&str>,
-        status: Option<LibraryIngestStatus>,
-        sort_by: LibraryResourceSortBy,
-        sort_direction: SortDirection,
-        limit: i64,
-        offset: i64,
+        query: &ResourceListQuery<'_>,
     ) -> Result<Vec<LibraryResourceItem>> {
         let rows = sqlx::query_file_as!(
             ResourceRow,
             "src/sql/library_store/resources/list_resources_in_project_folder.sql",
-            project_id,
-            folder_id,
-            query,
-            status.map(LibraryIngestStatus::as_str),
-            sort_by.as_str(),
-            sort_direction.as_str(),
-            limit,
-            offset
+            query.project_id,
+            query.folder_id,
+            query.query,
+            query.status.map(LibraryIngestStatus::as_str),
+            query.sort_by.as_str(),
+            query.sort_direction.as_str(),
+            query.limit,
+            query.offset
         )
         .fetch_all(self.db.pool())
         .await?;

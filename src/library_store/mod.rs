@@ -18,6 +18,7 @@ mod jobs;
 mod mappers;
 pub(crate) mod objects;
 mod resources;
+pub use resources::ResourceListQuery;
 
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format, job_to_response};
 

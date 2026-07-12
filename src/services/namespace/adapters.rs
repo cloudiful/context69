@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use context69_namespace::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
     NamespaceMemberRecord, NamespaceRepository, UpdateGroupInput, UpsertMembershipInput,
@@ -17,6 +18,7 @@ impl DbNamespaceRepository {
     }
 }
 
+#[async_trait]
 impl NamespaceRepository for DbNamespaceRepository {
     async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>> {
         self.db.list_groups_for_user(user_id).await

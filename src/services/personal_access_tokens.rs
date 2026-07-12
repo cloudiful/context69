@@ -85,15 +85,15 @@ impl PersonalAccessTokenService {
         let display_prefix = access_token.chars().take(18).collect::<String>();
         let record = self
             .db
-            .insert_personal_access_token(
-                Uuid::new_v4(),
+            .insert_personal_access_token(&crate::db::NewPersonalAccessToken {
+                id: Uuid::new_v4(),
                 user_id,
-                trimmed_name,
-                &hash_token(&access_token),
-                &display_prefix,
-                &scope_strings,
+                name: trimmed_name.to_string(),
+                token_hash: hash_token(&access_token),
+                display_prefix,
+                scopes: scope_strings,
                 expires_at,
-            )
+            })
             .await?;
         Ok(CreatedPersonalAccessToken {
             access_token,

@@ -22,8 +22,8 @@ mod sync_runs;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
-pub use metadata_indexes::StoredMetadataIndex;
-pub use personal_access_tokens::PersonalAccessTokenRecord;
+pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
+pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
 pub use vector_index_state::VectorIndexState;
 

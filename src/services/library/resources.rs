@@ -39,16 +39,16 @@ impl LibraryService {
             .ok_or_else(|| anyhow!("page offset is too large"))?;
         let items = self
             .store
-            .list_resources_in_project_folder(
-                project.id,
-                query.folder_id,
-                search,
-                query.status,
-                query.sort_by,
-                query.sort_direction,
-                page_size,
+            .list_resources_in_project_folder(&crate::library_store::ResourceListQuery {
+                project_id: project.id,
+                folder_id: query.folder_id,
+                query: search,
+                status: query.status,
+                sort_by: query.sort_by,
+                sort_direction: query.sort_direction,
+                limit: page_size,
                 offset,
-            )
+            })
             .await?;
         let total = u64::try_from(total).map_err(|_| anyhow!("negative resource count"))?;
         let total_pages = if total == 0 {

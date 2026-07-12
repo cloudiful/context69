@@ -20,6 +20,16 @@ pub struct PersonalAccessTokenRecord {
     pub updated_at: DateTime<Utc>,
 }
 
+pub struct NewPersonalAccessToken {
+    pub id: Uuid,
+    pub user_id: i64,
+    pub name: String,
+    pub token_hash: String,
+    pub display_prefix: String,
+    pub scopes: Vec<String>,
+    pub expires_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct PersonalAccessTokenRow {
     id: Uuid,
@@ -38,24 +48,18 @@ struct PersonalAccessTokenRow {
 impl Database {
     pub async fn insert_personal_access_token(
         &self,
-        id: Uuid,
-        user_id: i64,
-        name: &str,
-        token_hash: &str,
-        display_prefix: &str,
-        scopes: &[String],
-        expires_at: DateTime<Utc>,
+        command: &NewPersonalAccessToken,
     ) -> Result<PersonalAccessTokenRecord> {
         let row = sqlx::query_file_as!(
             PersonalAccessTokenRow,
             "src/sql/db/personal_access_tokens/insert_personal_access_token.sql",
-            id,
-            user_id,
-            name,
-            token_hash,
-            display_prefix,
-            scopes,
-            expires_at
+            command.id,
+            command.user_id,
+            command.name,
+            command.token_hash,
+            command.display_prefix,
+            &command.scopes,
+            command.expires_at
         )
         .fetch_one(self.pool())
         .await?;

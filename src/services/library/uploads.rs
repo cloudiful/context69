@@ -151,57 +151,55 @@ impl LibraryService {
             .metadata
             .as_ref()
             .and_then(|metadata| metadata.external_id.as_deref())
-        {
-            if let Some(existing) = self
+            && let Some(existing) = self
                 .store
                 .get_file_by_external_id_in_project(project.id, external_id)
                 .await?
-            {
-                if existing.sha256 == sha256 {
-                    return self
-                        .reuse_uploaded_file(existing, upload.metadata.as_ref())
-                        .await;
-                }
-                let old_paths = self
-                    .store
-                    .list_storage_paths_for_files(&[existing.id])
-                    .await?;
-                let object = self
-                    .store_project_content(project.id, &sha256, upload.bytes.clone())
-                    .await?;
-                self.cleanup_ingest_artifacts(existing.id).await?;
-                let mut updated = self
-                    .store
-                    .update_file_content_in_project(
-                        project.id,
-                        existing.id,
-                        &crate::library_store::UpdateLibraryFileContent {
-                            folder_id: upload.folder_id.or(existing.folder_id),
-                            external_id: existing.external_id.clone(),
-                            filename: upload.filename.clone(),
-                            media_type: upload.media_type.clone(),
-                            size_bytes: upload.bytes.len() as i64,
-                            sha256: sha256.clone(),
-                            storage_rel_path: object.object_key.clone(),
-                            storage_object_id: Some(object.id),
-                        },
-                    )
-                    .await?
-                    .with_context(|| format!("unknown file {}", existing.id))?;
-                if let Some(metadata) = upload.metadata.as_ref() {
-                    updated = self
-                        .apply_file_business_metadata(existing.id, metadata)
-                        .await?;
-                }
-                self.delete_unreferenced_objects(old_paths).await?;
-                let replacement_job_id = Uuid::new_v4();
-                let job = self
-                    .store
-                    .create_job(replacement_job_id, existing.id)
-                    .await?;
-                self.spawn_ingest(existing.id, replacement_job_id, kind);
-                return Ok((file_to_summary(&updated), job_to_response(job)));
+        {
+            if existing.sha256 == sha256 {
+                return self
+                    .reuse_uploaded_file(existing, upload.metadata.as_ref())
+                    .await;
             }
+            let old_paths = self
+                .store
+                .list_storage_paths_for_files(&[existing.id])
+                .await?;
+            let object = self
+                .store_project_content(project.id, &sha256, upload.bytes.clone())
+                .await?;
+            self.cleanup_ingest_artifacts(existing.id).await?;
+            let mut updated = self
+                .store
+                .update_file_content_in_project(
+                    project.id,
+                    existing.id,
+                    &crate::library_store::UpdateLibraryFileContent {
+                        folder_id: upload.folder_id.or(existing.folder_id),
+                        external_id: existing.external_id.clone(),
+                        filename: upload.filename.clone(),
+                        media_type: upload.media_type.clone(),
+                        size_bytes: upload.bytes.len() as i64,
+                        sha256: sha256.clone(),
+                        storage_rel_path: object.object_key.clone(),
+                        storage_object_id: Some(object.id),
+                    },
+                )
+                .await?
+                .with_context(|| format!("unknown file {}", existing.id))?;
+            if let Some(metadata) = upload.metadata.as_ref() {
+                updated = self
+                    .apply_file_business_metadata(existing.id, metadata)
+                    .await?;
+            }
+            self.delete_unreferenced_objects(old_paths).await?;
+            let replacement_job_id = Uuid::new_v4();
+            let job = self
+                .store
+                .create_job(replacement_job_id, existing.id)
+                .await?;
+            self.spawn_ingest(existing.id, replacement_job_id, kind);
+            return Ok((file_to_summary(&updated), job_to_response(job)));
         }
         if let Some(existing) = self
             .store

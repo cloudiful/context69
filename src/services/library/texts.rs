@@ -100,10 +100,10 @@ impl LibraryService {
                     )
                     .await?
                     .with_context(|| format!("unknown file {}", existing_file.id))?;
-                if existing_file.storage_rel_path != updated.storage_rel_path {
-                    if let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await {
-                        warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
-                    }
+                if existing_file.storage_rel_path != updated.storage_rel_path
+                    && let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await
+                {
+                    warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
                 }
             }
             None => {
@@ -240,10 +240,10 @@ impl LibraryService {
                     )
                     .await?
                     .with_context(|| format!("unknown file {}", existing_file.id))?;
-                if existing_file.storage_rel_path != updated.storage_rel_path {
-                    if let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await {
-                        warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
-                    }
+                if existing_file.storage_rel_path != updated.storage_rel_path
+                    && let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await
+                {
+                    warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
                 }
                 updated
             }

@@ -20,6 +20,16 @@ use crate::{
 
 use super::*;
 
+struct ProjectSourceFolderSync<'a> {
+    project: &'a crate::domain::GroupRecord,
+    identity: &'a str,
+    folder_id: Uuid,
+    records_folder_id: Uuid,
+    source: &'a SourceConfig,
+    connector: Arc<dyn SourceConnector>,
+    library: &'a LibraryService,
+}
+
 impl SyncService {
     pub(crate) async fn sync_project_source_folder(
         &self,
@@ -51,15 +61,15 @@ impl SyncService {
             .await?;
 
         match self
-            .sync_project_source_folder_inner(
+            .sync_project_source_folder_inner(ProjectSourceFolderSync {
                 project,
-                &identity,
+                identity: &identity,
                 folder_id,
                 records_folder_id,
                 source,
                 connector,
                 library,
-            )
+            })
             .await
         {
             Ok(outcome) => {
@@ -117,14 +127,17 @@ impl SyncService {
 
     async fn sync_project_source_folder_inner(
         &self,
-        project: &crate::domain::GroupRecord,
-        identity: &str,
-        folder_id: Uuid,
-        records_folder_id: Uuid,
-        source: &SourceConfig,
-        connector: Arc<dyn SourceConnector>,
-        library: &LibraryService,
+        context: ProjectSourceFolderSync<'_>,
     ) -> Result<SyncOutcome> {
+        let ProjectSourceFolderSync {
+            project,
+            identity,
+            folder_id,
+            records_folder_id,
+            source,
+            connector,
+            library,
+        } = context;
         let persisted_checkpoint = if source.sync_strategy == SyncStrategy::Cursor {
             self.db.get_checkpoint(identity).await?
         } else {

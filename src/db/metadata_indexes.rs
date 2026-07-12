@@ -29,6 +29,16 @@ pub struct MetadataDocument {
     pub metadata_json: Value,
 }
 
+pub struct NewMetadataIndex<'a> {
+    pub index_id: Uuid,
+    pub group_id: i64,
+    pub source_key: &'a str,
+    pub field_path: &'a str,
+    pub data_type: &'a str,
+    pub value_kind: &'a str,
+    pub sortable: bool,
+}
+
 impl Database {
     pub async fn list_metadata_indexes(
         &self,
@@ -57,37 +67,31 @@ impl Database {
 
     pub async fn create_metadata_index(
         &self,
-        index_id: Uuid,
-        group_id: i64,
-        source_key: &str,
-        field_path: &str,
-        data_type: &str,
-        value_kind: &str,
-        sortable: bool,
+        command: &NewMetadataIndex<'_>,
     ) -> Result<StoredMetadataIndex> {
         let total = sqlx::query_file_scalar!(
             "src/sql/db/metadata_indexes/count_documents.sql",
-            group_id,
-            source_key
+            command.group_id,
+            command.source_key
         )
         .fetch_one(self.pool())
         .await?
         .unwrap_or(0);
         sqlx::query_file!(
             "src/sql/db/metadata_indexes/create.sql",
-            index_id,
-            group_id,
-            source_key,
-            field_path,
-            data_type,
-            value_kind,
-            sortable,
+            command.index_id,
+            command.group_id,
+            command.source_key,
+            command.field_path,
+            command.data_type,
+            command.value_kind,
+            command.sortable,
             total
         )
         .execute(self.pool())
         .await?;
         Ok(self
-            .get_metadata_index(index_id)
+            .get_metadata_index(command.index_id)
             .await?
             .expect("created index"))
     }

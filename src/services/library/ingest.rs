@@ -3,15 +3,20 @@ use serde::Deserialize;
 
 use super::*;
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SourceConfigPreview {
-    source_key: String,
-    connection: String,
-    sync_strategy: String,
-    connector_type: String,
-    base_query: String,
-    batch_size: i64,
+    #[serde(rename = "source_key")]
+    _source_key: String,
+    #[serde(rename = "connection")]
+    _connection: String,
+    #[serde(rename = "sync_strategy")]
+    _sync_strategy: String,
+    #[serde(rename = "connector_type")]
+    _connector_type: String,
+    #[serde(rename = "base_query")]
+    _base_query: String,
+    #[serde(rename = "batch_size")]
+    _batch_size: i64,
 }
 
 #[derive(Debug, Deserialize)]

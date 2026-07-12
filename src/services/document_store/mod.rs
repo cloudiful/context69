@@ -51,13 +51,12 @@ impl DocumentStoreService {
         group_id: i64,
         source_key: &str,
     ) -> Result<Vec<MetadataIndexResponse>> {
-        Ok(self
-            .db
+        self.db
             .list_metadata_indexes(group_id, source_key)
             .await?
             .into_iter()
             .map(map_index)
-            .collect::<Result<Vec<_>>>()?)
+            .collect::<Result<Vec<_>>>()
     }
 
     pub async fn get_by_key(
@@ -134,10 +133,10 @@ impl DocumentStoreService {
             .await?;
         let mut documents = Vec::with_capacity(ids.len());
         for id in ids {
-            if let Some(document) = self.db.get_document(id, scope).await? {
-                if filters_match(&document.metadata_json, request)? {
-                    documents.push(document);
-                }
+            if let Some(document) = self.db.get_document(id, scope).await?
+                && filters_match(&document.metadata_json, request)?
+            {
+                documents.push(document);
             }
         }
         let query_hash = query_hash(request)?;
@@ -234,15 +233,15 @@ impl DocumentStoreService {
         metadata::validate_definition(&request.path, request.value_kind, request.sortable)?;
         let stored = self
             .db
-            .create_metadata_index(
-                Uuid::new_v4(),
+            .create_metadata_index(&crate::db::NewMetadataIndex {
+                index_id: Uuid::new_v4(),
                 group_id,
-                source_key.trim(),
-                request.path.trim(),
-                data_type_str(request.data_type),
-                value_kind_str(request.value_kind),
-                request.sortable,
-            )
+                source_key: source_key.trim(),
+                field_path: request.path.trim(),
+                data_type: data_type_str(request.data_type),
+                value_kind: value_kind_str(request.value_kind),
+                sortable: request.sortable,
+            })
             .await?;
         self.spawn_worker();
         let mut response = map_index(stored)?;
@@ -341,13 +340,12 @@ impl DocumentStoreService {
         };
         for definition in self.db.pending_metadata_indexes().await? {
             if definition.status == "deleting" {
-                if let Some(index) = &self.index {
-                    if let Err(error) = index
+                if let Some(index) = &self.index
+                    && let Err(error) = index
                         .delete_metadata_field_index(&definition.field_path)
                         .await
-                    {
-                        warn!(index_id = %definition.index_id, error = %error, "failed to delete qdrant metadata field index");
-                    }
+                {
+                    warn!(index_id = %definition.index_id, error = %error, "failed to delete qdrant metadata field index");
                 }
                 self.db.remove_metadata_index(definition.index_id).await?;
                 continue;

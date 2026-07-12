@@ -4,8 +4,8 @@ use crate::chunking::ChunkingConfig;
 
 use super::types::{
     ApiConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ConnectionConfig, EmbeddingConfig,
-    FileConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig, QdrantConfig,
-    SchedulerConfig, SourceConfig, default_mcp_bind_addr,
+    FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, SchedulerConfig, SourceConfig,
+    default_mcp_bind_addr,
 };
 
 pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
@@ -101,6 +101,3 @@ impl Default for FileConfig {
         }
     }
 }
-
-#[allow(dead_code)]
-fn _keep_types_used(_connector: PostgresSqlConnectorConfig) {}

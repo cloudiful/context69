@@ -1,11 +1,12 @@
 use anyhow::Result;
+use async_trait::async_trait;
 
 use crate::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
     NamespaceMemberRecord, UpdateGroupInput, UpsertMembershipInput,
 };
 
-#[allow(async_fn_in_trait)]
+#[async_trait]
 pub trait NamespaceRepository: Send + Sync {
     async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>>;
     async fn get_group_for_user(
