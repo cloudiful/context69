@@ -68,6 +68,9 @@ pub struct NewLibraryUrlImportJob {
     pub published_at: Option<DateTime<Utc>>,
     pub metadata_json: Value,
     pub metadata_provided: bool,
+    pub translation_provided: bool,
+    pub translation_source_locale: Option<String>,
+    pub translation_target_locales: Vec<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -85,6 +88,9 @@ pub struct UrlImportJobRecord {
     pub published_at: Option<DateTime<Utc>>,
     pub metadata_json: Value,
     pub metadata_provided: bool,
+    pub translation_provided: bool,
+    pub translation_source_locale: Option<String>,
+    pub translation_target_locales: Vec<String>,
     pub status: String,
     pub attempt_count: i32,
     pub file_id: Option<Uuid>,

@@ -123,6 +123,15 @@ export const router = createRouter({
       },
     },
     {
+      path: "/settings/translation",
+      name: "settings-translation",
+      component: () => import("../views/SettingsView.vue"),
+      meta: {
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
+    },
+    {
       path: "/settings/admin-users",
       name: "settings-admin-users",
       component: () => import("../views/SettingsView.vue"),

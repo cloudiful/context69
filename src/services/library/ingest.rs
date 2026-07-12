@@ -305,6 +305,7 @@ impl LibraryService {
     ) -> Result<()> {
         let runtime = self.runtime()?.clone();
         self.cleanup_ingest_artifacts(file.id).await?;
+        let translation_directive = self.store.file_translation_directive(file.id).await?;
 
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
         let mut mappings = Vec::new();
@@ -365,6 +366,9 @@ impl LibraryService {
                 chunk_index: 0,
                 chunk_text: normalized.body_text.clone(),
                 metadata_json: normalized.metadata_json.clone(),
+                content_locale: "original".to_string(),
+                source_locale: None,
+                translation_provider: None,
             };
             let upserted = self.db.upsert_document(&seed_payload).await?;
             let chunks = crate::chunking::chunk_document(
@@ -398,6 +402,9 @@ impl LibraryService {
                     chunk_index: chunk.chunk_index,
                     chunk_text: chunk.text.clone(),
                     metadata_json: normalized.metadata_json.clone(),
+                    content_locale: "original".to_string(),
+                    source_locale: None,
+                    translation_provider: None,
                 })
                 .collect::<Vec<_>>();
             self.db
@@ -406,6 +413,12 @@ impl LibraryService {
             runtime
                 .index
                 .replace_document_chunks(&[], &payloads, &embeddings)
+                .await?;
+            self.translation
+                .enqueue(context69_translation::EnqueueTranslation {
+                    document_id: upserted.document_id,
+                    directive: translation_directive.clone(),
+                })
                 .await?;
 
             mappings.push(LibraryFileDocumentRecord {

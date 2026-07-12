@@ -1,27 +1,27 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    c.id AS chunk_id,\n    d.id AS document_id,\n    g.group_key,\n    g.full_path AS group_path,\n    d.visibility,\n    d.source_key,\n    d.external_id,\n    d.title,\n    d.summary,\n    d.source_uri,\n    d.published_at,\n    c.chunk_index,\n    c.chunk_text,\n    d.metadata_json\nFROM context69.document_chunks c\nINNER JOIN context69.documents d ON d.id = c.document_id\nINNER JOIN context69.groups g ON g.id = d.group_id\nWHERE c.id = ANY($1)\n  AND (d.visibility = 'public' OR d.group_id = ANY($2))\n  AND ($3::text IS NULL OR g.full_path = $3)\n",
+  "query": "SELECT d.id AS document_id, d.group_id, g.group_key, g.full_path AS group_path,\n       d.visibility, d.source_key, d.external_id, d.source_uri, d.published_at,\n       d.updated_at_source, d.metadata_json, d.record_hash, d.title, d.summary, v.body_text\nFROM context69.documents d\nJOIN context69.groups g ON g.id = d.group_id\nJOIN context69.document_versions v\n  ON v.document_id = d.id AND v.record_hash = d.record_hash\nWHERE d.id = $1\n",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "chunk_id",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "context69.document_chunks",
-            "name": "id"
-          }
-        }
-      },
-      {
-        "ordinal": 1,
         "name": "document_id",
         "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "context69.documents",
             "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "group_id"
           }
         }
       },
@@ -82,28 +82,6 @@
       },
       {
         "ordinal": 7,
-        "name": "title",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "context69.documents",
-            "name": "title"
-          }
-        }
-      },
-      {
-        "ordinal": 8,
-        "name": "summary",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "context69.documents",
-            "name": "summary"
-          }
-        }
-      },
-      {
-        "ordinal": 9,
         "name": "source_uri",
         "type_info": "Text",
         "origin": {
@@ -114,7 +92,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 8,
         "name": "published_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -125,29 +103,18 @@
         }
       },
       {
-        "ordinal": 11,
-        "name": "chunk_index",
-        "type_info": "Int4",
+        "ordinal": 9,
+        "name": "updated_at_source",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "context69.document_chunks",
-            "name": "chunk_index"
+            "table": "context69.documents",
+            "name": "updated_at_source"
           }
         }
       },
       {
-        "ordinal": 12,
-        "name": "chunk_text",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "context69.document_chunks",
-            "name": "chunk_text"
-          }
-        }
-      },
-      {
-        "ordinal": 13,
+        "ordinal": 10,
         "name": "metadata_json",
         "type_info": "Jsonb",
         "origin": {
@@ -156,13 +123,55 @@
             "name": "metadata_json"
           }
         }
+      },
+      {
+        "ordinal": 11,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "summary"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "body_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_versions",
+            "name": "body_text"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "UuidArray",
-        "Int8Array",
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
@@ -176,11 +185,12 @@
       false,
       true,
       false,
+      false,
+      false,
+      false,
       true,
-      false,
-      false,
       false
     ]
   },
-  "hash": "02cf424408e91fce9a983cc345b167c00c7bcda99d56636067e9ae35770b79f9"
+  "hash": "db1f37b0fed0dc76cf18c323e5a6ef751b3bc2a42c652e498b0a223cab2ad7b8"
 }

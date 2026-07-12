@@ -124,6 +124,19 @@ impl QdrantIndex {
             conditions.push(Condition::matches("source_key", source_key.clone()));
         }
 
+        let locale_filter = match request.locale.as_deref() {
+            Some(locale) => Filter::should(vec![
+                Condition::matches("content_locale", locale.to_string()),
+                Condition::matches("content_locale", "original".to_string()),
+                Condition::is_empty("content_locale"),
+            ]),
+            None => Filter::should(vec![
+                Condition::matches("content_locale", "original".to_string()),
+                Condition::is_empty("content_locale"),
+            ]),
+        };
+        conditions.push(Condition::from(locale_filter));
+
         if request.published_after.is_some() || request.published_before.is_some() {
             let range = Range {
                 gte: request.published_after.map(date_to_timestamp_f64),
@@ -212,6 +225,10 @@ fn chunk_payload_json(payload: &ChunkPayload) -> serde_json::Value {
         "published_ts": payload.published_at.map(date_to_timestamp),
         "record_hash": payload.record_hash,
         "chunk_index": payload.chunk_index,
+        "canonical_document_id": payload.document_id,
+        "content_locale": payload.content_locale,
+        "source_locale": payload.source_locale,
+        "translation_provider": payload.translation_provider,
     });
 
     if let Some(value) = payload.metadata_json.get("is_library_file") {

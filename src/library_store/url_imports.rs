@@ -31,7 +31,10 @@ impl LibraryStore {
             job.source_uri,
             job.published_at,
             job.metadata_json,
-            job.metadata_provided
+            job.metadata_provided,
+            job.translation_provided,
+            job.translation_source_locale,
+            &job.translation_target_locales
         )
         .fetch_one(self.db.pool())
         .await?)

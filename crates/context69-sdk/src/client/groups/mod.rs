@@ -1,6 +1,7 @@
 mod documents;
 mod members;
 mod source_folders;
+mod translations;
 
 use context69_contracts::{
     CreateGroupRequest, GroupResponse, MoveGroupRequest, UpdateGroupRequest,
@@ -13,6 +14,7 @@ use crate::{Error, client::transport::group_path};
 pub use documents::{GroupDocumentsApi, GroupMetadataIndexesApi};
 pub use members::{GroupMemberApi, GroupMembersApi};
 pub use source_folders::{GroupSourceFolderApi, GroupSourceFoldersApi};
+pub use translations::{GroupTranslationApi, TranslationJobApi};
 
 pub struct GroupsApi<'a> {
     client: &'a Context69Client,
@@ -127,6 +129,14 @@ impl<'a> GroupApi<'a> {
 
     pub fn source_folder(&self, folder_id: uuid::Uuid) -> GroupSourceFolderApi<'a> {
         GroupSourceFolderApi::new(self.client, self.group_path.clone(), folder_id)
+    }
+
+    pub fn translations(&self) -> GroupTranslationApi<'a> {
+        GroupTranslationApi::new(self.client, self.group_path.clone())
+    }
+
+    pub fn translation_job(&self, job_id: uuid::Uuid) -> TranslationJobApi<'a> {
+        TranslationJobApi::new(self.client, self.group_path.clone(), job_id)
     }
 }
 

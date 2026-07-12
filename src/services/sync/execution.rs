@@ -132,6 +132,9 @@ impl SyncService {
                     chunk_index: 0,
                     chunk_text: normalized.body_text.clone(),
                     metadata_json: normalized.metadata_json.clone(),
+                    content_locale: "original".to_string(),
+                    source_locale: None,
+                    translation_provider: None,
                 };
                 let upserted = self.db.upsert_document(&seed_payload).await?;
 
@@ -171,6 +174,9 @@ impl SyncService {
                             chunk_index: chunk.chunk_index,
                             chunk_text: chunk.text.clone(),
                             metadata_json: normalized.metadata_json.clone(),
+                            content_locale: "original".to_string(),
+                            source_locale: None,
+                            translation_provider: None,
                         })
                         .collect::<Vec<_>>();
                     self.db
@@ -183,6 +189,12 @@ impl SyncService {
                     runtime
                         .index
                         .replace_document_chunks(&existing_chunk_ids, &payloads, &embeddings)
+                        .await?;
+                    self.translation
+                        .enqueue(context69_translation::EnqueueTranslation {
+                            document_id: upserted.document_id,
+                            directive: None,
+                        })
                         .await?;
                     outcome.records_changed += 1;
                     outcome.chunks_upserted += chunks.len();

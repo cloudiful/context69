@@ -105,10 +105,15 @@ impl SearchRepository for DbSearchRepository {
     async fn fetch_search_hits_by_chunk_ids(
         &self,
         chunk_ids: &[Uuid],
+        request: &SearchRequest,
         scope: &SearchAccessScope,
     ) -> Result<HashMap<Uuid, SearchHit>> {
         self.db
-            .fetch_search_hits_by_chunk_ids(chunk_ids, &to_root_scope(scope))
+            .fetch_search_hits_by_chunk_ids(
+                chunk_ids,
+                request.locale.as_deref(),
+                &to_root_scope(scope),
+            )
             .await
     }
 

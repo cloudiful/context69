@@ -166,6 +166,9 @@ impl LibraryStore {
                 chunk_index: row.chunk_index,
                 chunk_text: row.chunk_text,
                 metadata_json: row.metadata_json,
+                content_locale: "original".to_string(),
+                source_locale: None,
+                translation_provider: None,
             })
             .collect())
     }

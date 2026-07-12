@@ -120,6 +120,10 @@ impl LibraryService {
         if let Some(metadata) = upload.metadata.as_ref() {
             created = self.apply_file_business_metadata(file_id, metadata).await?;
         }
+        if let Some(directive) = upload.translation.as_ref() {
+            self.apply_file_translation_directive(file_id, directive)
+                .await?;
+        }
         let job = self.store.create_job(job_id, file_id).await?;
 
         let service = self.clone();
@@ -166,7 +170,11 @@ impl LibraryService {
         {
             if existing.sha256 == sha256 {
                 return self
-                    .reuse_uploaded_file(existing, upload.metadata.as_ref())
+                    .reuse_uploaded_file(
+                        existing,
+                        upload.metadata.as_ref(),
+                        upload.translation.as_ref(),
+                    )
                     .await;
             }
             let old_paths = self
@@ -200,6 +208,10 @@ impl LibraryService {
                     .apply_file_business_metadata(existing.id, metadata)
                     .await?;
             }
+            if let Some(directive) = upload.translation.as_ref() {
+                self.apply_file_translation_directive(existing.id, directive)
+                    .await?;
+            }
             self.delete_unreferenced_objects(old_paths).await?;
             let replacement_job_id = Uuid::new_v4();
             let job = self
@@ -224,7 +236,11 @@ impl LibraryService {
                 return Err(anyhow!("external_id_content_conflict"));
             }
             return self
-                .reuse_uploaded_file(existing, upload.metadata.as_ref())
+                .reuse_uploaded_file(
+                    existing,
+                    upload.metadata.as_ref(),
+                    upload.translation.as_ref(),
+                )
                 .await;
         }
         let object = self
@@ -251,6 +267,10 @@ impl LibraryService {
         if let Some(metadata) = upload.metadata.as_ref() {
             created = self.apply_file_business_metadata(file_id, metadata).await?;
         }
+        if let Some(directive) = upload.translation.as_ref() {
+            self.apply_file_translation_directive(file_id, directive)
+                .await?;
+        }
         let job = self.store.create_job(job_id, file_id).await?;
 
         self.spawn_ingest(file_id, job_id, kind);
@@ -262,8 +282,13 @@ impl LibraryService {
         &self,
         file: crate::domain::LibraryFileRecord,
         metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
+        translation: Option<&crate::contracts::TranslationDirective>,
     ) -> Result<(LibraryFileSummary, LibraryIngestJobResponse)> {
         let (file, job) = self.reuse_file_with_metadata(file, metadata).await?;
+        if let Some(directive) = translation {
+            self.apply_file_translation_directive(file.id, directive)
+                .await?;
+        }
         let job = job.context("deduplicated library file has no ingest job")?;
         Ok((file_to_summary(&file), job_to_response(job)))
     }

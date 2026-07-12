@@ -104,6 +104,10 @@ impl LibraryService {
             }
             None => self.store.create_file(&new_file).await?,
         };
+        if let Some(directive) = request.translation.as_ref() {
+            self.apply_file_translation_directive(file_id, directive)
+                .await?;
+        }
         let _created_job = self.store.create_job(job_id, file_id).await?;
 
         self.ingest_text_sections(

@@ -5,6 +5,7 @@ import type {
   UpdateRuntimeSettingsRequest,
   UpdateRuntimeS3Settings,
   UpdateSearchSettingsRequest,
+  UpdateTranslationSettingsRequest,
 } from "./api-types";
 
 type Deps = {
@@ -84,6 +85,19 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
     updateSearchSettings(payload: UpdateSearchSettingsRequest, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.PUT("/v1/settings/search", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      );
+    },
+    getTranslationSettings(options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.GET("/v1/settings/translation", { signal: options?.signal }),
+      );
+    },
+    updateTranslationSettings(payload: UpdateTranslationSettingsRequest, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.PUT("/v1/settings/translation", {
           body: payload,
           signal: options?.signal,
         }),

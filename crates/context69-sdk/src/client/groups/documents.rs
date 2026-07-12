@@ -1,7 +1,7 @@
 use context69_contracts::{
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, CreateMetadataIndexRequest, DocumentKey,
-    DocumentQueryRequest, DocumentQueryResponse, DocumentResponse, MetadataIndexResponse,
-    UpdateMetadataIndexRequest,
+    DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentResponse,
+    MetadataIndexResponse, UpdateMetadataIndexRequest,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -32,13 +32,26 @@ impl<'a> GroupDocumentsApi<'a> {
             .await
     }
     pub async fn get(&self, key: &DocumentKey) -> Result<DocumentResponse, Error> {
+        self.get_localized(key, None).await
+    }
+
+    pub async fn get_localized(
+        &self,
+        key: &DocumentKey,
+        locale: Option<&str>,
+    ) -> Result<DocumentResponse, Error> {
         let path = group_path(&self.group_path, "/documents/by-external-id");
+        let query = DocumentLookupQuery {
+            source_key: key.source_key.clone(),
+            external_id: key.external_id.clone(),
+            locale: locale.map(str::to_string),
+        };
         self.client
             .execute_json(
                 self.client
                     .authorized_request(Method::GET, &path)
                     .await?
-                    .query(key),
+                    .query(&query),
             )
             .await
     }

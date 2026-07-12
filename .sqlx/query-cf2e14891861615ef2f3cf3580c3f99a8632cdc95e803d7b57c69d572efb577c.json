@@ -1,0 +1,131 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH hits AS (\n    SELECT c.id AS chunk_id, d.id AS document_id, d.group_id, g.group_key,\n           g.full_path AS group_path, d.visibility, d.source_key, d.external_id,\n           d.title, d.summary, d.source_uri, d.published_at, c.chunk_index,\n           c.chunk_text, d.metadata_json, 'original'::TEXT AS content_locale,\n           tj.status AS translation_status\n    FROM context69.document_chunks c\n    JOIN context69.documents d ON d.id = c.document_id\n    JOIN context69.groups g ON g.id = d.group_id\n    LEFT JOIN LATERAL (\n        SELECT status\n        FROM context69.document_translation_jobs\n        WHERE document_id = d.id AND target_locale = $4\n        ORDER BY updated_at DESC\n        LIMIT 1\n    ) tj ON $4::TEXT IS NOT NULL\n    WHERE c.id = ANY($1)\n    UNION ALL\n    SELECT c.id, d.id, d.group_id, g.group_key, g.full_path, d.visibility,\n           d.source_key, d.external_id, v.translated_title, v.translated_summary,\n           d.source_uri, d.published_at, c.chunk_index, c.chunk_text,\n           d.metadata_json, v.target_locale, 'succeeded'::TEXT\n    FROM context69.document_translation_chunks c\n    JOIN context69.document_translation_versions v ON v.id = c.translation_id\n    JOIN context69.documents d ON d.id = c.document_id AND d.record_hash = v.source_record_hash\n    JOIN context69.groups g ON g.id = d.group_id\n    WHERE c.id = ANY($1)\n)\nSELECT chunk_id AS \"chunk_id!\", document_id AS \"document_id!\",\n       group_key AS \"group_key!\", group_path AS \"group_path!\",\n       visibility AS \"visibility!\", source_key AS \"source_key!\",\n       external_id AS \"external_id!\", title AS \"title!\", summary,\n       source_uri AS \"source_uri!\", published_at, chunk_index AS \"chunk_index!\",\n       chunk_text AS \"chunk_text!\", metadata_json AS \"metadata_json!\",\n       content_locale AS \"content_locale!\", translation_status\nFROM hits\nWHERE (visibility = 'public' OR group_id = ANY($2))\n  AND ($3::text IS NULL OR group_path = $3)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chunk_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "source_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "external_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "title!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "source_uri!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "chunk_index!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "chunk_text!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "metadata_json!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "content_locale!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "translation_status",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int8Array",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cf2e14891861615ef2f3cf3580c3f99a8632cdc95e803d7b57c69d572efb577c"
+}

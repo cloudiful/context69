@@ -10,6 +10,8 @@ import {
   type DoclingSettingsResponse,
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
+  type TranslationProviderInput,
+  type TranslationSettingsResponse,
   type VectorIndexRebuildStatus,
 } from "../services/api";
 import { authSessionState } from "../services/auth/session";
@@ -32,6 +34,12 @@ import {
 } from "../utils/settings";
 import { useSettingsPersonalAccessTokens } from "./use-settings-personal-access-tokens";
 
+type TranslationProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
+  enabled: boolean;
+  has_api_key: boolean;
+  current_month_characters: number;
+};
+
 export function useSettingsPage() {
   const { t } = useI18n();
   const toast = useToast();
@@ -48,6 +56,8 @@ export function useSettingsPage() {
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
   const searchSettings = ref<SearchSettingsResponse | null>(null);
+  const translationSettings = ref<TranslationSettingsResponse | null>(null);
+  const translationProviders = ref<TranslationProviderDraft[]>([]);
   const adminUsers = ref<AdminUserResponse[]>([]);
   const adminUsersBusy = ref(false);
   const adminUsersCreateBusy = ref(false);
@@ -102,10 +112,21 @@ export function useSettingsPage() {
       || rerankApiKeyDraft.value.trim().length > 0;
   });
 
+  const translationHasChanges = computed(() => {
+    if (!translationSettings.value) return false;
+    return JSON.stringify(translationPayload()) !== JSON.stringify({
+      providers: translationSettings.value.providers.map(({ has_api_key: _, current_month_characters: __, ...provider }) => ({
+        ...provider,
+        api_key: undefined,
+      })),
+    });
+  });
+
   const hasChanges = computed(() => !!(
     runtimeHasChanges.value
       || doclingHasChanges.value
       || searchHasChanges.value
+      || translationHasChanges.value
   ));
 
   watch(hasChanges, (value) => {
@@ -135,18 +156,21 @@ export function useSettingsPage() {
 
     try {
       saveMessage.value = "";
-      const [runtime, docling, search] = await Promise.all([
+      const [runtime, docling, search, translation] = await Promise.all([
         apiClient.getRuntimeSettings(),
         apiClient.getDoclingSettings(),
         apiClient.getSearchSettings(),
+        authSessionState.user?.is_admin ? apiClient.getTranslationSettings() : Promise.resolve(null),
       ]);
       runtimeSettings.value = runtime;
       doclingSettings.value = docling;
       searchSettings.value = search;
+      translationSettings.value = translation;
 
       assignRuntimeDraft(runtime);
       assignDoclingDraft(docling);
       assignSearchDraft(search);
+      if (translation) assignTranslationDraft(translation);
       await loadVectorIndexRebuildStatus();
 
     } catch (error) {
@@ -165,7 +189,7 @@ export function useSettingsPage() {
 
     try {
       saveMessage.value = "";
-      const [runtime, docling, search] = await Promise.all([
+      const [runtime, docling, search, translation] = await Promise.all([
         runtimeHasChanges.value ? apiClient.updateRuntimeSettings(buildRuntimePayload(runtimeDraft)) : Promise.resolve(runtimeSettings.value),
         doclingHasChanges.value
           ? apiClient.updateDoclingSettings(buildDoclingPayload(doclingDraft))
@@ -179,6 +203,9 @@ export function useSettingsPage() {
             ),
           )
           : Promise.resolve(searchSettings.value),
+        translationHasChanges.value
+          ? apiClient.updateTranslationSettings(translationPayload())
+          : Promise.resolve(translationSettings.value),
       ]);
 
       if (runtime) {
@@ -192,6 +219,10 @@ export function useSettingsPage() {
       if (search) {
         searchSettings.value = search;
         assignSearchDraft(search);
+      }
+      if (translation) {
+        translationSettings.value = translation;
+        assignTranslationDraft(translation);
       }
 
       saveMessage.value = t("settings.saveSuccess");
@@ -371,6 +402,22 @@ export function useSettingsPage() {
     rerankApiKeyDraft.value = "";
   }
 
+  function assignTranslationDraft(response: TranslationSettingsResponse) {
+    translationProviders.value = response.providers.map((provider) => ({
+      ...provider,
+      api_key: undefined,
+    }));
+  }
+
+  function translationPayload() {
+    return {
+      providers: translationProviders.value.map(({ has_api_key: _, current_month_characters: __, ...provider }) => ({
+        ...provider,
+        api_key: provider.api_key?.trim() || undefined,
+      })),
+    };
+  }
+
   onMounted(() => {
     void loadPage();
     void loadAdminUsers();
@@ -404,6 +451,7 @@ export function useSettingsPage() {
     runtimeDraft,
     testS3Connection,
     testValkeyConnection,
+    translationProviders,
     updateAdminUser,
     valkeyTesting,
     vectorRebuildStatus,

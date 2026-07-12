@@ -77,6 +77,7 @@ async fn unauthorized_response_does_not_refresh() {
 fn search_request(query: &str) -> SearchRequest {
     SearchRequest {
         query: query.to_string(),
+        locale: None,
         limit: 8,
         source_key: None,
         group_path: None,

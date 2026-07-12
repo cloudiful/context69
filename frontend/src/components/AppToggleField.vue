@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import ToggleSwitch from "primevue/toggleswitch";
+import AppSwitch from "./AppSwitch.vue";
 
 const props = defineProps<{
   inputId: string;
@@ -8,17 +8,13 @@ const props = defineProps<{
   helperInline?: boolean;
   modelValue: boolean;
   testId?: string;
+  disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:modelValue": [boolean];
 }>();
 
-const togglePt = {
-  root: { class: "h-6 w-11" },
-  slider: { class: "rounded-full" },
-  handle: { class: "h-[1.1rem] w-[1.1rem] mt-[-0.55rem] ml-[0.16rem]" },
-} as const;
 </script>
 
 <template>
@@ -43,11 +39,11 @@ const togglePt = {
       </div>
     </div>
     <div class="shrink-0 self-center">
-      <ToggleSwitch
+      <AppSwitch
         :input-id="props.inputId"
         :model-value="props.modelValue"
         :data-testid="props.testId"
-        :pt="togglePt"
+        :disabled="props.disabled"
         @update:model-value="emit('update:modelValue', $event)"
       />
     </div>

@@ -8,6 +8,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use bytes::Bytes;
 use chrono::Utc;
+use context69_translation::{TranslationCoordinator, TranslationService};
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
@@ -67,6 +68,7 @@ pub struct LibraryService {
     max_upload_request_size_bytes: usize,
     pdf_pages_per_task: u32,
     ingest_semaphore: Arc<Semaphore>,
+    translation: TranslationService,
 }
 
 #[derive(Clone)]
@@ -83,6 +85,7 @@ pub struct UploadedLibraryFile {
     pub bytes: Bytes,
     pub declared_sha256: Option<String>,
     pub metadata: Option<LibraryFileUploadMetadata>,
+    pub translation: Option<crate::contracts::TranslationDirective>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +133,7 @@ impl LibraryService {
         chunking: ChunkingConfig,
         settings: SettingsService,
         file_library_config: FileLibraryConfig,
+        translation: TranslationService,
     ) -> Result<Self> {
         let storage = Arc::new(object_storage::LibraryObjectStorage::from_config(
             &file_library_config,
@@ -151,6 +155,7 @@ impl LibraryService {
                 * 1024,
             pdf_pages_per_task: file_library_config.pdf_pages_per_task,
             ingest_semaphore: Arc::new(Semaphore::new(file_library_config.ingest_concurrency)),
+            translation,
         })
     }
 

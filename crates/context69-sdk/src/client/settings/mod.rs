@@ -1,12 +1,14 @@
 mod docling;
 mod runtime;
 mod search;
+mod translation;
 
 use super::Context69Client;
 
 pub use docling::DoclingSettingsApi;
 pub use runtime::RuntimeSettingsApi;
 pub use search::SearchSettingsApi;
+pub use translation::TranslationSettingsApi;
 
 pub struct SettingsApi<'a> {
     client: &'a Context69Client,
@@ -27,5 +29,9 @@ impl<'a> SettingsApi<'a> {
 
     pub fn search(&self) -> SearchSettingsApi<'a> {
         SearchSettingsApi::new(self.client)
+    }
+
+    pub fn translation(&self) -> TranslationSettingsApi<'a> {
+        TranslationSettingsApi::new(self.client)
     }
 }

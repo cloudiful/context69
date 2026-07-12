@@ -63,8 +63,11 @@ impl SearchApi for SearchApiAdapter {
         &self,
         user_id: Option<i64>,
         document_id: i64,
+        locale: Option<String>,
     ) -> anyhow::Result<crate::contracts::DocumentResponse> {
         let scope = self.auth.access_scope(user_id, None).await?;
-        self.query.get_document(document_id, &scope).await
+        self.query
+            .get_document(document_id, locale.as_deref(), &scope)
+            .await
     }
 }

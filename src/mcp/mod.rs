@@ -124,7 +124,7 @@ impl Context69McpServer {
         let response = self
             .app
             .query
-            .get_document(args.document_id, &scope)
+            .get_document(args.document_id, args.locale.as_deref(), &scope)
             .await
             .map_err(|error| {
                 if error.to_string().contains("not found") {
@@ -192,7 +192,7 @@ impl Context69McpServer {
         Ok(Json(
             self.app
                 .document_store
-                .get_by_key(group.id, &request.key, &scope)
+                .get_by_key(group.id, &request.key, request.locale.as_deref(), &scope)
                 .await
                 .map_err(internal_error)?,
         ))
@@ -235,6 +235,8 @@ struct McpDocumentQueryArgs {
 struct McpDocumentKeyArgs {
     group_path: String,
     key: DocumentKey,
+    #[serde(default)]
+    locale: Option<String>,
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -315,7 +317,7 @@ impl ServerHandler for Context69McpServer {
             let document = self
                 .app
                 .query
-                .get_document(document_id, &scope)
+                .get_document(document_id, None, &scope)
                 .await
                 .map_err(|error| {
                     if error.to_string().contains("not found") {

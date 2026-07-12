@@ -2,6 +2,25 @@ use super::*;
 use crate::domain::{AccessScope, ChunkPayload, SourceRecord};
 
 impl LibraryService {
+    pub(super) async fn apply_file_translation_directive(
+        &self,
+        file_id: Uuid,
+        directive: &crate::contracts::TranslationDirective,
+    ) -> Result<()> {
+        self.store
+            .set_file_translation_directive(file_id, Some(directive))
+            .await?;
+        for mapping in self.store.list_file_documents(file_id).await? {
+            self.translation
+                .enqueue(context69_translation::EnqueueTranslation {
+                    document_id: mapping.document_id,
+                    directive: Some(directive.clone()),
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn reuse_file_with_metadata(
         &self,
         mut file: crate::domain::LibraryFileRecord,
@@ -165,6 +184,9 @@ impl LibraryService {
                     chunk_index: 0,
                     chunk_text: normalized.body_text,
                     metadata_json: normalized.metadata_json,
+                    content_locale: "original".to_string(),
+                    source_locale: None,
+                    translation_provider: None,
                 };
                 self.db
                     .update_library_document_business_fields(mapping.document_id, &payload)

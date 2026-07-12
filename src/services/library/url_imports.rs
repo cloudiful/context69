@@ -32,6 +32,7 @@ impl LibraryService {
             return Err(anyhow!("metadata_json must be an object"));
         }
         let metadata = request.metadata.clone().unwrap_or_default();
+        let translation = request.translation.clone().unwrap_or_default();
         let dedupe_identity = metadata.external_id.as_deref().unwrap_or(url.as_str());
         let dedupe_key = hex_digest(dedupe_identity.as_bytes());
         let job = self
@@ -50,6 +51,9 @@ impl LibraryService {
                 published_at: metadata.published_at,
                 metadata_json: metadata.metadata_json,
                 metadata_provided: request.metadata.is_some(),
+                translation_provided: request.translation.is_some(),
+                translation_source_locale: translation.source_locale,
+                translation_target_locales: translation.target_locales,
             })
             .await?;
         self.spawn_url_import(job.id);
@@ -162,6 +166,7 @@ impl LibraryService {
                     bytes: downloaded.bytes,
                     declared_sha256: Some(sha),
                     metadata,
+                    translation: job_translation(job),
                 },
             )
             .await?;
@@ -250,6 +255,14 @@ fn job_metadata(job: &UrlImportJobRecord) -> LibraryFileUploadMetadata {
         published_at: job.published_at,
         metadata_json: job.metadata_json.clone(),
     }
+}
+
+fn job_translation(job: &UrlImportJobRecord) -> Option<crate::contracts::TranslationDirective> {
+    job.translation_provided
+        .then(|| crate::contracts::TranslationDirective {
+            source_locale: job.translation_source_locale.clone(),
+            target_locales: job.translation_target_locales.clone(),
+        })
 }
 
 fn clean_optional(value: Option<&str>) -> Option<String> {

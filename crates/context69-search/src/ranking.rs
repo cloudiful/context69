@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use context69_contracts::SearchHit;
-use uuid::Uuid;
 
 use crate::{CachedRerankItemScore, RerankHit};
 
@@ -15,18 +14,21 @@ pub(crate) fn merge_candidates(
     keyword_results: Vec<SearchHit>,
     query: &str,
 ) -> Vec<SearchHit> {
-    let mut candidates: HashMap<Uuid, Candidate> = HashMap::new();
+    let mut candidates: HashMap<(i64, i32), Candidate> = HashMap::new();
 
     for hit in vector_results {
-        candidates.insert(hit.chunk_id, Candidate { hit });
+        let key = (hit.document_id, hit.chunk_index);
+        candidates
+            .entry(key)
+            .and_modify(|candidate| merge_hit(&mut candidate.hit, &hit))
+            .or_insert(Candidate { hit });
     }
 
     for keyword_hit in keyword_results {
         candidates
-            .entry(keyword_hit.chunk_id)
+            .entry((keyword_hit.document_id, keyword_hit.chunk_index))
             .and_modify(|candidate| {
-                candidate.hit.keyword_score = keyword_hit.keyword_score;
-                candidate.hit.match_reason = keyword_hit.match_reason.clone();
+                merge_hit(&mut candidate.hit, &keyword_hit);
             })
             .or_insert(Candidate { hit: keyword_hit });
     }
@@ -38,6 +40,31 @@ pub(crate) fn merge_candidates(
             candidate.hit
         })
         .collect()
+}
+
+fn merge_hit(current: &mut SearchHit, incoming: &SearchHit) {
+    let vector_score = max_score(current.vector_score, incoming.vector_score);
+    let keyword_score = max_score(current.keyword_score, incoming.keyword_score);
+    let rerank_score = max_score(current.rerank_score, incoming.rerank_score);
+    let match_reason = current
+        .match_reason
+        .clone()
+        .or_else(|| incoming.match_reason.clone());
+    if current.is_fallback && !incoming.is_fallback {
+        *current = incoming.clone();
+    }
+    current.vector_score = vector_score;
+    current.keyword_score = keyword_score;
+    current.rerank_score = rerank_score;
+    current.match_reason = match_reason;
+}
+
+fn max_score(left: Option<f32>, right: Option<f32>) -> Option<f32> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
 }
 
 pub(crate) fn local_score(hit: &SearchHit, query: &str) -> f32 {
@@ -165,6 +192,10 @@ mod tests {
             library_section_label: None,
             library_path: None,
             is_library_file: false,
+            requested_locale: None,
+            content_locale: None,
+            translation_status: None,
+            is_fallback: false,
         }
     }
 

@@ -6,6 +6,7 @@ export type SettingsSectionKey =
   | "search"
   | "runtime"
   | "docling"
+  | "translation"
   | "admin-users";
 
 export interface SettingsSectionNavItem {
@@ -47,6 +48,11 @@ export function resolveSettingsSectionNav(
   ];
 
   if (isAdmin) {
+    items.push({
+      key: "translation",
+      label: t("settings.sections.translation"),
+      to: "/settings/translation",
+    });
     items.push({
       key: "admin-users",
       label: t("settings.sections.adminUsers"),

@@ -12,6 +12,7 @@ import type {
   SortDirection,
   CreateMetadataIndexRequest,
   UpdateMetadataIndexRequest,
+  UpdateGroupTranslationSettingsRequest,
 } from "./api-types";
 
 type Deps = {
@@ -34,6 +35,18 @@ export function createGroupWorkspaceApi({
   unwrapResponse,
 }: Deps) {
   return {
+    getGroupTranslationSettings(groupPath: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/translation-settings", {
+        params: { path: { group_path: groupPath } },
+        signal: options?.signal,
+      }));
+    },
+    updateGroupTranslationSettings(groupPath: string, payload: UpdateGroupTranslationSettingsRequest) {
+      return unwrapResponse(openapiClient.PUT("/v1/groups/by-path/{group_path}/translation-settings", {
+        params: { path: { group_path: groupPath } },
+        body: payload,
+      }));
+    },
     listMetadataIndexes(groupPath: string, sourceKey: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/metadata-indexes", {
         params: { path: { group_path: groupPath }, query: { source_key: sourceKey } }, signal: options?.signal,

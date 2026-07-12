@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{
   helperInline?: boolean;
   items: ToggleItem[];
   modelValue: Record<string, boolean>;
+  disabled?: boolean;
 }>(), {
   columnsClass: "grid gap-4 lg:grid-cols-2 lg:items-start",
   helperInline: false,
@@ -42,6 +43,7 @@ function updateItem(key: string, value: boolean) {
       :helper-inline="props.helperInline"
       :model-value="!!props.modelValue[item.key]"
       :test-id="item.testId"
+      :disabled="props.disabled"
       @update:model-value="updateItem(item.key, $event)"
     />
   </div>

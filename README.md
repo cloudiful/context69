@@ -28,6 +28,33 @@ index declaration. Dot paths such as `provider.name` are supported. Indexes buil
 background and become queryable only in `ready` state. Scalars support `eq`, `in`, `range`, and
 `exists`; arrays support `contains` and `exists`.
 
+## Translation and multilingual search
+
+Context69 keeps translations as rebuildable language variants linked to the canonical document.
+The original title, summary, body, metadata, timestamps, and business identity are never replaced.
+After original ingest succeeds, translation jobs run asynchronously and publish translated chunks
+to PostgreSQL and Qdrant only after the whole document succeeds.
+
+Group settings define default target locales and an optional source locale/glossary. Every text,
+multipart, deduplicated prepare-upload, and URL import request can provide `translation`:
+
+- omitted: inherit group defaults
+- `{"target_locales":[]}`: disable translation for this ingest
+- non-empty `target_locales`: override group defaults
+
+Providers run in configured priority order. DeepL and LLM providers have independent UTC-month
+character limits; LibreTranslate is unlimited when its limit is absent. A failed, rate-limited,
+invalid, or quota-exhausted provider causes the whole document to restart on the next provider, so
+one translation never mixes providers.
+
+DeepL Free defaults to `https://api-free.deepl.com`; DeepL Pro defaults to
+`https://api.deepl.com`. A custom compatible endpoint may still be configured explicitly.
+
+Search, exact read, batch read, and structured document query accept an optional BCP 47 `locale`.
+When a requested translation is unavailable, reads return the canonical original with
+`is_fallback: true`, `content_locale`, and the current `translation_status`. Omitting `locale`
+preserves the pre-0.7 original-only behavior.
+
 ## Current Scope
 
 - Retrieval only, no answer-generation layer

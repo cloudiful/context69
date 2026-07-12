@@ -52,6 +52,7 @@ async fn group_library_imports_public_url() {
             external_id: Some("report-42".into()),
             ..Default::default()
         }),
+        translation: None,
     };
     let job = client(&base_url)
         .group("ops/platform")
@@ -114,6 +115,7 @@ async fn group_library_text_upsert_uses_group_scope() {
         summary: None,
         published_at: None,
         metadata_json: json!({}),
+        translation: None,
     };
     client(&base_url)
         .group("ops/platform")

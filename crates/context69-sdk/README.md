@@ -26,6 +26,32 @@ client.group("research/news").library().files()
 # }
 ```
 
+To request translation in the same deduplicated upload, use the options method:
+
+```rust,no_run
+use context69_sdk::contracts::{
+    LibraryFileIngestOptions, LibraryFileUploadMetadata, TranslationDirective,
+};
+
+# async fn example(client: &context69_sdk::Context69Client) -> Result<(), Box<dyn std::error::Error>> {
+client.group("research/news").library().files()
+    .upload_bytes_deduplicated_with_options(
+        None,
+        "english-news.pdf",
+        "application/pdf",
+        std::fs::read("english-news.pdf")?,
+        Some(LibraryFileIngestOptions {
+            metadata: LibraryFileUploadMetadata::default(),
+            translation: Some(TranslationDirective {
+                source_locale: Some("en-US".into()),
+                target_locales: vec!["zh-CN".into()],
+            }),
+        }),
+    ).await?;
+# Ok(())
+# }
+```
+
 The existing `upload_bytes_deduplicated` method sends no metadata, preserving stored business fields on a deduplication hit.
 
 For public HTTPS file URLs, let Context69 download and ingest asynchronously:
@@ -49,6 +75,7 @@ let job = library.files().import_url(&ImportLibraryFileFromUrlRequest {
         published_at: Some("2026-07-12T09:30:00Z".parse()?),
         metadata_json: json!({"ticker": "ACME"}),
     }),
+    translation: None,
 }).await?;
 
 let current = library.url_import_job(job.import_job_id).get().await?;
@@ -149,6 +176,7 @@ let upload = client.library().texts().create(&CreateTextRequest {
     content_format: LibraryTextContentFormat::Markdown,
     source_uri: None,
     summary: None,
+    translation: None,
 }).await?;
 
 let tree = client.group("ops/runbooks").library().tree().await?;
@@ -184,6 +212,31 @@ let document = client.document(result.hits[0].document_id).get().await?;
 # }
 ```
 
+Group defaults and translation jobs are typed SDK resources:
+
+```rust,no_run
+use context69_sdk::contracts::{
+    RebuildDocumentTranslationsRequest, UpdateGroupTranslationSettingsRequest,
+};
+
+# async fn example(client: &context69_sdk::Context69Client) -> Result<(), context69_sdk::Error> {
+let translations = client.group("research/news").translations();
+translations.update_settings(&UpdateGroupTranslationSettingsRequest {
+    enabled: true,
+    default_target_locales: vec!["zh-CN".into()],
+    source_locale: None,
+    glossary: vec![],
+}).await?;
+let jobs = translations.rebuild(42, &RebuildDocumentTranslationsRequest {
+    target_locales: vec!["zh-CN".into()],
+}).await?;
+if let Some(job) = jobs.jobs.first() {
+    client.group("research/news").translation_job(job.job_id).get().await?;
+}
+# Ok(())
+# }
+```
+
 ## Resource tree
 
 - `client.user_directory()`: user search
@@ -193,7 +246,8 @@ let document = client.document(result.hits[0].document_id).get().await?;
 - `client.library()`: personal library folders, texts, files, and jobs
 - `client.group(path).library()`: group-scoped library resources
 - `client.group(path).source_folders()` / `source_folder(id)`: group source folders
-- `client.settings()`: runtime, Docling, and search settings
+- `client.settings()`: runtime, Docling, search, and translation provider settings
+- `client.group(path).translations()` / `translation_job(id)`: group defaults and jobs
 - `client.search()` / `client.document(id)`: search and document lookup
 - root client: `me()` and `healthz()`
 

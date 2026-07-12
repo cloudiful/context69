@@ -113,3 +113,64 @@ async fn group_source_folder_chain_syncs() {
         format!("/v1/groups/by-path/ops%2Fplatform/source-folders/{folder_id}/sync")
     );
 }
+
+#[tokio::test]
+async fn group_translation_settings_use_bound_scope() {
+    let response = json!({
+        "enabled": true,
+        "default_target_locales": ["zh-CN"],
+        "source_locale": "en-US",
+        "glossary": [],
+        "queued_count": 1,
+        "running_count": 0,
+        "succeeded_count": 2,
+        "failed_count": 0
+    });
+    let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
+    let settings = client(&base_url)
+        .group("ops/platform")
+        .translations()
+        .settings()
+        .await
+        .expect("translation settings");
+    let request = captured.await.unwrap();
+    assert!(settings.enabled);
+    assert_eq!(request.method, Method::GET);
+    assert_eq!(
+        request.uri.path(),
+        "/v1/groups/by-path/ops%2Fplatform/translation-settings"
+    );
+}
+
+#[tokio::test]
+async fn translation_job_retry_uses_bound_scope() {
+    let job_id = Uuid::new_v4();
+    let response = json!({
+        "job_id": job_id,
+        "document_id": 42,
+        "target_locale": "zh-CN",
+        "source_locale": "en-US",
+        "status": "queued",
+        "provider": null,
+        "attempt_count": 1,
+        "source_character_count": 100,
+        "error_message": null,
+        "created_at": "2026-07-12T00:00:00Z",
+        "started_at": null,
+        "finished_at": null,
+        "updated_at": "2026-07-12T00:00:00Z"
+    });
+    let (base_url, captured) = spawn_json(StatusCode::ACCEPTED, &response).await;
+    client(&base_url)
+        .group("ops/platform")
+        .translation_job(job_id)
+        .retry()
+        .await
+        .expect("retry translation");
+    let request = captured.await.unwrap();
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(
+        request.uri.path(),
+        format!("/v1/groups/by-path/ops%2Fplatform/translation-jobs/{job_id}/retry")
+    );
+}

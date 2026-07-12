@@ -1,6 +1,6 @@
 use context69_contracts::{
-    ImportLibraryFileFromUrlRequest, LibraryFileDetailResponse, LibraryFileUploadMetadata,
-    LibraryUploadResponse, LibraryUrlImportJobResponse, MoveFileRequest,
+    ImportLibraryFileFromUrlRequest, LibraryFileDetailResponse, LibraryFileIngestOptions,
+    LibraryFileUploadMetadata, LibraryUploadResponse, LibraryUrlImportJobResponse, MoveFileRequest,
     PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
 };
 use reqwest::{Method, multipart::Part};
@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::Context69Client;
 use crate::{
     Error,
-    client::transport::{file_upload_form, file_upload_form_with_sha256},
+    client::transport::{file_upload_form, file_upload_form_with_options},
 };
 
 pub struct LibraryFilesApi<'a> {
@@ -88,6 +88,22 @@ impl<'a> LibraryFilesApi<'a> {
         bytes: Vec<u8>,
         metadata: Option<LibraryFileUploadMetadata>,
     ) -> Result<LibraryUploadResponse, Error> {
+        let options = metadata.map(|metadata| LibraryFileIngestOptions {
+            metadata,
+            translation: None,
+        });
+        self.upload_bytes_deduplicated_with_options(folder_id, filename, media_type, bytes, options)
+            .await
+    }
+
+    pub async fn upload_bytes_deduplicated_with_options(
+        &self,
+        folder_id: Option<Uuid>,
+        filename: impl Into<String>,
+        media_type: impl Into<String>,
+        bytes: Vec<u8>,
+        options: Option<LibraryFileIngestOptions>,
+    ) -> Result<LibraryUploadResponse, Error> {
         let filename = filename.into();
         let media_type = media_type.into();
         let sha256: String = Sha256::digest(&bytes)
@@ -101,7 +117,8 @@ impl<'a> LibraryFilesApi<'a> {
                 media_type: media_type.clone(),
                 size_bytes: bytes.len() as i64,
                 sha256: sha256.clone(),
-                metadata: metadata.clone(),
+                metadata: options.as_ref().map(|value| value.metadata.clone()),
+                translation: options.as_ref().and_then(|value| value.translation.clone()),
             })
             .await?;
         if !prepared.upload_required {
@@ -120,10 +137,10 @@ impl<'a> LibraryFilesApi<'a> {
                 self.client
                     .authorized_request(Method::POST, &path)
                     .await?
-                    .multipart(file_upload_form_with_sha256(
+                    .multipart(file_upload_form_with_options(
                         folder_id,
                         sha256,
-                        metadata.as_ref(),
+                        options.as_ref(),
                         part,
                     )?),
             )

@@ -74,6 +74,12 @@ export type UpsertSourceConnectionRequest = Schemas["UpsertSourceConnectionReque
 export type UserDirectoryEntryResponse = Schemas["UserDirectoryEntryResponse"];
 export type Visibility = Schemas["Visibility"];
 export type VectorIndexRebuildStatus = Schemas["VectorIndexRebuildStatus"];
+export type TranslationSettingsResponse = Schemas["TranslationSettingsResponse"];
+export type UpdateTranslationSettingsRequest = Schemas["UpdateTranslationSettingsRequest"];
+export type TranslationProviderInput = Schemas["TranslationProviderInput"];
+export type TranslationProviderResponse = Schemas["TranslationProviderResponse"];
+export type GroupTranslationSettingsResponse = Schemas["GroupTranslationSettingsResponse"];
+export type UpdateGroupTranslationSettingsRequest = Schemas["UpdateGroupTranslationSettingsRequest"];
 
 export interface RequestOptions {
   signal?: AbortSignal;

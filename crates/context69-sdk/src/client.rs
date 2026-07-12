@@ -16,14 +16,17 @@ use crate::Error;
 
 pub use groups::{
     GroupApi, GroupChildrenApi, GroupDocumentsApi, GroupMemberApi, GroupMembersApi,
-    GroupMetadataIndexesApi, GroupSourceFolderApi, GroupSourceFoldersApi, GroupsApi,
+    GroupMetadataIndexesApi, GroupSourceFolderApi, GroupSourceFoldersApi, GroupTranslationApi,
+    GroupsApi, TranslationJobApi,
 };
 pub use library::{
     GroupLibraryApi, GroupLibraryTextsApi, LibraryApi, LibraryFileApi, LibraryFilesApi,
     LibraryFolderApi, LibraryFoldersApi, LibraryJobApi, LibraryTextsApi,
 };
 pub use search::{DocumentApi, SearchApi};
-pub use settings::{DoclingSettingsApi, RuntimeSettingsApi, SearchSettingsApi, SettingsApi};
+pub use settings::{
+    DoclingSettingsApi, RuntimeSettingsApi, SearchSettingsApi, SettingsApi, TranslationSettingsApi,
+};
 pub use sources::{SourceApi, SourceConnectionApi, SourceConnectionsApi, SourcesApi};
 pub use user_directory::UserDirectoryApi;
 

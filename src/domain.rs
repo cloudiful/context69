@@ -70,6 +70,9 @@ pub struct ChunkPayload {
     pub chunk_index: i32,
     pub chunk_text: String,
     pub metadata_json: Value,
+    pub content_locale: String,
+    pub source_locale: Option<String>,
+    pub translation_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

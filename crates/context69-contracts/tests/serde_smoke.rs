@@ -12,6 +12,7 @@ use uuid::Uuid;
 fn serializes_and_deserializes_core_requests() {
     let request = SearchRequest {
         query: "policy".to_string(),
+        locale: None,
         limit: 5,
         source_key: Some("gov".to_string()),
         group_path: None,
@@ -53,6 +54,7 @@ fn serializes_and_deserializes_core_requests() {
         content_format: LibraryTextContentFormat::Markdown,
         source_uri: Some("https://example.test/doc".to_string()),
         summary: Some("Summary".to_string()),
+        translation: None,
     };
     let text_roundtrip: CreateTextRequest =
         serde_json::from_value(serde_json::to_value(text_request).expect("serialize text request"))

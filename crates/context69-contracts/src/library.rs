@@ -74,6 +74,8 @@ pub struct CreateTextRequest {
     pub source_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation: Option<crate::TranslationDirective>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -94,6 +96,8 @@ pub struct UpsertLibraryTextRequest {
     #[serde(default = "default_metadata_json")]
     #[schema(value_type = Object)]
     pub metadata_json: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation: Option<crate::TranslationDirective>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -368,6 +372,14 @@ pub struct LibraryFileUploadMetadata {
     pub metadata_json: Value,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct LibraryFileIngestOptions {
+    #[serde(flatten)]
+    pub metadata: LibraryFileUploadMetadata,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation: Option<crate::TranslationDirective>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PrepareLibraryUploadRequest {
     #[serde(default)]
@@ -378,6 +390,8 @@ pub struct PrepareLibraryUploadRequest {
     pub sha256: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<LibraryFileUploadMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation: Option<crate::TranslationDirective>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -400,6 +414,8 @@ pub struct ImportLibraryFileFromUrlRequest {
     pub media_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<LibraryFileUploadMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation: Option<crate::TranslationDirective>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

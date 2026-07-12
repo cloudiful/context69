@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.group_translation_settings (\n    group_id, enabled, default_target_locales, source_locale, glossary, updated_at\n)\nVALUES ($1, $2, $3, $4, $5, now())\nON CONFLICT (group_id) DO UPDATE SET\n    enabled = EXCLUDED.enabled,\n    default_target_locales = EXCLUDED.default_target_locales,\n    source_locale = EXCLUDED.source_locale,\n    glossary = EXCLUDED.glossary,\n    updated_at = now()\nRETURNING enabled, default_target_locales, source_locale, glossary\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "default_target_locales",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "default_target_locales"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "source_locale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "source_locale"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "glossary",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "glossary"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "TextArray",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "25c174e66e1a9350602016d8edd859e8b931239764c6fca37ccf19653e3c29ae"
+}

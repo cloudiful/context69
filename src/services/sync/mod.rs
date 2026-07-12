@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
+use context69_translation::{TranslationCoordinator, TranslationService};
 use futures::{StreamExt, stream};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::sync::{OwnedMutexGuard, RwLock};
@@ -48,6 +49,7 @@ pub struct SyncService {
     source_store: SourceStore,
     source_connection_statuses: Arc<RwLock<HashMap<String, SourceConnectionHealth>>>,
     vector_rebuild_status: Arc<RwLock<VectorIndexRebuildStatus>>,
+    translation: TranslationService,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +68,7 @@ impl SyncService {
         index: Option<QdrantIndex>,
         chunking: ChunkingConfig,
         max_concurrency: usize,
+        translation: TranslationService,
     ) -> Self {
         let runtime = embedding
             .zip(index)
@@ -90,6 +93,7 @@ impl SyncService {
                 started_at: None,
                 finished_at: None,
             })),
+            translation,
         }
     }
 

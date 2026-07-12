@@ -11,3 +11,4 @@ axum.workspace = true
 context69-contracts.workspace = true
 context69-http-support.workspace = true
 utoipa.workspace = true
+serde = { workspace = true, features = ["derive"] }

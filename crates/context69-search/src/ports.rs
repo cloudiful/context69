@@ -23,6 +23,7 @@ pub trait SearchRepository: Send + Sync {
     async fn fetch_search_hits_by_chunk_ids(
         &self,
         chunk_ids: &[Uuid],
+        request: &SearchRequest,
         scope: &AccessScope,
     ) -> Result<HashMap<Uuid, SearchHit>>;
     async fn keyword_search(

@@ -114,10 +114,10 @@ pub(crate) fn file_upload_form(folder_id: Option<Uuid>, files: Vec<Part>) -> For
     form
 }
 
-pub(crate) fn file_upload_form_with_sha256(
+pub(crate) fn file_upload_form_with_options(
     folder_id: Option<Uuid>,
     sha256: String,
-    metadata: Option<&context69_contracts::LibraryFileUploadMetadata>,
+    options: Option<&context69_contracts::LibraryFileIngestOptions>,
     file: Part,
 ) -> Result<Form, Error> {
     let mut form = Form::new();
@@ -125,10 +125,10 @@ pub(crate) fn file_upload_form_with_sha256(
         form = form.text("folder_id", folder_id.to_string());
     }
     form = form.text("sha256", sha256);
-    if let Some(metadata) = metadata {
+    if let Some(options) = options {
         form = form.part(
             "metadata",
-            Part::text(serde_json::to_string(metadata)?).mime_str("application/json")?,
+            Part::text(serde_json::to_string(options)?).mime_str("application/json")?,
         );
     }
     Ok(form.part("files", file))

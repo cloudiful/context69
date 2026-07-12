@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.6.2"
+    "version": "0.7.0"
   },
   "paths": {
     "/healthz": {
@@ -897,6 +897,17 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -948,6 +959,17 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -1002,6 +1024,90 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/translations": {
+      "get": {
+        "tags": [],
+        "operationId": "list_document_translation_jobs",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationJobsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild": {
+      "post": {
+        "tags": [],
+        "operationId": "rebuild_document_translations",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildDocumentTranslationsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationJobsResponse"
                 }
               }
             }
@@ -2270,6 +2376,144 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_translation_job",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationJobResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}/retry": {
+      "post": {
+        "tags": [],
+        "operationId": "retry_translation_job",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationJobResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/translation-settings": {
+      "get": {
+        "tags": [],
+        "operationId": "get_group_translation_settings",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupTranslationSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "update_group_translation_settings",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGroupTranslationSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupTranslationSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/library/files/upload": {
       "post": {
         "tags": [],
@@ -3172,6 +3416,70 @@
         }
       }
     },
+    "/v1/settings/translation": {
+      "get": {
+        "tags": [],
+        "operationId": "get_translation_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationSettingsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "update_translation_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTranslationSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationSettingsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/source-connections": {
       "get": {
         "tags": [],
@@ -3802,6 +4110,12 @@
             "items": {
               "$ref": "#/components/schemas/DocumentKey"
             }
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -4012,8 +4326,25 @@
           },
           "title": {
             "type": "string"
+          },
+          "translation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationDirective"
+              }
+            ]
           }
         }
+      },
+      "DeeplPlan": {
+        "type": "string",
+        "enum": [
+          "free",
+          "pro"
+        ]
       },
       "DoclingConnectionSettingsResponse": {
         "type": "object",
@@ -4152,6 +4483,12 @@
           "external_id": {
             "type": "string"
           },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source_key": {
             "type": "string"
           }
@@ -4169,6 +4506,12 @@
           "limit": {
             "type": "integer",
             "minimum": 0
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "metadata_filters": {
             "type": "array",
@@ -4246,6 +4589,12 @@
               "$ref": "#/components/schemas/DocumentChunkResponse"
             }
           },
+          "content_locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "document_id": {
             "type": "integer",
             "format": "int64"
@@ -4258,6 +4607,9 @@
           },
           "group_path": {
             "type": "string"
+          },
+          "is_fallback": {
+            "type": "boolean"
           },
           "is_library_file": {
             "type": "boolean"
@@ -4294,6 +4646,12 @@
           "record_hash": {
             "type": "string"
           },
+          "requested_locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source_key": {
             "type": "string"
           },
@@ -4308,6 +4666,16 @@
           },
           "title": {
             "type": "string"
+          },
+          "translation_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationStatus"
+              }
+            ]
           },
           "updated_at": {
             "type": "string",
@@ -4451,6 +4819,57 @@
           }
         }
       },
+      "GroupTranslationSettingsResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "default_target_locales",
+          "glossary",
+          "queued_count",
+          "running_count",
+          "succeeded_count",
+          "failed_count"
+        ],
+        "properties": {
+          "default_target_locales": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "failed_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "glossary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranslationGlossaryEntry"
+            }
+          },
+          "queued_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "running_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "succeeded_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": [
@@ -4521,6 +4940,16 @@
               },
               {
                 "$ref": "#/components/schemas/LibraryFileUploadMetadata"
+              }
+            ]
+          },
+          "translation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationDirective"
               }
             ]
           },
@@ -4660,6 +5089,28 @@
             "$ref": "#/components/schemas/Visibility"
           }
         }
+      },
+      "LibraryFileIngestOptions": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LibraryFileUploadMetadata"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "translation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TranslationDirective"
+                  }
+                ]
+              }
+            }
+          }
+        ]
       },
       "LibraryFileSummary": {
         "type": "object",
@@ -5551,6 +6002,16 @@
           "size_bytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "translation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationDirective"
+              }
+            ]
           }
         }
       },
@@ -5582,6 +6043,17 @@
           },
           "upload_required": {
             "type": "boolean"
+          }
+        }
+      },
+      "RebuildDocumentTranslationsRequest": {
+        "type": "object",
+        "properties": {
+          "target_locales": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -5826,6 +6298,12 @@
           "chunk_text": {
             "type": "string"
           },
+          "content_locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "document_id": {
             "type": "integer",
             "format": "int64"
@@ -5838,6 +6316,9 @@
           },
           "group_path": {
             "type": "string"
+          },
+          "is_fallback": {
+            "type": "boolean"
           },
           "is_library_file": {
             "type": "boolean"
@@ -5884,6 +6365,12 @@
             ],
             "format": "date-time"
           },
+          "requested_locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "rerank_score": {
             "type": [
               "number",
@@ -5909,6 +6396,16 @@
           },
           "title": {
             "type": "string"
+          },
+          "translation_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationStatus"
+              }
+            ]
           },
           "vector_score": {
             "type": [
@@ -5944,6 +6441,12 @@
           "limit": {
             "type": "integer",
             "minimum": 0
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "metadata_filters": {
             "type": "array",
@@ -6299,6 +6802,307 @@
           }
         }
       },
+      "TranslationDirective": {
+        "type": "object",
+        "properties": {
+          "source_locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_locales": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TranslationGlossaryEntry": {
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
+      "TranslationJobResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "document_id",
+          "target_locale",
+          "status",
+          "attempt_count",
+          "source_character_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationProviderKind"
+              }
+            ]
+          },
+          "source_character_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TranslationStatus"
+          },
+          "target_locale": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TranslationJobsResponse": {
+        "type": "object",
+        "required": [
+          "jobs"
+        ],
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranslationJobResponse"
+            }
+          }
+        }
+      },
+      "TranslationLlmApiKind": {
+        "type": "string",
+        "enum": [
+          "openai_responses",
+          "openai_chat_completions",
+          "anthropic_messages"
+        ]
+      },
+      "TranslationProviderInput": {
+        "type": "object",
+        "required": [
+          "provider",
+          "priority"
+        ],
+        "properties": {
+          "api_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deepl_plan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeeplPlan"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "llm_api_kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationLlmApiKind"
+              }
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "monthly_character_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/TranslationProviderKind"
+          }
+        }
+      },
+      "TranslationProviderKind": {
+        "type": "string",
+        "enum": [
+          "deepl",
+          "llm",
+          "libretranslate"
+        ]
+      },
+      "TranslationProviderResponse": {
+        "type": "object",
+        "required": [
+          "provider",
+          "enabled",
+          "priority",
+          "has_api_key",
+          "current_month_characters"
+        ],
+        "properties": {
+          "current_month_characters": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deepl_plan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeeplPlan"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_api_key": {
+            "type": "boolean"
+          },
+          "llm_api_kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationLlmApiKind"
+              }
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "monthly_character_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/TranslationProviderKind"
+          }
+        }
+      },
+      "TranslationSettingsResponse": {
+        "type": "object",
+        "required": [
+          "providers"
+        ],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranslationProviderResponse"
+            }
+          }
+        }
+      },
+      "TranslationStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "skipped",
+          "quota_exceeded",
+          "unavailable"
+        ]
+      },
       "UpdateAdminUserRequest": {
         "type": "object",
         "properties": {
@@ -6405,6 +7209,35 @@
               {
                 "$ref": "#/components/schemas/Visibility"
               }
+            ]
+          }
+        }
+      },
+      "UpdateGroupTranslationSettingsRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "default_target_locales": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "glossary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranslationGlossaryEntry"
+            }
+          },
+          "source_locale": {
+            "type": [
+              "string",
+              "null"
             ]
           }
         }
@@ -6606,6 +7439,20 @@
           }
         }
       },
+      "UpdateTranslationSettingsRequest": {
+        "type": "object",
+        "required": [
+          "providers"
+        ],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranslationProviderInput"
+            }
+          }
+        }
+      },
       "UpsertLibraryTextRequest": {
         "type": "object",
         "required": [
@@ -6654,6 +7501,16 @@
           },
           "title": {
             "type": "string"
+          },
+          "translation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationDirective"
+              }
+            ]
           }
         }
       },

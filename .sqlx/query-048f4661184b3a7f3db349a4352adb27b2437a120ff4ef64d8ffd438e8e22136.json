@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.translation_provider_settings (\n    provider_key, enabled, priority, endpoint, api_key, model, llm_api_kind,\n    deepl_plan, monthly_character_limit, updated_at\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())\nON CONFLICT (provider_key) DO UPDATE SET\n    enabled = EXCLUDED.enabled,\n    priority = EXCLUDED.priority,\n    endpoint = EXCLUDED.endpoint,\n    api_key = COALESCE(EXCLUDED.api_key, context69.translation_provider_settings.api_key),\n    model = EXCLUDED.model,\n    llm_api_kind = EXCLUDED.llm_api_kind,\n    deepl_plan = EXCLUDED.deepl_plan,\n    monthly_character_limit = EXCLUDED.monthly_character_limit,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "048f4661184b3a7f3db349a4352adb27b2437a120ff4ef64d8ffd438e8e22136"
+}

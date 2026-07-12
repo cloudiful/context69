@@ -31,7 +31,11 @@ impl LibraryService {
         {
             if existing.sha256 == request.sha256 {
                 return self
-                    .reuse_prepared_file(existing, request.metadata.as_ref())
+                    .reuse_prepared_file(
+                        existing,
+                        request.metadata.as_ref(),
+                        request.translation.as_ref(),
+                    )
                     .await;
             }
             return Ok(upload_required());
@@ -52,7 +56,11 @@ impl LibraryService {
                 return Err(anyhow!("external_id_content_conflict"));
             }
             return self
-                .reuse_prepared_file(existing, request.metadata.as_ref())
+                .reuse_prepared_file(
+                    existing,
+                    request.metadata.as_ref(),
+                    request.translation.as_ref(),
+                )
                 .await;
         }
 
@@ -92,6 +100,10 @@ impl LibraryService {
         if let Some(metadata) = request.metadata.as_ref() {
             created = self.apply_file_business_metadata(file_id, metadata).await?;
         }
+        if let Some(directive) = request.translation.as_ref() {
+            self.apply_file_translation_directive(file_id, directive)
+                .await?;
+        }
         let job = self.store.create_job(job_id, file_id).await?;
         self.spawn_ingest(file_id, job_id, kind);
 
@@ -106,8 +118,13 @@ impl LibraryService {
         &self,
         file: crate::domain::LibraryFileRecord,
         metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
+        translation: Option<&crate::contracts::TranslationDirective>,
     ) -> Result<PrepareLibraryUploadResponse> {
         let (file, job) = self.reuse_file_with_metadata(file, metadata).await?;
+        if let Some(directive) = translation {
+            self.apply_file_translation_directive(file.id, directive)
+                .await?;
+        }
         Ok(PrepareLibraryUploadResponse {
             upload_required: false,
             file: Some(file_to_summary(&file)),

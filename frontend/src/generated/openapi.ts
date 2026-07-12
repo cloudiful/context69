@@ -292,6 +292,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/translations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_document_translation_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rebuild_document_translations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/import-url": {
         parameters: {
             query?: never;
@@ -676,6 +708,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_translation_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_translation_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/translation-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_translation_settings"];
+        put: operations["update_group_translation_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/library/files/upload": {
         parameters: {
             query?: never;
@@ -932,6 +1012,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/translation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_translation_settings"];
+        put: operations["update_translation_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/source-connections": {
         parameters: {
             query?: never;
@@ -1072,6 +1168,7 @@ export interface components {
         };
         BatchGetDocumentsRequest: {
             keys: components["schemas"]["DocumentKey"][];
+            locale?: string | null;
         };
         BatchGetDocumentsResponse: {
             items: components["schemas"]["BatchDocumentItem"][];
@@ -1124,7 +1221,10 @@ export interface components {
             source_uri?: string | null;
             summary?: string | null;
             title: string;
+            translation?: null | components["schemas"]["TranslationDirective"];
         };
+        /** @enum {string} */
+        DeeplPlan: "free" | "pro";
         DoclingConnectionSettingsResponse: {
             base_url?: string | null;
             /** Format: int64 */
@@ -1160,11 +1260,13 @@ export interface components {
         };
         DocumentLookupQuery: {
             external_id: string;
+            locale?: string | null;
             source_key: string;
         };
         DocumentQueryRequest: {
             cursor?: string | null;
             limit?: number;
+            locale?: string | null;
             metadata_filters?: components["schemas"]["MetadataFilter"][];
             /** Format: date-time */
             published_after?: string | null;
@@ -1179,11 +1281,13 @@ export interface components {
         };
         DocumentResponse: {
             chunks: components["schemas"]["DocumentChunkResponse"][];
+            content_locale?: string | null;
             /** Format: int64 */
             document_id: number;
             external_id: string;
             group_key: string;
             group_path: string;
+            is_fallback?: boolean;
             is_library_file?: boolean;
             /** Format: uuid */
             library_file_id?: string | null;
@@ -1193,10 +1297,12 @@ export interface components {
             /** Format: date-time */
             published_at?: string | null;
             record_hash: string;
+            requested_locale?: string | null;
             source_key: string;
             source_uri: string;
             summary?: string | null;
             title: string;
+            translation_status?: null | components["schemas"]["TranslationStatus"];
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
@@ -1232,6 +1338,20 @@ export interface components {
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
         };
+        GroupTranslationSettingsResponse: {
+            default_target_locales: string[];
+            enabled: boolean;
+            /** Format: int64 */
+            failed_count: number;
+            glossary: components["schemas"]["TranslationGlossaryEntry"][];
+            /** Format: int64 */
+            queued_count: number;
+            /** Format: int64 */
+            running_count: number;
+            source_locale?: string | null;
+            /** Format: int64 */
+            succeeded_count: number;
+        };
         HealthResponse: {
             db_ok?: boolean | null;
             /** Format: int64 */
@@ -1247,6 +1367,7 @@ export interface components {
             folder_id?: string | null;
             media_type?: string | null;
             metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
+            translation?: null | components["schemas"]["TranslationDirective"];
             url: string;
         };
         LibraryDocumentSectionPreview: {
@@ -1285,6 +1406,9 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
+        };
+        LibraryFileIngestOptions: components["schemas"]["LibraryFileUploadMetadata"] & {
+            translation?: null | components["schemas"]["TranslationDirective"];
         };
         LibraryFileSummary: {
             /** Format: date-time */
@@ -1523,11 +1647,15 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size_bytes: number;
+            translation?: null | components["schemas"]["TranslationDirective"];
         };
         PrepareLibraryUploadResponse: {
             file?: null | components["schemas"]["LibraryFileSummary"];
             job?: null | components["schemas"]["LibraryIngestJobResponse"];
             upload_required: boolean;
+        };
+        RebuildDocumentTranslationsRequest: {
+            target_locales?: string[];
         };
         ResetAdminUserPasswordRequest: {
             password: string;
@@ -1588,11 +1716,13 @@ export interface components {
             /** Format: int32 */
             chunk_index: number;
             chunk_text: string;
+            content_locale?: string | null;
             /** Format: int64 */
             document_id: number;
             external_id: string;
             group_key: string;
             group_path: string;
+            is_fallback?: boolean;
             is_library_file?: boolean;
             /** Format: float */
             keyword_score?: number | null;
@@ -1604,6 +1734,7 @@ export interface components {
             metadata_json?: Record<string, never>;
             /** Format: date-time */
             published_at?: string | null;
+            requested_locale?: string | null;
             /** Format: float */
             rerank_score?: number | null;
             /** Format: float */
@@ -1612,6 +1743,7 @@ export interface components {
             source_uri: string;
             summary?: string | null;
             title: string;
+            translation_status?: null | components["schemas"]["TranslationStatus"];
             /** Format: float */
             vector_score?: number | null;
             visibility: components["schemas"]["Visibility"];
@@ -1621,6 +1753,7 @@ export interface components {
         SearchRequest: {
             group_path?: string | null;
             limit?: number;
+            locale?: string | null;
             metadata_filters?: components["schemas"]["MetadataFilter"][];
             /** Format: date-time */
             published_after?: string | null;
@@ -1709,6 +1842,77 @@ export interface components {
         TestRuntimeValkeyRequest: {
             valkey_url: string;
         };
+        TranslationDirective: {
+            source_locale?: string | null;
+            target_locales?: string[];
+        };
+        TranslationGlossaryEntry: {
+            source: string;
+            target: string;
+        };
+        TranslationJobResponse: {
+            /** Format: int32 */
+            attempt_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            document_id: number;
+            error_message?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            job_id: string;
+            provider?: null | components["schemas"]["TranslationProviderKind"];
+            /** Format: int64 */
+            source_character_count: number;
+            source_locale?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["TranslationStatus"];
+            target_locale: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TranslationJobsResponse: {
+            jobs: components["schemas"]["TranslationJobResponse"][];
+        };
+        /** @enum {string} */
+        TranslationLlmApiKind: "openai_responses" | "openai_chat_completions" | "anthropic_messages";
+        TranslationProviderInput: {
+            api_key?: string | null;
+            deepl_plan?: null | components["schemas"]["DeeplPlan"];
+            enabled?: boolean;
+            endpoint?: string | null;
+            llm_api_kind?: null | components["schemas"]["TranslationLlmApiKind"];
+            model?: string | null;
+            /** Format: int64 */
+            monthly_character_limit?: number | null;
+            /** Format: int32 */
+            priority: number;
+            provider: components["schemas"]["TranslationProviderKind"];
+        };
+        /** @enum {string} */
+        TranslationProviderKind: "deepl" | "llm" | "libretranslate";
+        TranslationProviderResponse: {
+            /** Format: int64 */
+            current_month_characters: number;
+            deepl_plan?: null | components["schemas"]["DeeplPlan"];
+            enabled: boolean;
+            endpoint?: string | null;
+            has_api_key: boolean;
+            llm_api_kind?: null | components["schemas"]["TranslationLlmApiKind"];
+            model?: string | null;
+            /** Format: int64 */
+            monthly_character_limit?: number | null;
+            /** Format: int32 */
+            priority: number;
+            provider: components["schemas"]["TranslationProviderKind"];
+        };
+        TranslationSettingsResponse: {
+            providers: components["schemas"]["TranslationProviderResponse"][];
+        };
+        /** @enum {string} */
+        TranslationStatus: "queued" | "running" | "succeeded" | "failed" | "skipped" | "quota_exceeded" | "unavailable";
         UpdateAdminUserRequest: {
             display_name?: string | null;
             is_admin?: boolean | null;
@@ -1734,6 +1938,12 @@ export interface components {
         UpdateGroupRequest: {
             name?: string | null;
             visibility?: null | components["schemas"]["Visibility"];
+        };
+        UpdateGroupTranslationSettingsRequest: {
+            default_target_locales?: string[];
+            enabled: boolean;
+            glossary?: components["schemas"]["TranslationGlossaryEntry"][];
+            source_locale?: string | null;
         };
         UpdateMetadataIndexRequest: {
             data_type: components["schemas"]["MetadataDataType"];
@@ -1784,6 +1994,9 @@ export interface components {
             /** Format: int64 */
             timeout_secs: number;
         };
+        UpdateTranslationSettingsRequest: {
+            providers: components["schemas"]["TranslationProviderInput"][];
+        };
         UpsertLibraryTextRequest: {
             content: string;
             content_format?: components["schemas"]["LibraryTextContentFormat"];
@@ -1796,6 +2009,7 @@ export interface components {
             source_uri?: string | null;
             summary?: string | null;
             title: string;
+            translation?: null | components["schemas"]["TranslationDirective"];
         };
         UpsertMembershipRequest: {
             login_name: string;
@@ -2576,6 +2790,7 @@ export interface operations {
             query: {
                 source_key: string;
                 external_id: string;
+                locale?: string | null;
             };
             header?: never;
             path: {
@@ -2608,6 +2823,7 @@ export interface operations {
             query: {
                 source_key: string;
                 external_id: string;
+                locale?: string | null;
             };
             header?: never;
             path: {
@@ -2660,6 +2876,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_document_translation_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationJobsResponse"];
+                };
+            };
+        };
+    };
+    rebuild_document_translations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebuildDocumentTranslationsRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationJobsResponse"];
                 };
             };
         };
@@ -3643,6 +3907,96 @@ export interface operations {
             };
         };
     };
+    get_translation_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationJobResponse"];
+                };
+            };
+        };
+    };
+    retry_translation_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationJobResponse"];
+                };
+            };
+        };
+    };
+    get_group_translation_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupTranslationSettingsResponse"];
+                };
+            };
+        };
+    };
+    update_group_translation_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupTranslationSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupTranslationSettingsResponse"];
+                };
+            };
+        };
+    };
     upload_library_files: {
         parameters: {
             query?: never;
@@ -4422,6 +4776,64 @@ export interface operations {
                 };
             };
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_translation_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationSettingsResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_translation_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTranslationSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationSettingsResponse"];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT enabled, default_target_locales, source_locale, glossary\nFROM context69.group_translation_settings\nWHERE group_id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "default_target_locales",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "default_target_locales"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "source_locale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "source_locale"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "glossary",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.group_translation_settings",
+            "name": "glossary"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7e8559e13784e53079ff49da9da6acc86679634d2f8552b7c8279b94067db736"
+}

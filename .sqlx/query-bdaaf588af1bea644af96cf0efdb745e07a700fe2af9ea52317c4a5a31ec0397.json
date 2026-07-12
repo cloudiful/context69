@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\"\nFROM (\n    SELECT c.id\n    FROM context69.document_chunks c\n    INNER JOIN context69.library_file_documents lfd ON lfd.document_id = c.document_id\n    WHERE lfd.file_id = ANY($1)\n    UNION ALL\n    SELECT c.id\n    FROM context69.document_translation_chunks c\n    INNER JOIN context69.library_file_documents lfd ON lfd.document_id = c.document_id\n    WHERE lfd.file_id = ANY($1)\n) chunks\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bdaaf588af1bea644af96cf0efdb745e07a700fe2af9ea52317c4a5a31ec0397"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.document_translation_versions (\n    id, document_id, target_locale, source_locale, source_record_hash,\n    provider_key, provider_config_hash, model_name, translated_title,\n    translated_summary, translated_body_text\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9aea21c2b8dca0aa3c57ad7e3a73537125b9cad72e35508684294b9146d7ac81"
+}

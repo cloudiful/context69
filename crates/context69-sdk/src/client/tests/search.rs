@@ -10,6 +10,7 @@ async fn search_executes_borrowed_request() {
     let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
     let request_body = SearchRequest {
         query: "rust".to_string(),
+        locale: None,
         limit: 5,
         source_key: None,
         group_path: None,

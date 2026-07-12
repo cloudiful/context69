@@ -1,5 +1,4 @@
 import { createApp } from "vue";
-import Aura from "@primeuix/themes/aura";
 import ConfirmationService from "primevue/confirmationservice";
 import PrimeVue from "primevue/config";
 import ToastService from "primevue/toastservice";
@@ -35,3 +34,4 @@ async function bootstrap() {
 }
 
 void bootstrap();
+import Aura from "@primeuix/themes/aura";

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::{
     ChunkRow, Database, DocumentRow, ExistingDocumentRow, KeywordSearchHitRow, ReindexChunkRow,
     SearchHitRow, UpsertedDocument, is_library_file, keyword_terms, library_file_id, library_path,
-    library_section_label, search_hit_from_keyword_row,
+    library_section_label, search_hit_from_keyword_row, translation_status,
 };
 use crate::contracts::{
     DocumentChunkResponse, DocumentResponse, SearchHit, SearchRequest, Visibility,
@@ -271,6 +271,7 @@ impl Database {
     pub async fn fetch_search_hits_by_chunk_ids(
         &self,
         chunk_ids: &[Uuid],
+        requested_locale: Option<&str>,
         scope: &AccessScope,
     ) -> Result<HashMap<Uuid, SearchHit>> {
         let rows = sqlx::query_file_as!(
@@ -278,7 +279,8 @@ impl Database {
             "src/sql/db/documents/fetch_search_hits_by_chunk_ids.sql",
             chunk_ids,
             &scope.private_group_ids,
-            scope.group_path.as_deref()
+            scope.group_path.as_deref(),
+            requested_locale
         )
         .fetch_all(&self.pool)
         .await?;
@@ -312,6 +314,10 @@ impl Database {
                         library_path: library_path(&row.metadata_json),
                         is_library_file: is_library_file(&row.metadata_json),
                         metadata_json: row.metadata_json,
+                        requested_locale: requested_locale.map(ToOwned::to_owned),
+                        content_locale: Some(row.content_locale.clone()),
+                        translation_status: translation_status(row.translation_status.as_deref()),
+                        is_fallback: requested_locale.is_some() && row.content_locale == "original",
                     },
                 )
             })
@@ -343,12 +349,16 @@ impl Database {
             request.published_after,
             request.published_before,
             &scope.private_group_ids,
-            keyword_limit
+            keyword_limit,
+            request.locale.as_deref()
         )
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(search_hit_from_keyword_row).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| search_hit_from_keyword_row(row, request.locale.as_deref()))
+            .collect())
     }
 
     pub async fn list_chunk_payloads_for_reindex(&self) -> Result<Vec<ChunkPayload>> {
@@ -379,6 +389,9 @@ impl Database {
                 chunk_index: row.chunk_index,
                 chunk_text: row.chunk_text,
                 metadata_json: row.metadata_json,
+                content_locale: "original".to_string(),
+                source_locale: None,
+                translation_provider: None,
             })
             .collect())
     }
@@ -437,6 +450,10 @@ impl Database {
                     text: chunk.chunk_text,
                 })
                 .collect(),
+            requested_locale: None,
+            content_locale: None,
+            translation_status: None,
+            is_fallback: false,
         }))
     }
 }

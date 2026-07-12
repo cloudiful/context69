@@ -76,10 +76,11 @@ impl QueryService {
     pub async fn get_document(
         &self,
         document_id: i64,
+        locale: Option<&str>,
         scope: &AccessScope,
     ) -> Result<DocumentResponse> {
         self.db
-            .get_document(document_id, scope)
+            .get_document_localized(document_id, locale, scope)
             .await
             .map(|document| document.ok_or_else(|| anyhow!("document not found")))?
     }

@@ -63,6 +63,7 @@ impl DocumentStoreService {
         &self,
         group_id: i64,
         key: &DocumentKey,
+        locale: Option<&str>,
         scope: &AccessScope,
     ) -> Result<DocumentResponse> {
         let id = self
@@ -71,7 +72,7 @@ impl DocumentStoreService {
             .await?
             .context("document not found")?;
         self.db
-            .get_document(id, scope)
+            .get_document_localized(id, locale, scope)
             .await?
             .context("document not found")
     }
@@ -80,6 +81,7 @@ impl DocumentStoreService {
         &self,
         group_id: i64,
         keys: &[DocumentKey],
+        locale: Option<&str>,
         scope: &AccessScope,
     ) -> Result<BatchGetDocumentsResponse> {
         if keys.is_empty() || keys.len() > 200 {
@@ -87,7 +89,7 @@ impl DocumentStoreService {
         }
         let mut items = Vec::with_capacity(keys.len());
         for key in keys {
-            let document = match self.get_by_key(group_id, key, scope).await {
+            let document = match self.get_by_key(group_id, key, locale, scope).await {
                 Ok(value) => Some(value),
                 Err(error) if error.to_string().contains("not found") => None,
                 Err(error) => return Err(error),
@@ -133,7 +135,10 @@ impl DocumentStoreService {
             .await?;
         let mut documents = Vec::with_capacity(ids.len());
         for id in ids {
-            if let Some(document) = self.db.get_document(id, scope).await?
+            if let Some(document) = self
+                .db
+                .get_document_localized(id, request.locale.as_deref(), scope)
+                .await?
                 && filters_match(&document.metadata_json, request)?
             {
                 documents.push(document);

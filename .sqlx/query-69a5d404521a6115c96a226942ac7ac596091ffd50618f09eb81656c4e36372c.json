@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO context69.library_url_import_jobs (\n    id, group_id, visibility, folder_id, source_url, dedupe_key,\n    requested_filename, requested_media_type, external_id, source_uri,\n    published_at, metadata_json, metadata_provided\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)\nON CONFLICT (group_id, dedupe_key)\n    WHERE status IN ('queued', 'downloading', 'ingesting')\nDO UPDATE SET updated_at = context69.library_url_import_jobs.updated_at\nRETURNING *\n",
+  "query": "INSERT INTO context69.library_url_import_jobs (\n    id, group_id, visibility, folder_id, source_url, dedupe_key,\n    requested_filename, requested_media_type, external_id, source_uri,\n    published_at, metadata_json, metadata_provided, translation_provided,\n    translation_source_locale, translation_target_locales\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)\nON CONFLICT (group_id, dedupe_key)\n    WHERE status IN ('queued', 'downloading', 'ingesting')\nDO UPDATE SET updated_at = context69.library_url_import_jobs.updated_at\nRETURNING *\n",
   "describe": {
     "columns": [
       {
@@ -255,6 +255,39 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 23,
+        "name": "translation_provided",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "translation_provided"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "translation_source_locale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "translation_source_locale"
+          }
+        }
+      },
+      {
+        "ordinal": 25,
+        "name": "translation_target_locales",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "translation_target_locales"
+          }
+        }
       }
     ],
     "parameters": {
@@ -271,7 +304,10 @@
         "Text",
         "Timestamptz",
         "Jsonb",
-        "Bool"
+        "Bool",
+        "Bool",
+        "Text",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -297,8 +333,11 @@
       false,
       true,
       true,
+      false,
+      false,
+      true,
       false
     ]
   },
-  "hash": "df752533d6e7dfc79373f2f1e88c2f8c920ff0dbf34100ed2bb8a9ab5f79c61a"
+  "hash": "69a5d404521a6115c96a226942ac7ac596091ffd50618f09eb81656c4e36372c"
 }

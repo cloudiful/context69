@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     Router,
-    extract::{FromRef, Path, State},
+    extract::{FromRef, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -20,6 +20,7 @@ pub trait SearchApi: Send + Sync {
         &self,
         user_id: Option<i64>,
         document_id: i64,
+        locale: Option<String>,
     ) -> Result<DocumentResponse>;
 }
 
@@ -84,10 +85,11 @@ async fn get_document(
     State(state): State<SearchHttpState>,
     CurrentUser(user): CurrentUser,
     Path(document_id): Path<i64>,
+    Query(query): Query<DocumentLocaleQuery>,
 ) -> impl IntoResponse {
     match state
         .search
-        .get_document(Some(user.user_id), document_id)
+        .get_document(Some(user.user_id), document_id, query.locale)
         .await
     {
         Ok(document) => (StatusCode::OK, axum::Json(document)).into_response(),
@@ -96,4 +98,9 @@ async fn get_document(
         }
         Err(error) => internal_error_response(error),
     }
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+struct DocumentLocaleQuery {
+    locale: Option<String>,
 }

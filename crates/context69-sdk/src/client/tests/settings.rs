@@ -57,3 +57,19 @@ async fn search_settings_get_uses_nested_resource() {
         .expect("search settings");
     assert_eq!(captured.await.unwrap().uri.path(), "/v1/settings/search");
 }
+
+#[tokio::test]
+async fn translation_settings_get_uses_nested_resource() {
+    let response = json!({"providers": []});
+    let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
+    client(&base_url)
+        .settings()
+        .translation()
+        .get()
+        .await
+        .expect("translation settings");
+    assert_eq!(
+        captured.await.unwrap().uri.path(),
+        "/v1/settings/translation"
+    );
+}

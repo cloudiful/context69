@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
+use context69_translation::{TranslationDependencies, TranslationService};
 use tracing::warn;
 
 use crate::{
@@ -19,7 +20,7 @@ use crate::{
         auth::AuthService, document_store::DocumentStoreService, library::LibraryService,
         namespace::NamespaceService, personal_access_tokens::PersonalAccessTokenService,
         query::QueryService, settings::SettingsService, source_folders::SourceFoldersService,
-        sync::SyncService,
+        sync::SyncService, translation::TranslationPublisherAdapter,
     },
     source_store::SourceStore,
 };
@@ -43,6 +44,7 @@ pub struct Context69App {
     pub library: LibraryService,
     pub source_folders: SourceFoldersService,
     pub document_store: DocumentStoreService,
+    pub translation: TranslationService,
     pub browser_sessions: BrowserSessionConfig,
 }
 
@@ -111,6 +113,21 @@ impl Context69App {
             }
         }
 
+        let translation = TranslationService::new(TranslationDependencies {
+            pool: db.pool().clone(),
+            http_client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()?,
+            publisher: Arc::new(TranslationPublisherAdapter::new(
+                embedding.clone(),
+                index.clone(),
+                ChunkingConfig {
+                    max_chars: config.chunking.max_chars,
+                    overlap_chars: config.chunking.overlap_chars,
+                },
+            )),
+            concurrency: config.scheduler.max_concurrency,
+        });
         let sync = SyncService::new(
             db.clone(),
             embedding.clone(),
@@ -120,6 +137,7 @@ impl Context69App {
                 overlap_chars: config.chunking.overlap_chars,
             },
             config.scheduler.max_concurrency,
+            translation.clone(),
         );
         sync.reload_sources().await?;
         if let Err(error) = sync.validate_sources().await {
@@ -155,11 +173,13 @@ impl Context69App {
             },
             settings.clone(),
             config.file_library.clone(),
+            translation.clone(),
         )?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
         library.resume_url_imports().await?;
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
         document_store.resume_pending();
+        translation.resume().await?;
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
             warn!(error = %error, "failed to prune expired rerank item scores during startup");
         }
@@ -189,6 +209,7 @@ impl Context69App {
             library,
             source_folders,
             document_store,
+            translation,
             browser_sessions,
         })
     }

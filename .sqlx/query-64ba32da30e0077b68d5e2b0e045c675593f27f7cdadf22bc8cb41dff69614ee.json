@@ -255,6 +255,39 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 23,
+        "name": "translation_provided",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "translation_provided"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "translation_source_locale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "translation_source_locale"
+          }
+        }
+      },
+      {
+        "ordinal": 25,
+        "name": "translation_target_locales",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "translation_target_locales"
+          }
+        }
       }
     ],
     "parameters": {
@@ -287,6 +320,9 @@
       true,
       false,
       true,
+      true,
+      false,
+      false,
       true,
       false
     ]

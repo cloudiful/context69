@@ -44,10 +44,13 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
         || message.contains("unknown target folder")
         || message.contains("stored file not found for file")
         || message.contains("unknown URL import job")
+        || message.contains("translation job not found")
+        || message.contains("translation document not found")
     {
         StatusCode::NOT_FOUND
     } else if message.contains("external_id_content_conflict")
         || message.contains("cannot be retried")
+        || message.contains("translation job is not retryable")
     {
         StatusCode::CONFLICT
     } else if message.contains("metadata_json must be an object")
@@ -68,6 +71,11 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
         || message.contains("invalid_remote_url")
         || message.contains("remote_url_blocked")
         || message.contains("remote_filename_required")
+        || message.contains("translation provider")
+        || message.contains("monthly character limit")
+        || message.contains("locale must")
+        || message.contains("locale region")
+        || message.contains("glossary requires")
     {
         StatusCode::BAD_REQUEST
     } else if message.contains("remote_file_too_large") {

@@ -56,6 +56,8 @@ pub(super) struct SearchHitRow {
     pub(super) chunk_index: i32,
     pub(super) chunk_text: String,
     pub(super) metadata_json: Value,
+    pub(super) content_locale: String,
+    pub(super) translation_status: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -130,6 +132,8 @@ pub(super) struct KeywordSearchHitRow {
     pub(super) metadata_json: Value,
     pub(super) keyword_score: f32,
     pub(super) match_reason: String,
+    pub(super) content_locale: String,
+    pub(super) translation_status: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -235,7 +239,10 @@ pub(super) fn is_library_file(metadata_json: &Value) -> bool {
         .unwrap_or(false)
 }
 
-pub(super) fn search_hit_from_keyword_row(row: KeywordSearchHitRow) -> SearchHit {
+pub(super) fn search_hit_from_keyword_row(
+    row: KeywordSearchHitRow,
+    requested_locale: Option<&str>,
+) -> SearchHit {
     SearchHit {
         chunk_id: row.chunk_id,
         document_id: row.document_id,
@@ -263,6 +270,24 @@ pub(super) fn search_hit_from_keyword_row(row: KeywordSearchHitRow) -> SearchHit
         library_path: library_path(&row.metadata_json),
         is_library_file: is_library_file(&row.metadata_json),
         metadata_json: row.metadata_json,
+        requested_locale: requested_locale.map(ToOwned::to_owned),
+        content_locale: Some(row.content_locale.clone()),
+        translation_status: translation_status(row.translation_status.as_deref()),
+        is_fallback: requested_locale.is_some() && row.content_locale == "original",
+    }
+}
+
+pub(super) fn translation_status(
+    value: Option<&str>,
+) -> Option<crate::contracts::TranslationStatus> {
+    match value {
+        Some("queued") => Some(crate::contracts::TranslationStatus::Queued),
+        Some("running") => Some(crate::contracts::TranslationStatus::Running),
+        Some("succeeded") => Some(crate::contracts::TranslationStatus::Succeeded),
+        Some("failed") => Some(crate::contracts::TranslationStatus::Failed),
+        Some("skipped") => Some(crate::contracts::TranslationStatus::Skipped),
+        Some("quota_exceeded") => Some(crate::contracts::TranslationStatus::QuotaExceeded),
+        _ => None,
     }
 }
 

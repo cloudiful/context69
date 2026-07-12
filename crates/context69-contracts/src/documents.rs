@@ -115,6 +115,8 @@ pub struct DocumentSort {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct DocumentQueryRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
     #[serde(default)]
     pub source_key: Option<String>,
     #[serde(default)]
@@ -151,11 +153,15 @@ pub struct DocumentKey {
 pub struct DocumentLookupQuery {
     pub source_key: String,
     pub external_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct BatchGetDocumentsRequest {
     pub keys: Vec<DocumentKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

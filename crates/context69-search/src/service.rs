@@ -94,7 +94,7 @@ impl SearchService {
         let chunk_ids = hits.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>();
         let hydrated = self
             .repository
-            .fetch_search_hits_by_chunk_ids(&chunk_ids, &scope)
+            .fetch_search_hits_by_chunk_ids(&chunk_ids, &request, &scope)
             .await?;
 
         let vector_results = hits

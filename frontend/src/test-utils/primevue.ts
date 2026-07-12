@@ -1,4 +1,3 @@
-import Aura from "@primeuix/themes/aura";
 import ConfirmationService from "primevue/confirmationservice";
 import PrimeVue from "primevue/config";
 import ToastService from "primevue/toastservice";
@@ -31,3 +30,4 @@ export const testPrimeVuePlugin = {
     app.use(ToastService);
   },
 };
+import Aura from "@primeuix/themes/aura";

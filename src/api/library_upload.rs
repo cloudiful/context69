@@ -2,7 +2,7 @@ use axum::{Json, extract::Multipart, http::StatusCode, response::IntoResponse};
 use uuid::Uuid;
 
 use crate::{
-    contracts::{ApiErrorResponse, LibraryFileUploadMetadata},
+    contracts::{ApiErrorResponse, LibraryFileIngestOptions},
     services::library::UploadedLibraryFile,
 };
 
@@ -12,7 +12,7 @@ pub(crate) async fn read_library_uploads(
     let mut folder_id = None;
     let mut uploads = Vec::new();
     let mut declared_sha256 = None;
-    let mut metadata = None;
+    let mut options = None;
 
     loop {
         let field = match multipart.next_field().await {
@@ -77,9 +77,9 @@ pub(crate) async fn read_library_uploads(
         }
 
         if name == "metadata" {
-            metadata = match field.bytes().await {
-                Ok(value) => match serde_json::from_slice::<LibraryFileUploadMetadata>(&value) {
-                    Ok(value) if value.metadata_json.is_object() => Some(value),
+            options = match field.bytes().await {
+                Ok(value) => match serde_json::from_slice::<LibraryFileIngestOptions>(&value) {
+                    Ok(value) if value.metadata.metadata_json.is_object() => Some(value),
                     Ok(_) => {
                         return Err((
                             StatusCode::BAD_REQUEST,
@@ -143,7 +143,8 @@ pub(crate) async fn read_library_uploads(
             media_type,
             bytes,
             declared_sha256: declared_sha256.take(),
-            metadata: metadata.take(),
+            metadata: options.as_ref().map(|value| value.metadata.clone()),
+            translation: options.take().and_then(|value| value.translation),
         });
     }
 

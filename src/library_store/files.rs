@@ -1,6 +1,14 @@
 use anyhow::Result;
 use chrono::Utc;
+use sqlx::FromRow;
 use uuid::Uuid;
+
+#[derive(Debug, FromRow)]
+struct FileTranslationDirectiveRow {
+    translation_override: bool,
+    translation_source_locale: Option<String>,
+    translation_target_locales: Vec<String>,
+}
 
 use super::mappers::file_from_row;
 use super::{
@@ -9,6 +17,44 @@ use super::{
 };
 
 impl LibraryStore {
+    pub async fn set_file_translation_directive(
+        &self,
+        file_id: Uuid,
+        directive: Option<&crate::contracts::TranslationDirective>,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/files/set_translation_directive.sql",
+            file_id,
+            directive.is_some(),
+            directive.and_then(|value| value.source_locale.as_deref()),
+            directive
+                .map(|value| value.target_locales.as_slice())
+                .unwrap_or_default()
+        )
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn file_translation_directive(
+        &self,
+        file_id: Uuid,
+    ) -> Result<Option<crate::contracts::TranslationDirective>> {
+        let row = sqlx::query_file_as!(
+            FileTranslationDirectiveRow,
+            "src/sql/library_store/files/get_translation_directive.sql",
+            file_id
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+        Ok(row.and_then(|row| {
+            row.translation_override
+                .then_some(crate::contracts::TranslationDirective {
+                    source_locale: row.translation_source_locale,
+                    target_locales: row.translation_target_locales,
+                })
+        }))
+    }
     pub async fn update_business_metadata(
         &self,
         group_id: i64,

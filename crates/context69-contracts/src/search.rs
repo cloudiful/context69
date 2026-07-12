@@ -10,6 +10,8 @@ use crate::Visibility;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct SearchRequest {
     pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: usize,
     #[serde(default)]
@@ -79,6 +81,14 @@ pub struct SearchHit {
     pub library_path: Option<String>,
     #[serde(default)]
     pub is_library_file: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_status: Option<crate::TranslationStatus>,
+    #[serde(default)]
+    pub is_fallback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -113,6 +123,14 @@ pub struct DocumentResponse {
     #[serde(default)]
     pub is_library_file: bool,
     pub chunks: Vec<DocumentChunkResponse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_status: Option<crate::TranslationStatus>,
+    #[serde(default)]
+    pub is_fallback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

@@ -27,6 +27,7 @@ mod library_upload;
 mod personal_access_tokens;
 mod router;
 mod sources;
+mod translations;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -127,3 +128,4 @@ pub(crate) use sources::{
     create_source, create_source_connection, delete_source, delete_source_connection,
     list_source_connections, list_sources, sync_source, update_source, update_source_connection,
 };
+pub(crate) use translations::*;

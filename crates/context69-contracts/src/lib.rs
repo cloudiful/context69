@@ -7,6 +7,7 @@ pub mod namespace;
 pub mod search;
 pub mod settings;
 pub mod sources;
+pub mod translation;
 
 pub use auth::{
     AdminUserResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse, CreateAdminUserRequest,
@@ -24,14 +25,14 @@ pub use documents::{
 };
 pub use library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
-    LibraryDocumentSectionPreview, LibraryFileDetailResponse, LibraryFileSummary,
-    LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse, LibraryIngestJobResponse,
-    LibraryIngestStatus, LibraryPreviewContentFormat, LibraryResourceItem, LibraryResourceKind,
-    LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryResourceSortBy,
-    LibraryTextContentFormat, LibraryTreeResponse, LibraryUploadResponse,
-    LibraryUrlImportJobResponse, LibraryUrlImportStatus, MoveFileRequest, MoveFolderRequest,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
-    UpsertLibraryTextRequest,
+    LibraryDocumentSectionPreview, LibraryFileDetailResponse, LibraryFileIngestOptions,
+    LibraryFileSummary, LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse,
+    LibraryIngestJobResponse, LibraryIngestStatus, LibraryPreviewContentFormat,
+    LibraryResourceItem, LibraryResourceKind, LibraryResourcePageQuery,
+    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTextContentFormat,
+    LibraryTreeResponse, LibraryUploadResponse, LibraryUrlImportJobResponse,
+    LibraryUrlImportStatus, MoveFileRequest, MoveFolderRequest, PrepareLibraryUploadRequest,
+    PrepareLibraryUploadResponse, SortDirection, UpsertLibraryTextRequest,
 };
 pub use mcp::McpDocumentArgs;
 pub use namespace::{
@@ -57,3 +58,4 @@ pub use sources::{
     SourceFolderResponse, SourceOriginStatusKind, SourceStatus, SyncOutcome,
     UpsertSourceConnectionRequest,
 };
+pub use translation::*;

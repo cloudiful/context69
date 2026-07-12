@@ -19,6 +19,7 @@ import SettingsAppearancePage from "./settings/SettingsAppearancePage.vue";
 import SettingsDoclingPage from "./settings/SettingsDoclingPage.vue";
 import SettingsRuntimePage from "./settings/SettingsRuntimePage.vue";
 import SettingsSearchPage from "./settings/SettingsSearchPage.vue";
+import SettingsTranslationPage from "./settings/SettingsTranslationPage.vue";
 
 const { t, locale } = useI18n({ useScope: "global" });
 const route = useRoute();
@@ -39,6 +40,8 @@ const currentSection = computed<SettingsSectionKey>(() => {
       return "docling";
     case "settings-admin-users":
       return "admin-users";
+    case "settings-translation":
+      return "translation";
     case "settings-appearance":
     default:
       return "appearance";
@@ -92,6 +95,7 @@ function switchLocale(nextLocale: AppLocale) {
           <SettingsSearchPage v-else-if="currentSection === 'search'" />
           <SettingsRuntimePage v-else-if="currentSection === 'runtime'" />
           <SettingsDoclingPage v-else-if="currentSection === 'docling'" />
+          <SettingsTranslationPage v-else-if="currentSection === 'translation'" />
           <SettingsAdminUsersPage v-else />
         </div>
 

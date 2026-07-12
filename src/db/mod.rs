@@ -19,6 +19,7 @@ mod search_cache;
 mod search_settings;
 mod source_connections;
 mod sync_runs;
+mod translations;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;

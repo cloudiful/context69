@@ -74,7 +74,7 @@ pub(crate) async fn get_group_document_by_key(
     match state
         .app
         .document_store
-        .get_by_key(group.id, &key, &scope)
+        .get_by_key(group.id, &key, query.locale.as_deref(), &scope)
         .await
     {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
@@ -97,7 +97,7 @@ pub(crate) async fn batch_get_group_documents(
     match state
         .app
         .document_store
-        .batch_get(group.id, &request.keys, &scope)
+        .batch_get(group.id, &request.keys, request.locale.as_deref(), &scope)
         .await
     {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
