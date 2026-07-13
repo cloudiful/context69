@@ -1,10 +1,9 @@
 /// <reference types="vitest/config" />
 
 import tailwindcss from "@tailwindcss/vite";
-import Components from "unplugin-vue-components/vite";
+import ui from "@nuxt/ui/vite";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, loadEnv } from "vite";
-import { PrimeVueResolver } from "@primevue/auto-import-resolver";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -14,9 +13,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       vue(),
       tailwindcss(),
-      Components({
-        resolvers: [PrimeVueResolver()],
-      }),
+      ui(),
     ],
     server: {
       host: "0.0.0.0",
@@ -40,6 +37,7 @@ export default defineConfig(({ mode }) => {
       environment: "jsdom",
       globals: true,
       css: true,
+      setupFiles: ["./src/test-utils/setup.ts"],
     },
   };
 });

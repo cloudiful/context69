@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestI18n } from "../test-utils/i18n";
 import { apiClient } from "../services/api";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import type { ExplorerEntry } from "../types/library";
 import LibraryView from "./LibraryView.vue";
 
 interface TestLibraryMenuItem {
-  command: () => void;
+  onSelect: () => void;
   label: string;
 }
 
@@ -94,7 +94,7 @@ describe("LibraryView", () => {
     const wrapper = mount(LibraryView, {
       attachTo: document.body,
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
       },
     });
     await vi.waitFor(() => {
@@ -160,7 +160,7 @@ describe("LibraryView", () => {
     const wrapper = mount(LibraryView, {
       attachTo: document.body,
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
       },
     });
     await vi.waitFor(() => {
@@ -185,7 +185,8 @@ describe("LibraryView", () => {
     const dialogInput = document.body.querySelector("#library-create-folder-name") as HTMLInputElement | null;
     expect(dialogInput).not.toBeNull();
     dialogInput!.value = "Archives";
-    dialogInput!.dispatchEvent(new Event("input"));
+    dialogInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    await wrapper.vm.$nextTick();
 
     const dialogButtons = [...document.body.querySelectorAll("button")];
     const dialogCreateButton = dialogButtons.find((button) => button.textContent?.includes("Create Folder"));
@@ -245,7 +246,7 @@ describe("LibraryView", () => {
     const wrapper = mount(LibraryView, {
       attachTo: document.body,
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
       },
     });
 
@@ -266,7 +267,7 @@ describe("LibraryView", () => {
       originalEvent: new MouseEvent("contextmenu", { bubbles: true }),
       data: fileEntry!,
     });
-    vm.resourceMenuItems[0].command();
+    vm.resourceMenuItems[0].onSelect();
 
     await vi.waitFor(() => {
       expect(router.currentRoute.value.query.file).toBe("file-1");
@@ -298,7 +299,7 @@ describe("LibraryView", () => {
     const wrapper = mount(LibraryView, {
       attachTo: document.body,
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
       },
     });
 

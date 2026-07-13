@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const { getDocument, ApiError } = vi.hoisted(() => {
   class MockApiError extends Error {
@@ -45,7 +45,7 @@ async function mountView(path = "/documents/42") {
 
   return mount(DocumentView, {
     global: {
-      plugins: [testPrimeVuePlugin, router, createTestI18n()],
+      plugins: [testNuxtUiPlugin, router, createTestI18n()],
     },
   });
 }

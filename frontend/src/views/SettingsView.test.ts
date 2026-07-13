@@ -1,14 +1,14 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Select from "primevue/select";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import { apiClient } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
 import { setGuest } from "../test-utils/auth";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import { installMockStorage } from "../test-utils/storage";
 import { LOCALE_STORAGE_KEY } from "../i18n/locale";
+import AppSelectField from "../components/AppSelectField.vue";
 
 import SettingsView from "./SettingsView.vue";
 
@@ -146,7 +146,7 @@ async function mountSettingsView(path: string, i18n = createTestI18n("en")) {
   const wrapper = mount(SettingsView, {
     attachTo: document.body,
     global: {
-      plugins: [testPrimeVuePlugin, i18n, router],
+      plugins: [testNuxtUiPlugin, i18n, router],
     },
   });
 
@@ -229,10 +229,9 @@ describe("SettingsView", () => {
     const i18n = createTestI18n("en");
     const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
 
-    const selects = wrapper.findAllComponents(Select).filter((component) => {
-      const testId = component.attributes()["data-testid"];
-      return testId === "settings-locale-select" || testId === "settings-theme-select";
-    });
+    const selects = wrapper.findAllComponents(AppSelectField).filter((component) =>
+      ["settings-locale-select", "settings-theme-select"].includes(component.props("testId") ?? ""),
+    );
 
     expect(selects).toHaveLength(2);
 

@@ -3,14 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
 import * as authService from "../services/auth/session";
 import { AuthError } from "../services/auth/session";
 import LoginView from "./LoginView.vue";
 
+const mocks = vi.hoisted(() => ({ addToast: vi.fn() }));
+vi.mock("@nuxt/ui/composables", () => ({ useToast: () => ({ add: mocks.addToast }) }));
+
 async function mountView(path = "/login") {
-  const addToast = vi.fn();
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -25,24 +27,20 @@ async function mountView(path = "/login") {
   const wrapper = mount(LoginView, {
     global: {
       plugins: [
-        testPrimeVuePlugin,
-        {
-          install(app) {
-            app.config.globalProperties.$toast.add = addToast;
-          },
-        },
+        testNuxtUiPlugin,
         router,
         createTestI18n(),
       ],
     },
   });
 
-  return { addToast, router, wrapper };
+  return { addToast: mocks.addToast, router, wrapper };
 }
 
 describe("LoginView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mocks.addToast.mockReset();
     setGuest();
   });
 
@@ -81,10 +79,10 @@ describe("LoginView", () => {
     await flushPromises();
 
     expect(addToast).toHaveBeenCalledWith({
-      severity: "error",
-      summary: "Error",
-      detail: "Invalid login name or password.",
-      life: 5000,
+      color: "error",
+      title: "Error",
+      description: "Invalid login name or password.",
+      duration: 5000,
     });
   });
 

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import ToggleSwitch from "primevue/toggleswitch";
-
 const props = defineProps<{
   inputId: string;
   label: string;
@@ -39,8 +37,8 @@ const emit = defineEmits<{
       </div>
     </div>
     <div class="shrink-0 self-center">
-      <ToggleSwitch
-        :input-id="props.inputId"
+      <USwitch
+        :id="props.inputId"
         :model-value="props.modelValue"
         :data-testid="props.testId"
         :disabled="props.disabled"

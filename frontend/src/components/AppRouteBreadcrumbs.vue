@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
-import Breadcrumb from "primevue/breadcrumb";
-import type { MenuItemCommandEvent } from "primevue/menuitem";
 
 import { resolveSettingsSectionNav } from "../settings/navigation";
 import { authSessionState } from "../services/auth/session";
@@ -14,7 +12,6 @@ type Crumb = {
 };
 
 const route = useRoute();
-const router = useRouter();
 const { t } = useI18n();
 
 const routeName = computed(() => String(route.name ?? ""));
@@ -75,29 +72,15 @@ const items = computed<Crumb[]>(() => {
 
 const breadcrumbItems = computed(() => items.value.map((item) => ({
   label: item.label,
-  to: item.to ?? route.path,
-  url: item.to ?? route.path,
-  command: item.to
-    ? ({ originalEvent }: MenuItemCommandEvent) => {
-      originalEvent.preventDefault();
-      navigate(item.to);
-    }
-    : undefined,
+  to: item.to,
 })));
-
-function navigate(to?: string) {
-  if (!to || to === route.path) {
-    return;
-  }
-  void router.push(to);
-}
 </script>
 
 <template>
   <div class="flex min-w-0 items-center gap-3">
-    <Breadcrumb
+    <UBreadcrumb
       v-if="items.length > 1"
-      :model="breadcrumbItems"
+      :items="breadcrumbItems"
       class="min-w-0 flex-1"
     />
     <div id="app-route-actions" class="flex shrink-0 items-center justify-end" />

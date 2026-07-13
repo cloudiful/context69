@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import { useConfirm } from "primevue/useconfirm";
-import { useToast } from "primevue/usetoast";
+import { useToast } from "@nuxt/ui/composables";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import AppStateMessage from "../components/AppStateMessage.vue";
@@ -16,9 +14,10 @@ import {
   type SourceStatus,
 } from "../services/api";
 import { useErrorToast } from "../composables/use-error-toast";
+import { useAppConfirm } from "../composables/use-app-confirm";
 
 const { t } = useI18n();
-const confirm = useConfirm();
+const confirm = useAppConfirm();
 const toast = useToast();
 const showErrorToast = useErrorToast();
 
@@ -68,9 +67,9 @@ async function saveSource(payload: SourceConfigInput) {
 
     await loadSources();
     toast.add({
-      severity: "success",
-      summary: editingSource.value ? t("sources.form.save") : t("sources.form.create"),
-      life: 2500,
+      color: "success",
+      title: editingSource.value ? t("sources.form.save") : t("sources.form.create"),
+      duration: 2500,
     });
     resetEditor();
   } catch (error) {
@@ -90,10 +89,10 @@ async function syncSource(sourceKey: string) {
     await apiClient.syncSource(sourceKey);
     await loadSources();
     toast.add({
-      severity: "success",
-      summary: t("sources.sync"),
-      detail: sourceKey,
-      life: 2500,
+      color: "success",
+      title: t("sources.sync"),
+      description: sourceKey,
+      duration: 2500,
     });
   } catch (error) {
     showErrorToast(error, t("sources.syncFailed"));
@@ -126,16 +125,8 @@ function deleteSource(sourceKey: string) {
   confirm.require({
     header: t("common.delete"),
     message: t("sources.deleteConfirm"),
-    icon: "pi pi-exclamation-triangle",
-    rejectProps: {
-      label: t("common.cancel"),
-      severity: "secondary",
-      outlined: true,
-    },
-    acceptProps: {
-      label: t("common.delete"),
-      severity: "danger",
-    },
+    rejectLabel: t("common.cancel"),
+    acceptLabel: t("common.delete"),
     accept: () => {
       void deleteSourceConfirmed(sourceKey);
     },
@@ -155,10 +146,10 @@ async function deleteSourceConfirmed(sourceKey: string) {
     }
     await loadSources();
     toast.add({
-      severity: "success",
-      summary: t("common.delete"),
-      detail: sourceKey,
-      life: 2500,
+      color: "success",
+      title: t("common.delete"),
+      description: sourceKey,
+      duration: 2500,
     });
   } catch (error) {
     showErrorToast(error, t("sources.deleteFailed"));
@@ -213,17 +204,17 @@ onMounted(async () => {
                 {{ t("sources.editorDescription") }}
               </p>
             </div>
-            <Button
+            <UButton
               v-if="sources.length > 0"
               class="min-w-24"
               type="button"
-              outlined
-              size="small"
-              severity="secondary"
+              variant="outline"
+              size="sm"
+              color="neutral"
               @click="resetEditor"
             >
               {{ t("common.close") }}
-            </Button>
+            </UButton>
           </div>
 
           <SourceEditorForm

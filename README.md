@@ -192,7 +192,7 @@ Build the backend and frontend first:
 ```bash
 cargo build --release --bin context69
 cd frontend
-bun install --frozen-lockfile
+bun install --no-save
 bun run build
 cd ..
 mkdir -p ci-image-input/frontend-dist
@@ -240,10 +240,8 @@ Release details:
 
 The repository contains a Vue 3 + Vite + bun frontend under `frontend/`.
 
-The frontend currently uses PrimeVue `5.0.0-rc.2`. PrimeVue 5 requires a PrimeUI license key,
-including for the free Community tier. Set `VITE_PRIMEUI_LICENSE` in `frontend/.env` for local builds and add
-the same key as the `PRIMEUI_LICENSE` repository secret for release builds. The key is embedded
-by Vite at build time; setting it only on the runtime container is too late.
+The frontend uses Nuxt UI with Vue 3, Vite, Tailwind CSS, and bundled Lucide icons. Prefer Nuxt UI
+components and default theme tokens before adding project-specific controls or CSS.
 
 Development guides:
 

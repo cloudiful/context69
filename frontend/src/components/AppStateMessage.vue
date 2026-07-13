@@ -1,24 +1,20 @@
 <script setup lang="ts">
-import Message from "primevue/message";
-
 withDefaults(defineProps<{
-  severity?: "success" | "info" | "warn" | "error" | "secondary" | "contrast";
+  color?: "success" | "info" | "warning" | "error" | "neutral";
   title?: string;
 }>(), {
-  severity: "secondary",
+  color: "neutral",
   title: "",
 });
 </script>
 
 <template>
-  <Message class="app-state-message" :severity="severity" :closable="false">
-    <div class="grid gap-[0.2rem]">
-      <p v-if="title" class="m-0">
-        <strong>{{ title }}</strong>
-      </p>
-      <p class="m-0">
-        <slot />
-      </p>
-    </div>
-  </Message>
+  <UAlert
+    class="app-state-message"
+    :color="color"
+    variant="subtle"
+    :title="title || undefined"
+  >
+    <template #description><slot /></template>
+  </UAlert>
 </template>

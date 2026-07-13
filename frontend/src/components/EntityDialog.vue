@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Dialog from "primevue/dialog";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
 
 import type { Visibility } from "../services/api";
 
@@ -66,17 +62,18 @@ function handleSubmit() {
 </script>
 
 <template>
-  <Dialog
-    :visible="visible"
-    modal
-    :header="title"
+  <UModal
+    :open="visible"
+
+    :title="title"
     class="w-[32rem] max-w-[96vw]"
-    @update:visible="emit('update:visible', $event)"
+    @update:open="emit('update:visible', $event)"
   >
-    <div class="grid gap-3">
+    <template #body>
+<div class="grid gap-3">
       <div v-if="showKey" class="grid gap-2">
         <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ entityKeyLabel || t("groups.groupKey") }}</label>
-        <InputText
+        <UInput
           v-model="entityKey"
           :placeholder="entityKeyLabel || t('groups.groupKey')"
         />
@@ -84,7 +81,7 @@ function handleSubmit() {
 
       <div class="grid gap-2">
         <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ entityNameLabel || t("groups.groupName") }}</label>
-        <InputText
+        <UInput
           v-model="entityName"
           :placeholder="entityNameLabel || t('groups.groupName')"
         />
@@ -92,25 +89,26 @@ function handleSubmit() {
 
       <div class="grid gap-2">
         <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("groups.visibility") }}</label>
-        <Select
+        <USelect
           v-model="visibility"
-          fluid
-          option-label="label"
-          option-value="value"
-          :options="visibilityOptions"
+          label-key="label"
+          value-key="value"
+          :items="visibilityOptions"
         />
       </div>
     </div>
+    </template>
+
 
     <template #footer>
       <div class="flex justify-end gap-2">
-        <Button severity="secondary" variant="outlined" :disabled="busy" @click="close">
+        <UButton color="neutral" variant="outline" :disabled="busy" @click="close">
           {{ t("common.cancel") }}
-        </Button>
-        <Button :disabled="busy || !canSubmit" @click="handleSubmit">
+        </UButton>
+        <UButton :disabled="busy || !canSubmit" @click="handleSubmit">
           {{ submitLabel || t("common.save") }}
-        </Button>
+        </UButton>
       </div>
     </template>
-  </Dialog>
+  </UModal>
 </template>

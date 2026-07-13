@@ -2,7 +2,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import { installMockStorage } from "../test-utils/storage";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
 import type { ExplorerEntry } from "../types/library";
@@ -28,14 +28,14 @@ describe("LibraryResourceTable", () => {
         selectedFolderReady: false,
       },
       global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
+        plugins: [testNuxtUiPlugin, createTestI18n()],
       },
     });
 
     expect(wrapper.text()).toContain("Failed to load the file library");
     expect(wrapper.text()).not.toContain("Upload a file or create subfolders");
 
-    await wrapper.get("button").trigger("click");
+    await wrapper.get('button[aria-label="Retry"]').trigger("click");
     expect(wrapper.emitted("retry")).toHaveLength(1);
   });
 
@@ -46,62 +46,42 @@ describe("LibraryResourceTable", () => {
         paginated: true,
         totalRecords: 120,
       },
-      global: { plugins: [testPrimeVuePlugin, createTestI18n()] },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
-    const table = wrapper.findComponent({ name: "DataTable" });
+    const table = wrapper.findComponent({ name: "Table" });
 
-    table.vm.$emit("page", { first: 50, rows: 50 });
-    table.vm.$emit("sort", { sortField: "updated_at", sortOrder: -1 });
-    table.vm.$emit("sort", { sortField: "updated_at", sortOrder: 1 });
+    wrapper.findComponent({ name: "Pagination" }).vm.$emit("update:page", 2);
+    table.vm.$emit("update:sorting", [{ id: "updated_at", desc: false }]);
     await wrapper.vm.$nextTick();
 
     expect(wrapper.emitted("page")?.[0]).toEqual([{ first: 50, rows: 50 }]);
-    expect(wrapper.emitted("sort")?.[0]).toEqual([{ sortField: "updated_at", sortOrder: -1 }]);
-    expect(wrapper.emitted("sort")?.[1]).toEqual([{ sortField: "updated_at", sortOrder: 1 }]);
+    expect(wrapper.emitted("sort")?.[0]).toEqual([{ sortField: "updated_at", sortOrder: 1 }]);
   });
 
-  it("forwards the DataTable status filter", async () => {
+  it("forwards the status filter", async () => {
     const wrapper = mount(LibraryResourceTable, {
       props: {
         ...baseProps,
         paginated: true,
       },
-      global: { plugins: [testPrimeVuePlugin, createTestI18n()] },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
 
-    wrapper.findComponent({ name: "DataTable" }).vm.$emit("filter", {
-      filters: {
-        status: {
-          operator: "and",
-          constraints: [{ value: "failed", matchMode: "equals" }],
-        },
-      },
-    });
+    wrapper.findComponent({ name: "Select" }).vm.$emit("update:modelValue", "failed");
     await wrapper.vm.$nextTick();
 
     expect(wrapper.emitted("status-filter")?.[0]).toEqual(["failed"]);
   });
 
-  it("persists column widths without restoring backend sort state", async () => {
+  it("does not persist column layout state", async () => {
     const storage = installMockStorage();
     const wrapper = mount(LibraryResourceTable, {
       props: { ...baseProps, compact: true, paginated: true },
-      global: { plugins: [testPrimeVuePlugin, createTestI18n()] },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
 
-    wrapper.findComponent({ name: "DataTable" }).vm.$emit("state-save", {
-      columnWidths: "420,120,160,120,220",
-      first: 50,
-      rows: 50,
-      sortField: "updated_at",
-      sortOrder: 1,
-      tableWidth: "1040px",
-    });
-
-    expect(JSON.parse(storage.getItem("context69:table:group-library:v5") ?? "{}")).toEqual({
-      columnWidths: "420,120,160,120,220",
-      tableWidth: "1040px",
-    });
+    expect(wrapper.findComponent({ name: "Table" }).exists()).toBe(true);
+    expect(storage.getItem("context69:table:group-library:v5")).toBeNull();
   });
 
   it("offers retry only for failed files", async () => {
@@ -138,10 +118,10 @@ describe("LibraryResourceTable", () => {
     } satisfies ExplorerEntry;
     const wrapper = mount(LibraryResourceTable, {
       props: { ...baseProps, entries: [failedFile] },
-      global: { plugins: [testPrimeVuePlugin, createTestI18n()] },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
 
-    const retry = wrapper.get('button[title="Retry"]');
+    const retry = wrapper.get('button[aria-label="Retry"]');
     await retry.trigger("click");
 
     expect(wrapper.emitted("retry-entry")?.[0]).toEqual([failedFile]);

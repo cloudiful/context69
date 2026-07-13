@@ -4,7 +4,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 
 import { createAppI18n } from "../i18n";
 import { setAuthenticatedUser } from "../test-utils/auth";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import AppRouteBreadcrumbs from "./AppRouteBreadcrumbs.vue";
 
 describe("AppRouteBreadcrumbs", () => {
@@ -22,10 +22,10 @@ describe("AppRouteBreadcrumbs", () => {
     await router.isReady();
 
     const wrapper = mount(AppRouteBreadcrumbs, {
-      global: { plugins: [testPrimeVuePlugin, router, createAppI18n("zh-CN")] },
+      global: { plugins: [testNuxtUiPlugin, router, createAppI18n("zh-CN")] },
     });
 
-    expect(wrapper.find(".p-breadcrumb").exists()).toBe(false);
+    expect(wrapper.find("nav").exists()).toBe(false);
     expect(wrapper.find("#app-route-actions").exists()).toBe(true);
   });
 
@@ -41,11 +41,11 @@ describe("AppRouteBreadcrumbs", () => {
 
     const wrapper = mount(AppRouteBreadcrumbs, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("zh-CN")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("zh-CN")],
       },
     });
 
-    expect(wrapper.find(".p-breadcrumb").exists()).toBe(true);
+    expect(wrapper.find("nav").exists()).toBe(true);
     expect(wrapper.text()).toContain("浏览器");
     expect(wrapper.text()).toContain("stock");
     expect(wrapper.find("#app-route-actions").exists()).toBe(true);
@@ -67,7 +67,7 @@ describe("AppRouteBreadcrumbs", () => {
 
     const wrapper = mount(AppRouteBreadcrumbs, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("en")],
       },
     });
 
@@ -107,7 +107,7 @@ describe("AppRouteBreadcrumbs", () => {
 
     const wrapper = mount(AppRouteBreadcrumbs, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("zh-CN")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("zh-CN")],
       },
     });
 

@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, unref } from "vue";
-import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Dialog from "primevue/dialog";
-import Tag from "primevue/tag";
-import ToggleSwitch from "primevue/toggleswitch";
+import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import AppNumberField from "../../components/AppNumberField.vue";
@@ -35,6 +30,14 @@ const llmKinds = [
   { label: "Anthropic Messages", value: "anthropic_messages" },
 ];
 const deeplPlans = [{ label: "Developer", value: "free" }, { label: "Growth / Enterprise", value: "pro" }];
+const columns = computed<TableColumn<ProviderDraft>[]>(() => [
+  { id: "provider", header: t("settings.translation.provider") },
+  { id: "enabled", header: t("settings.translation.enabled") },
+  { id: "quota", header: t("settings.translation.quota") },
+  { id: "usage", header: t("settings.translation.usage") },
+  { id: "configuration", header: t("settings.translation.configuration") },
+  { id: "actions", header: t("common.actions") },
+]);
 
 function openEdit(provider: ProviderDraft, index: number) {
   editingIndex.value = index;
@@ -70,39 +73,24 @@ function usageLabel(provider: ProviderDraft) {
 
 <template>
   <AppSettingsSection :legend="t('settings.translation.title')">
-    <DataTable class="min-w-0 max-w-full" :value="providers" data-key="provider" size="small" scrollable table-class="min-w-full">
-      <Column :header="t('settings.translation.provider')">
-        <template #body="{ data }"><strong>{{ providerLabels[data.provider as keyof typeof providerLabels] }}</strong></template>
-      </Column>
-      <Column :header="t('settings.translation.enabled')" body-class="w-24">
-        <template #body="{ data }">
-          <ToggleSwitch :input-id="`translation-${data.provider}-enabled`" v-model="data.enabled" />
-        </template>
-      </Column>
-      <Column :header="t('settings.translation.quota')">
-        <template #body="{ data }"><span class="whitespace-nowrap">{{ quotaLabel(data) }}</span></template>
-      </Column>
-      <Column :header="t('settings.translation.usage')">
-        <template #body="{ data }"><span class="whitespace-nowrap text-muted-color">{{ usageLabel(data) }}</span></template>
-      </Column>
-      <Column :header="t('settings.translation.configuration')">
-        <template #body="{ data }">
-          <Tag :value="data.endpoint ? t('settings.translation.configured') : t('settings.translation.notConfigured')" :severity="data.endpoint ? 'success' : 'secondary'" />
-        </template>
-      </Column>
-      <Column :header="t('common.actions')" body-class="w-36">
-        <template #body="{ data, index }">
+    <UTable class="min-w-0 max-w-full" :data="providers" :columns="columns">
+      <template #provider-cell="{ row }"><strong>{{ providerLabels[row.original.provider as keyof typeof providerLabels] }}</strong></template>
+      <template #enabled-cell="{ row }"><USwitch :id="`translation-${row.original.provider}-enabled`" v-model="row.original.enabled" /></template>
+      <template #quota-cell="{ row }"><span class="whitespace-nowrap">{{ quotaLabel(row.original) }}</span></template>
+      <template #usage-cell="{ row }"><span class="whitespace-nowrap text-muted">{{ usageLabel(row.original) }}</span></template>
+      <template #configuration-cell="{ row }"><UBadge :label="row.original.endpoint ? t('settings.translation.configured') : t('settings.translation.notConfigured')" :color="row.original.endpoint ? 'success' : 'neutral'" variant="subtle" /></template>
+      <template #actions-cell="{ row }">
           <div class="flex items-center gap-1">
-            <Button type="button" severity="secondary" text :aria-label="t('common.edit')" @click="openEdit(data, index)"><i class="pi pi-pencil" aria-hidden="true" /></Button>
-            <Button type="button" severity="secondary" text :disabled="index === 0" :aria-label="t('common.move')" @click="move(index, -1)"><i class="pi pi-arrow-up" aria-hidden="true" /></Button>
-            <Button type="button" severity="secondary" text :disabled="index === providers.length - 1" :aria-label="t('common.move')" @click="move(index, 1)"><i class="pi pi-arrow-down" aria-hidden="true" /></Button>
+            <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" :aria-label="t('common.edit')" @click="openEdit(row.original, row.index)" />
+            <UButton icon="i-lucide-arrow-up" color="neutral" variant="ghost" :disabled="row.index === 0" :aria-label="t('common.move')" @click="move(row.index, -1)" />
+            <UButton icon="i-lucide-arrow-down" color="neutral" variant="ghost" :disabled="row.index === providers.length - 1" :aria-label="t('common.move')" @click="move(row.index, 1)" />
           </div>
-        </template>
-      </Column>
-    </DataTable>
+      </template>
+    </UTable>
 
-    <Dialog v-model:visible="dialogVisible" modal :header="editing ? providerLabels[editing.provider] : ''" class="w-[38rem] max-w-[96vw]">
-      <div v-if="editing" class="grid gap-3">
+    <UModal v-model:open="dialogVisible"  :title="editing ? providerLabels[editing.provider] : ''" class="w-[38rem] max-w-[96vw]">
+    <template #body>
+<div v-if="editing" class="grid gap-3">
         <AppTextField v-model="editing.endpoint" :input-id="`translation-${editing.provider}-endpoint`" :label="t('settings.translation.endpoint')" type="url" />
         <AppTextField v-model="editing.api_key" :input-id="`translation-${editing.provider}-api-key`" :label="t('settings.translation.apiKey')" type="password" autocomplete="new-password" :placeholder="editing.has_api_key ? t('settings.translation.keyStored') : ''" />
         <AppTextField v-if="editing.provider === 'llm'" v-model="editing.model" input-id="translation-llm-model" :label="t('settings.translation.model')" />
@@ -110,12 +98,14 @@ function usageLabel(provider: ProviderDraft) {
         <AppSelectField v-if="editing.provider === 'deepl'" v-model="editing.deepl_plan" input-id="translation-deepl-plan" :label="t('settings.translation.plan')" :options="deeplPlans" />
         <AppNumberField v-if="editing.provider !== 'libretranslate'" v-model="editing.monthly_character_limit" :input-id="`translation-${editing.provider}-quota`" :label="editing.provider === 'deepl' ? t('settings.translation.lifetimeQuota') : t('settings.translation.monthlyQuota')" :min="1" :step="1000" />
       </div>
+    </template>
+
       <template #footer>
         <div class="flex justify-end gap-2">
-          <Button type="button" severity="secondary" variant="outlined" @click="dialogVisible = false">{{ t("common.cancel") }}</Button>
-          <Button type="button" @click="applyEdit">{{ t("common.confirm") }}</Button>
+          <UButton type="button" color="neutral" variant="outline" @click="dialogVisible = false">{{ t("common.cancel") }}</UButton>
+          <UButton type="button" @click="applyEdit">{{ t("common.confirm") }}</UButton>
         </div>
       </template>
-    </Dialog>
+    </UModal>
   </AppSettingsSection>
 </template>

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
 
 import AppStateMessage from "./AppStateMessage.vue";
 import type { SearchHit } from "../services/api";
@@ -29,16 +28,16 @@ const { t } = useI18n();
             · {{ t("search.result.score") }} {{ formatScore(selectedHit.score) }}
           </p>
         </div>
-        <Button
+        <UButton
           class="shrink-0"
           type="button"
-          size="small"
-          severity="secondary"
-          variant="outlined"
+          size="sm"
+          color="neutral"
+          variant="outline"
           @click="emit('open', selectedHit)"
         >
           {{ t("common.open") }}
-        </Button>
+        </UButton>
       </div>
 
       <p v-if="selectedHit.library_path" class="text-xs leading-5 text-muted-color">

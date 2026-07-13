@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import { createAppI18n } from "../i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
 import { useUiPreferences } from "../composables/use-ui-preferences";
 import AppSidebarContent from "./AppSidebarContent.vue";
@@ -42,7 +42,7 @@ describe("AppSidebarContent", () => {
 
     const wrapper = mount(AppSidebarContent, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("en")],
       },
     });
 
@@ -51,7 +51,7 @@ describe("AppSidebarContent", () => {
     expect(wrapper.text()).toContain("Administrator");
     expect(wrapper.get('[data-testid="sidebar-user-login"]').text()).toBe("@admin");
     expect(wrapper.get('[data-testid="sidebar-user-badge"]').text()).toContain("Administrator");
-    expect(wrapper.find('[data-nav-key="/search"]').attributes("data-active")).toBe("true");
+    expect(wrapper.get('a[href="/search"]').attributes("aria-current")).toBe("page");
     expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
   });
 
@@ -62,12 +62,12 @@ describe("AppSidebarContent", () => {
 
     const wrapper = mount(AppSidebarContent, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("zh-CN")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("zh-CN")],
       },
     });
 
-    expect(wrapper.find('[data-nav-key="/settings"]').attributes("data-active")).toBe("true");
-    expect(wrapper.get('[data-nav-child-key="/settings/access-tokens"]').attributes("data-active")).toBe("true");
+    expect(wrapper.get('a[href="/settings"]').attributes("aria-current")).toBe("page");
+    expect(wrapper.get('a[href="/settings/access-tokens"]').attributes("aria-current")).toBe("page");
     expect(wrapper.text()).toContain("访问令牌");
     expect(wrapper.text()).toContain("运行时");
   });
@@ -79,13 +79,12 @@ describe("AppSidebarContent", () => {
 
     const wrapper = mount(AppSidebarContent, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("en")],
       },
     });
 
-    expect(wrapper.find('[data-nav-key="/groups"]').attributes("data-active")).toBe("true");
-    expect(wrapper.get('[data-nav-key="/groups"]').attributes("href")).toBe("/groups/stock");
-    expect(wrapper.get('[data-nav-child-key="/groups/stock/members"]').attributes("data-active")).toBe("true");
+    expect(wrapper.get('a[href="/groups/stock"]').attributes("aria-current")).toBe("page");
+    expect(wrapper.get('a[href="/groups/stock/members"]').attributes("aria-current")).toBe("page");
     expect(wrapper.text()).toContain("Members");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).not.toContain("Overview");
@@ -97,7 +96,7 @@ describe("AppSidebarContent", () => {
 
     const wrapper = mount(AppSidebarContent, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("en")],
       },
     });
 
@@ -117,7 +116,7 @@ describe("AppSidebarContent", () => {
         collapsed: true,
       },
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("en")],
       },
     });
 
@@ -125,7 +124,7 @@ describe("AppSidebarContent", () => {
     expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
   });
 
-  it("expands the desktop sidebar when a collapsed top-level item has secondary navigation", async () => {
+  it("keeps collapsed navigation active and accessible", async () => {
     setAuthenticatedUser();
     const preferences = useUiPreferences();
     preferences.state.sidebarCollapsed = true;
@@ -137,12 +136,14 @@ describe("AppSidebarContent", () => {
         collapsed: true,
       },
       global: {
-        plugins: [testPrimeVuePlugin, router, createAppI18n("en")],
+        plugins: [testNuxtUiPlugin, router, createAppI18n("en")],
       },
     });
 
-    await wrapper.get('[data-nav-key="/settings"]').trigger("click");
+    const settingsLink = wrapper.get('a[href="/settings"]');
 
-    expect(preferences.state.sidebarCollapsed).toBe(false);
+    expect(settingsLink.attributes("aria-current")).toBe("page");
+    expect(settingsLink.attributes("data-active")).toBe("");
+    expect(preferences.state.sidebarCollapsed).toBe(true);
   });
 });

@@ -1,14 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from "vue";
 import { proxyRefs, ref } from "vue";
+import type { ContextMenuItem } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import ContextMenu from "primevue/contextmenu";
-import Dialog from "primevue/dialog";
-import FileUpload, { type FileUploadUploaderEvent } from "primevue/fileupload";
-import IconField from "primevue/iconfield";
-import InputIcon from "primevue/inputicon";
-import InputText from "primevue/inputtext";
-import { useToast } from "primevue/usetoast";
 
 import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
 import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
@@ -18,16 +12,17 @@ import LibraryPreviewShell from "./LibraryPreviewShell.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
 import LibraryToolbar from "./LibraryToolbar.vue";
 import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
+import { groupContextItems, resourceContextItems, surfaceContextItems } from "./project-files-context-menu";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
 import { useProjectLibraryPage } from "../composables/project-library/use-project-library-page";
 import { useGroupBrowserEntries } from "../composables/project-library/use-group-browser-entries";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
-import { apiClient, type GroupResponse } from "../services/api";
+import { useProjectSourceFolder } from "../composables/project-library/use-project-source-folder";
+import type { GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
-import type { ExplorerEntry, FileExplorerEntry, GroupExplorerEntry } from "../types/library";
-import { useErrorToast } from "../composables/use-error-toast";
+import type { ExplorerEntry, GroupExplorerEntry } from "../types/library";
 
 const props = defineProps<{
   childGroups: GroupResponse[];
@@ -43,21 +38,12 @@ const emit = defineEmits<{
 }>();
 
 type FileUploadController = {
-  choose: () => void;
-  clear: () => void;
+  inputRef?: HTMLInputElement;
 };
 
 const { t } = useI18n();
-const toast = useToast();
-const showErrorToast = useErrorToast();
 const { statusLabel } = createLibraryStatusHelpers();
 const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed");
-const sourceFolderDialogBusy = ref(false);
-const sourceFolderDialogOpen = ref(false);
-const sourceFolderDialogTitle = ref("");
-const sourceFolderDialogFolderId = ref<string | null>(null);
-const sourceFolderDialogFolderName = ref("");
-const sourceFolderDialogValue = ref("");
 
 const tree = useProjectLibraryTree({
   groupPath: () => props.groupPath,
@@ -84,6 +70,12 @@ const detail = useProjectLibraryDetail({
   t,
 });
 const detailState = proxyRefs(detail);
+const sourceFolderState = proxyRefs(useProjectSourceFolder({
+  groupPath: () => props.groupPath,
+  selectedFolder: tree.selectedFolder,
+  refreshLibrary: () => treeState.refreshLibrary(detailState.loadDetail),
+  t,
+}));
 
 const preview = useProjectLibraryPreview({
   allowDockedPreview: false,
@@ -120,93 +112,33 @@ const visibleGroupEntries = computed(() => treeState.selectedFolderId || pageSta
   ? []
   : filteredGroupEntries.value);
 
-const resourceContextMenu = ref();
-const groupContextMenu = ref();
 const groupContextEntry = ref<GroupExplorerEntry | null>(null);
-const surfaceContextMenu = ref();
 const fileUpload = ref<FileUploadController | null>(null);
-const resourceMenuItems = computed(() => {
-  const entry = treeState.resourceContextEntry;
-  if (!entry) return [];
-  if (entry.kind === "folder") {
-    const items = [
-      { label: t("library.openFolder"), icon: "pi pi-folder-open", command: () => { void treeState.selectFolder(entry.id); } },
-      { label: t("library.newFolder"), icon: "pi pi-folder-plus", command: () => { actionsState.openCreateFolderDialog(entry.folder); } },
-    ];
-    if (entry.isSourceFolder) {
-      items.push({ label: t("sources.sync"), icon: "pi pi-refresh", command: () => { void syncSourceFolder(entry.id); } });
-    }
-    if (!entry.isSourceRecordsFolder) {
-      items.push({ label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { actionsState.openMoveFolderDialog(entry.folder); } });
-      items.push({ label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFolder(entry.folder); } });
-    }
-    return items;
-  }
-  const items = [
-    { label: entry.isSourceConfigFile ? t("library.editSourceConfig") : t("library.preview"), icon: entry.isSourceConfigFile ? "pi pi-file-edit" : "pi pi-eye", command: () => { void openExplorerEntry(entry); } },
-  ];
-  if (entry.ingestStatus === "failed" && !actionsState.unavailableFileIds.includes(entry.id)) {
-    items.push({
-      label: actionsState.retryingFileIds.includes(entry.id) ? t("library.retrying") : t("common.retry"),
-      icon: "pi pi-refresh",
-      command: () => { void actionsState.retryFile(entry.id); },
-    });
-  }
-  if (!entry.isSourceConfigFile && !entry.isSourceRecordFile) {
-    items.push({ label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { actionsState.openMoveFileDialog(entry.file); } });
-    items.push({ label: t("common.delete"), icon: "pi pi-trash", command: () => { void actionsState.deleteFile(entry.file); } });
-  }
-  return items;
-});
-
-const groupMenuItems = computed(() => {
-  const group = groupContextEntry.value;
-  if (!group) return [];
-  return [
-    { label: t("common.open"), icon: "pi pi-folder-open", command: () => { emit("open-child-group", group.group); } },
-    { label: t("common.edit"), icon: "pi pi-pencil", command: () => { emit("edit-child-group", group.group); } },
-    { label: t("common.move"), icon: "pi pi-arrows-alt", command: () => { emit("move-child-group", group.group); } },
-    { label: t("common.delete"), icon: "pi pi-trash", command: () => { emit("delete-child-group", group.group); } },
-  ];
-});
-
-const surfaceMenuItems = computed(() => [
-  {
-    label: t("common.create"),
-    icon: "pi pi-plus",
-    items: [
-      {
-        label: t("groups.createChild"),
-        icon: "pi pi-sitemap",
-        command: () => { emit("create-child-group"); },
-      },
-      {
-        label: t("library.newFolder"),
-        icon: "pi pi-folder-plus",
-        command: () => { actionsState.openCreateFolderDialog(); },
-      },
-      {
-        label: t("library.newTextFile"),
-        icon: "pi pi-file-edit",
-        command: () => { actionsState.openCreateTextDialog(); },
-      },
-      {
-        label: t("library.newSourceFolder"),
-        icon: "pi pi-database",
-        command: () => { openCreateSourceFolderDialog(); },
-      },
-    ],
-  },
-  {
-    label: t("common.upload"),
-    icon: "pi pi-upload",
-    command: () => { fileUpload.value?.choose(); },
-  },
-  {
-    label: t("sources.refresh"),
-    icon: "pi pi-refresh",
-    command: () => { void treeState.refreshLibrary(detailState.loadDetail); },
-  },
+const uploadFiles = ref<File[] | null>(null);
+const resourceMenuItems = computed(() => resourceContextItems({
+  entry: treeState.resourceContextEntry, t,
+  unavailableFileIds: actionsState.unavailableFileIds, retryingFileIds: actionsState.retryingFileIds,
+  open: (entry) => { void openExplorerEntry(entry); },
+  selectFolder: (id) => { void treeState.selectFolder(id); },
+  createFolder: (entry) => entry.kind === "folder" && actionsState.openCreateFolderDialog(entry.folder),
+  syncFolder: (id) => { void sourceFolderState.sync(id); },
+  move: (entry) => entry.kind === "folder" ? actionsState.openMoveFolderDialog(entry.folder) : entry.kind === "file" && actionsState.openMoveFileDialog(entry.file),
+  remove: (entry) => entry.kind === "folder" ? void actionsState.deleteFolder(entry.folder) : entry.kind === "file" && void actionsState.deleteFile(entry.file),
+  retry: (id) => { void actionsState.retryFile(id); },
+}));
+const groupMenuItems = computed(() => groupContextItems(groupContextEntry.value, t, (action, entry) => {
+  if (action === "open") emit("open-child-group", entry.group);
+  else if (action === "edit") emit("edit-child-group", entry.group);
+  else if (action === "move") emit("move-child-group", entry.group);
+  else emit("delete-child-group", entry.group);
+}));
+const surfaceMenuItems = computed(() => surfaceContextItems(t, {
+  createGroup: () => emit("create-child-group"), createFolder: () => actionsState.openCreateFolderDialog(),
+  createText: () => actionsState.openCreateTextDialog(), createSource: () => sourceFolderState.openCreate(),
+  upload: () => fileUpload.value?.inputRef?.click(), refresh: () => { void treeState.refreshLibrary(detailState.loadDetail); },
+}));
+const activeContextMenuItems = computed<ContextMenuItem[][]>(() => [
+  (treeState.resourceContextEntry ? resourceMenuItems.value : groupContextEntry.value ? groupMenuItems.value : surfaceMenuItems.value) as ContextMenuItem[],
 ]);
 
 function handleExplorerRowClick(event: { data: ExplorerEntry }) {
@@ -237,99 +169,15 @@ async function openExplorerEntry(entry: ExplorerEntry) {
     return;
   }
   if (entry.isSourceConfigFile) {
-    await openSourceConfigEditor(entry);
+    await sourceFolderState.openEditor(entry);
     return;
   }
   await actionsState.revealPreviewForFile(entry.id);
 }
 
-function defaultSourceConfigTemplate(folderName = "") {
-  return JSON.stringify({
-    source_key: folderName,
-    display_name: "",
-    description: "",
-    example_queries: [],
-    connection: "",
-    sync_strategy: "cursor",
-    connector_type: "postgres_sql",
-    base_query: "",
-    batch_size: 200,
-  }, null, 2);
-}
-
-function openCreateSourceFolderDialog() {
-  sourceFolderDialogFolderId.value = null;
-  sourceFolderDialogFolderName.value = "";
-  sourceFolderDialogTitle.value = t("library.newSourceFolder");
-  sourceFolderDialogValue.value = defaultSourceConfigTemplate();
-  sourceFolderDialogOpen.value = true;
-}
-
-async function openSourceConfigEditor(entry: FileExplorerEntry) {
-  sourceFolderDialogBusy.value = true;
-  try {
-    const detail = await apiClient.getGroupLibraryFile(props.groupPath, entry.id);
-    sourceFolderDialogFolderId.value = detail.folder_id ?? null;
-    sourceFolderDialogFolderName.value = detail.folder_path.split("/").filter(Boolean).at(-1) ?? "";
-    sourceFolderDialogTitle.value = t("library.editSourceConfig");
-    sourceFolderDialogValue.value = detail.sections[0]?.preview_text || defaultSourceConfigTemplate(sourceFolderDialogFolderName.value);
-    sourceFolderDialogOpen.value = true;
-  } catch (error) {
-    showErrorToast(error, t("library.detailLoadFailed"));
-  } finally {
-    sourceFolderDialogBusy.value = false;
-  }
-}
-
-async function saveSourceFolderDialog(payload: { folderName: string; value: string }) {
-  sourceFolderDialogBusy.value = true;
-  try {
-    const sourceConfig = JSON.parse(payload.value);
-    if (sourceFolderDialogFolderId.value) {
-      await apiClient.updateGroupSourceFolderConfig(props.groupPath, sourceFolderDialogFolderId.value, sourceConfig);
-    } else {
-      await apiClient.createGroupSourceFolder(props.groupPath, {
-        parent_folder_id: treeState.selectedFolder?.folder_id ?? null,
-        folder_name: payload.folderName,
-        source_config: sourceConfig,
-      });
-    }
-    sourceFolderDialogOpen.value = false;
-    await treeState.refreshLibrary(detailState.loadDetail);
-    toast.add({
-      severity: "success",
-      summary: sourceFolderDialogFolderId.value ? t("common.save") : t("library.newSourceFolder"),
-      detail: payload.folderName || sourceConfig.source_key,
-      life: 2500,
-    });
-  } catch (error) {
-    showErrorToast(error, t("common.save"));
-  } finally {
-    sourceFolderDialogBusy.value = false;
-  }
-}
-
-async function syncSourceFolder(folderId: string | null) {
-  if (!folderId) {
-    return;
-  }
-  try {
-    await apiClient.syncGroupSourceFolder(props.groupPath, folderId);
-    await treeState.refreshLibrary(detailState.loadDetail);
-    toast.add({
-      severity: "success",
-      summary: t("sources.sync"),
-      detail: t("sources.syncing"),
-      life: 2500,
-    });
-  } catch (error) {
-    showErrorToast(error, t("sources.syncFailed"));
-  }
-}
-
 function handleExplorerRowContextMenu(event: { originalEvent: Event; data: ExplorerEntry }) {
   treeState.resourceContextEntry = event.data;
-  resourceContextMenu.value?.show(event.originalEvent);
+  groupContextEntry.value = null;
 }
 
 function retryExplorerEntry(entry: ExplorerEntry) {
@@ -340,19 +188,19 @@ function retryExplorerEntry(entry: ExplorerEntry) {
 
 function handleGroupRowContextMenu(event: { originalEvent: Event; data: GroupExplorerEntry }) {
   groupContextEntry.value = event.data;
-  groupContextMenu.value?.show(event.originalEvent);
+  treeState.resourceContextEntry = null;
 }
 
 function handleSurfaceContextMenu(event: { originalEvent: MouseEvent }) {
   treeState.resourceContextEntry = null;
-  surfaceContextMenu.value?.show(event.originalEvent);
+  groupContextEntry.value = null;
 }
 
-function handleFileUpload(event: FileUploadUploaderEvent) {
-  const files = Array.isArray(event.files) ? event.files : [event.files];
+watch(uploadFiles, (files) => {
+  if (!files?.length) return;
   actionsState.handleFileSelection({ files });
-  fileUpload.value?.clear();
-}
+  uploadFiles.value = null;
+});
 
 watch(tree.selectedFileId, (fileId) => {
   if (fileId && !previewState.previewDocked) {
@@ -394,31 +242,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
-  <ContextMenu ref="groupContextMenu" :model="groupMenuItems" @hide="groupContextEntry = null" />
-  <ContextMenu ref="surfaceContextMenu" :model="surfaceMenuItems" />
-  <FileUpload
+  <UFileUpload
     ref="fileUpload"
+    v-model="uploadFiles"
     class="sr-only"
-    mode="basic"
     multiple
+    :preview="false"
+    :dropzone="false"
     accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
-    auto
-    custom-upload
-    @uploader="handleFileUpload"
   />
   <Teleport to="#app-route-actions">
-    <IconField class="w-56">
-      <InputIcon class="pi pi-search" />
-      <InputText
-        v-model="pageState.query"
-        class="w-full !pl-10"
-        :placeholder="t('nav.search')"
-      />
-    </IconField>
+    <UInput v-model="pageState.query" class="w-56" icon="i-lucide-search" :placeholder="t('nav.search')" />
   </Teleport>
 
-  <section
+  <UContextMenu :items="activeContextMenuItems">
+    <section
     class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950"
     :class="treeState.breadcrumbItems.length > 0
       ? 'grid-rows-[auto_minmax(0,1fr)]'
@@ -434,7 +272,7 @@ onBeforeUnmount(() => {
     />
     <LibraryResourceTable
       :create-folder-busy="actionsState.createFolderBusy"
-      :create-source-folder-busy="sourceFolderDialogBusy"
+      :create-source-folder-busy="sourceFolderState.busy"
       :entries="pageState.entries"
       :error="treeState.treeError || pageState.error"
       :first="pageState.first"
@@ -479,11 +317,12 @@ onBeforeUnmount(() => {
       @retry="refreshLibraryData"
       @retry-entry="retryExplorerEntry"
       @create-folder="actionsState.openCreateFolderDialog()"
-      @create-source-folder="openCreateSourceFolderDialog()"
-      @sync-source-folder="syncSourceFolder($event.id)"
+      @create-source-folder="sourceFolderState.openCreate()"
+      @sync-source-folder="sourceFolderState.sync($event.id)"
       @upload-select="actionsState.handleFileSelection"
     />
-  </section>
+    </section>
+  </UContextMenu>
 
   <LibraryCreateFolderDialog
     :open="!!actionsState.createDialog"
@@ -513,24 +352,25 @@ onBeforeUnmount(() => {
   />
 
   <ProjectSourceFolderDialog
-    :open="sourceFolderDialogOpen"
-    :busy="sourceFolderDialogBusy"
-    :folder-name="sourceFolderDialogFolderName"
-    :folder-name-readonly="!!sourceFolderDialogFolderId"
-    :title="sourceFolderDialogTitle"
-    :value="sourceFolderDialogValue"
-    @cancel="sourceFolderDialogOpen = false"
-    @confirm="saveSourceFolderDialog"
-    @update:value="sourceFolderDialogValue = $event"
+    :open="sourceFolderState.open"
+    :busy="sourceFolderState.busy"
+    :folder-name="sourceFolderState.folderName"
+    :folder-name-readonly="!!sourceFolderState.folderId"
+    :title="sourceFolderState.title"
+    :value="sourceFolderState.value"
+    @cancel="sourceFolderState.open = false"
+    @confirm="sourceFolderState.save"
+    @update:value="sourceFolderState.value = $event"
   />
 
-  <Dialog
-    v-model:visible="previewState.previewDialogVisible"
-    modal
-    :header="previewState.previewTitle"
+  <UModal
+    v-model:open="previewState.previewDialogVisible"
+
+    :title="previewState.previewTitle"
     class="library-preview-dialog w-[min(96vw,58rem)]"
   >
-    <LibraryPreviewPanel
+    <template #body>
+<LibraryPreviewPanel
       :active-section-key="detailState.activeSectionKey"
       :detail="detailState.detail"
       :detail-loading="detailState.detailLoading"
@@ -540,5 +380,6 @@ onBeforeUnmount(() => {
       @retry="actionsState.retryFile"
       @update:active-section-key="detailState.activeSectionKey = $event"
     />
-  </Dialog>
+    </template>
+  </UModal>
 </template>

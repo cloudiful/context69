@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Dialog from "primevue/dialog";
-import InputText from "primevue/inputtext";
-import Textarea from "primevue/textarea";
 
 const props = defineProps<{
   open: boolean;
@@ -53,8 +49,9 @@ function confirmCreate() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="w-[40rem] max-w-[92vw]" modal :header="t('library.createTextDialog.title')">
-    <div class="grid gap-6">
+  <UModal v-model:open="visible" class="w-[40rem] max-w-[92vw]"  :title="t('library.createTextDialog.title')">
+    <template #body>
+<div class="grid gap-6">
       <div class="grid gap-2">
         <p class="text-xs font-medium uppercase tracking-[0.18em] text-muted-color">{{ t("library.newTextFile") }}</p>
         <p class="text-sm leading-7 text-muted-color">
@@ -64,7 +61,7 @@ function confirmCreate() {
 
       <label class="grid gap-2">
         <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.createTextDialog.nameLabel") }}</span>
-        <InputText
+        <UInput
           id="library-create-text-title"
           v-model="title"
           class="w-full"
@@ -75,7 +72,7 @@ function confirmCreate() {
 
       <label class="grid gap-2">
         <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.createTextDialog.contentLabel") }}</span>
-        <Textarea
+        <UTextarea
           id="library-create-text-content"
           v-model="content"
           class="w-full"
@@ -85,16 +82,18 @@ function confirmCreate() {
         />
       </label>
     </div>
+    </template>
+
 
     <template #footer>
       <div class="flex flex-wrap justify-end gap-3">
-        <Button severity="secondary" variant="outlined" :disabled="busy" @click="emit('cancel')">
+        <UButton color="neutral" variant="outline" :disabled="busy" @click="emit('cancel')">
           {{ t("common.cancel") }}
-        </Button>
-        <Button :disabled="busy || !trimmedTitle" @click="confirmCreate">
+        </UButton>
+        <UButton :disabled="busy || !trimmedTitle" @click="confirmCreate">
           {{ busy ? t("library.creating") : t("library.createTextDialog.submit") }}
-        </Button>
+        </UButton>
       </div>
     </template>
-  </Dialog>
+  </UModal>
 </template>

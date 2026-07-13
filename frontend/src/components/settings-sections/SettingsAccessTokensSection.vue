@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Message from "primevue/message";
-import ProgressSpinner from "primevue/progressspinner";
-import Tag from "primevue/tag";
 
 import AppSelectField from "../AppSelectField.vue";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
@@ -61,20 +56,31 @@ function resolveStatus(token: PersonalAccessTokenResponse) {
   if (token.revoked_at) {
     return {
       label: t("settings.personalAccessTokens.statusRevoked"),
-      severity: "danger" as const,
+      color: "error" as const,
     };
   }
   if (new Date(token.expires_at).getTime() <= Date.now()) {
     return {
       label: t("settings.personalAccessTokens.statusExpired"),
-      severity: "warn" as const,
+      color: "warning" as const,
     };
   }
   return {
     label: t("settings.personalAccessTokens.statusActive"),
-    severity: "success" as const,
+    color: "success" as const,
   };
 }
+
+type TokenRow = (typeof tokenRows.value)[number];
+const columns = computed<TableColumn<TokenRow>[]>(() => [
+  { accessorKey: "name", header: t("settings.personalAccessTokens.name") },
+  { accessorKey: "scopeSummary", header: t("settings.personalAccessTokens.scopes") },
+  { accessorKey: "createdLabel", header: t("settings.personalAccessTokens.createdAt") },
+  { accessorKey: "expiresLabel", header: t("settings.personalAccessTokens.expiresAt") },
+  { accessorKey: "lastUsedLabel", header: t("settings.personalAccessTokens.lastUsedAt") },
+  { id: "status", header: t("settings.personalAccessTokens.status") },
+  { id: "actions", header: t("settings.personalAccessTokens.actions") },
+]);
 
 function updateScopeToggleModel(value: Record<string, boolean>) {
   emit("update:personalAccessTokenScopeToggleModel", value);
@@ -115,16 +121,16 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
               test-id="personal-access-token-expiry"
             />
             <div class="flex items-end">
-              <Button
+              <UButton
                 data-testid="personal-access-token-create"
                 type="button"
                 :disabled="personalAccessTokensCreating || !personalAccessTokenCanCreate"
                 :aria-busy="personalAccessTokensCreating"
                 @click="createPersonalAccessToken"
               >
-                <ProgressSpinner v-if="personalAccessTokensCreating" class="h-4 w-4" :stroke-width="6" />
+                <UIcon name="i-lucide-loader-circle" v-if="personalAccessTokensCreating" class="h-4 w-4" />
                 {{ t("settings.personalAccessTokens.createAction") }}
-              </Button>
+              </UButton>
             </div>
           </div>
         </div>
@@ -136,61 +142,46 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
         :title="t('settings.personalAccessTokens.revealTitle')"
       >
         <div class="grid gap-3">
-          <Message severity="warn" :closable="false">
-            {{ t("settings.personalAccessTokens.revealWarning") }}
-          </Message>
+          <UAlert color="warning" variant="subtle" :description="t('settings.personalAccessTokens.revealWarning')" />
           <pre
             data-testid="personal-access-token-secret"
             class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface-0 dark:bg-surface-950 p-3 font-mono text-xs text-color"
           >{{ personalAccessTokensReveal.access_token }}</pre>
           <div class="flex flex-wrap items-center gap-3">
-            <Button severity="secondary" variant="outlined" type="button" @click="copyPersonalAccessToken">
+            <UButton color="neutral" variant="outline" type="button" @click="copyPersonalAccessToken">
               {{ t("settings.personalAccessTokens.copyAction") }}
-            </Button>
-            <Button severity="secondary" variant="outlined" type="button" @click="dismissPersonalAccessTokenReveal">
+            </UButton>
+            <UButton color="neutral" variant="outline" type="button" @click="dismissPersonalAccessTokenReveal">
               {{ t("common.close") }}
-            </Button>
+            </UButton>
           </div>
         </div>
       </AppSettingsBlock>
 
       <AppSettingsBlock compact>
-        <DataTable
+        <UTable
           class="min-w-0 max-w-full"
-          :value="tokenRows"
+          :data="tokenRows"
+          :columns="columns"
           :loading="personalAccessTokensLoading"
-          data-key="token_id"
-          scrollable
-          table-class="min-w-[68rem]"
         >
           <template #empty>
             {{ t("settings.personalAccessTokens.empty") }}
           </template>
-          <Column field="name" :header="t('settings.personalAccessTokens.name')" />
-          <Column field="scopeSummary" :header="t('settings.personalAccessTokens.scopes')" class="min-w-64" />
-          <Column field="createdLabel" :header="t('settings.personalAccessTokens.createdAt')" />
-          <Column field="expiresLabel" :header="t('settings.personalAccessTokens.expiresAt')" />
-          <Column field="lastUsedLabel" :header="t('settings.personalAccessTokens.lastUsedAt')" />
-          <Column :header="t('settings.personalAccessTokens.status')">
-            <template #body="{ data }">
-              <Tag :value="data.status.label" :severity="data.status.severity" />
-            </template>
-          </Column>
-          <Column :header="t('settings.personalAccessTokens.actions')">
-            <template #body="{ data }">
-              <Button
+          <template #status-cell="{ row }"><UBadge :label="row.original.status.label" :color="row.original.status.color" variant="subtle" /></template>
+          <template #actions-cell="{ row }">
+              <UButton
                 type="button"
-                size="small"
-                severity="danger"
-                variant="outlined"
-                :disabled="!!data.revoked_at"
-                @click="confirmRevokePersonalAccessToken(data)"
+                size="sm"
+                color="error"
+                variant="outline"
+                :disabled="!!row.original.revoked_at"
+                @click="confirmRevokePersonalAccessToken(row.original)"
               >
                 {{ t("settings.personalAccessTokens.revokeAction") }}
-              </Button>
-            </template>
-          </Column>
-        </DataTable>
+              </UButton>
+          </template>
+        </UTable>
       </AppSettingsBlock>
     </div>
   </AppSettingsSection>

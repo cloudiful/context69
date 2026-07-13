@@ -18,8 +18,8 @@ vi.mock("../../services/api", () => ({
   },
 }));
 vi.mock("../use-error-toast", () => ({ useErrorToast: () => mocks.showErrorToast }));
-vi.mock("primevue/useconfirm", () => ({ useConfirm: () => ({ require: vi.fn() }) }));
-vi.mock("primevue/usetoast", () => ({ useToast: () => ({ add: mocks.toastAdd }) }));
+vi.mock("../use-app-confirm", () => ({ useAppConfirm: () => ({ require: vi.fn() }) }));
+vi.mock("@nuxt/ui/composables", () => ({ useToast: () => ({ add: mocks.toastAdd }) }));
 
 const root: LibraryFolderNode = {
   children: [],

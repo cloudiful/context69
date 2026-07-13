@@ -1,19 +1,23 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import AutoComplete from "primevue/autocomplete";
+import AutoComplete from "@nuxt/ui/components/InputMenu.vue";
 
 import { apiClient } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import { installMockStorage } from "../test-utils/storage";
 import { SEARCH_HISTORY_STORAGE_KEY, type SearchHistoryEntry } from "../utils/search-history";
 
 import SearchView from "./SearchView.vue";
 
+const mocks = vi.hoisted(() => ({ addToast: vi.fn() }));
+vi.mock("@nuxt/ui/composables", () => ({ useToast: () => ({ add: mocks.addToast }) }));
+
 describe("SearchView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mocks.addToast.mockReset();
     installMockStorage();
   });
 
@@ -34,7 +38,7 @@ describe("SearchView", () => {
 
     const wrapper = mount(SearchView, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
       },
     });
 
@@ -105,7 +109,7 @@ describe("SearchView", () => {
 
     const wrapper = mount(SearchView, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
       },
     });
 
@@ -146,7 +150,7 @@ describe("SearchView", () => {
 
     const wrapper = mount(SearchView, {
       global: {
-        plugins: [testPrimeVuePlugin, router, createTestI18n()],
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
       },
     });
 
@@ -166,10 +170,8 @@ describe("SearchView", () => {
       hits: [],
     });
 
-    const autocomplete = wrapper.getComponent(AutoComplete);
-    autocomplete.vm.$emit("complete", { query: "pol" });
-    await flushPromises();
-    const suggestions = autocomplete.props("suggestions") as SearchHistoryEntry[];
+    const autocomplete = wrapper.getComponent({ name: "InputMenu" });
+    const suggestions = autocomplete.props("items") as SearchHistoryEntry[];
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]).toEqual(expect.objectContaining({ query: "policy" }));
 
@@ -181,7 +183,6 @@ describe("SearchView", () => {
   });
 
   it("localizes the runtime-not-configured search error", async () => {
-    const addToast = vi.fn();
     vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
     vi.spyOn(apiClient, "search").mockRejectedValue(new Error(
       "search runtime is not configured; save runtime settings and restart the service",
@@ -201,12 +202,7 @@ describe("SearchView", () => {
     const wrapper = mount(SearchView, {
       global: {
         plugins: [
-          testPrimeVuePlugin,
-          {
-            install(app) {
-              app.config.globalProperties.$toast.add = addToast;
-            },
-          },
+          testNuxtUiPlugin,
           router,
           createTestI18n("zh-CN"),
         ],
@@ -215,11 +211,11 @@ describe("SearchView", () => {
 
     await flushPromises();
 
-    expect(addToast).toHaveBeenCalledWith({
-      severity: "error",
-      summary: "错误",
-      detail: "搜索运行时未配置。请先保存运行时设置，然后重启服务。",
-      life: 5000,
+    expect(mocks.addToast).toHaveBeenCalledWith({
+      color: "error",
+      title: "错误",
+      description: "搜索运行时未配置。请先保存运行时设置，然后重启服务。",
+      duration: 5000,
     });
     expect(wrapper.text()).not.toContain("搜索运行时未配置。请先保存运行时设置，然后重启服务。");
     expect(wrapper.text()).not.toContain("search runtime is not configured");

@@ -14,7 +14,7 @@ Prepare those inputs first:
 ```bash
 cargo build --release --bin context69
 cd frontend
-bun install --frozen-lockfile
+bun install --no-save
 bun run build
 cd ..
 mkdir -p ci-image-input/frontend-dist

@@ -1,9 +1,5 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import Button from "primevue/button";
-import ProgressSpinner from "primevue/progressspinner";
-import Dialog from "primevue/dialog";
-import InputText from "primevue/inputtext";
 
 import AppMonacoEditor from "./AppMonacoEditor.vue";
 
@@ -37,19 +33,19 @@ watch(
 </script>
 
 <template>
-  <Dialog
-    :visible="open"
-    modal
-    :header="title"
+  <UModal
+    :open="open"
+
+    :title="title"
     class="w-[min(92vw,68rem)]"
-    @update:visible="!$event && emit('cancel')"
+    @update:open="!$event && emit('cancel')"
   >
-    <div class="grid gap-4">
+    <template #body>
+<div class="grid gap-4">
       <label class="grid gap-2">
         <span class="text-sm font-medium text-color">{{ $t("library.sourceFolderName") }}</span>
-        <InputText
+        <UInput
           :model-value="draftFolderName"
-          fluid
           :disabled="busy"
           :readonly="folderNameReadonly"
           @update:model-value="draftFolderName = String($event)"
@@ -68,17 +64,19 @@ watch(
       </label>
 
     </div>
+    </template>
+
 
     <template #footer>
       <div class="flex justify-end gap-2">
-        <Button severity="secondary" text :disabled="busy" @click="emit('cancel')">
+        <UButton color="neutral" variant="ghost" :disabled="busy" @click="emit('cancel')">
           {{ $t("common.cancel") }}
-        </Button>
-        <Button :disabled="busy" :aria-busy="busy" @click="emit('confirm', { folderName: draftFolderName, value })">
-          <ProgressSpinner v-if="busy" class="h-4 w-4" :stroke-width="6" />
+        </UButton>
+        <UButton :disabled="busy" :aria-busy="busy" @click="emit('confirm', { folderName: draftFolderName, value })">
+          <UIcon name="i-lucide-loader-circle" v-if="busy" class="h-4 w-4" />
           {{ $t("common.save") }}
-        </Button>
+        </UButton>
       </div>
     </template>
-  </Dialog>
+  </UModal>
 </template>

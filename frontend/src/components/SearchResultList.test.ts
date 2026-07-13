@@ -2,7 +2,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import SearchResultList from "./SearchResultList.vue";
 
 describe("SearchResultList", () => {
@@ -30,7 +30,7 @@ describe("SearchResultList", () => {
         ],
       },
       global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
+        plugins: [testNuxtUiPlugin, createTestI18n()],
       },
     });
 
@@ -71,7 +71,7 @@ describe("SearchResultList", () => {
         ],
       },
       global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
+        plugins: [testNuxtUiPlugin, createTestI18n()],
       },
     });
 

@@ -3,16 +3,16 @@ import { useI18n } from "vue-i18n";
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
-export function libraryStatusSeverity(status: LibraryIngestStatus): "success" | "danger" | "warn" | "secondary" {
+export function libraryStatusSeverity(status: LibraryIngestStatus): "success" | "error" | "warning" | "neutral" {
   switch (status) {
     case "succeeded":
       return "success";
     case "failed":
-      return "danger";
+      return "error";
     case "running":
-      return "warn";
+      return "warning";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 

@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import ProgressSpinner from "primevue/progressspinner";
 
 import AppNumberField from "../AppNumberField.vue";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
@@ -146,18 +144,18 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             placeholder="redis://valkey:6379/0"
           />
           <div class="flex items-end">
-            <Button
-              size="small"
-              severity="secondary"
+            <UButton
+              size="sm"
+              color="neutral"
               :disabled="valkeyTesting || !runtimeDraft.scheduler.valkey_url.trim()"
               :aria-busy="valkeyTesting"
               data-testid="runtime-valkey-test"
               @click="emit('test-valkey')"
             >
-              <ProgressSpinner v-if="valkeyTesting" class="h-4 w-4" :stroke-width="6" />
-              <i v-else class="pi pi-bolt" aria-hidden="true" />
+              <UIcon name="i-lucide-loader-circle" v-if="valkeyTesting" class="h-4 w-4" />
+              <UIcon v-else name="i-lucide-zap" />
               <span>{{ t("settings.runtime.valkeyTest") }}</span>
-            </Button>
+            </UButton>
           </div>
           <AppToggleGroup
             :model-value="schedulerToggleModel"

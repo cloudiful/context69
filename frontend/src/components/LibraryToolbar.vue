@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import Breadcrumb from "primevue/breadcrumb";
-import type { MenuItem } from "primevue/menuitem";
+import type { BreadcrumbItem as NuxtBreadcrumbItem } from "@nuxt/ui";
 
 import AppTableToolbar from "./AppTableToolbar.vue";
 
@@ -25,13 +24,9 @@ const emit = defineEmits<{
   "update:searchQuery": [value: string];
 }>();
 
-const breadcrumbHomeItem = computed<MenuItem>(() => ({
-  label: props.breadcrumbHome.label,
-  command: props.breadcrumbHome.onSelect,
-}));
-const breadcrumbModel = computed<MenuItem[]>(() => props.breadcrumbItems.map((item) => ({
+const breadcrumbModel = computed<NuxtBreadcrumbItem[]>(() => [props.breadcrumbHome, ...props.breadcrumbItems].map((item) => ({
   label: item.label,
-  command: item.onSelect,
+  onSelect: item.onSelect,
 })));
 </script>
 
@@ -45,10 +40,9 @@ const breadcrumbModel = computed<MenuItem[]>(() => props.breadcrumbItems.map((it
   >
     <template #main>
       <div class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
-        <Breadcrumb
+        <UBreadcrumb
           v-if="breadcrumbItems.length > 0"
-          :home="breadcrumbHomeItem"
-          :model="breadcrumbModel"
+          :items="breadcrumbModel"
           class="min-w-0"
         />
       </div>

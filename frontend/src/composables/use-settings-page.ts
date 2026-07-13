@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { useConfirm } from "primevue/useconfirm";
-import { useToast } from "primevue/usetoast";
+import { useToast } from "@nuxt/ui/composables";
+import { useAppConfirm } from "./use-app-confirm";
 import { useErrorToast } from "./use-error-toast";
 
 import {
@@ -43,7 +43,7 @@ type TranslationProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
 export function useSettingsPage() {
   const { t } = useI18n();
   const toast = useToast();
-  const confirm = useConfirm();
+  const confirm = useAppConfirm();
   const showErrorToast = useErrorToast();
   const personalAccessTokens = useSettingsPersonalAccessTokens();
 
@@ -227,9 +227,9 @@ export function useSettingsPage() {
 
       saveMessage.value = t("settings.saveSuccess");
       toast.add({
-        severity: "success",
-        summary: t("settings.saveSuccess"),
-        life: 2500,
+        color: "success",
+        title: t("settings.saveSuccess"),
+        duration: 2500,
       });
     } catch (error) {
       showErrorToast(error, t("settings.saveFailed"));
@@ -245,9 +245,9 @@ export function useSettingsPage() {
     try {
       await apiClient.testS3Connection(s3);
       toast.add({
-        severity: "success",
-        summary: t("settings.runtime.s3TestSuccess"),
-        life: 2500,
+        color: "success",
+        title: t("settings.runtime.s3TestSuccess"),
+        duration: 2500,
       });
     } catch (error) {
       showErrorToast(error, t("settings.runtime.s3TestFailed"));
@@ -263,9 +263,9 @@ export function useSettingsPage() {
         valkey_url: runtimeDraft.scheduler.valkey_url.trim(),
       });
       toast.add({
-        severity: "success",
-        summary: t("settings.runtime.valkeyTestSuccess"),
-        life: 2500,
+        color: "success",
+        title: t("settings.runtime.valkeyTestSuccess"),
+        duration: 2500,
       });
     } catch (error) {
       showErrorToast(error, t("settings.runtime.valkeyTestFailed"));
@@ -295,9 +295,8 @@ export function useSettingsPage() {
     confirm.require({
       header: t("settings.runtime.vectorRebuild"),
       message: t("settings.runtime.vectorRebuildConfirm"),
-      icon: "pi pi-refresh",
-      rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-      acceptProps: { label: t("settings.runtime.vectorRebuild"), severity: "danger" },
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("settings.runtime.vectorRebuild"),
       accept: () => void startVectorIndexRebuild(),
     });
   }
@@ -305,7 +304,7 @@ export function useSettingsPage() {
   async function startVectorIndexRebuild() {
     try {
       vectorRebuildStatus.value = await apiClient.startVectorIndexRebuild();
-      toast.add({ severity: "info", summary: t("settings.runtime.vectorRebuildStarted"), life: 2500 });
+      toast.add({ color: "info", title: t("settings.runtime.vectorRebuildStarted"), duration: 2500 });
       scheduleVectorRebuildPoll();
     } catch (error) {
       showErrorToast(error, t("settings.runtime.vectorRebuildFailed"));

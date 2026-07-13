@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import AutoComplete from "primevue/autocomplete";
-import Button from "primevue/button";
-import DatePicker from "primevue/datepicker";
-import Fluid from "primevue/fluid";
-import InputNumber from "primevue/inputnumber";
-import Select from "primevue/select";
 
 import AppFormField from "./AppFormField.vue";
 import type { SourceStatus } from "../services/api";
@@ -76,7 +70,7 @@ function updateQuery(value: string | SearchHistoryEntry | null) {
 }
 
 const sourceOptions = computed(() => [
-  { label: t("search.form.allSources"), value: "" },
+  { label: t("search.form.allSources"), value: "__all__" },
   ...props.sources.map((source) => ({
     label: source.display_name === source.source_key
       ? source.display_name
@@ -86,8 +80,8 @@ const sourceOptions = computed(() => [
 ]);
 
 const sourceModel = computed({
-  get: () => props.filters.sourceKey,
-  set: (value: string) => patchFilters({ sourceKey: value }),
+  get: () => props.filters.sourceKey || "__all__",
+  set: (value: string) => patchFilters({ sourceKey: value === "__all__" ? "" : value }),
 });
 
 const limitModel = computed({
@@ -100,13 +94,13 @@ const limitModel = computed({
 });
 
 const publishedAfterModel = computed({
-  get: () => parseDateValue(props.filters.publishedAfter),
-  set: (value: Date | Date[] | null | undefined) => patchFilters({ publishedAfter: formatDateValue(value) }),
+  get: () => props.filters.publishedAfter,
+  set: (value: string) => patchFilters({ publishedAfter: value }),
 });
 
 const publishedBeforeModel = computed({
-  get: () => parseDateValue(props.filters.publishedBefore),
-  set: (value: Date | Date[] | null | undefined) => patchFilters({ publishedBefore: formatDateValue(value) }),
+  get: () => props.filters.publishedBefore,
+  set: (value: string) => patchFilters({ publishedBefore: value }),
 });
 
 watch(
@@ -132,62 +126,58 @@ function resetForm() {
 </script>
 
 <template>
-  <Fluid class="block w-full">
+  <div class="block w-full">
     <form class="grid w-full gap-2" @submit.prevent="emit('submit')">
       <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <AutoComplete
-          input-id="query"
+        <UInputMenu
+          id="query"
           class="min-w-0"
+          mode="autocomplete"
           :model-value="filters.query"
-          :suggestions="historySuggestions"
-          option-label="query"
-          complete-on-focus
-          :delay="0"
+          :items="historyEntries"
+          label-key="query"
           data-testid="search-query"
-          fluid
-          size="small"
+          size="sm"
           :placeholder="t('search.form.query')"
-          @complete="completeHistory"
           @update:model-value="updateQuery"
         />
 
         <div class="flex items-stretch justify-end gap-1.5">
-          <Button
+          <UButton
             class="min-w-0"
             data-testid="search-toggle-advanced"
             type="button"
-            text
-            severity="secondary"
+      variant="ghost"            color="neutral"
             @click="advancedFiltersOpen = !advancedFiltersOpen"
           >
             {{ advancedFiltersOpen ? t("search.form.hideFilters") : t("search.form.moreFilters") }}
-          </Button>
-          <Button
+          </UButton>
+          <UButton
             class="w-full min-w-0 lg:w-auto lg:min-w-[7.25rem]"
             data-testid="search-submit"
             type="submit"
             :disabled="busy"
           >
             {{ busy ? t("search.form.running") : t("search.form.run") }}
-          </Button>
+          </UButton>
         </div>
       </div>
 
       <div v-if="advancedFiltersOpen" class="grid gap-2 border-t border-surface pt-2">
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_8rem]">
           <AppFormField input-id="source" :label="t('search.form.source')">
-            <Select
-              input-id="source"
+            <USelect
+              id="source"
               v-model="sourceModel"
               data-testid="search-source"
-              :options="sourceOptions"
-              option-label="label"
-              option-value="value"
+              :items="sourceOptions"
+              label-key="label"
+              value-key="value"
             />
           </AppFormField>
 
           <AppFormField input-id="limit" :label="t('search.form.limit')">
-            <InputNumber
+            <UInputNumber
               input-id="limit"
               v-model="limitModel"
               data-testid="search-limit"
@@ -200,39 +190,37 @@ function resetForm() {
 
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,12rem)_minmax(0,12rem)]">
           <AppFormField input-id="published-after" :label="t('search.form.publishedAfter')">
-            <DatePicker
-              input-id="published-after"
+            <UInput
+              id="published-after"
               v-model="publishedAfterModel"
               data-testid="search-published-after"
-              date-format="yy-mm-dd"
-              show-icon
+              type="date"
             />
           </AppFormField>
 
           <AppFormField input-id="published-before" :label="t('search.form.publishedBefore')">
-            <DatePicker
-              input-id="published-before"
+            <UInput
+              id="published-before"
               v-model="publishedBeforeModel"
               data-testid="search-published-before"
-              date-format="yy-mm-dd"
-              show-icon
+              type="date"
             />
           </AppFormField>
         </div>
 
         <div class="flex justify-end">
-          <Button
+          <UButton
             class="min-w-20"
             data-testid="search-reset"
             type="button"
-            severity="secondary"
-            variant="outlined"
+            color="neutral"
+            variant="outline"
             @click="resetForm"
           >
             {{ t("common.reset") }}
-          </Button>
+          </UButton>
         </div>
       </div>
     </form>
-  </Fluid>
+  </div>
 </template>

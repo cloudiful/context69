@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import Card from "primevue/card";
-
 import AppRecordHeader from "./AppRecordHeader.vue";
 
 defineProps<{
@@ -11,8 +9,8 @@ defineProps<{
 </script>
 
 <template>
-  <Card>
-    <template #title>
+  <UCard>
+    <template #header>
       <AppRecordHeader
         :title="title"
         :subtitle="subtitle"
@@ -32,8 +30,6 @@ defineProps<{
       </AppRecordHeader>
     </template>
 
-    <template #content>
-      <slot />
-    </template>
-  </Card>
+    <slot />
+  </UCard>
 </template>

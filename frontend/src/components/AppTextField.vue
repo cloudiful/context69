@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import InputText from "primevue/inputtext";
-
 import AppFormField from "./AppFormField.vue";
 
 const props = withDefaults(defineProps<{
@@ -39,7 +37,7 @@ const emit = defineEmits<{
     :helper="props.helper || undefined"
     :layout="props.layout"
   >
-    <InputText
+    <UInput
       :id="props.inputId"
       :model-value="props.modelValue ?? ''"
       :data-testid="props.testId || undefined"

@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import Button from "primevue/button";
-import ProgressSpinner from "primevue/progressspinner";
-import Textarea from "primevue/textarea";
 import { useI18n } from "vue-i18n";
-import { useToast } from "primevue/usetoast";
+import { useToast } from "@nuxt/ui/composables";
 
 import AppFormField from "./AppFormField.vue";
 import AppTextField from "./AppTextField.vue";
@@ -62,7 +59,7 @@ async function save() {
       source_locale: sourceLocale.value.trim() || undefined,
       glossary: parseGlossary(),
     });
-    toast.add({ severity: "success", summary: t("settings.saveSuccess"), life: 2500 });
+    toast.add({ color: "success", title: t("settings.saveSuccess"), duration: 2500 });
     await load();
   } catch (error) {
     showErrorToast(error, t("settings.saveFailed"));
@@ -89,13 +86,13 @@ onMounted(load);
     <AppTextField v-model="targets" input-id="group-translation-targets" :label="t('groups.translation.targets')" :disabled="!canManage" placeholder="zh-CN, ja-JP" />
     <AppTextField v-model="sourceLocale" input-id="group-translation-source" :label="t('groups.translation.source')" :disabled="!canManage" placeholder="en-US" />
     <AppFormField input-id="group-translation-glossary" :label="t('groups.translation.glossary')">
-      <Textarea id="group-translation-glossary" v-model="glossary" rows="4" :disabled="!canManage" placeholder="stock = 股票" />
+      <UTextarea id="group-translation-glossary" v-model="glossary" rows="4" :disabled="!canManage" placeholder="stock = 股票" />
     </AppFormField>
     <div v-if="canManage" class="flex justify-end">
-      <Button type="button" :disabled="loading || saving" :aria-busy="saving" @click="save">
-        <ProgressSpinner v-if="saving" class="h-4 w-4" :stroke-width="6" />
+      <UButton type="button" :disabled="loading || saving" :aria-busy="saving" @click="save">
+        <UIcon name="i-lucide-loader-circle" v-if="saving" class="h-4 w-4" />
         <span>{{ t("common.save") }}</span>
-      </Button>
+      </UButton>
     </div>
   </section>
 </template>

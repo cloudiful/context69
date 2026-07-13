@@ -1,38 +1,20 @@
 import { createApp } from "vue";
-import ConfirmationService from "primevue/confirmationservice";
-import PrimeVue from "primevue/config";
-import ToastService from "primevue/toastservice";
+import ui from "@nuxt/ui/vue-plugin";
 
 import App from "./App.vue";
 import { i18n } from "./i18n";
 import { router } from "./router";
 import { ensureSessionReady } from "./services/auth/session";
-import "primeicons/primeicons.css";
 import "./style.css";
 
 async function bootstrap() {
   await ensureSessionReady();
 
   createApp(App)
-    .use(PrimeVue, {
-      license: import.meta.env.VITE_PRIMEUI_LICENSE,
-      theme: {
-        preset: Aura,
-        options: {
-          darkModeSelector: '[data-theme="dark"]',
-          cssLayer: {
-            name: "primevue",
-            order: "theme, base, primevue, components, utilities",
-          },
-        },
-      },
-    })
-    .use(ConfirmationService)
-    .use(ToastService)
+    .use(ui)
     .use(router)
     .use(i18n)
     .mount("#app");
 }
 
 void bootstrap();
-import Aura from "@primeuix/themes/aura";

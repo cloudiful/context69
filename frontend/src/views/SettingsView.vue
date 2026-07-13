@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, provide, unref } from "vue";
 import { useRoute } from "vue-router";
-import Button from "primevue/button";
-import Message from "primevue/message";
 import { useI18n } from "vue-i18n";
 
 import AppPanel from "../components/AppPanel.vue";
@@ -67,12 +65,8 @@ function switchLocale(nextLocale: AppLocale) {
   <AppPanel surface="plain">
     <template #actions>
       <div class="flex flex-wrap items-center justify-end gap-1.5">
-        <Message v-if="hasChanges" severity="secondary" :closable="false">
-          {{ t("settings.status.pending") }}
-        </Message>
-        <Message v-if="saveMessage" severity="success" :closable="false">
-          {{ saveMessage }}
-        </Message>
+        <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
+        <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />
       </div>
     </template>
 
@@ -99,14 +93,14 @@ function switchLocale(nextLocale: AppLocale) {
         </div>
 
         <div class="fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6">
-          <Button
+          <UButton
             class="min-w-28"
             data-testid="settings-save"
             type="submit"
             :disabled="saving || !hasChanges"
           >
             {{ saving ? t("common.loading") : t("common.save") }}
-          </Button>
+          </UButton>
         </div>
       </form>
     </AsyncStateBlock>

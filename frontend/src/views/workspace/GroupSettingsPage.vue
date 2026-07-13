@@ -1,9 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import Button from "primevue/button";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
-import Tag from "primevue/tag";
 import { useI18n } from "vue-i18n";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
@@ -52,7 +48,7 @@ function save() {
         <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
           <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.groupName") }}</dt>
           <dd class="min-w-0">
-            <InputText
+            <UInput
               v-if="state.canManageGroup"
               v-model="name"
               class="w-48 text-right"
@@ -64,30 +60,30 @@ function save() {
         <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
           <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.visibility") }}</dt>
           <dd class="min-w-0">
-            <Select
+            <USelect
               v-if="state.canManageGroup"
               v-model="visibility"
               class="w-32"
-              :options="visibilityOptions"
-              option-label="label"
-              option-value="value"
+              :items="visibilityOptions"
+              label-key="label"
+              value-key="value"
               :aria-label="$t('groups.visibility')"
             />
-            <Tag v-else class="justify-self-end" :value="state.group?.visibility || '--'" severity="secondary" />
+            <UBadge v-else class="justify-self-end" :label="state.group?.visibility || '--'" color="neutral" />
           </dd>
         </div>
         <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
           <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.kind") }}</dt>
           <dd class="min-w-0 text-right text-sm font-semibold text-color">
-            <Tag class="justify-self-end" :value="state.group?.kind || '--'" severity="contrast" />
+            <UBadge class="justify-self-end" :label="state.group?.kind || '--'" color="neutral" />
           </dd>
         </div>
         </dl>
 
         <div v-if="state.canManageGroup" class="flex justify-end">
-          <Button type="submit" :disabled="state.groupDialogBusy || !name.trim() || !hasChanges">
+          <UButton type="submit" :disabled="state.groupDialogBusy || !name.trim() || !hasChanges">
             {{ $t("common.save") }}
-          </Button>
+          </UButton>
         </div>
       </form>
     </section>
@@ -97,12 +93,12 @@ function save() {
 
     <section class="grid gap-3 rounded-[1rem] border border-surface bg-emphasis p-4">
       <div class="flex flex-wrap items-center gap-2">
-        <Button v-if="state.canManageGroup" severity="secondary" variant="outlined" @click="state.openMoveCurrentGroupDialog">
+        <UButton v-if="state.canManageGroup" color="neutral" variant="outline" @click="state.openMoveCurrentGroupDialog">
           {{ $t("common.move") }}
-        </Button>
-        <Button v-if="state.canOwnGroup" severity="danger" @click="state.confirmDeleteGroup">
+        </UButton>
+        <UButton v-if="state.canOwnGroup" color="error" @click="state.confirmDeleteGroup">
           {{ $t("common.delete") }}
-        </Button>
+        </UButton>
       </div>
     </section>
   </div>

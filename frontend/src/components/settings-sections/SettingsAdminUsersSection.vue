@@ -1,15 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Dialog from "primevue/dialog";
-import InputText from "primevue/inputtext";
-import InputPassword from "primevue/inputpassword";
-import Tag from "primevue/tag";
-import ToggleSwitch from "primevue/toggleswitch";
-import { useConfirm } from "primevue/useconfirm";
+import { useAppConfirm } from "../../composables/use-app-confirm";
 
 import AppSettingsBlock from "../AppSettingsBlock.vue";
 
@@ -30,7 +23,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const confirm = useConfirm();
+const confirm = useAppConfirm();
 
 const createDialogVisible = ref(false);
 const editDialogVisible = ref(false);
@@ -43,6 +36,14 @@ const editingUser = ref<AdminUserResponse | null>(null);
 const resetUser = ref<AdminUserResponse | null>(null);
 
 const statusLabel = computed(() => (user: AdminUserResponse) => user.disabled_at ? t("adminUsers.disabled") : t("adminUsers.active"));
+const columns = computed<TableColumn<AdminUserResponse>[]>(() => [
+  { accessorKey: "login_name", header: t("adminUsers.loginName") },
+  { accessorKey: "display_name", header: t("adminUsers.displayName") },
+  { id: "is_admin", header: t("adminUsers.isAdmin") },
+  { id: "status", header: t("adminUsers.status") },
+  { accessorKey: "created_at", header: t("adminUsers.createdAt") },
+  { id: "actions", header: t("common.edit") },
+]);
 function resetCreateForm() {
   loginName.value = "";
   displayName.value = "";
@@ -101,9 +102,8 @@ function confirmDisable(loginNameValue: string) {
   confirm.require({
     header: t("adminUsers.disableUser"),
     message: t("adminUsers.disableConfirm", { loginName: loginNameValue }),
-    icon: "pi pi-exclamation-triangle",
-    rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-    acceptProps: { label: t("adminUsers.disableUser"), severity: "danger" },
+    rejectLabel: t("common.cancel"),
+    acceptLabel: t("adminUsers.disableUser"),
     accept: () => emit("disable", loginNameValue),
   });
 }
@@ -112,9 +112,8 @@ function confirmEnable(loginNameValue: string) {
   confirm.require({
     header: t("adminUsers.enableUser"),
     message: t("adminUsers.enableConfirm", { loginName: loginNameValue }),
-    icon: "pi pi-check-circle",
-    rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-    acceptProps: { label: t("adminUsers.enableUser") },
+    rejectLabel: t("common.cancel"),
+    acceptLabel: t("adminUsers.enableUser") ,
     accept: () => emit("enable", loginNameValue),
   });
 }
@@ -123,155 +122,151 @@ function confirmEnable(loginNameValue: string) {
 <template>
   <AppSettingsBlock id="settings-admin-users" compact :title="t('adminUsers.title')">
     <template #actions>
-      <Button size="small" :disabled="createBusy" @click="openCreate">{{ t("adminUsers.create") }}</Button>
+      <UButton size="sm" :disabled="createBusy" @click="openCreate">{{ t("adminUsers.create") }}</UButton>
     </template>
 
-    <DataTable
+    <UTable
       class="min-w-0 max-w-full"
-      :value="users"
-      data-key="user_id"
-      resizable-columns
-      column-resize-mode="expand"
-      scrollable
-      state-storage="local"
-      state-key="context69:table:admin-users:v5"
-      table-class="min-w-full"
+      :data="users"
+      :columns="columns"
     >
-      <Column field="login_name" :header="t('adminUsers.loginName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
-      <Column field="display_name" :header="t('adminUsers.displayName')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
-      <Column :header="t('adminUsers.isAdmin')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
-        <template #body="{ data }">
-          <Tag
+      <template #is_admin-cell="{ row }">
+          <UBadge
             class="whitespace-nowrap"
-            :value="data.is_admin ? t('common.yes') : t('common.no')"
-            :severity="data.is_admin ? 'success' : 'secondary'"
+            :label="row.original.is_admin ? t('common.yes') : t('common.no')"
+            :color="row.original.is_admin ? 'success' : 'neutral'"
+            variant="subtle"
           />
-        </template>
-      </Column>
-      <Column :header="t('adminUsers.status')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
-        <template #body="{ data }">
-          <Tag
+      </template>
+      <template #status-cell="{ row }">
+          <UBadge
             class="whitespace-nowrap"
-            :value="statusLabel(data)"
-            :severity="data.disabled_at ? 'warn' : 'success'"
+            :label="statusLabel(row.original)"
+            :color="row.original.disabled_at ? 'warning' : 'success'"
+            variant="subtle"
           />
-        </template>
-      </Column>
-      <Column field="created_at" :header="t('adminUsers.createdAt')" sortable header-class="whitespace-nowrap" body-class="whitespace-nowrap" />
-      <Column :header="t('common.edit')" header-class="whitespace-nowrap" body-class="whitespace-nowrap">
-        <template #body="{ data }">
+      </template>
+      <template #actions-cell="{ row }">
           <div class="flex flex-nowrap items-center gap-2 whitespace-nowrap">
-            <Button severity="secondary" variant="outlined" size="small" @click="openEdit(data)">{{ t("common.edit") }}</Button>
-            <Button severity="secondary" variant="outlined" size="small" @click="openReset(data)">{{ t("adminUsers.resetPasswordAction") }}</Button>
-            <Button
-              v-if="!data.disabled_at"
-              severity="danger"
-              variant="outlined"
-              size="small"
-              @click="confirmDisable(data.login_name)"
+            <UButton color="neutral" variant="outline" size="sm" @click="openEdit(row.original)">{{ t("common.edit") }}</UButton>
+            <UButton color="neutral" variant="outline" size="sm" @click="openReset(row.original)">{{ t("adminUsers.resetPasswordAction") }}</UButton>
+            <UButton
+              v-if="!row.original.disabled_at"
+              color="error"
+              variant="outline"
+              size="sm"
+              @click="confirmDisable(row.original.login_name)"
             >
               {{ t("adminUsers.disableUser") }}
-            </Button>
-            <Button
+            </UButton>
+            <UButton
               v-else
-              severity="secondary"
-              variant="outlined"
-              size="small"
-              @click="confirmEnable(data.login_name)"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              @click="confirmEnable(row.original.login_name)"
             >
               {{ t("adminUsers.enableUser") }}
-            </Button>
+            </UButton>
           </div>
-        </template>
-      </Column>
-    </DataTable>
+      </template>
+    </UTable>
 
-    <Dialog
-      v-model:visible="createDialogVisible"
-      modal
-      :header="t('adminUsers.create')"
+    <UModal
+      v-model:open="createDialogVisible"
+
+      :title="t('adminUsers.create')"
       class="w-[30rem] max-w-[96vw]"
     >
-      <div class="grid gap-3">
+    <template #body>
+<div class="grid gap-3">
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.loginName") }}</label>
-          <InputText v-model="loginName" :placeholder="t('adminUsers.loginName')" />
+          <UInput v-model="loginName" :placeholder="t('adminUsers.loginName')" />
         </div>
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.displayName") }}</label>
-          <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
+          <UInput v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.password") }}</label>
-          <InputPassword v-model="password" fluid :feedback="false" toggle-mask />
+          <UInput type="password" v-model="password" fluid :feedback="false" toggle-mask />
         </div>
         <label class="flex items-center gap-2 text-sm text-color">
           <span>{{ t("adminUsers.isAdmin") }}</span>
-          <ToggleSwitch v-model="isAdmin" />
+          <USwitch v-model="isAdmin" />
         </label>
       </div>
+    </template>
+
       <template #footer>
         <div class="flex justify-end gap-2">
-          <Button severity="secondary" variant="outlined" @click="createDialogVisible = false">
+          <UButton color="neutral" variant="outline" @click="createDialogVisible = false">
             {{ t("common.cancel") }}
-          </Button>
-          <Button :disabled="createBusy || !loginName.trim() || !displayName.trim() || !password.trim()" @click="submitCreate">
+          </UButton>
+          <UButton :disabled="createBusy || !loginName.trim() || !displayName.trim() || !password.trim()" @click="submitCreate">
             {{ t("adminUsers.create") }}
-          </Button>
+          </UButton>
         </div>
       </template>
-    </Dialog>
+    </UModal>
 
-    <Dialog
-      v-model:visible="editDialogVisible"
-      modal
-      :header="t('common.edit')"
+    <UModal
+      v-model:open="editDialogVisible"
+
+      :title="t('common.edit')"
       class="w-[28rem] max-w-[96vw]"
     >
-      <div class="grid gap-3">
+    <template #body>
+<div class="grid gap-3">
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.displayName") }}</label>
-          <InputText v-model="displayName" :placeholder="t('adminUsers.displayName')" />
+          <UInput v-model="displayName" :placeholder="t('adminUsers.displayName')" />
         </div>
         <label class="flex items-center gap-2 text-sm text-color">
           <span>{{ t("adminUsers.isAdmin") }}</span>
-          <ToggleSwitch v-model="isAdmin" />
+          <USwitch v-model="isAdmin" />
         </label>
       </div>
+    </template>
+
       <template #footer>
         <div class="flex justify-end gap-2">
-          <Button severity="secondary" variant="outlined" @click="editDialogVisible = false">
+          <UButton color="neutral" variant="outline" @click="editDialogVisible = false">
             {{ t("common.cancel") }}
-          </Button>
-          <Button :disabled="busy || !displayName.trim()" @click="submitEdit">
+          </UButton>
+          <UButton :disabled="busy || !displayName.trim()" @click="submitEdit">
             {{ t("common.save") }}
-          </Button>
+          </UButton>
         </div>
       </template>
-    </Dialog>
+    </UModal>
 
-    <Dialog
-      v-model:visible="resetDialogVisible"
-      modal
-      :header="t('adminUsers.resetPasswordAction')"
+    <UModal
+      v-model:open="resetDialogVisible"
+
+      :title="t('adminUsers.resetPasswordAction')"
       class="w-[28rem] max-w-[96vw]"
     >
-      <div class="grid gap-3">
+    <template #body>
+<div class="grid gap-3">
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.resetPassword") }}</label>
-          <InputPassword v-model="password" fluid :feedback="false" toggle-mask />
+          <UInput type="password" v-model="password" fluid :feedback="false" toggle-mask />
         </div>
       </div>
+    </template>
+
       <template #footer>
         <div class="flex justify-end gap-2">
-          <Button severity="secondary" variant="outlined" @click="resetDialogVisible = false">
+          <UButton color="neutral" variant="outline" @click="resetDialogVisible = false">
             {{ t("common.cancel") }}
-          </Button>
-          <Button :disabled="busy || !password.trim()" @click="submitReset">
+          </UButton>
+          <UButton :disabled="busy || !password.trim()" @click="submitReset">
             {{ t("adminUsers.resetPasswordAction") }}
-          </Button>
+          </UButton>
         </div>
       </template>
-    </Dialog>
+    </UModal>
   </AppSettingsBlock>
 </template>

@@ -1,8 +1,5 @@
 <script setup lang="ts">
 import { provide, proxyRefs } from "vue";
-import AutoComplete from "primevue/autocomplete";
-import Button from "primevue/button";
-import Dialog from "primevue/dialog";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import MemberDialog from "../components/MemberDialog.vue";
@@ -56,43 +53,43 @@ provide(groupWorkspaceStateKey, state);
       @submit="state.saveMember"
     />
 
-    <Dialog
-      v-model:visible="state.moveGroupDialogVisible"
-      modal
-      :header="$t('groups.moveGroup')"
+    <UModal
+      v-model:open="state.moveGroupDialogVisible"
+
+      :title="$t('groups.moveGroup')"
       class="w-[30rem] max-w-[96vw]"
     >
-      <div class="grid gap-3">
+    <template #body>
+<div class="grid gap-3">
         <div class="grid gap-2">
           <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ $t("groups.targetGroup") }}</label>
-          <AutoComplete
+          <UInputMenu
             v-model="state.selectedTargetGroup"
-            fluid
-            dropdown
-            force-selection
-            :suggestions="state.groupSuggestions"
-            :option-label="state.groupOptionLabel"
+            :items="state.groupSuggestions"
+            label-key="name"
             :placeholder="$t('groups.selectTargetGroup')"
           >
-            <template #option="{ option }">
+            <template #item="{ item }">
               <div class="grid gap-0.5">
-                <span>{{ option.name }}</span>
-                <span class="text-sm text-muted-color">{{ option.group_key }}</span>
+                <span>{{ item.name }}</span>
+                <span class="text-sm text-muted">{{ item.group_key }}</span>
               </div>
             </template>
-          </AutoComplete>
+          </UInputMenu>
         </div>
       </div>
+    </template>
+
       <template #footer>
         <div class="flex justify-end gap-2">
-          <Button severity="secondary" variant="outlined" @click="state.moveGroupDialogVisible = false">
+          <UButton color="neutral" variant="outline" @click="state.moveGroupDialogVisible = false">
             {{ $t("common.cancel") }}
-          </Button>
-          <Button :disabled="state.childGroupDialogBusy" @click="state.submitMoveGroup">
+          </UButton>
+          <UButton :disabled="state.childGroupDialogBusy" @click="state.submitMoveGroup">
             {{ $t("common.move") }}
-          </Button>
+          </UButton>
         </div>
       </template>
-    </Dialog>
+    </UModal>
   </div>
 </template>

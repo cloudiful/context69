@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import Card from "primevue/card";
-
 const props = withDefaults(defineProps<{
   label?: string;
   surface?: "card" | "plain";
@@ -29,8 +27,8 @@ const props = withDefaults(defineProps<{
     </div>
   </section>
 
-  <Card v-else class="min-w-0">
-    <template v-if="props.title || $slots.actions || props.label" #title>
+  <UCard v-else class="min-w-0">
+    <template v-if="props.title || $slots.actions || props.label" #header>
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <p v-if="props.label" class="text-xs font-medium uppercase tracking-[0.18em] text-muted-color">{{ props.label }}</p>
@@ -42,10 +40,8 @@ const props = withDefaults(defineProps<{
       </div>
     </template>
 
-    <template #content>
-      <div class="grid min-w-0 gap-4">
-        <slot />
-      </div>
-    </template>
-  </Card>
+    <div class="grid min-w-0 gap-4">
+      <slot />
+    </div>
+  </UCard>
 </template>

@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Dialog from "primevue/dialog";
-import Select from "primevue/select";
 
 interface FolderOption {
   value: string | null;
@@ -61,8 +58,9 @@ function confirmMove() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" class="w-[34rem] max-w-[92vw]" modal :header="title">
-    <div class="grid gap-6">
+  <UModal v-model:open="visible" class="w-[34rem] max-w-[92vw]"  :title="title">
+    <template #body>
+<div class="grid gap-6">
       <div class="grid gap-2">
         <p class="text-xs font-medium uppercase tracking-[0.18em] text-muted-color">{{ t("library.moveDialog.label") }}</p>
         <p class="text-sm leading-7 text-muted-color">{{ description }}</p>
@@ -70,25 +68,27 @@ function confirmMove() {
 
       <label class="grid gap-2">
         <span class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.moveDialog.targetFolder") }}</span>
-        <Select
+        <USelect
           v-model="selectedValue"
           class="w-full"
-          :options="selectOptions"
-          option-label="label"
-          option-value="value"
+          :items="selectOptions"
+          label-key="label"
+          value-key="value"
         />
       </label>
     </div>
+    </template>
+
 
     <template #footer>
       <div class="flex flex-wrap justify-end gap-3">
-        <Button severity="secondary" variant="outlined" :disabled="busy" @click="emit('cancel')">
+        <UButton color="neutral" variant="outline" :disabled="busy" @click="emit('cancel')">
           {{ t("common.cancel") }}
-        </Button>
-        <Button :disabled="busy" @click="confirmMove">
+        </UButton>
+        <UButton :disabled="busy" @click="confirmMove">
           {{ busy ? t("library.moving") : t("common.move") }}
-        </Button>
+        </UButton>
       </div>
     </template>
-  </Dialog>
+  </UModal>
 </template>

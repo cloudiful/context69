@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import ProgressSpinner from "primevue/progressspinner";
 
 import AppNumberField from "../AppNumberField.vue";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
@@ -131,17 +129,17 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             :model-value="{ path_style: runtimeDraft.file_library.s3.path_style }"
             @update:model-value="updateS3PathStyle"
           />
-          <Button
-            size="small"
-            severity="secondary"
+          <UButton
+            size="sm"
+            color="neutral"
             :disabled="s3Testing"
             :aria-busy="s3Testing"
             @click="emit('test-s3')"
           >
-            <ProgressSpinner v-if="s3Testing" class="h-4 w-4" :stroke-width="6" />
-            <i v-else class="pi pi-bolt" aria-hidden="true" />
+            <UIcon name="i-lucide-loader-circle" v-if="s3Testing" class="h-4 w-4" />
+            <UIcon v-else name="i-lucide-zap" />
             <span>{{ t("settings.runtime.s3Test") }}</span>
-          </Button>
+          </UButton>
         </div>
       </div>
     </div>

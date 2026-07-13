@@ -1,20 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import type { DropdownMenuItem, TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable, { type DataTableFilterEvent, type DataTableOperatorFilterMetaData } from "primevue/datatable";
-import FileUpload, { type FileUploadUploaderEvent } from "primevue/fileupload";
-import ProgressSpinner from "primevue/progressspinner";
-import Select from "primevue/select";
-import Tag from "primevue/tag";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import AppStateMessage from "./AppStateMessage.vue";
-import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
+import { useLibraryResourceTable } from "../composables/library/use-library-resource-table";
 import type { LibraryIngestStatus } from "../services/api";
+import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
+import { formatTimestamp } from "../utils/format";
 import { createLibraryStatusHelpers } from "../utils/library-status";
-import { formatBytes, formatTimestamp } from "../utils/format";
 
 const props = withDefaults(defineProps<{
   createFolderBusy: boolean;
@@ -42,512 +37,147 @@ const props = withDefaults(defineProps<{
   uploadBusy: boolean;
   totalRecords?: number;
 }>(), {
-  groupEntries: () => [],
-  hideActions: false,
-  hideGroupPaths: false,
-  compact: false,
-  first: 0,
-  pageSize: 50,
-  paginated: false,
-  sortField: "updated_at",
-  sortOrder: -1,
-  statusFilter: null,
-  totalRecords: 0,
-  retryingFileIds: () => [],
-  unavailableFileIds: () => [],
+  groupEntries: () => [], hideActions: false, hideGroupPaths: false, compact: false,
+  first: 0, pageSize: 50, paginated: false, sortField: "updated_at", sortOrder: -1,
+  statusFilter: null, totalRecords: 0, retryingFileIds: () => [], unavailableFileIds: () => [],
 });
 
 const emit = defineEmits<{
-  "create-folder": [];
-  "create-source-folder": [];
-  "delete-group": [GroupExplorerEntry];
-  "edit-group": [GroupExplorerEntry];
-  "group-contextmenu": [{ originalEvent: Event; data: GroupExplorerEntry }];
-  "move-group": [GroupExplorerEntry];
-  page: [{ first: number; rows: number }];
-  "open-group": [GroupExplorerEntry];
-  "open-entry": [ExplorerEntry];
-  refresh: [];
-  retry: [];
-  "retry-entry": [ExplorerEntry];
+  "create-folder": []; "create-source-folder": []; "delete-group": [GroupExplorerEntry];
+  "edit-group": [GroupExplorerEntry]; "group-contextmenu": [{ originalEvent: Event; data: GroupExplorerEntry }];
+  "move-group": [GroupExplorerEntry]; page: [{ first: number; rows: number }]; "open-group": [GroupExplorerEntry];
+  "open-entry": [ExplorerEntry]; refresh: []; retry: []; "retry-entry": [ExplorerEntry];
   sort: [{ sortField: "name" | "type" | "status" | "size" | "updated_at"; sortOrder: number }];
-  "status-filter": [LibraryIngestStatus | null];
-  "row-click": [{ data: ExplorerEntry }];
-  "row-contextmenu": [{ originalEvent: Event; data: ExplorerEntry }];
-  "row-dblclick": [{ data: ExplorerEntry }];
-  "toggle-folder": [ExplorerEntry];
-  "move-entry": [ExplorerEntry];
-  "delete-entry": [ExplorerEntry];
-  "sync-source-folder": [ExplorerEntry];
-  "surface-contextmenu": [{ originalEvent: MouseEvent }];
-  "update:selection": [ExplorerEntry | null];
-  "update:tableContextSelection": [ExplorerEntry | null];
+  "status-filter": [LibraryIngestStatus | null]; "row-click": [{ data: ExplorerEntry }];
+  "row-contextmenu": [{ originalEvent: Event; data: ExplorerEntry }]; "row-dblclick": [{ data: ExplorerEntry }];
+  "toggle-folder": [ExplorerEntry]; "move-entry": [ExplorerEntry]; "delete-entry": [ExplorerEntry];
+  "sync-source-folder": [ExplorerEntry]; "surface-contextmenu": [{ originalEvent: MouseEvent }];
+  "update:selection": [ExplorerEntry | null]; "update:tableContextSelection": [ExplorerEntry | null];
   "upload-select": [event: { files?: File[] }];
 }>();
 
 const { t } = useI18n();
 const { statusLabel, statusSeverity } = createLibraryStatusHelpers();
-const displayEntries = computed<LibraryBrowserEntry[]>(() => [...props.groupEntries, ...props.entries]);
-
-function handleUpload(event: FileUploadUploaderEvent) {
-  emit("upload-select", { files: Array.isArray(event.files) ? event.files : [event.files] });
-}
-const hasActiveResourceFilter = computed(() => !!props.resourceSearchQuery || !!props.statusFilter);
-const filters = ref({
-  status: {
-    operator: "and",
-    constraints: [{ value: props.statusFilter, matchMode: "equals" }],
-  },
-});
-const statusOptions = computed(() => [
-  { label: t("library.allStatuses"), value: null },
-  ...(["pending", "running", "succeeded", "failed"] as const).map((value) => ({
-    label: statusLabel(value),
-    value,
-  })),
+const table = useLibraryResourceTable(props, t, statusLabel);
+const uploadFiles = ref<File[] | null>(null);
+const sorting = ref([{ id: props.sortField, desc: props.sortOrder !== 1 }]);
+const currentPage = computed(() => Math.floor(props.first / props.pageSize) + 1);
+const columns = computed<TableColumn<LibraryBrowserEntry>[]>(() => [
+  { accessorKey: "name", header: t("library.filename") },
+  { id: "type", header: t("library.typeLabel") },
+  { id: "status", header: t("library.statusLabel") },
+  { id: "size", header: t("library.sizeLabel") },
+  { id: "updated_at", header: t("library.updatedColumn") },
+  ...(!props.hideActions ? [{ id: "actions", header: t("sources.table.action") }] : []),
 ]);
-const tableStateKey = computed(() => props.compact
-  ? "context69:table:group-library:v5"
-  : "context69:table:library:v5");
 
-function resourceTypeLabel(entry: LibraryBrowserEntry): string {
-  if (entry.kind === "group") return "groups.groupType";
-  return entry.kind === "folder" ? "library.folderType" : "library.fileType";
-}
-
-function resourceStatusLabel(entry: LibraryBrowserEntry): string {
-  if (entry.kind === "group") return entry.visibility;
-  if (entry.kind === "folder") {
-    return entry.processingCount > 0
-      ? `library.folderProcessing`
-      : "—";
+watch(uploadFiles, (files) => {
+  if (!files?.length) return;
+  emit("upload-select", { files });
+  uploadFiles.value = null;
+});
+watch(() => [props.sortField, props.sortOrder] as const, ([field, order]) => {
+  sorting.value = [{ id: field, desc: order !== 1 }];
+});
+watch(sorting, (value) => {
+  const next = value[0];
+  if (!next || !["name", "type", "status", "size", "updated_at"].includes(next.id)) return;
+  const order = next.desc ? -1 : 1;
+  if (next.id !== props.sortField || order !== props.sortOrder) {
+    emit("sort", { sortField: next.id as "name" | "type" | "status" | "size" | "updated_at", sortOrder: order });
   }
-
-  return statusLabel(entry.ingestStatus);
-}
-
-function resourceSizeLabel(entry: LibraryBrowserEntry): string {
-  if (entry.kind !== "file") {
-    return "—";
-  }
-
-  return formatBytes(entry.sizeBytes);
-}
-
-function statusTooltip(entry: LibraryBrowserEntry): string | undefined {
-  if (entry.kind !== "file" || entry.ingestStatus !== "failed") {
-    return undefined;
-  }
-
-  return entry.errorMessage || undefined;
-}
-
-function isRetrying(entry: LibraryBrowserEntry): boolean {
-  return entry.kind === "file" && props.retryingFileIds.includes(entry.id);
-}
-
-function entryIndentStyle(entry: LibraryBrowserEntry) {
-  return {
-    "--library-entry-depth": String(entry.depth),
-  };
-}
-
-function isFolderExpanded(entry: LibraryBrowserEntry): boolean {
-  return entry.kind === "folder" && !!props.expandedKeys[entry.id ?? "__root__"];
-}
-
-function handleSurfaceContextMenu(event: MouseEvent) {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-
-  if (target.closest("tr") || target.closest("[data-library-card]")) {
-    return;
-  }
-
-  emit("surface-contextmenu", { originalEvent: event });
-}
-
-function canMoveEntry(entry: LibraryBrowserEntry): boolean {
-  if (entry.kind === "group") return true;
-  if (entry.kind === "folder") {
-    return !entry.isSourceRecordsFolder;
-  }
-  return !entry.isSourceConfigFile && !entry.isSourceRecordFile;
-}
-
-function canDeleteEntry(entry: LibraryBrowserEntry): boolean {
-  if (entry.kind === "group") return true;
-  if (entry.kind === "folder") {
-    return !entry.isSourceRecordsFolder;
-  }
-  return !entry.isSourceConfigFile && !entry.isSourceRecordFile;
-}
+}, { deep: true });
 
 function openEntry(entry: LibraryBrowserEntry) {
-  if (entry.kind === "group") {
-    emit("open-group", entry);
-    return;
-  }
-  emit("open-entry", entry);
+  entry.kind === "group" ? emit("open-group", entry) : emit("open-entry", entry);
 }
-
+function selectEntry(_event: Event, row: { original: LibraryBrowserEntry }) {
+  const entry = row.original;
+  if (entry.kind === "group") return emit("open-group", entry);
+  emit("update:selection", entry);
+  emit("row-click", { data: entry });
+}
+function openEntryFromDoubleClick(entry: LibraryBrowserEntry) {
+  entry.kind === "group" ? emit("open-group", entry) : emit("row-dblclick", { data: entry });
+}
+function contextEntry(event: Event, row: { original: LibraryBrowserEntry }) {
+  const entry = row.original;
+  if (entry.kind === "group") emit("group-contextmenu", { originalEvent: event, data: entry });
+  else emit("row-contextmenu", { originalEvent: event, data: entry });
+}
 function moveEntry(entry: LibraryBrowserEntry) {
-  if (entry.kind === "group") {
-    emit("move-group", entry);
-    return;
-  }
-  emit("move-entry", entry);
+  entry.kind === "group" ? emit("move-group", entry) : emit("move-entry", entry);
 }
-
 function deleteEntry(entry: LibraryBrowserEntry) {
-  if (entry.kind === "group") {
-    emit("delete-group", entry);
-    return;
-  }
-  emit("delete-entry", entry);
+  entry.kind === "group" ? emit("delete-group", entry) : emit("delete-entry", entry);
 }
-
-function handleRowClick(event: { data: LibraryBrowserEntry }) {
-  if (event.data.kind === "group") {
-    emit("open-group", event.data);
-    return;
-  }
-  emit("row-click", { data: event.data });
+function rowActions(entry: LibraryBrowserEntry): DropdownMenuItem[][] {
+  const items: DropdownMenuItem[] = [{ label: t("common.open"), icon: "i-lucide-folder-open", onSelect: () => openEntry(entry) }];
+  if (entry.kind === "group") items.push({ label: t("common.edit"), icon: "i-lucide-pencil", onSelect: () => emit("edit-group", entry) });
+  if (entry.kind === "folder" && entry.isSourceFolder) items.push({ label: t("sources.sync"), icon: "i-lucide-refresh-cw", onSelect: () => emit("sync-source-folder", entry) });
+  if (table.canMoveEntry(entry)) items.push({ label: t("common.move"), icon: "i-lucide-folder-input", onSelect: () => moveEntry(entry) });
+  if (table.canDeleteEntry(entry)) items.push({ label: t("common.delete"), icon: "i-lucide-trash-2", color: "error", onSelect: () => deleteEntry(entry) });
+  return [items];
 }
-
-function handleRowDoubleClick(event: { data: LibraryBrowserEntry }) {
-  if (event.data.kind === "group") {
-    emit("open-group", event.data);
-    return;
-  }
-  emit("row-dblclick", { data: event.data });
+function handleSurfaceContextMenu(event: MouseEvent) {
+  if (!(event.target instanceof HTMLElement) || event.target.closest("tr")) return;
+  emit("surface-contextmenu", { originalEvent: event });
 }
-
-function handleRowContextMenu(event: { originalEvent: Event; data: LibraryBrowserEntry }) {
-  if (event.data.kind === "group") {
-    emit("group-contextmenu", { originalEvent: event.originalEvent, data: event.data });
-    return;
-  }
-  emit("row-contextmenu", { originalEvent: event.originalEvent, data: event.data });
-}
-
-function handleSelectionUpdate(entry: LibraryBrowserEntry | null) {
-  emit("update:selection", entry?.kind === "group" ? null : entry);
-}
-
-function handleContextSelectionUpdate(entry: LibraryBrowserEntry | null) {
-  emit("update:tableContextSelection", entry?.kind === "group" ? null : entry);
-}
-
-function handleSort(event: { sortField?: string | ((item: LibraryBrowserEntry) => string); sortOrder?: number | null }) {
-  if (typeof event.sortField !== "string" || !["name", "type", "status", "size", "updated_at"].includes(event.sortField)) {
-    return;
-  }
-  emit("sort", {
-    sortField: event.sortField as "name" | "type" | "status" | "size" | "updated_at",
-    sortOrder: event.sortOrder === 1 ? 1 : -1,
-  });
-}
-
-function handleFilter(event: DataTableFilterEvent) {
-  const metadata = event.filters.status as DataTableOperatorFilterMetaData | undefined;
-  const value = metadata?.constraints[0]?.value;
-  emit("status-filter", typeof value === "string" ? value as LibraryIngestStatus : null);
-}
-
-watch(() => props.statusFilter, (status) => {
-  filters.value.status.constraints[0]!.value = status;
-});
-
-function persistColumnLayout(state: { columnWidths?: unknown; tableWidth?: unknown }) {
-  const layoutState: Record<string, string> = {};
-  if (typeof state.columnWidths === "string") layoutState.columnWidths = state.columnWidths;
-  if (typeof state.tableWidth === "string") layoutState.tableWidth = state.tableWidth;
-  window.localStorage.setItem(tableStateKey.value, JSON.stringify(layoutState));
-}
-
 </script>
 
 <template>
-  <div class="library-pane flex h-full min-h-0 flex-col gap-2 bg-transparent px-2 py-2">
-    <div class="flex min-h-0 flex-1 flex-col overflow-auto" @contextmenu.prevent="handleSurfaceContextMenu">
-      <AsyncStateBlock
-        :error="props.error"
-        :loading="props.loading"
-        :loading-title="$t('common.loading')"
-        :loading-message="$t('library.loadingFiles')"
-      >
+  <div class="library-pane flex h-full min-h-0 flex-col gap-2 px-2 py-2">
+    <div v-if="!props.hideActions" class="flex flex-wrap items-center justify-end gap-2">
+      <UButton id="library-open-create-folder" color="neutral" variant="outline" :disabled="props.createFolderBusy || !props.selectedFolderReady" :label="t('library.newFolder')" @click="emit('create-folder')" />
+      <UButton color="neutral" variant="outline" :disabled="props.createSourceFolderBusy || !props.selectedFolderReady" :label="t('library.newSourceFolder')" @click="emit('create-source-folder')" />
+      <UFileUpload v-model="uploadFiles" multiple :preview="false" :dropzone="false" :disabled="props.uploadBusy || !props.selectedFolderReady" accept=".pdf,.docx,.xlsx,.md,.txt" class="w-auto">
+        <template #default="{ open }"><UButton icon="i-lucide-upload" :loading="props.uploadBusy" :label="t('common.upload')" @click="open()" /></template>
+      </UFileUpload>
+    </div>
+
+    <div v-if="props.paginated || table.statusOptions.value.length" class="flex flex-wrap items-center justify-between gap-2">
+      <USelect :model-value="props.statusFilter" :items="table.statusOptions.value" value-key="value" class="w-48" :aria-label="t('library.filterByStatus')" @update:model-value="emit('status-filter', $event as LibraryIngestStatus | null)" />
+      <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :label="t('common.refresh')" @click="emit('refresh')" />
+    </div>
+
+    <div class="flex min-h-0 flex-1 flex-col overflow-auto" @contextmenu.self.prevent="handleSurfaceContextMenu">
+      <AsyncStateBlock :error="props.error" :loading="props.loading" :loading-title="t('common.loading')" :loading-message="t('library.loadingFiles')">
         <template #error>
           <div class="grid justify-items-center gap-3 py-8 text-center">
-            <AppStateMessage severity="error" :title="$t('common.error')">
-              {{ props.error }}
-            </AppStateMessage>
-            <Button size="small" @click="emit('retry')">
-              {{ $t("common.retry") }}
-            </Button>
+            <AppStateMessage color="error" :title="t('common.error')">{{ props.error }}</AppStateMessage>
+            <UButton size="sm" :label="t('common.retry')" :aria-label="t('common.retry')" @click="emit('retry')" />
           </div>
         </template>
 
-        <DataTable
-          class="flex min-h-0 min-w-0 flex-1 flex-col"
-          :selection="props.selection"
-          :contextMenuSelection="props.tableContextSelection"
-          :value="displayEntries"
-          :first="props.first"
-          :lazy="props.paginated"
-          v-model:filters="filters"
-          filter-display="menu"
-          :paginator="props.paginated"
-          :rows="props.pageSize"
-          :rows-per-page-options="[25, 50, 100]"
-          :sort-field="props.sortField"
-          :sort-order="props.sortOrder"
-          :total-records="props.totalRecords"
-          data-key="key"
-          selection-mode="single"
-          context-menu
-          resizable-columns
-          column-resize-mode="expand"
-          size="small"
-          scrollable
-          scroll-height="flex"
-          state-storage="local"
-          :state-key="tableStateKey"
-          :table-class="props.compact ? 'w-full table-fixed' : 'min-w-[52rem]'"
-          @update:selection="handleSelectionUpdate"
-          @update:contextMenuSelection="handleContextSelectionUpdate"
-          @row-click="handleRowClick"
-          @row-dblclick="handleRowDoubleClick"
-          @row-contextmenu="handleRowContextMenu"
-          @page="emit('page', { first: $event.first, rows: $event.rows })"
-          @sort="handleSort"
-          @filter="handleFilter"
-          @state-save="persistColumnLayout"
-        >
-          <template v-if="!props.hideActions" #header>
-            <div class="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                id="library-open-create-folder"
-                type="button"
-                severity="secondary"
-                variant="outlined"
-                :disabled="props.createFolderBusy || !props.selectedFolderReady"
-                @click="emit('create-folder')"
-              >
-                {{ $t("library.newFolder") }}
-              </Button>
-              <Button
-                type="button"
-                severity="secondary"
-                variant="outlined"
-                :disabled="props.createSourceFolderBusy || !props.selectedFolderReady"
-                @click="emit('create-source-folder')"
-              >
-                {{ $t("library.newSourceFolder") }}
-              </Button>
-              <FileUpload
-                mode="basic"
-                multiple
-                auto
-                custom-upload
-                :disabled="props.uploadBusy || !props.selectedFolderReady"
-                accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
-                :choose-label="$t('common.upload')"
-                @uploader="handleUpload"
-              />
+        <UTable v-model:sorting="sorting" class="min-w-[52rem]" :data="table.displayEntries.value" :columns="columns" :loading="props.loading" :sorting-options="{ manualSorting: props.paginated }" @select="selectEntry" @contextmenu="contextEntry">
+          <template #empty><div class="py-8 text-center text-sm text-muted">{{ table.hasActiveResourceFilter.value ? t("library.noMatchingResources") : t("library.emptyFolderMessage") }}</div></template>
+          <template #name-cell="{ row }">
+            <div class="flex min-w-0 items-start gap-1.5" :style="table.entryIndentStyle(row.original)">
+              <UButton v-if="row.original.kind === 'folder'" class="library-folder-toggle" color="neutral" variant="ghost" size="xs" :icon="table.isFolderExpanded(row.original) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" :aria-label="row.original.name" @click.stop="emit('toggle-folder', row.original)" />
+              <UIcon v-else :name="row.original.kind === 'group' ? 'i-lucide-users' : 'i-lucide-file'" class="mt-1 size-4 shrink-0 text-muted" />
+              <button class="min-w-0 flex-1 text-left" type="button" :data-entry-key="row.original.key" @click.stop="openEntry(row.original)" @dblclick.stop="openEntryFromDoubleClick(row.original)">
+                <span class="block truncate text-sm font-semibold">{{ row.original.name }}</span>
+                <span v-if="row.original.kind === 'folder'" class="text-xs text-muted">{{ t("library.treeCounts", { folders: row.original.childFolderCount, files: row.original.fileCount }) }}</span>
+                <span v-else-if="row.original.kind === 'group' && !props.hideGroupPaths" class="text-xs text-muted">{{ row.original.path }}</span>
+              </button>
             </div>
           </template>
-          <template #empty>
-            <div class="py-8 text-center text-sm text-muted-color">
-              {{ hasActiveResourceFilter ? $t("library.noMatchingResources") : $t("library.emptyFolderMessage") }}
-            </div>
+          <template #type-cell="{ row }"><span class="text-sm text-muted">{{ table.resourceTypeLabel(row.original) }}</span></template>
+          <template #status-cell="{ row }">
+            <UBadge v-if="row.original.kind === 'group'" :label="row.original.visibility" color="neutral" variant="subtle" />
+            <span v-else-if="row.original.kind === 'file'" class="inline-flex items-center gap-1.5" :title="table.statusTooltip(row.original)">
+              <UBadge :label="statusLabel(row.original.ingestStatus)" :color="statusSeverity(row.original.ingestStatus)" variant="subtle" />
+              <UButton v-if="row.original.ingestStatus === 'failed' && !props.unavailableFileIds.includes(row.original.id)" color="neutral" variant="ghost" size="xs" icon="i-lucide-refresh-cw" :loading="table.isRetrying(row.original)" :aria-label="t('common.retry')" @click.stop="emit('retry-entry', row.original)" />
+            </span>
+            <span v-else class="text-sm text-muted">{{ table.resourceStatusLabel(row.original) }}</span>
           </template>
-
-          <Column :header="$t('library.filename')" field="name" sort-field="name" :sortable="props.paginated" :class="props.compact ? 'w-[36%]' : 'min-w-72'">
-            <template #body="{ data }">
-              <div class="py-0 [padding-left:calc(var(--library-entry-depth,0)*0.9rem)]" :style="entryIndentStyle(data)">
-                <div class="flex min-w-0 items-start gap-1.5">
-                  <Button
-                    v-if="data.kind === 'folder'"
-                    class="library-folder-toggle mt-0.5 h-6 w-6 shrink-0 p-0"
-                    type="button"
-                    text
-                    rounded
-                    size="small"
-                    severity="secondary"
-                    :aria-label="isFolderExpanded(data) ? 'Collapse folder' : 'Expand folder'"
-                    @click.stop="emit('toggle-folder', data)"
-                  >
-                    <span
-                      class="transition-transform duration-150"
-                      :class="{ 'rotate-90': isFolderExpanded(data) }"
-                    >
-                      &gt;
-                    </span>
-                  </Button>
-                  <span v-else-if="data.kind === 'file'" class="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-
-                  <div class="grid min-w-0 flex-1 gap-1">
-                    <span
-                      class="block w-full cursor-pointer truncate text-left text-sm font-semibold leading-6 text-color"
-                      :data-entry-key="data.key"
-                      @click.stop="openEntry(data)"
-                    >
-                      {{ data.name }}
-                    </span>
-                    <p v-if="data.kind === 'folder'" class="text-xs leading-4 text-muted-color">
-                      {{ $t("library.treeCounts", { folders: data.childFolderCount, files: data.fileCount }) }}
-                    </p>
-                    <p v-else-if="data.kind === 'group' && !props.hideGroupPaths" class="text-xs leading-4 text-muted-color">
-                      {{ data.path }}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </Column>
-
-          <Column :header="$t('library.typeLabel')" sort-field="type" :sortable="props.paginated" :class="props.compact ? 'w-[11%]' : 'w-24'">
-            <template #body="{ data }">
-              <span class="text-sm text-muted-color">{{ $t(resourceTypeLabel(data)) }}</span>
-            </template>
-          </Column>
-
-          <Column
-            :header="$t('library.statusLabel')"
-            field="status"
-            sort-field="status"
-            :sortable="props.paginated"
-            :show-filter-match-modes="false"
-            :show-filter-operator="false"
-            :show-add-button="false"
-            :class="props.compact ? 'w-[16%]' : 'w-32'"
-          >
-            <template #filter="{ filterModel }">
-              <Select
-                v-model="filterModel.value"
-                :aria-label="$t('library.filterByStatus')"
-                class="w-full"
-                :options="statusOptions"
-                option-label="label"
-                option-value="value"
-              />
-            </template>
-            <template #body="{ data }">
-              <Tag v-if="data.kind === 'group'" :value="data.visibility" severity="secondary" />
-              <span v-else-if="data.kind === 'file'" class="inline-flex items-center gap-1.5">
-                <span :class="statusTooltip(data) ? 'inline-flex cursor-help' : 'inline-flex'" :title="statusTooltip(data)">
-                <Tag
-                  :value="statusLabel(data.ingestStatus)"
-                  :severity="statusSeverity(data.ingestStatus)"
-                />
-                </span>
-                <Button
-                  v-if="data.ingestStatus === 'failed' && !props.unavailableFileIds.includes(data.id)"
-                  class="h-7 w-7 p-0"
-                  text
-                  rounded
-                  size="small"
-                  severity="secondary"
-                  :disabled="isRetrying(data)"
-                  :aria-busy="isRetrying(data)"
-                  :aria-label="$t('common.retry')"
-                  :title="$t('common.retry')"
-                  @click.stop="emit('retry-entry', data)"
-                >
-                  <ProgressSpinner v-if="isRetrying(data)" class="h-4 w-4" :stroke-width="6" />
-                  <i v-else class="pi pi-refresh" aria-hidden="true" />
-                </Button>
-              </span>
-              <span v-else class="text-sm text-muted-color">
-                {{
-                  data.processingCount > 0
-                    ? $t(resourceStatusLabel(data), { count: data.processingCount })
-                    : resourceStatusLabel(data)
-                }}
-              </span>
-            </template>
-          </Column>
-
-          <Column :header="$t('library.sizeLabel')" sort-field="size" :sortable="props.paginated" :class="props.compact ? 'w-[12%]' : 'w-24'">
-            <template #body="{ data }">
-              <span class="tabular-nums text-sm text-muted-color">{{ resourceSizeLabel(data) }}</span>
-            </template>
-          </Column>
-
-          <Column :header="$t('library.updatedColumn')" sort-field="updated_at" :sortable="props.paginated" :class="props.compact ? 'w-[25%]' : 'w-36'">
-            <template #body="{ data }">
-              <span class="whitespace-nowrap text-sm text-muted-color">
-                {{ data.updatedAt ? formatTimestamp(data.updatedAt) : "—" }}
-              </span>
-            </template>
-          </Column>
-
-          <Column v-if="!props.hideActions" :header="$t('sources.table.action')" class="w-32">
-            <template #body="{ data }">
-              <div class="flex flex-nowrap items-center justify-start gap-1 whitespace-nowrap">
-                <Button
-                  v-if="data.kind === 'folder' && data.isSourceFolder"
-                  text
-                  size="small"
-                  severity="secondary"
-                  :aria-label="$t('sources.sync')"
-                  :title="$t('sources.sync')"
-                  @click.stop="emit('sync-source-folder', data)"
-                >
-                  {{ $t("sources.sync") }}
-                </Button>
-                <Button
-                  text
-                  size="small"
-                  severity="secondary"
-                  :aria-label="data.kind === 'group' ? $t('common.open') : data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
-                  :title="data.kind === 'group' ? $t('common.open') : data.kind === 'folder' ? $t('library.openFolder') : $t('library.preview')"
-                  @click.stop="openEntry(data)"
-                >
-                  {{ $t("common.open") }}
-                </Button>
-                <Button
-                  v-if="data.kind === 'group'"
-                  text
-                  size="small"
-                  severity="secondary"
-                  :aria-label="$t('common.edit')"
-                  :title="$t('common.edit')"
-                  @click.stop="emit('edit-group', data)"
-                >
-                  {{ $t("common.edit") }}
-                </Button>
-                <Button
-                  v-if="canMoveEntry(data)"
-                  text
-                  size="small"
-                  severity="secondary"
-                  :aria-label="$t('common.move')"
-                  :title="$t('common.move')"
-                  @click.stop="moveEntry(data)"
-                >
-                  {{ $t("common.move") }}
-                </Button>
-                <Button
-                  v-if="canDeleteEntry(data)"
-                  text
-                  size="small"
-                  severity="danger"
-                  :aria-label="$t('common.delete')"
-                  :title="$t('common.delete')"
-                  @click.stop="deleteEntry(data)"
-                >
-                  {{ $t("common.delete") }}
-                </Button>
-              </div>
-            </template>
-          </Column>
-        </DataTable>
-
+          <template #size-cell="{ row }"><span class="tabular-nums text-sm text-muted">{{ table.resourceSizeLabel(row.original) }}</span></template>
+          <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ row.original.updatedAt ? formatTimestamp(row.original.updatedAt) : "-" }}</span></template>
+          <template #actions-cell="{ row }"><UDropdownMenu :items="rowActions(row.original)"><UButton color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('common.actions')" /></UDropdownMenu></template>
+        </UTable>
       </AsyncStateBlock>
     </div>
+
+    <UPagination v-if="props.paginated && props.totalRecords > props.pageSize" :page="currentPage" :items-per-page="props.pageSize" :total="props.totalRecords" class="justify-end" @update:page="emit('page', { first: ($event - 1) * props.pageSize, rows: props.pageSize })" />
   </div>
 </template>

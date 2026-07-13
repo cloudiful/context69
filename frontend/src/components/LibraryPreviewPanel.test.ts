@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LibraryFileDetailResponse } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 
 const detail: LibraryFileDetailResponse = {
@@ -52,7 +52,7 @@ describe("LibraryPreviewPanel", () => {
         selectedFileId: detail.file_id,
         selectedFolderSummary: null,
       },
-      global: { plugins: [testPrimeVuePlugin, createTestI18n("zh-CN")] },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n("zh-CN")] },
     });
 
     expect(wrapper.text()).toContain("Body only");

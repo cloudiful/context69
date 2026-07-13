@@ -1,9 +1,9 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import InputNumber from "primevue/inputnumber";
+import InputNumber from "@nuxt/ui/components/InputNumber.vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const {
   listSources,
@@ -46,8 +46,8 @@ vi.mock("../components/AppMonacoEditor.vue", () => ({
   },
 }));
 
-vi.mock("primevue/useconfirm", () => ({
-  useConfirm: () => ({
+vi.mock("../composables/use-app-confirm", () => ({
+  useAppConfirm: () => ({
     require: (options: { accept?: () => void }) => options.accept?.(),
     close: vi.fn(),
   }),
@@ -107,12 +107,12 @@ describe("SourcesView", () => {
 
     const wrapper = mount(SourcesView, {
       global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
+        plugins: [testNuxtUiPlugin, createTestI18n()],
       },
     });
     await flushPromises();
 
-    expect(wrapper.findComponent({ name: "DataTable" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "Table" }).exists()).toBe(true);
     expect(wrapper.text()).toContain("国务院/部委政策公文");
 
     const syncButton = wrapper.findAll("button").find((button) => button.text() === "Sync");
@@ -137,7 +137,7 @@ describe("SourcesView", () => {
 
     const wrapper = mount(SourcesView, {
       global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
+        plugins: [testNuxtUiPlugin, createTestI18n()],
       },
     });
     await flushPromises();
@@ -165,7 +165,7 @@ describe("SourcesView", () => {
     expect(editButton).toBeTruthy();
     await editButton!.trigger("click");
     expect((wrapper.get("#source-base-query").element as HTMLTextAreaElement).value).toBe("SELECT 1");
-    const inputNumbers = wrapper.findAllComponents(InputNumber);
+    const inputNumbers = wrapper.findAllComponents({ name: "InputNumber" });
     expect(inputNumbers.length).toBeGreaterThan(0);
     await inputNumbers[0].vm.$emit("update:modelValue", 500);
     await wrapper.get("form").trigger("submit");

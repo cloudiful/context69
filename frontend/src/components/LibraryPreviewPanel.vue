@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import ProgressSpinner from "primevue/progressspinner";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
+import type { TableColumn } from "@nuxt/ui";
 
 import type { LibraryFileDetailResponse } from "../services/api";
 import type { FolderSummary } from "../types/library";
@@ -42,6 +38,12 @@ const activeSection = computed(() => {
     ?? props.detail.sections[0]
     ?? null;
 });
+type LibraryJob = LibraryFileDetailResponse["jobs"][number];
+const jobColumns = computed<TableColumn<LibraryJob>[]>(() => [
+  { accessorKey: "job_id", header: t("library.jobsTitle") },
+  { accessorKey: "updated_at", header: t("library.updatedColumn") },
+  { accessorKey: "status", header: t("library.statusLabel") },
+]);
 </script>
 
 <template>
@@ -105,7 +107,7 @@ const activeSection = computed(() => {
           </div>
           <div class="grid gap-1">
             <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.statusLabel") }}</dt>
-            <dd><Tag :value="statusLabel(detail.ingest_status)" :severity="statusSeverity(detail.ingest_status)" /></dd>
+            <dd><UBadge :label="statusLabel(detail.ingest_status)" :color="statusSeverity(detail.ingest_status)" /></dd>
           </div>
           <div class="grid gap-1">
             <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.sizeLabel") }}</dt>
@@ -123,49 +125,49 @@ const activeSection = computed(() => {
 
         <AppStateMessage
           v-if="detail.ingest_status === 'running' || detail.ingest_status === 'pending'"
-          severity="warn"
+          color="warning"
           :title="t('library.processingTitle')"
         >
           {{ t("library.processingMessage") }}
         </AppStateMessage>
         <div v-else-if="detail.ingest_status === 'failed'" class="grid justify-items-start gap-3">
           <AppStateMessage
-            severity="error"
+            color="error"
             :title="t('library.processingFailedTitle')"
           >
             {{ detail.error_message || t("library.failedMessage") }}
           </AppStateMessage>
           <AppStateMessage
             v-if="!detail.source_available"
-            severity="warn"
+            color="warning"
             :title="t('library.sourceMissingTitle')"
           >
             {{ t("library.sourceMissingMessage") }}
           </AppStateMessage>
-          <Button
+          <UButton
             v-else
             :disabled="retrying"
             :aria-busy="retrying"
             @click="emit('retry', detail.file_id)"
           >
-            <ProgressSpinner v-if="retrying" class="h-4 w-4" :stroke-width="6" />
-            <i v-else class="pi pi-refresh" aria-hidden="true" />
+            <UIcon name="i-lucide-loader-circle" v-if="retrying" class="h-4 w-4" />
+            <UIcon v-else name="i-lucide-refresh-cw" />
             <span>{{ retrying ? t("library.retrying") : t("common.retry") }}</span>
-          </Button>
+          </UButton>
         </div>
 
         <section v-if="detail.sections.length > 0" class="grid gap-3">
           <div v-if="detail.sections.length > 1" class="flex flex-wrap gap-2">
-            <Button
+            <UButton
               v-for="section in detail.sections"
               :key="section.section_key"
-              :severity="activeSection?.section_key === section.section_key ? undefined : 'secondary'"
-              :variant="activeSection?.section_key === section.section_key ? undefined : 'outlined'"
-              size="small"
+              :color="activeSection?.section_key === section.section_key ? 'primary' : 'neutral'"
+              :variant="activeSection?.section_key === section.section_key ? 'solid' : 'outline'"
+              size="sm"
               @click="emit('update:activeSectionKey', section.section_key)"
             >
               {{ section.section_label }}
-            </Button>
+            </UButton>
           </div>
 
           <LibraryPreviewContent
@@ -177,25 +179,11 @@ const activeSection = computed(() => {
 
         <section v-if="detail.jobs.length > 0" class="grid gap-2">
           <h2 class="text-sm font-semibold text-color">{{ t("library.jobsTitle") }}</h2>
-          <DataTable class="min-w-0 max-w-full" :value="detail.jobs" data-key="job_id" size="small" scrollable>
-            <Column field="job_id" :header="t('library.jobsTitle')">
-              <template #body="{ data }">
-                <span class="block max-w-96 truncate font-mono text-xs text-color" :title="data.job_id">
-                  {{ data.job_id }}
-                </span>
-              </template>
-            </Column>
-            <Column field="updated_at" :header="t('library.updatedColumn')" class="w-40">
-              <template #body="{ data }">
-                <span class="whitespace-nowrap text-xs text-muted-color">{{ formatTimestamp(data.updated_at) }}</span>
-              </template>
-            </Column>
-            <Column field="status" :header="t('library.statusLabel')" class="w-24">
-              <template #body="{ data }">
-                <Tag :value="statusLabel(data.status)" :severity="statusSeverity(data.status)" />
-              </template>
-            </Column>
-          </DataTable>
+          <UTable class="min-w-0 max-w-full" :data="detail.jobs" :columns="jobColumns">
+            <template #job_id-cell="{ row }"><span class="block max-w-96 truncate font-mono text-xs" :title="row.original.job_id">{{ row.original.job_id }}</span></template>
+            <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-xs text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
+            <template #status-cell="{ row }"><UBadge :label="statusLabel(row.original.status)" :color="statusSeverity(row.original.status)" variant="subtle" /></template>
+          </UTable>
         </section>
       </div>
     </AsyncStateBlock>

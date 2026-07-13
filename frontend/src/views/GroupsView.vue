@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import type { TableColumn } from "@nuxt/ui";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import { apiClient, type GroupResponse, type Visibility } from "../services/api";
@@ -53,11 +50,23 @@ function openGroup(group: GroupResponse) {
   void router.push({ name: "group-overview", params: { groupPath: group.group_path ?? group.group_key } });
 }
 
+function handleGroupSelect(_event: Event, row: { original: GroupResponse }) {
+  openGroup(row.original);
+}
+
 function roleSeverity(role?: string | null) {
   if (role === "owner") return "success";
   if (role === "maintainer") return "info";
-  return "secondary";
+  return "neutral";
 }
+
+const columns = computed<TableColumn<GroupResponse>[]>(() => [
+  { accessorKey: "group_key", header: t("groups.groupKey") },
+  { accessorKey: "name", header: t("groups.groupName") },
+  { accessorKey: "visibility", header: t("groups.visibility") },
+  { accessorKey: "kind", header: t("groups.kind") },
+  { accessorKey: "current_role", header: t("groups.currentRole") },
+]);
 
 onMounted(() => {
   void loadGroups();
@@ -67,48 +76,26 @@ onMounted(() => {
 <template>
   <div class="grid min-w-0 gap-2">
     <div class="flex justify-end">
-      <Button @click="createDialogVisible = true">
+      <UButton @click="createDialogVisible = true">
         {{ t("groups.create") }}
-      </Button>
+      </UButton>
     </div>
 
-    <DataTable
+    <UTable
       class="min-w-0 max-w-full"
-      :value="groups"
+      :data="groups"
+      :columns="columns"
       :loading="loading"
-      data-key="group_id"
-      removable-sort
-      row-hover
-      resizable-columns
-      column-resize-mode="expand"
-      scrollable
-      state-storage="local"
-      state-key="context69:table:groups:v5"
-      table-class="min-w-full"
-      @row-click="openGroup($event.data)"
+      @select="handleGroupSelect"
     >
       <template #empty>
         {{ t("groups.emptyMessage") }}
       </template>
 
-      <Column field="group_key" :header="t('groups.groupKey')" sortable />
-      <Column field="name" :header="t('groups.groupName')" sortable />
-      <Column field="visibility" :header="t('groups.visibility')" sortable>
-        <template #body="{ data }">
-          <Tag :value="data.visibility" severity="secondary" />
-        </template>
-      </Column>
-      <Column field="kind" :header="t('groups.kind')" sortable>
-        <template #body="{ data }">
-          <Tag :value="data.kind" severity="contrast" />
-        </template>
-      </Column>
-      <Column field="current_role" :header="t('groups.currentRole')" sortable>
-        <template #body="{ data }">
-          <Tag :value="data.current_role || '--'" :severity="roleSeverity(data.current_role)" />
-        </template>
-      </Column>
-    </DataTable>
+      <template #visibility-cell="{ row }"><UBadge :label="row.original.visibility" color="neutral" variant="subtle" /></template>
+      <template #kind-cell="{ row }"><UBadge :label="row.original.kind" color="neutral" variant="subtle" /></template>
+      <template #current_role-cell="{ row }"><UBadge :label="row.original.current_role || '--'" :color="roleSeverity(row.original.current_role)" variant="subtle" /></template>
+    </UTable>
 
     <EntityDialog
       v-model:visible="createDialogVisible"

@@ -2,7 +2,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
 import { createTestI18n } from "../../test-utils/i18n";
-import { testPrimeVuePlugin } from "../../test-utils/primevue";
+import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
 
 import VectorIndexRebuildControl from "./VectorIndexRebuildControl.vue";
 
@@ -10,7 +10,7 @@ describe("VectorIndexRebuildControl", () => {
   it("starts a rebuild and disables repeated actions while running", async () => {
     const wrapper = mount(VectorIndexRebuildControl, {
       props: { status: { state: "idle", processed_chunks: 0, total_chunks: 0 } },
-      global: { plugins: [testPrimeVuePlugin, createTestI18n("zh-CN")] },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n("zh-CN")] },
     });
 
     await wrapper.get('[data-testid="runtime-vector-rebuild"]').trigger("click");

@@ -1,6 +1,6 @@
 import { computed, ref, toValue, type MaybeRefOrGetter, type Ref } from "vue";
-import { useConfirm } from "primevue/useconfirm";
-import { useToast } from "primevue/usetoast";
+import { useToast } from "@nuxt/ui/composables";
+import { useAppConfirm } from "../use-app-confirm";
 
 import { apiClient, type LibraryFileSummary, type LibraryFolderNode } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
@@ -54,7 +54,7 @@ export function useProjectLibraryActions({
   previewDocked,
   previewDialogVisible,
 }: UseProjectLibraryActionsOptions) {
-  const confirm = useConfirm();
+  const confirm = useAppConfirm();
   const toast = useToast();
   const showErrorToast = useErrorToast();
   const createFolderBusy = ref(false);
@@ -96,7 +96,7 @@ export function useProjectLibraryActions({
       updateExpandedForFolder(parentFolderId);
       updateExpandedForFolder(folder.folder_id ?? null);
       await replaceSelection(folder.folder_id, null);
-      toast.add({ severity: "success", summary: t("library.newFolder"), detail: folder.name, life: 2500 });
+      toast.add({ color: "success", title: t("library.newFolder"), description: folder.name, duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.createFolderFailed"));
     } finally {
@@ -121,7 +121,7 @@ export function useProjectLibraryActions({
         await replaceSelection(nextFile.folder_id ?? selectedFolder.value?.folder_id ?? null, nextFile.file_id);
       }
       schedulePolling(response.jobs.map((job: { job_id: string }) => job.job_id));
-      toast.add({ severity: "success", summary: t("library.newTextFile"), detail: payload.title, life: 2500 });
+      toast.add({ color: "success", title: t("library.newTextFile"), description: payload.title, duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.createTextFileFailed"));
     } finally {
@@ -144,7 +144,7 @@ export function useProjectLibraryActions({
         await replaceSelection(response.files[0].folder_id ?? selectedFolder.value?.folder_id ?? null, response.files[0].file_id);
       }
       schedulePolling(response.jobs.map((job) => job.job_id));
-      toast.add({ severity: "success", summary: t("common.upload"), detail: t("library.uploadSuccess"), life: 2500 });
+      toast.add({ color: "success", title: t("common.upload"), description: t("library.uploadSuccess"), duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.uploadFailed"));
     } finally {
@@ -170,10 +170,10 @@ export function useProjectLibraryActions({
       await loadTree();
       schedulePolling([job.job_id]);
       toast.add({
-        severity: "success",
-        summary: t("library.retryAccepted"),
-        detail: t("library.retryAcceptedMessage"),
-        life: 2500,
+        color: "success",
+        title: t("library.retryAccepted"),
+        description: t("library.retryAcceptedMessage"),
+        duration: 2500,
       });
     } catch (error) {
       showErrorToast(error, t("library.retryFailed"));
@@ -216,7 +216,7 @@ export function useProjectLibraryActions({
         await loadTree();
         await replaceSelection(targetFolderId, moveDialog.value.id);
       }
-      toast.add({ severity: "success", summary: t("common.move"), detail: moveDialog.value.name, life: 2500 });
+      toast.add({ color: "success", title: t("common.move"), description: moveDialog.value.name, duration: 2500 });
       moveDialog.value = null;
     } catch (error) {
       showErrorToast(error, t("library.moveFailed"));
@@ -230,9 +230,8 @@ export function useProjectLibraryActions({
     confirm.require({
       header: t("common.delete"),
       message: t("library.deleteFolderConfirm", { name: folder.name }),
-      icon: "pi pi-exclamation-triangle",
-      rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-      acceptProps: { label: t("common.delete"), severity: "danger" },
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("common.delete"),
       accept: () => { void deleteFolderConfirmed(folder); },
     });
   }
@@ -243,7 +242,7 @@ export function useProjectLibraryActions({
       await apiClient.deleteGroupLibraryFolder(toValue(groupPath), folder.folder_id!);
       await loadTree();
       await replaceSelection(null, null);
-      toast.add({ severity: "success", summary: t("common.delete"), detail: folder.name, life: 2500 });
+      toast.add({ color: "success", title: t("common.delete"), description: folder.name, duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.deleteFolderFailed"));
     } finally {
@@ -255,9 +254,8 @@ export function useProjectLibraryActions({
     confirm.require({
       header: t("common.delete"),
       message: t("library.deleteFileConfirm", { name: file.filename }),
-      icon: "pi pi-exclamation-triangle",
-      rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-      acceptProps: { label: t("common.delete"), severity: "danger" },
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("common.delete"),
       accept: () => { void deleteFileConfirmed(file); },
     });
   }
@@ -270,7 +268,7 @@ export function useProjectLibraryActions({
       if (selectedFileId.value === file.file_id) {
         await replaceSelection(selectedFolder.value?.folder_id ?? null, null);
       }
-      toast.add({ severity: "success", summary: t("common.delete"), detail: file.filename, life: 2500 });
+      toast.add({ color: "success", title: t("common.delete"), description: file.filename, duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.deleteFileFailed"));
     } finally {

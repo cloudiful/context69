@@ -1,9 +1,10 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
-import Select from "primevue/select";
+import Select from "@nuxt/ui/components/Select.vue";
 
 import { createTestI18n } from "../test-utils/i18n";
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
+import type { SearchFilters } from "../types/ui";
 import SearchForm from "./SearchForm.vue";
 
 describe("SearchForm", () => {
@@ -43,7 +44,7 @@ describe("SearchForm", () => {
         busy: false,
       },
       global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
+        plugins: [testNuxtUiPlugin, createTestI18n()],
       },
     });
 
@@ -51,20 +52,12 @@ describe("SearchForm", () => {
 
     await wrapper.get("#query").setValue("cybersecurity");
     await wrapper.get("[data-testid='search-toggle-advanced']").trigger("click");
-    await wrapper.findComponent(Select).vm.$emit("update:modelValue", "gov_documents");
+    await wrapper.findComponent({ name: "Select" }).vm.$emit("update:modelValue", "gov_documents");
     await wrapper.get("form").trigger("submit");
 
-    const updates = wrapper.emitted("update:filters");
-    expect(updates?.[0]?.[0]).toEqual(
-      expect.objectContaining({
-        query: "cybersecurity",
-      }),
-    );
-    expect(updates?.[1]?.[0]).toEqual(
-      expect.objectContaining({
-        sourceKey: "gov_documents",
-      }),
-    );
+    const updates = wrapper.emitted("update:filters") as Array<[SearchFilters]> | undefined;
+    expect(updates?.some(([filters]) => filters.query === "cybersecurity")).toBe(true);
+    expect(updates?.some(([filters]) => filters.sourceKey === "gov_documents")).toBe(true);
     expect(wrapper.emitted("submit")).toHaveLength(1);
   });
 
@@ -83,7 +76,7 @@ describe("SearchForm", () => {
         busy: false,
       },
       global: {
-        plugins: [testPrimeVuePlugin, createTestI18n()],
+        plugins: [testNuxtUiPlugin, createTestI18n()],
       },
     });
 

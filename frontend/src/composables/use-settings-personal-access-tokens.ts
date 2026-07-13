@@ -1,7 +1,7 @@
 import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { useConfirm } from "primevue/useconfirm";
-import { useToast } from "primevue/usetoast";
+import { useToast } from "@nuxt/ui/composables";
+import { useAppConfirm } from "./use-app-confirm";
 
 import {
   apiClient,
@@ -16,7 +16,7 @@ const DEFAULT_EXPIRY_DAYS = 30;
 
 export function useSettingsPersonalAccessTokens() {
   const { t } = useI18n();
-  const confirm = useConfirm();
+  const confirm = useAppConfirm();
   const toast = useToast();
   const showErrorToast = useErrorToast();
 
@@ -104,9 +104,9 @@ export function useSettingsPersonalAccessTokens() {
       personalAccessTokens.value = await apiClient.listPersonalAccessTokens();
       resetPersonalAccessTokenDraft();
       toast.add({
-        severity: "success",
-        summary: t("settings.personalAccessTokens.createSuccess"),
-        life: 2500,
+        color: "success",
+        title: t("settings.personalAccessTokens.createSuccess"),
+        duration: 2500,
       });
     } catch (error) {
       showErrorToast(error, t("settings.personalAccessTokens.createFailed"));
@@ -119,16 +119,8 @@ export function useSettingsPersonalAccessTokens() {
     confirm.require({
       header: t("common.delete"),
       message: t("settings.personalAccessTokens.revokeConfirm", { name: token.name }),
-      icon: "pi pi-exclamation-triangle",
-      rejectProps: {
-        label: t("common.cancel"),
-        severity: "secondary",
-        outlined: true,
-      },
-      acceptProps: {
-        label: t("settings.personalAccessTokens.revokeAction"),
-        severity: "danger",
-      },
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("settings.personalAccessTokens.revokeAction"),
       accept: () => {
         void revokePersonalAccessToken(token.token_id);
       },
@@ -140,9 +132,9 @@ export function useSettingsPersonalAccessTokens() {
       await apiClient.revokePersonalAccessToken(tokenId);
       personalAccessTokens.value = await apiClient.listPersonalAccessTokens();
       toast.add({
-        severity: "success",
-        summary: t("settings.personalAccessTokens.revokeSuccess"),
-        life: 2500,
+        color: "success",
+        title: t("settings.personalAccessTokens.revokeSuccess"),
+        duration: 2500,
       });
     } catch (error) {
       showErrorToast(error, t("settings.personalAccessTokens.revokeFailed"));
@@ -161,9 +153,9 @@ export function useSettingsPersonalAccessTokens() {
       }
       await navigator.clipboard.writeText(token);
       toast.add({
-        severity: "success",
-        summary: t("settings.personalAccessTokens.copySuccess"),
-        life: 2500,
+        color: "success",
+        title: t("settings.personalAccessTokens.copySuccess"),
+        duration: 2500,
       });
     } catch (error) {
       showErrorToast(error, t("settings.personalAccessTokens.copyFailed"));

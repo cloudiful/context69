@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { computed, proxyRefs, ref, watch } from "vue";
+import { computed, proxyRefs, watch } from "vue";
+import type { ContextMenuItem } from "@nuxt/ui";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import ContextMenu from "primevue/contextmenu";
-import Dialog from "primevue/dialog";
-import Splitter from "primevue/splitter";
-import SplitterPanel from "primevue/splitterpanel";
 
 import LibraryCreateFolderDialog from "../components/LibraryCreateFolderDialog.vue";
 import LibraryMoveDialog from "../components/LibraryMoveDialog.vue";
@@ -19,12 +16,6 @@ import { useLibraryPreview } from "../composables/library/use-library-preview";
 import { useLibraryTree } from "../composables/library/use-library-tree";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry } from "../types/library";
-
-interface LibraryMenuItem {
-  command: () => void;
-  icon: string;
-  label: string;
-}
 
 const route = useRoute();
 const router = useRouter();
@@ -70,9 +61,7 @@ const actions = useLibraryActions({
 });
 const actionsState = proxyRefs(actions);
 
-const resourceContextMenu = ref();
-
-const resourceMenuItems = computed<LibraryMenuItem[]>(() => {
+const resourceMenuItems = computed<ContextMenuItem[]>(() => {
   const entry = treeState.resourceContextEntry;
   if (!entry) {
     return [];
@@ -82,29 +71,30 @@ const resourceMenuItems = computed<LibraryMenuItem[]>(() => {
     return [
       {
         label: t("library.openFolder"),
-        icon: "pi pi-folder-open",
-        command: () => {
+        icon: "i-lucide-folder-open",
+        onSelect: () => {
           void treeState.selectFolder(entry.id);
         },
       },
       {
         label: t("library.newFolder"),
-        icon: "pi pi-folder-plus",
-        command: () => {
+        icon: "i-lucide-folder-plus",
+        onSelect: () => {
           actionsState.openCreateFolderDialog(entry.folder);
         },
       },
       {
         label: t("common.move"),
-        icon: "pi pi-arrows-alt",
-        command: () => {
+        icon: "i-lucide-folder-input",
+        onSelect: () => {
           actionsState.openMoveFolderDialog(entry.folder);
         },
       },
       {
         label: t("common.delete"),
-        icon: "pi pi-trash",
-        command: () => {
+        icon: "i-lucide-trash-2",
+        color: "error",
+        onSelect: () => {
           void actionsState.deleteFolder(entry.folder);
         },
       },
@@ -114,22 +104,23 @@ const resourceMenuItems = computed<LibraryMenuItem[]>(() => {
   return [
     {
       label: t("library.preview"),
-      icon: "pi pi-eye",
-      command: () => {
+      icon: "i-lucide-eye",
+      onSelect: () => {
         void actionsState.revealPreviewForFile(entry.id);
       },
     },
     {
       label: t("common.move"),
-      icon: "pi pi-arrows-alt",
-      command: () => {
+      icon: "i-lucide-file-input",
+      onSelect: () => {
         actionsState.openMoveFileDialog(entry.file);
       },
     },
     {
       label: t("common.delete"),
-      icon: "pi pi-trash",
-      command: () => {
+      icon: "i-lucide-trash-2",
+      color: "error",
+      onSelect: () => {
         void actionsState.deleteFile(entry.file);
       },
     },
@@ -180,7 +171,6 @@ function deleteExplorerEntry(entry: ExplorerEntry) {
 
 function handleExplorerRowContextMenu(event: { originalEvent: Event; data: ExplorerEntry }) {
   treeState.resourceContextEntry = event.data;
-  resourceContextMenu.value?.show(event.originalEvent);
 }
 
 async function refreshLibrary() {
@@ -227,8 +217,6 @@ defineExpose({
 
 <template>
   <div class="grid min-h-[calc(100vh-4.75rem)] gap-2">
-    <ContextMenu ref="resourceContextMenu" :model="resourceMenuItems" @hide="treeState.resourceContextEntry = null" />
-
     <LibraryToolbar
       :breadcrumb-home="treeState.breadcrumbHome"
       :breadcrumb-items="treeState.breadcrumbItems"
@@ -237,11 +225,12 @@ defineExpose({
       @update:search-query="treeState.resourceSearchQuery = $event"
     />
 
-    <section
+    <UContextMenu :items="[resourceMenuItems]">
+      <section
       class="h-auto min-h-[calc(100vh-8.5rem)] overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950 md:h-[calc(100dvh-var(--library-workspace-offset,9.25rem))] md:min-h-0"
     >
-      <Splitter v-if="previewState.showDockedPreview">
-        <SplitterPanel :size="62" :min-size="42">
+      <UDashboardGroup v-if="previewState.showDockedPreview" :persistent="false">
+        <UDashboardPanel :default-size="62" :min-size="42" resizable>
           <LibraryResourceTable
             :create-folder-busy="actionsState.createFolderBusy"
             :entries="treeState.filteredExplorerEntries"
@@ -265,9 +254,10 @@ defineExpose({
             @create-folder="actionsState.openCreateFolderDialog()"
             @upload-select="actionsState.handleFileSelection"
           />
-        </SplitterPanel>
+        </UDashboardPanel>
 
-        <SplitterPanel :size="38" :min-size="28">
+        <UDashboardResizeHandle />
+        <UDashboardPanel :default-size="38" :min-size="28" resizable>
           <LibraryPreviewShell
             :title="previewState.previewTitle"
             class="library-docked-preview border-l border-surface"
@@ -281,8 +271,8 @@ defineExpose({
               @update:active-section-key="detailState.activeSectionKey = $event"
             />
           </LibraryPreviewShell>
-        </SplitterPanel>
-      </Splitter>
+        </UDashboardPanel>
+      </UDashboardGroup>
 
       <LibraryResourceTable
         v-else
@@ -308,15 +298,17 @@ defineExpose({
         @create-folder="actionsState.openCreateFolderDialog()"
         @upload-select="actionsState.handleFileSelection"
       />
-    </section>
+      </section>
+    </UContextMenu>
 
-    <Dialog
-      v-model:visible="previewState.previewDialogVisible"
+    <UModal
+      v-model:open="previewState.previewDialogVisible"
       class="library-preview-dialog w-[min(96vw,58rem)]"
       :modal="true"
-      :header="previewState.previewTitle"
+      :title="previewState.previewTitle"
     >
-      <LibraryPreviewShell :title="previewState.previewTitle" :show-header="false">
+    <template #body>
+<LibraryPreviewShell :title="previewState.previewTitle" :show-header="false">
         <LibraryPreviewPanel
           :active-section-key="detailState.activeSectionKey"
           :detail="detailState.detail"
@@ -326,7 +318,8 @@ defineExpose({
           @update:active-section-key="detailState.activeSectionKey = $event"
         />
       </LibraryPreviewShell>
-    </Dialog>
+    </template>
+    </UModal>
 
     <LibraryCreateFolderDialog
       :open="!!actionsState.createDialog"

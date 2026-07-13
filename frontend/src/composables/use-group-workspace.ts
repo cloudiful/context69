@@ -1,7 +1,7 @@
 import { computed, ref, watch, type ShallowUnwrapRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { useConfirm } from "primevue/useconfirm";
+import { useAppConfirm } from "./use-app-confirm";
 
 import {
   apiClient,
@@ -29,7 +29,7 @@ export function useGroupWorkspace() {
   const route = useRoute();
   const router = useRouter();
   const { t } = useI18n();
-  const confirm = useConfirm();
+  const confirm = useAppConfirm();
   const showErrorToast = useErrorToast();
 
   const groupPath = computed(() => String(route.params.groupPath ?? ""));
@@ -182,9 +182,8 @@ export function useGroupWorkspace() {
     confirm.require({
       header: t("common.delete"),
       message: t("groups.deleteConfirm", { name: group.value?.name ?? groupKey.value }),
-      icon: "pi pi-exclamation-triangle",
-      rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-      acceptProps: { label: t("common.delete"), severity: "danger" },
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("common.delete"),
       accept: () => void deleteGroup(),
     });
   }
@@ -202,9 +201,8 @@ export function useGroupWorkspace() {
     confirm.require({
       header: t("common.delete"),
       message: t("groups.childDeleteConfirm", { name: childGroup.name }),
-      icon: "pi pi-exclamation-triangle",
-      rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-      acceptProps: { label: t("common.delete"), severity: "danger" },
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("common.delete"),
       accept: () => void deleteChildGroup(childGroup),
     });
   }
@@ -223,9 +221,8 @@ export function useGroupWorkspace() {
     confirm.require({
       header: t("common.delete"),
       message: t("groups.memberRemoveConfirm", { loginName: member.login_name }),
-      icon: "pi pi-exclamation-triangle",
-      rejectProps: { label: t("common.cancel"), severity: "secondary", outlined: true },
-      acceptProps: { label: t("common.delete"), severity: "danger" },
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("common.delete"),
       accept: () => void removeMember(member.login_name),
     });
   }

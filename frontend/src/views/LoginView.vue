@@ -1,14 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, reactive, ref } from "vue";
+import type { FormSubmitEvent } from "@nuxt/ui";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { Form, FormField } from "@primevue/forms";
-import { zodResolver } from "@primevue/forms/resolvers/zod";
-import Button from "primevue/button";
-import ProgressSpinner from "primevue/progressspinner";
-import Fluid from "primevue/fluid";
-import InputText from "primevue/inputtext";
-import Message from "primevue/message";
 import * as z from "zod";
 
 import AppPanel from "../components/AppPanel.vue";
@@ -22,19 +16,15 @@ const showErrorToast = useErrorToast();
 
 const busy = ref(false);
 
-const initialValues = {
+const state = reactive({
   login_name: "",
   password: "",
-};
+});
 
-const resolver = computed(() =>
-  zodResolver(
-    z.object({
-      login_name: z.string().trim().min(1, { message: t("auth.validation.loginNameRequired") }),
-      password: z.string().min(1, { message: t("auth.validation.passwordRequired") }),
-    }),
-  ),
-);
+const schema = computed(() => z.object({
+  login_name: z.string().trim().min(1, { message: t("auth.validation.loginNameRequired") }),
+  password: z.string().min(1, { message: t("auth.validation.passwordRequired") }),
+}));
 
 const redirectTarget = computed(() => {
   const redirect = route.query.redirect;
@@ -57,12 +47,8 @@ function readAuthError(error: unknown) {
   return null;
 }
 
-async function submit(event: { valid: boolean; values: Record<string, unknown> }) {
+async function submit(event: FormSubmitEvent<z.output<typeof schema.value>>) {
   if (busy.value) {
-    return;
-  }
-
-  if (!event.valid) {
     return;
   }
 
@@ -70,8 +56,8 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
 
   try {
     await login({
-      login_name: String(event.values.login_name ?? "").trim(),
-      password: String(event.values.password ?? ""),
+      login_name: event.data.login_name.trim(),
+      password: event.data.password,
     });
     await router.replace(redirectTarget.value);
   } catch (error) {
@@ -101,65 +87,34 @@ async function submit(event: { valid: boolean; values: Record<string, unknown> }
         <span class="text-xs text-muted-color">{{ authSessionState.user.login_name }}</span>
       </div>
 
-      <Fluid>
-        <Form
+      <div>
+        <UForm
           class="grid gap-3"
-          :initial-values="initialValues"
-          :resolver="resolver"
+          :state="state"
+          :schema="schema"
           @submit="submit"
         >
-          <FormField v-slot="$field" name="login_name" :initial-value="initialValues.login_name">
-            <div class="grid min-w-0 content-start self-start gap-2">
-              <InputText
-                id="login-name"
-                v-bind="$field.props"
-                :model-value="$field.value"
-                :disabled="busy"
-                :placeholder="t('auth.loginNamePlaceholder')"
-                :aria-label="t('auth.loginName')"
-                autocomplete="username"
-                fluid
-                @update:model-value="$field.props.onInput({ value: $event })"
-              />
-              <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                {{ $field.error?.message }}
-              </Message>
-            </div>
-          </FormField>
+          <UFormField name="login_name" :label="t('auth.loginName')">
+            <UInput id="login-name" v-model="state.login_name" class="w-full" :disabled="busy" :placeholder="t('auth.loginNamePlaceholder')" autocomplete="username" />
+          </UFormField>
 
-          <FormField v-slot="$field" name="password" :initial-value="initialValues.password">
-            <div class="grid min-w-0 content-start self-start gap-2">
-              <InputText
-                id="login-password"
-                v-bind="$field.props"
-                :model-value="$field.value"
-                type="password"
-                :disabled="busy"
-                :placeholder="t('auth.passwordPlaceholder')"
-                :aria-label="t('auth.password')"
-                autocomplete="current-password"
-                fluid
-                @update:model-value="$field.props.onInput({ value: $event })"
-              />
-              <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                {{ $field.error?.message }}
-              </Message>
-            </div>
-          </FormField>
+          <UFormField name="password" :label="t('auth.password')">
+            <UInput id="login-password" v-model="state.password" class="w-full" type="password" :disabled="busy" :placeholder="t('auth.passwordPlaceholder')" autocomplete="current-password" />
+          </UFormField>
 
           <div class="pt-1">
-            <Button
+            <UButton
               class="w-full"
               type="submit"
               :disabled="busy"
               :aria-busy="busy"
             >
-              <ProgressSpinner v-if="busy" class="h-4 w-4" :stroke-width="6" />
+              <UIcon v-if="busy" name="i-lucide-loader-circle" class="h-4 w-4 animate-spin" />
               {{ busy ? t("auth.signingIn") : t("auth.signIn") }}
-            </Button>
+            </UButton>
           </div>
-        </Form>
-      </Fluid>
+        </UForm>
+      </div>
     </AppPanel>
   </div>
 </template>

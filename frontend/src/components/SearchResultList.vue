@@ -1,9 +1,7 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
+import type { TableColumn } from "@nuxt/ui";
 
 import type { SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
@@ -19,77 +17,67 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const columns = computed<TableColumn<SearchHit>[]>(() => [
+  { accessorKey: "title", header: t("search.resultsTitle") },
+  { id: "published", header: t("search.result.published", { date: "" }).trim() },
+  { id: "actions", header: t("sources.table.action") },
+]);
+
+function selectRow(_event: Event, row: { original: SearchHit }) {
+  emit("select", row.original);
+}
 </script>
 
 <template>
   <div data-testid="search-results-list">
-    <DataTable
-      :value="hits"
-      :selection="selectedHit"
-      data-key="chunk_id"
-      selection-mode="single"
-      resizable-columns
-      column-resize-mode="expand"
-      size="small"
-      scrollable
-      state-storage="local"
-      state-key="context69:table:search-results:v5"
-      table-class="min-w-[44rem]"
+    <UTable
+      :data="hits"
+      :columns="columns"
       class="min-w-0 max-w-full"
-      @update:selection="emit('select', $event)"
-      @row-click="emit('select', $event.data)"
-      @row-dblclick="emit('open', $event.data)"
+      @select="selectRow"
     >
-      <Column :header="t('search.resultsTitle')" field="title" class="min-w-96">
-        <template #body="{ data: hit }">
+      <template #title-cell="{ row }">
+        <template v-if="row.original">
           <div class="grid min-w-0 gap-2">
             <div class="flex min-w-0 flex-wrap items-start gap-2.5">
-              <Button
+              <UButton
                 class="min-w-0 flex-1 justify-start px-0 text-left text-sm font-semibold leading-6 [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
                 type="button"
-                text
-                size="small"
-                severity="secondary"
-                @click.stop="emit('select', hit)"
+      variant="ghost"                size="sm"
+                color="neutral"
+                @click.stop="emit('select', row.original)"
               >
-                {{ hit.title }}
-              </Button>
+                {{ row.original.title }}
+              </UButton>
               <div class="flex shrink-0 flex-wrap items-center gap-1.5">
-                <Tag :value="hit.source_key" severity="secondary" />
-                <Tag :value="hit.external_id" severity="secondary" />
-                <Tag :value="formatScore(hit.score)" severity="secondary" />
+                <UBadge :label="row.original.source_key" color="neutral" variant="subtle" />
+                <UBadge :label="row.original.external_id" color="neutral" variant="subtle" />
+                <UBadge :label="formatScore(row.original.score)" color="neutral" variant="subtle" />
               </div>
             </div>
-            <p v-if="hit.library_path" class="break-words">
-              {{ hit.library_path }}<span v-if="hit.library_section_label"> · {{ hit.library_section_label }}</span>
+            <p v-if="row.original.library_path" class="break-words">
+              {{ row.original.library_path }}<span v-if="row.original.library_section_label"> · {{ row.original.library_section_label }}</span>
             </p>
             <p class="text-[0.88rem] leading-[1.55rem] text-muted-color [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-              {{ hit.chunk_text }}
+              {{ row.original.chunk_text }}
             </p>
           </div>
         </template>
-      </Column>
+      </template>
 
-      <Column :header="t('search.result.published', { date: '' }).trim()" class="w-[8.5rem]">
-        <template #body="{ data: hit }">
-          <span class="text-sm text-muted-color">{{ formatDate(hit.published_at) }}</span>
-        </template>
-      </Column>
+      <template #published-cell="{ row }"><span class="text-sm text-muted">{{ formatDate(row.original.published_at) }}</span></template>
 
-      <Column :header="t('sources.table.action')" class="w-28">
-        <template #body="{ data: hit }">
-          <Button
+      <template #actions-cell="{ row }">
+          <UButton
             data-testid="search-result-open"
-            text
-            size="small"
-            severity="secondary"
-            @click.stop="emit('open', hit)"
+      variant="ghost"            size="sm"
+            color="neutral"
+            @click.stop="emit('open', row.original)"
           >
             {{ t("common.open") }}
-          </Button>
-        </template>
-      </Column>
-    </DataTable>
+          </UButton>
+      </template>
+    </UTable>
 
   </div>
 </template>

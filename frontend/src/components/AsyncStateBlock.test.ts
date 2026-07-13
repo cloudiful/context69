@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
-import { testPrimeVuePlugin } from "../test-utils/primevue";
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 
 describe("AsyncStateBlock", () => {
@@ -17,7 +17,7 @@ describe("AsyncStateBlock", () => {
         default: '<div class="ready-state">Ready</div>',
       },
       global: {
-        plugins: [testPrimeVuePlugin],
+        plugins: [testNuxtUiPlugin],
       },
     });
 

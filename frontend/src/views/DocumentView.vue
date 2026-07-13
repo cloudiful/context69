@@ -2,9 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Card from "primevue/card";
-import Tag from "primevue/tag";
 
 import AppRecordCard from "../components/AppRecordCard.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
@@ -124,8 +121,8 @@ onBeforeUnmount(() => {
           >
             <template #tags>
               <div class="flex flex-wrap items-center gap-2">
-                <Tag :value="documentData.source_key" severity="secondary" />
-                <Tag :value="documentData.external_id" severity="secondary" />
+                <UBadge :label="documentData.source_key" color="neutral" />
+                <UBadge :label="documentData.external_id" color="neutral" />
               </div>
             </template>
 
@@ -138,49 +135,47 @@ onBeforeUnmount(() => {
           </AppRecordCard>
 
           <div class="grid gap-2">
-            <Card
+            <UCard
               v-for="chunk in visibleChunks"
               :key="chunk.chunk_id"
             >
-              <template #content>
-                <p class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">
-                  {{ t("document.chunkLabel", { index: chunk.chunk_index }) }}
-                </p>
-                <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ chunk.text }}</pre>
-              </template>
-            </Card>
+              <p class="text-xs font-medium uppercase tracking-[0.08em] text-muted">
+                {{ t("document.chunkLabel", { index: chunk.chunk_index }) }}
+              </p>
+              <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-elevated px-3 py-2 text-sm leading-6 text-muted">{{ chunk.text }}</pre>
+            </UCard>
 
             <AppStateMessage
               v-if="documentData.chunks.length === 0"
-              severity="secondary"
+              color="neutral"
               :title="t('document.noBodyChunksTitle')"
             >
               {{ t("document.noBodyChunksMessage") }}
             </AppStateMessage>
           </div>
 
-          <Button
+          <UButton
             v-if="documentData.chunks.length > 3"
-            severity="secondary"
-            variant="outlined"
+            color="neutral"
+            variant="outline"
             type="button"
             @click="expanded = !expanded"
           >
             {{ expanded ? t("document.collapse") : t("document.showAll", { count: documentData.chunks.length }) }}
-          </Button>
+          </UButton>
         </div>
 
         <aside class="grid gap-2">
           <AppInfoCard :label="t('document.published')" :value="formatDate(documentData.published_at)" />
           <AppInfoCard :label="t('document.updated')" :value="formatTimestamp(documentData.updated_at)" />
           <AppInfoCard :label="t('document.sourceLink')">
-            <Button
-              severity="secondary"
-              variant="outlined"
+            <UButton
+              color="neutral"
+              variant="outline"
               @click="openSourceTarget"
             >
               {{ libraryRoute ? t("document.openLibraryFile") : t("document.openOrigin") }}
-            </Button>
+            </UButton>
           </AppInfoCard>
           <AppInfoCard
             v-if="documentData.library_path"

@@ -1,53 +1,46 @@
 <script setup lang="ts">
-import Button from "primevue/button";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Tag from "primevue/tag";
+import { computed } from "vue";
+import type { TableColumn } from "@nuxt/ui";
+import { useI18n } from "vue-i18n";
+import type { GroupMemberResponse } from "../../services/api";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
 
 const state = useGroupWorkspaceContext();
+const { t } = useI18n();
+const columns = computed<TableColumn<GroupMemberResponse>[]>(() => [
+  { accessorKey: "login_name", header: t("adminUsers.loginName") },
+  { accessorKey: "display_name", header: t("adminUsers.displayName") },
+  { accessorKey: "role", header: t("members.role") },
+  ...(state.canManageGroup ? [{ id: "actions", header: "" }] : []),
+]);
 </script>
 
 <template>
   <section class="grid gap-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <p class="text-base font-semibold text-color">{{ $t("groups.membersTitle") }}</p>
-      <Button v-if="state.canManageGroup" size="small" @click="state.openCreateMemberDialog">
+      <UButton v-if="state.canManageGroup" size="sm" @click="state.openCreateMemberDialog">
         {{ $t("members.add") }}
-      </Button>
+      </UButton>
     </div>
 
-    <DataTable
+    <UTable
       class="min-w-0 max-w-full"
-      :value="state.members"
-      data-key="user_id"
-      resizable-columns
-      column-resize-mode="expand"
-      scrollable
-      state-storage="local"
-      state-key="context69:table:group-members:v5"
-      table-class="min-w-full"
+      :data="state.members"
+      :columns="columns"
     >
-      <Column field="login_name" :header="$t('adminUsers.loginName')" />
-      <Column field="display_name" :header="$t('adminUsers.displayName')" />
-      <Column field="role" :header="$t('members.role')">
-        <template #body="{ data }">
-          <Tag :value="data.role" :severity="state.roleSeverity(data.role)" />
-        </template>
-      </Column>
-      <Column v-if="state.canManageGroup" :header="$t('common.edit')">
-        <template #body="{ data }">
+      <template #role-cell="{ row }"><UBadge :label="row.original.role" :color="state.roleSeverity(row.original.role)" variant="subtle" /></template>
+      <template #actions-cell="{ row }">
           <div class="flex gap-2">
-            <Button severity="secondary" variant="outlined" size="small" @click="state.openEditMemberDialog(data)">
+            <UButton color="neutral" variant="outline" size="sm" @click="state.openEditMemberDialog(row.original)">
               {{ $t("common.edit") }}
-            </Button>
-            <Button severity="danger" variant="outlined" size="small" @click="state.confirmRemoveMember(data)">
+            </UButton>
+            <UButton color="error" variant="outline" size="sm" @click="state.confirmRemoveMember(row.original)">
               {{ $t("common.delete") }}
-            </Button>
+            </UButton>
           </div>
-        </template>
-      </Column>
-    </DataTable>
+      </template>
+    </UTable>
   </section>
 </template>

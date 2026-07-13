@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import AutoComplete from "primevue/autocomplete";
-import Button from "primevue/button";
-import Dialog from "primevue/dialog";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
 
 import type { MembershipRole, UserDirectoryEntryResponse } from "../services/api";
 
@@ -95,37 +90,36 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
 </script>
 
 <template>
-  <Dialog
-    :visible="visible"
-    modal
-    :header="title"
+  <UModal
+    :open="visible"
+
+    :title="title"
     class="w-[30rem] max-w-[96vw]"
-    @update:visible="emit('update:visible', $event)"
+    @update:open="emit('update:visible', $event)"
   >
-    <div class="grid gap-3">
+    <template #body>
+<div class="grid gap-3">
       <div v-if="allowUserSearch !== false" class="grid gap-2">
         <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("members.user") }}</label>
-        <AutoComplete
+        <UInputMenu
           v-model="selectedUserModel"
-          fluid
-          dropdown
-          force-selection
-          :suggestions="suggestions"
+          :items="suggestions"
+          label-key="display_name"
           :placeholder="t('members.searchUserPlaceholder')"
-          @complete="emit('search-users', $event.query)"
+          @update:search-term="emit('search-users', $event)"
         >
-          <template #option="{ option }">
+          <template #item="{ item }">
             <div class="grid gap-0.5">
-              <span>{{ option.display_name }}</span>
-              <span class="text-sm text-muted-color">{{ option.login_name }}</span>
+              <span>{{ item.display_name }}</span>
+              <span class="text-sm text-muted">{{ item.login_name }}</span>
             </div>
           </template>
-        </AutoComplete>
+        </UInputMenu>
       </div>
 
       <div v-else class="grid gap-2">
         <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("members.loginName") }}</label>
-        <InputText
+        <UInput
           v-model="manualLoginName"
           :placeholder="t('members.loginName')"
         />
@@ -133,25 +127,26 @@ function userOptionLabel(option: UserDirectoryEntryResponse) {
 
       <div class="grid gap-2">
         <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("members.role") }}</label>
-        <Select
+        <USelect
           v-model="role"
-          fluid
-          option-label="label"
-          option-value="value"
-          :options="roleOptions"
+          :items="roleOptions"
+          label-key="label"
+          value-key="value"
         />
       </div>
     </div>
+    </template>
+
 
     <template #footer>
       <div class="flex justify-end gap-2">
-        <Button severity="secondary" variant="outlined" :disabled="busy" @click="close">
+        <UButton color="neutral" variant="outline" :disabled="busy" @click="close">
           {{ t("common.cancel") }}
-        </Button>
-        <Button :disabled="busy || !canSubmit" @click="handleSubmit">
+        </UButton>
+        <UButton :disabled="busy || !canSubmit" @click="handleSubmit">
           {{ t("common.save") }}
-        </Button>
+        </UButton>
       </div>
     </template>
-  </Dialog>
+  </UModal>
 </template>

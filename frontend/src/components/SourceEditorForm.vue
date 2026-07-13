@@ -1,16 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, reactive, watch } from "vue";
+import type { FormSubmitEvent } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import { Form, FormField } from "@primevue/forms";
-import { zodResolver } from "@primevue/forms/resolvers/zod";
-import Button from "primevue/button";
-import Fluid from "primevue/fluid";
-import InputNumber from "primevue/inputnumber";
-import InputText from "primevue/inputtext";
-import InputPassword from "primevue/inputpassword";
-import Select from "primevue/select";
-import Message from "primevue/message";
-import Textarea from "primevue/textarea";
 import { z } from "zod";
 
 import AppMonacoEditor from "./AppMonacoEditor.vue";
@@ -60,9 +51,7 @@ const initialValues = computed(() => ({
   base_query: props.source?.base_query ?? "",
 }));
 
-const resolver = computed(() =>
-  zodResolver(
-    z.object({
+const schema = computed(() => z.object({
       source_key: z.string().trim().min(1, { message: t("sources.form.validation.sourceKeyRequired") }),
       display_name: z.string().optional(),
       description: z.string().optional(),
@@ -87,13 +76,14 @@ const resolver = computed(() =>
       connector_type: z.string().trim().min(1, { message: t("sources.form.validation.connectorRequired") }),
       batch_size: z.coerce.number().int().min(1, { message: t("sources.form.validation.batchSizeMinimum") }),
       base_query: z.string().trim().min(1, { message: t("sources.form.validation.baseQueryRequired") }),
-    }),
-  ),
-);
+}));
+
+const state = reactive(initialValues.value);
+watch(initialValues, (values) => Object.assign(state, values), { immediate: true });
 
 const formKey = computed(() => `${props.source?.source_key ?? "new"}:${props.connections.map((connection) => connection.name).join("|")}`);
 
-function normalizeSubmitValues(values: Record<string, any>): SourceConfigInput {
+function normalizeSubmitValues(values: Record<string, unknown>): SourceConfigInput {
   return {
     source_key: String(values.source_key ?? "").trim(),
     display_name: String(values.display_name ?? "").trim() || undefined,
@@ -108,22 +98,18 @@ function normalizeSubmitValues(values: Record<string, any>): SourceConfigInput {
   };
 }
 
-function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
-  if (!event.valid) {
-    return;
-  }
-
-  emit("save", normalizeSubmitValues(event.values));
+function handleSubmit(event: FormSubmitEvent<Record<string, unknown>>) {
+  emit("save", normalizeSubmitValues(event.data));
 }
 </script>
 
 <template>
-  <Fluid>
-    <Form
+  <div>
+    <UForm
       :key="formKey"
       class="grid min-h-0 gap-4 [grid-template-rows:minmax(0,1fr)_auto]"
-      :initial-values="initialValues"
-      :resolver="resolver"
+      :state="state"
+      :schema="schema"
       @submit="handleSubmit"
     >
       <div class="grid min-h-0 gap-4 [grid-template-columns:minmax(19rem,22rem)_minmax(0,1fr)] max-md:grid-cols-1">
@@ -135,161 +121,125 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
             </div>
 
             <div class="grid gap-4">
-              <FormField v-slot="$field" name="source_key" :initial-value="initialValues.source_key">
+              <UFormField name="source_key">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.sourceKey") }}</span>
-                  <InputText
+                  <UInput
                     id="source-key"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
+
+                    v-model="state.source_key"
                     :disabled="!!props.source"
-                    @update:model-value="$field.props.onInput({ value: $event })"
                   />
-                  <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                    {{ $field.error?.message }}
-                  </Message>
                 </label>
-              </FormField>
+              </UFormField>
 
               <p class="text-xs leading-6 text-muted-color">{{ t("sources.form.lockedHint") }}</p>
 
-              <FormField v-slot="$field" name="display_name" :initial-value="initialValues.display_name">
+              <UFormField name="display_name">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.displayName") }}</span>
-                  <InputText
+                  <UInput
                     id="source-display-name"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
+
+                    v-model="state.display_name"
                     :placeholder="t('sources.form.displayNamePlaceholder')"
-                    @update:model-value="$field.props.onInput({ value: $event })"
                   />
                 </label>
-              </FormField>
+              </UFormField>
 
-              <FormField v-slot="$field" name="description" :initial-value="initialValues.description">
+              <UFormField name="description">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.description") }}</span>
-                  <Textarea
+                  <UTextarea
                     id="source-description"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
+
+                    v-model="state.description"
                     rows="4"
                     :placeholder="t('sources.form.descriptionPlaceholder')"
-                    @update:model-value="$field.props.onInput({ value: $event })"
                   />
                 </label>
-              </FormField>
+              </UFormField>
 
-              <FormField v-slot="$field" name="example_queries_text" :initial-value="initialValues.example_queries_text">
+              <UFormField name="example_queries_text">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.exampleQueries") }}</span>
-                  <Textarea
+                  <UTextarea
                     id="source-example-queries"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
+
+                    v-model="state.example_queries_text"
                     rows="5"
                     :placeholder="t('sources.form.exampleQueriesPlaceholder')"
-                    @update:model-value="$field.props.onInput({ value: $event })"
                   />
                   <p class="text-xs leading-6 text-muted-color">{{ t("sources.form.exampleQueriesHint") }}</p>
-                  <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                    {{ $field.error?.message }}
-                  </Message>
                 </label>
-              </FormField>
+              </UFormField>
 
-              <FormField v-slot="$field" name="connection" :initial-value="initialValues.connection">
+              <UFormField name="connection">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.connection") }}</span>
-                  <Select
+                  <USelect
                     id="source-connection"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
-                    :options="props.connections"
-                    option-label="name"
-                    option-value="name"
-                    :placeholder="t('sources.form.connectionPlaceholder')"
-                    @update:model-value="$field.props.onInput({ value: $event })"
-                  />
-                  <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                    {{ $field.error?.message }}
-                  </Message>
-                </label>
-              </FormField>
 
-              <FormField v-slot="$field" name="database_url" :initial-value="initialValues.database_url">
+                    v-model="state.connection"
+                    :items="props.connections"
+                    label-key="name"
+                    value-key="name"
+                    :placeholder="t('sources.form.connectionPlaceholder')"
+                  />
+                </label>
+              </UFormField>
+
+              <UFormField name="database_url">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.databaseUrl") }}</span>
-                  <InputPassword
+                  <UInput type="password"
                     id="source-database-url"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
-                    :feedback="false"
-                    toggle-mask
+
+                    v-model="state.database_url"
                     :placeholder="t('sources.form.databaseUrlPlaceholder')"
                     autocomplete="new-password"
-                    @update:model-value="$field.props.onInput({ value: $event })"
                   />
                   <p class="text-xs leading-6 text-muted-color">{{ t("sources.form.databaseUrlHint") }}</p>
                 </label>
-              </FormField>
+              </UFormField>
 
-              <FormField v-slot="$field" name="sync_strategy" :initial-value="initialValues.sync_strategy">
+              <UFormField name="sync_strategy">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.strategy") }}</span>
-                  <Select
+                  <USelect
                     id="source-strategy"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
-                    :options="strategyOptions"
-                    option-label="label"
-                    option-value="value"
-                    @update:model-value="$field.props.onInput({ value: $event })"
+
+                    v-model="state.sync_strategy"
+                    :items="strategyOptions"
+                    label-key="label"
+                    value-key="value"
                   />
                 </label>
-              </FormField>
+              </UFormField>
 
-              <FormField v-slot="$field" name="connector_type" :initial-value="initialValues.connector_type">
+              <UFormField name="connector_type">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.connector") }}</span>
-                  <InputText
+                  <UInput
                     id="source-connector"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
-                    readonly
-                    @update:model-value="$field.props.onInput({ value: $event })"
-                  />
-                  <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                    {{ $field.error?.message }}
-                  </Message>
-                </label>
-              </FormField>
 
-              <FormField v-slot="$field" name="batch_size" :initial-value="initialValues.batch_size">
+                    v-model="state.connector_type"
+                    readonly
+                  />
+                </label>
+              </UFormField>
+
+              <UFormField name="batch_size">
                 <label class="grid min-w-0 content-start self-start gap-3">
                   <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.batchSize") }}</span>
-                  <InputNumber
+                  <UInputNumber
                     id="source-batch-size"
-                    v-bind="$field.props"
-                    :model-value="$field.value"
-                    fluid
+
+                    v-model="state.batch_size"
                     :min="1"
-                    :use-grouping="false"
-                    @update:model-value="$field.props.onInput({ value: $event })"
                   />
-                  <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                    {{ $field.error?.message }}
-                  </Message>
                 </label>
-              </FormField>
+              </UFormField>
             </div>
           </div>
         </section>
@@ -303,33 +253,29 @@ function handleSubmit(event: { valid: boolean; values: Record<string, any> }) {
               </div>
             </div>
 
-            <FormField v-slot="$field" name="base_query" :initial-value="initialValues.base_query">
+            <UFormField name="base_query">
               <label class="grid min-w-0 content-start self-start gap-3">
                 <span class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("sources.form.baseQuery") }}</span>
                 <AppMonacoEditor
                   input-id="source-base-query"
-                  :model-value="$field.value"
+                  v-model="state.base_query"
                   language="sql"
                   :placeholder="t('sources.form.queryPlaceholder')"
-                  @update:model-value="$field.props.onInput({ value: $event })"
                 />
-                <Message v-if="$field.invalid" severity="error" size="small" variant="simple">
-                  {{ $field.error?.message }}
-                </Message>
               </label>
-            </FormField>
+            </UFormField>
           </div>
         </section>
       </div>
 
       <div class="flex flex-wrap items-center gap-3 border-t border-surface pt-4">
-        <Button class="min-w-32" type="submit" :disabled="busy">
+        <UButton class="min-w-32" type="submit" :disabled="busy">
           {{ props.source ? t("sources.form.save") : t("sources.form.create") }}
-        </Button>
-        <Button class="min-w-24" type="button" severity="secondary" variant="outlined" :disabled="busy" @click="emit('cancel')">
+        </UButton>
+        <UButton class="min-w-24" type="button" color="neutral" variant="outline" :disabled="busy" @click="emit('cancel')">
           {{ t("common.cancel") }}
-        </Button>
+        </UButton>
       </div>
-    </Form>
-  </Fluid>
+    </UForm>
+  </div>
 </template>

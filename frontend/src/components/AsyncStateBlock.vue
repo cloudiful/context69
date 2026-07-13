@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import ProgressSpinner from "primevue/progressspinner";
-
 import AppStateMessage from "./AppStateMessage.vue";
 import EmptyState from "./EmptyState.vue";
 
@@ -10,7 +8,7 @@ withDefaults(defineProps<{
   emptyTitle?: string;
   emptyVariant?: "default" | "soft";
   error?: string | null;
-  errorSeverity?: "success" | "info" | "warn" | "error" | "secondary" | "contrast";
+  errorColor?: "success" | "info" | "warning" | "error" | "neutral";
   errorTitle?: string;
   loading?: boolean;
   loadingMessage?: string;
@@ -22,7 +20,7 @@ withDefaults(defineProps<{
   emptyTitle: "",
   emptyVariant: "default",
   error: "",
-  errorSeverity: "error",
+  errorColor: "error",
   errorTitle: "",
   loading: false,
   loadingMessage: "",
@@ -34,7 +32,7 @@ withDefaults(defineProps<{
 <template>
   <slot v-if="loading" name="loading">
     <div class="flex flex-col items-center justify-center gap-4 py-12 text-center">
-      <ProgressSpinner :data-testid="loadingTestId || undefined" class="h-12 w-12" :stroke-width="4" />
+      <UIcon name="i-lucide-loader-circle" :data-testid="loadingTestId || undefined" class="h-12 w-12 animate-spin" />
       <div>
         <p v-if="loadingTitle">{{ loadingTitle }}</p>
         <p v-if="loadingMessage">{{ loadingMessage }}</p>
@@ -43,7 +41,7 @@ withDefaults(defineProps<{
   </slot>
 
   <slot v-else-if="error" name="error" :error="error">
-    <AppStateMessage :severity="errorSeverity" :title="errorTitle">
+    <AppStateMessage :color="errorColor" :title="errorTitle">
       {{ error }}
     </AppStateMessage>
   </slot>

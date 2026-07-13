@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from "vue-router";
 
-import AppMdiIcon from "./AppMdiIcon.vue";
 import { useAppNavigation } from "../composables/use-app-navigation";
 import { isAuthenticated } from "../services/auth/session";
 
@@ -29,9 +28,7 @@ function isActive(itemTo: string) {
       ]"
       :title="item.label"
     >
-      <span class="flex h-8 w-8 items-center justify-center rounded-lg border border-surface bg-emphasis">
-        <AppMdiIcon :path="item.iconPath" :title="item.label" class="app-sidebar-link-icon h-4 w-4" />
-      </span>
+      <UIcon :name="item.icon" class="h-5 w-5" />
       <span>{{ item.label }}</span>
     </RouterLink>
   </nav>

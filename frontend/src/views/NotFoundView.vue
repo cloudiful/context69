@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import Button from "primevue/button";
-import Card from "primevue/card";
 
 import AppStateMessage from "../components/AppStateMessage.vue";
 
@@ -16,23 +14,21 @@ function returnToSearch() {
 
 <template>
   <div class="mx-auto max-w-2xl py-16">
-    <Card>
-      <template #content>
+    <UCard>
         <div class="grid gap-6 text-center">
           <div>
             <p>404</p>
             <h1>{{ t("notFound.title") }}</h1>
           </div>
 
-          <AppStateMessage severity="secondary">
+          <AppStateMessage color="neutral">
             {{ t("notFound.message") }}
           </AppStateMessage>
 
           <div class="flex justify-center">
-            <Button @click="returnToSearch">{{ t("notFound.action") }}</Button>
+            <UButton @click="returnToSearch">{{ t("notFound.action") }}</UButton>
           </div>
         </div>
-      </template>
-    </Card>
+    </UCard>
   </div>
 </template>

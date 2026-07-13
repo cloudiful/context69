@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import Select from "primevue/select";
-
 import AppFormField from "./AppFormField.vue";
 
 const props = withDefaults(defineProps<{
@@ -36,13 +34,13 @@ const emit = defineEmits<{
     :helper="props.helper || undefined"
     :layout="props.layout"
   >
-    <Select
-      :input-id="props.inputId"
+    <USelect
+      :id="props.inputId"
       :model-value="props.modelValue ?? null"
       :data-testid="props.testId || undefined"
-      :options="props.options"
-      :option-label="props.optionLabel"
-      :option-value="props.optionValue"
+      :items="props.options"
+      :label-key="props.optionLabel"
+      :value-key="props.optionValue"
       :placeholder="props.placeholder || undefined"
       @update:model-value="emit('update:modelValue', $event ?? null)"
     />

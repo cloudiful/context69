@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import InputNumber from "primevue/inputnumber";
-
 import AppFormField from "./AppFormField.vue";
 
 const props = withDefaults(defineProps<{
@@ -35,14 +33,13 @@ const emit = defineEmits<{
     :helper="props.helper || undefined"
     :layout="props.layout"
   >
-    <InputNumber
-      :input-id="props.inputId"
+    <UInputNumber
+      :id="props.inputId"
       :model-value="props.modelValue"
       :data-testid="props.testId || undefined"
       :min="props.min"
       :max="props.max"
       :step="props.step"
-      :use-grouping="false"
       @update:model-value="emit('update:modelValue', typeof $event === 'number' ? $event : null)"
     />
   </AppFormField>

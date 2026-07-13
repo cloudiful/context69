@@ -1,14 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import Button from "primevue/button";
-import Checkbox from "primevue/checkbox";
-import Column from "primevue/column";
-import DataTable from "primevue/datatable";
-import Dialog from "primevue/dialog";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
+import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import Tag from "primevue/tag";
 import { apiClient, type CreateMetadataIndexRequest, type MetadataIndexResponse } from "../services/api";
 
 const props = defineProps<{ groupPath: string; canManage: boolean }>();
@@ -24,6 +17,13 @@ const sortable = ref(false);
 const typeOptions = ["keyword", "integer", "float", "boolean", "datetime"];
 const kindOptions = ["scalar", "array"];
 const canSubmit = computed(() => sourceKey.value.trim() && path.value.trim() && !(valueKind.value === "array" && sortable.value));
+const columns = computed<TableColumn<MetadataIndexResponse>[]>(() => [
+  { accessorKey: "path", header: t("metadataIndexes.path") },
+  { accessorKey: "data_type", header: t("metadataIndexes.type") },
+  { accessorKey: "value_kind", header: t("metadataIndexes.kind") },
+  { id: "status", header: t("metadataIndexes.status") },
+  ...(props.canManage ? [{ id: "actions", header: t("common.actions") }] : []),
+]);
 
 async function load() {
   if (!sourceKey.value.trim()) return;
@@ -51,35 +51,30 @@ async function remove(row: MetadataIndexResponse) { await apiClient.deleteMetada
     <div class="flex flex-wrap items-end gap-2">
       <label class="grid min-w-56 flex-1 gap-1 text-xs font-medium text-muted-color">
         {{ t("metadataIndexes.sourceKey") }}
-        <InputText v-model="sourceKey" @keyup.enter="load" />
+        <UInput v-model="sourceKey" @keyup.enter="load" />
       </label>
-      <Button severity="secondary" variant="outlined" :disabled="loading || !sourceKey.trim()" @click="load">{{ t("common.refresh") }}</Button>
-      <Button v-if="canManage" :disabled="!sourceKey.trim()" @click="dialogVisible = true">{{ t("metadataIndexes.add") }}</Button>
+      <UButton color="neutral" variant="outline" :disabled="loading || !sourceKey.trim()" @click="load">{{ t("common.refresh") }}</UButton>
+      <UButton v-if="canManage" :disabled="!sourceKey.trim()" @click="dialogVisible = true">{{ t("metadataIndexes.add") }}</UButton>
     </div>
-    <DataTable class="min-w-0 max-w-full" :value="rows" :loading="loading" size="small" data-key="index_id" scrollable :empty-message="t('metadataIndexes.empty')">
-      <Column field="path" :header="t('metadataIndexes.path')" />
-      <Column field="data_type" :header="t('metadataIndexes.type')" />
-      <Column field="value_kind" :header="t('metadataIndexes.kind')" />
-      <Column :header="t('metadataIndexes.status')">
-        <template #body="{ data }"><Tag :value="data.status" :severity="data.status === 'ready' ? 'success' : data.status === 'failed' ? 'danger' : 'secondary'" /></template>
-      </Column>
-      <Column v-if="canManage" :header="t('common.actions')">
-        <template #body="{ data }">
+    <UTable class="min-w-0 max-w-full" :data="rows" :columns="columns" :loading="loading" :empty="t('metadataIndexes.empty')">
+      <template #status-cell="{ row }"><UBadge :label="row.original.status" :color="row.original.status === 'ready' ? 'success' : row.original.status === 'failed' ? 'error' : 'neutral'" variant="subtle" /></template>
+      <template #actions-cell="{ row }">
           <div class="flex gap-1">
-            <Button v-if="data.status === 'failed'" size="small" severity="secondary" variant="outlined" @click="retry(data)">{{ t("common.retry") }}</Button>
-            <Button size="small" severity="danger" variant="text" @click="remove(data)">{{ t("common.delete") }}</Button>
+            <UButton v-if="row.original.status === 'failed'" size="sm" color="neutral" variant="outline" @click="retry(row.original)">{{ t("common.retry") }}</UButton>
+            <UButton size="sm" color="error" variant="ghost" @click="remove(row.original)">{{ t("common.delete") }}</UButton>
           </div>
-        </template>
-      </Column>
-    </DataTable>
-    <Dialog v-model:visible="dialogVisible" modal :header="t('metadataIndexes.add')" class="w-[28rem] max-w-[96vw]">
-      <form class="grid gap-3" @submit.prevent="create">
-        <label class="grid gap-1 text-sm">{{ t("metadataIndexes.path") }}<InputText v-model="path" autofocus /></label>
-        <label class="grid gap-1 text-sm">{{ t("metadataIndexes.type") }}<Select v-model="dataType" :options="typeOptions" /></label>
-        <label class="grid gap-1 text-sm">{{ t("metadataIndexes.kind") }}<Select v-model="valueKind" :options="kindOptions" /></label>
-        <label class="flex items-center gap-2 text-sm"><Checkbox v-model="sortable" binary :disabled="valueKind === 'array'" />{{ t("metadataIndexes.sortable") }}</label>
-        <div class="flex justify-end gap-2"><Button severity="secondary" variant="outlined" @click="dialogVisible = false">{{ t("common.cancel") }}</Button><Button type="submit" :disabled="!canSubmit">{{ t("common.create") }}</Button></div>
+      </template>
+    </UTable>
+    <UModal v-model:open="dialogVisible"  :title="t('metadataIndexes.add')" class="w-[28rem] max-w-[96vw]">
+    <template #body>
+<form class="grid gap-3" @submit.prevent="create">
+        <label class="grid gap-1 text-sm">{{ t("metadataIndexes.path") }}<UInput v-model="path" autofocus /></label>
+        <label class="grid gap-1 text-sm">{{ t("metadataIndexes.type") }}<USelect v-model="dataType" :items="typeOptions" /></label>
+        <label class="grid gap-1 text-sm">{{ t("metadataIndexes.kind") }}<USelect v-model="valueKind" :items="kindOptions" /></label>
+        <label class="flex items-center gap-2 text-sm"><UCheckbox v-model="sortable" binary :disabled="valueKind === 'array'" />{{ t("metadataIndexes.sortable") }}</label>
+        <div class="flex justify-end gap-2"><UButton color="neutral" variant="outline" @click="dialogVisible = false">{{ t("common.cancel") }}</UButton><UButton type="submit" :disabled="!canSubmit">{{ t("common.create") }}</UButton></div>
       </form>
-    </Dialog>
+    </template>
+    </UModal>
   </section>
 </template>
