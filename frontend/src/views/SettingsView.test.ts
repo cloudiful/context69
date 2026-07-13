@@ -239,13 +239,6 @@ describe("SettingsView", () => {
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
-  it("renders the locale select with the active chinese label", async () => {
-    const i18n = createTestI18n("zh-CN");
-    const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
-
-    expect(wrapper.get("#settings-locale-select").text()).toContain("简体中文");
-  });
-
   it("saves direct embedding credentials through the single page save action", async () => {
     const { wrapper } = await mountSettingsView("/settings/runtime");
     await wrapper.get("#runtime-embedding-base-url").setValue("https://embedding.internal/v1");

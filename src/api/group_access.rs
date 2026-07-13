@@ -54,7 +54,7 @@ mod tests {
         domain::GroupRecord,
     };
 
-    fn public_group(current_role: Option<MembershipRole>) -> GroupRecord {
+    fn group(current_role: Option<MembershipRole>) -> GroupRecord {
         GroupRecord {
             id: 1,
             parent_group_id: None,
@@ -72,9 +72,30 @@ mod tests {
     }
 
     #[test]
-    fn public_group_without_membership_returns_permission_error() {
-        let error = require_group_role(&public_group(None), MembershipRole::Maintainer)
+    fn role_hierarchy_enforces_required_group_access() {
+        let error = require_group_role(&group(None), MembershipRole::Maintainer)
             .expect_err("permission check should fail");
         assert_eq!(error.to_string(), "insufficient permissions for group");
+        assert!(
+            require_group_role(
+                &group(Some(MembershipRole::Viewer)),
+                MembershipRole::Maintainer,
+            )
+            .is_err()
+        );
+        assert!(
+            require_group_role(
+                &group(Some(MembershipRole::Maintainer)),
+                MembershipRole::Maintainer,
+            )
+            .is_ok()
+        );
+        assert!(
+            require_group_role(
+                &group(Some(MembershipRole::Owner)),
+                MembershipRole::Maintainer
+            )
+            .is_ok()
+        );
     }
 }

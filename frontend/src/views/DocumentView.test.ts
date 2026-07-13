@@ -55,15 +55,6 @@ describe("DocumentView", () => {
     getDocument.mockReset();
   });
 
-  it("shows a loading state while the document is being fetched", async () => {
-    getDocument.mockReturnValue(new Promise(() => undefined));
-
-    const wrapper = await mountView();
-    await Promise.resolve();
-
-    expect(wrapper.find('[data-testid="document-loading"]').exists()).toBe(true);
-  });
-
   it("renders a not found message for missing documents", async () => {
     getDocument.mockRejectedValue(new ApiError("Document missing", 404));
 

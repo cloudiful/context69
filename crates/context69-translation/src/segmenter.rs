@@ -167,7 +167,10 @@ mod tests {
         }
         let (_, _, rebuilt) = translated_document(&segmented, &translated).unwrap();
         assert!(rebuilt.contains("let x = 1;"));
-        assert!(rebuilt.chars().filter(|value| *value == '中').count() == 8_100);
+        assert_eq!(
+            rebuilt.chars().filter(|value| *value == '中').count(),
+            8_100
+        );
     }
 
     #[test]
@@ -182,5 +185,17 @@ mod tests {
             let (_, _, rebuilt) = translated_document(&segmented, &translations).unwrap();
             assert_eq!(rebuilt, body);
         }
+    }
+
+    #[test]
+    fn rejects_partial_translation_results() {
+        let segmented = segment_document("Title", Some("Summary"), "Body");
+        let translations = std::collections::HashMap::from([
+            ("title".to_string(), "标题".to_string()),
+            ("summary".to_string(), "摘要".to_string()),
+        ]);
+
+        let error = translated_document(&segmented, &translations).expect_err("body is required");
+        assert!(error.to_string().contains("body:000000"));
     }
 }

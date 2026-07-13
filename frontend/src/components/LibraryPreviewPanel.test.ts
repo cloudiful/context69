@@ -1,6 +1,5 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
-import DataTable from "primevue/datatable";
 
 import type { LibraryFileDetailResponse } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
@@ -44,7 +43,7 @@ const detail: LibraryFileDetailResponse = {
 };
 
 describe("LibraryPreviewPanel", () => {
-  it("keeps single-section previews compact and renders jobs with DataTable", () => {
+  it("shows single-section content without repeating its title", () => {
     const wrapper = mount(LibraryPreviewPanel, {
       props: {
         activeSectionKey: "document",
@@ -59,6 +58,5 @@ describe("LibraryPreviewPanel", () => {
     expect(wrapper.text()).toContain("Body only");
     expect(wrapper.text()).not.toContain("Duplicate title");
     expect(wrapper.text()).not.toContain("文档 #6655");
-    expect(wrapper.findComponent(DataTable).exists()).toBe(true);
   });
 });

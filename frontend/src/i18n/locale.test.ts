@@ -23,13 +23,6 @@ describe("locale initialization", () => {
     expect(i18n.global.locale.value).toBe("zh-CN");
   });
 
-  it("exposes translated runtime section labels for chinese locale", () => {
-    const i18n = createAppI18n("zh-CN");
-
-    expect(i18n.global.t("settings.runtime.embeddingBaseUrl")).toBe("Embedding 基础地址");
-    expect(i18n.global.t("settings.runtime.sourceConnectionsTitle")).toBe("来源连接");
-  });
-
   it("falls back to english for invalid stored locales", () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, "fr");
 

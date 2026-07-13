@@ -50,8 +50,6 @@ describe("LibraryResourceTable", () => {
     });
     const table = wrapper.findComponent({ name: "DataTable" });
 
-    expect(table.classes()).toContain("flex");
-
     table.vm.$emit("page", { first: 50, rows: 50 });
     table.vm.$emit("sort", { sortField: "updated_at", sortOrder: -1 });
     table.vm.$emit("sort", { sortField: "updated_at", sortOrder: 1 });

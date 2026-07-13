@@ -42,6 +42,7 @@ describe("router auth guards", () => {
     authSessionState.lastFailureReason = null;
     authSessionState.restoreError = null;
     authSessionState.user = null;
+    window.scrollTo = vi.fn();
   });
 
   it("redirects unauthenticated visitors to login with a redirect target", async () => {

@@ -249,7 +249,8 @@ fn is_public_ip(ip: IpAddr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_public_ip, validate_type_match, validate_url};
+    use super::{is_public_ip, resolve_filename, validate_type_match, validate_url};
+    use reqwest::{Url, header};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -265,6 +266,9 @@ mod tests {
             assert!(!is_public_ip(IpAddr::V4(ip)));
         }
         assert!(!is_public_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(!is_public_ip(IpAddr::V6(
+            "::ffff:192.168.1.10".parse().unwrap()
+        )));
         assert!(is_public_ip("8.8.8.8".parse().unwrap()));
     }
 
@@ -284,5 +288,33 @@ mod tests {
         assert!(validate_type_match("report.pdf", "text/html").is_err());
         assert!(validate_type_match("report.exe", "text/plain").is_err());
         assert!(validate_type_match("report", "application/pdf").is_ok());
+    }
+
+    #[test]
+    fn resolves_and_sanitizes_filename_by_documented_precedence() {
+        let url = Url::parse("https://example.com/path/from-url.pdf").unwrap();
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::CONTENT_DISPOSITION,
+            header::HeaderValue::from_static("attachment; filename=from-header.pdf"),
+        );
+
+        assert_eq!(
+            resolve_filename(Some("../requested.pdf"), &url, &headers).unwrap(),
+            "requested.pdf"
+        );
+        assert_eq!(
+            resolve_filename(None, &url, &headers).unwrap(),
+            "from-header.pdf"
+        );
+        headers.clear();
+        assert_eq!(
+            resolve_filename(None, &url, &headers).unwrap(),
+            "from-url.pdf"
+        );
+        assert!(
+            resolve_filename(None, &Url::parse("https://example.com/").unwrap(), &headers,)
+                .is_err()
+        );
     }
 }

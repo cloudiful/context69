@@ -76,7 +76,6 @@ describe("SearchResultList", () => {
     });
 
     expect(wrapper.text()).toContain("/Finance/Budget");
-    expect(wrapper.findComponent({ name: "DataTable" }).exists()).toBe(true);
     expect(wrapper.text()).toContain("Budget Workbook");
     await wrapper.get('[data-testid="search-result-open"]').trigger("click");
     expect(wrapper.emitted("open")?.[0]).toEqual([

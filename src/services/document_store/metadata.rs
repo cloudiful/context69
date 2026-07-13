@@ -109,9 +109,31 @@ fn typed_value(data_type: &str, value: &Value) -> Result<TypedMetadataValue> {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_path, validate_definition};
+    use super::{extract_values, resolve_path, validate_definition};
+    use crate::db::StoredMetadataIndex;
+    use chrono::Utc;
     use context69_contracts::MetadataValueKind;
     use serde_json::json;
+    use uuid::Uuid;
+
+    fn definition(data_type: &str, value_kind: &str) -> StoredMetadataIndex {
+        StoredMetadataIndex {
+            index_id: Uuid::nil(),
+            group_id: 1,
+            group_path: "group".to_string(),
+            source_key: "news".to_string(),
+            field_path: "facts.values".to_string(),
+            data_type: data_type.to_string(),
+            value_kind: value_kind.to_string(),
+            sortable: value_kind == "scalar",
+            status: "ready".to_string(),
+            processed_documents: 0,
+            total_documents: 0,
+            error_message: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
 
     #[test]
     fn resolves_nested_dot_path() {
@@ -123,5 +145,36 @@ mod tests {
     fn rejects_invalid_and_sortable_array_definitions() {
         assert!(validate_definition("provider..name", MetadataValueKind::Scalar, false).is_err());
         assert!(validate_definition("tags", MetadataValueKind::Array, true).is_err());
+    }
+
+    #[test]
+    fn extracts_typed_array_values_and_rejects_type_drift() {
+        let values = extract_values(
+            &definition("integer", "array"),
+            &json!({"facts": {"values": [2, 10]}}),
+        )
+        .expect("typed values");
+        assert_eq!(
+            values
+                .iter()
+                .map(|value| value.integer_value)
+                .collect::<Vec<_>>(),
+            [Some(2), Some(10)]
+        );
+
+        assert!(
+            extract_values(
+                &definition("integer", "array"),
+                &json!({"facts": {"values": [2, "10"]}}),
+            )
+            .is_err()
+        );
+        assert!(
+            extract_values(
+                &definition("integer", "array"),
+                &json!({"facts": {"values": 2}}),
+            )
+            .is_err()
+        );
     }
 }

@@ -549,3 +549,134 @@ fn map_index(value: StoredMetadataIndex) -> Result<MetadataIndexResponse> {
         updated_at: value.updated_at,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Cursor, decode_cursor, encode_cursor, filters_match, query_hash};
+    use context69_contracts::{DocumentQueryRequest, MetadataFilter, MetadataFilterOperator};
+    use serde_json::{Value, json};
+
+    fn request(filters: Vec<MetadataFilter>) -> DocumentQueryRequest {
+        DocumentQueryRequest {
+            locale: None,
+            source_key: Some("news".to_string()),
+            published_after: None,
+            published_before: None,
+            metadata_filters: filters,
+            sort: Vec::new(),
+            limit: 50,
+            cursor: None,
+        }
+    }
+
+    fn filter(
+        path: &str,
+        operator: MetadataFilterOperator,
+        value: Option<Value>,
+        min: Option<Value>,
+        max: Option<Value>,
+    ) -> MetadataFilter {
+        MetadataFilter {
+            path: path.to_string(),
+            operator,
+            value,
+            min,
+            max,
+        }
+    }
+
+    #[test]
+    fn metadata_operators_compose_with_and_semantics() {
+        let metadata = json!({
+            "provider": {"name": "wire"},
+            "score": 10,
+            "tags": ["earnings", "urgent"]
+        });
+        let matching = request(vec![
+            filter(
+                "provider.name",
+                MetadataFilterOperator::Eq,
+                Some(json!("wire")),
+                None,
+                None,
+            ),
+            filter(
+                "score",
+                MetadataFilterOperator::In,
+                Some(json!([2, 10])),
+                None,
+                None,
+            ),
+            filter(
+                "score",
+                MetadataFilterOperator::Range,
+                None,
+                Some(json!(10)),
+                Some(json!(20)),
+            ),
+            filter(
+                "tags",
+                MetadataFilterOperator::Contains,
+                Some(json!("urgent")),
+                None,
+                None,
+            ),
+            filter(
+                "provider.name",
+                MetadataFilterOperator::Exists,
+                None,
+                None,
+                None,
+            ),
+        ]);
+        assert!(filters_match(&metadata, &matching).unwrap());
+
+        let mut non_matching = matching;
+        non_matching.metadata_filters.push(filter(
+            "missing",
+            MetadataFilterOperator::Exists,
+            None,
+            None,
+            None,
+        ));
+        assert!(!filters_match(&metadata, &non_matching).unwrap());
+    }
+
+    #[test]
+    fn exists_false_treats_missing_and_null_as_absent() {
+        let absent = filter(
+            "value",
+            MetadataFilterOperator::Exists,
+            Some(json!(false)),
+            None,
+            None,
+        );
+        assert!(filters_match(&json!({}), &request(vec![absent.clone()])).unwrap());
+        assert!(filters_match(&json!({"value": null}), &request(vec![absent])).unwrap());
+    }
+
+    #[test]
+    fn cursor_is_bound_to_query_and_ignores_cursor_field_in_hash() {
+        let mut query = request(Vec::new());
+        let hash = query_hash(&query).unwrap();
+        let encoded = encode_cursor(&Cursor {
+            version: 2,
+            query_hash: hash.clone(),
+            values: Vec::new(),
+            document_id: 42,
+        })
+        .unwrap();
+        query.cursor = Some(encoded.clone());
+
+        assert_eq!(query_hash(&query).unwrap(), hash);
+        assert_eq!(
+            decode_cursor(Some(&encoded), &hash)
+                .unwrap()
+                .expect("cursor")
+                .document_id,
+            42
+        );
+        assert!(decode_cursor(Some(&encoded), "different-query").is_err());
+        assert!(decode_cursor(Some("not-base64"), &hash).is_err());
+    }
+}

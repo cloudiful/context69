@@ -204,6 +204,49 @@ async fn library_files_upload_builds_multipart_form() {
 }
 
 #[tokio::test]
+async fn deduplicated_upload_sends_metadata_and_reuses_existing_file() {
+    let file_id = Uuid::new_v4();
+    let response = json!({
+        "upload_required": false,
+        "file": file_json(file_id),
+        "job": null
+    });
+    let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
+    let metadata = LibraryFileUploadMetadata {
+        external_id: Some("report-42".to_string()),
+        source_uri: Some("https://example.test/report.pdf".to_string()),
+        published_at: Some("2026-07-12T09:30:00+08:00".parse().unwrap()),
+        metadata_json: json!({"ticker": "ACME"}),
+    };
+
+    let upload = client(&base_url)
+        .group("ops/platform")
+        .library()
+        .files()
+        .upload_bytes_deduplicated_with_metadata(
+            None,
+            "report.pdf",
+            "application/pdf",
+            b"pdf".to_vec(),
+            Some(metadata),
+        )
+        .await
+        .expect("reuse upload");
+
+    assert_eq!(upload.files[0].file_id, file_id);
+    assert!(upload.jobs.is_empty());
+    let request = captured.await.expect("captured request");
+    assert_eq!(
+        request.uri.path(),
+        "/v1/groups/by-path/ops%2Fplatform/library/files/prepare-upload"
+    );
+    let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+    assert_eq!(body["metadata"]["external_id"], "report-42");
+    assert_eq!(body["metadata"]["metadata_json"]["ticker"], "ACME");
+    assert_eq!(body["metadata"]["published_at"], "2026-07-12T01:30:00Z");
+}
+
+#[tokio::test]
 async fn library_file_delete_uses_item_endpoint() {
     let file_id = Uuid::new_v4();
     let (base_url, captured) = spawn_empty(StatusCode::NO_CONTENT).await;

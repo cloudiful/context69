@@ -176,4 +176,33 @@ mod tests {
             Ordering::Less
         );
     }
+
+    #[test]
+    fn mixed_directions_then_document_id_produce_stable_order() {
+        let sort = [
+            DocumentSort {
+                field: DocumentSortField::Metadata("score".to_string()),
+                order: SortOrder::Desc,
+            },
+            DocumentSort {
+                field: DocumentSortField::Metadata("name".to_string()),
+                order: SortOrder::Asc,
+            },
+        ];
+        let left = [SortValue::Integer(10), SortValue::Keyword("alpha".into())];
+        let right = [SortValue::Integer(10), SortValue::Keyword("beta".into())];
+
+        assert_eq!(compare_rows(&left, 9, &right, 1, &sort), Ordering::Less);
+        assert_eq!(compare_rows(&left, 1, &left, 9, &sort), Ordering::Less);
+        assert_eq!(
+            compare_rows(
+                &[SortValue::Null, SortValue::Keyword("alpha".into())],
+                1,
+                &right,
+                2,
+                &sort,
+            ),
+            Ordering::Greater
+        );
+    }
 }

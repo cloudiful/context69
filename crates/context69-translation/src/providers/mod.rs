@@ -95,3 +95,47 @@ pub fn language_code(locale: &str) -> String {
         .unwrap_or(locale)
         .to_ascii_uppercase()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ProviderTranslationRequest, ProviderTranslationResult, validate_result};
+    use crate::segmenter::TranslationSegment;
+    use std::collections::HashMap;
+
+    fn segment(id: &str) -> TranslationSegment {
+        TranslationSegment {
+            id: id.to_string(),
+            text: format!("source {id}"),
+            suffix: String::new(),
+            translatable: true,
+        }
+    }
+
+    #[test]
+    fn rejects_missing_unexpected_and_blank_segments() {
+        let segments = [segment("title"), segment("body:000000")];
+        let request = ProviderTranslationRequest {
+            source_locale: Some("en-US"),
+            target_locale: "zh-CN",
+            segments: &segments,
+            glossary: &[],
+        };
+
+        for translations in [
+            HashMap::from([
+                ("title".to_string(), "标题".to_string()),
+                ("unexpected".to_string(), "正文".to_string()),
+            ]),
+            HashMap::from([
+                ("title".to_string(), "标题".to_string()),
+                ("body:000000".to_string(), "   ".to_string()),
+            ]),
+        ] {
+            let result = ProviderTranslationResult {
+                translations,
+                model_name: None,
+            };
+            assert!(validate_result(&request, &result).is_err());
+        }
+    }
+}

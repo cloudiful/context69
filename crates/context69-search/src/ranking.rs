@@ -227,6 +227,36 @@ mod tests {
     }
 
     #[test]
+    fn merge_candidates_keeps_requested_locale_over_fallback_in_any_input_order() {
+        for translated_first in [false, true] {
+            let chunk_id = Uuid::new_v4();
+            let mut translated = hit(chunk_id, "中文标题", "中文正文");
+            translated.content_locale = Some("zh-CN".to_string());
+            translated.requested_locale = Some("zh-CN".to_string());
+            translated.keyword_score = Some(0.8);
+
+            let mut fallback = hit(chunk_id, "English title", "English body");
+            fallback.content_locale = Some("en-US".to_string());
+            fallback.requested_locale = Some("zh-CN".to_string());
+            fallback.is_fallback = true;
+            fallback.vector_score = Some(0.7);
+
+            let (vector, keyword) = if translated_first {
+                (translated, fallback)
+            } else {
+                (fallback, translated)
+            };
+            let merged = merge_candidates(vec![vector], vec![keyword], "标题");
+
+            assert_eq!(merged.len(), 1);
+            assert_eq!(merged[0].content_locale.as_deref(), Some("zh-CN"));
+            assert!(!merged[0].is_fallback);
+            assert_eq!(merged[0].vector_score, Some(0.7));
+            assert_eq!(merged[0].keyword_score, Some(0.8));
+        }
+    }
+
+    #[test]
     fn apply_rerank_orders_by_rerank_score() {
         let first = hit(Uuid::new_v4(), "first", "first");
         let second = hit(Uuid::new_v4(), "second", "second");
