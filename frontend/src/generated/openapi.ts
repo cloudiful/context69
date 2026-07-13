@@ -1680,6 +1680,7 @@ export interface components {
             pdf_pages_per_task: number;
             s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
             storage_root: string;
+            trusted_proxy_enabled: boolean;
         };
         RuntimeQdrantSettings: {
             collection_name: string;
@@ -1966,6 +1967,7 @@ export interface components {
             pdf_pages_per_task: number;
             s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
             storage_root: string;
+            trusted_proxy_enabled?: boolean;
         };
         UpdateRuntimeS3Settings: {
             access_key: string;

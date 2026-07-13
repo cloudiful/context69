@@ -62,6 +62,8 @@ pub struct FileLibraryConfig {
     pub ingest_concurrency: usize,
     pub pdf_pages_per_task: u32,
     #[serde(default)]
+    pub trusted_proxy_enabled: bool,
+    #[serde(default)]
     pub s3: Option<S3StorageConfig>,
 }
 

@@ -94,6 +94,12 @@ settings are complete, the service uses the configured S3-compatible bucket inst
 instances must use the same S3 settings when sharing a database. S3 credentials are never returned
 by the settings API; leaving Secret Key empty preserves the stored value.
 
+Remote URL imports connect directly by default and ignore proxy environment variables. Enable
+`file_library.trusted_proxy_enabled` in Runtime Settings to use `HTTPS_PROXY`/`https_proxy`, with
+`ALL_PROXY`/`all_proxy` as fallback and `NO_PROXY`/`no_proxy` exclusions. The change applies to new
+downloads immediately. The configured proxy must enforce destination network isolation because it
+resolves and connects to the final target on Context69's behalf.
+
 By default this starts:
 
 - HTTP API
@@ -165,6 +171,7 @@ Common environment overrides:
 
 - `CONTEXT69_APP_DB__URL`
 - `CONTEXT69_SCHEDULER__VALKEY_URL`
+- `CONTEXT69_FILE_LIBRARY__TRUSTED_PROXY_ENABLED`
 
 Detailed configuration docs:
 
@@ -288,7 +295,7 @@ For the full surface:
 - generated OpenAPI output at `frontend/openapi/context69.openapi.json`
 - JSON library text endpoints accept `content_format = plain_text | markdown`; Markdown requests are stored as `.md` with `text/markdown`, while multipart uploads already support `.md` files directly
 - Multipart file uploads accept an `application/json` `metadata` part immediately before its `files` part. It contains `external_id`, `source_uri`, RFC 3339 `published_at`, and object-valued `metadata_json`. Every parsed section inherits these fields.
-- `POST /v1/groups/by-path/{group_path}/library/files/import-url` accepts a public HTTPS file URL and returns an asynchronous URL import job. Context69 validates every DNS/redirect target against private and special-use networks, limits downloads to `max_upload_size_mb`, persists the original in the configured S3/local content store, then reuses the normal SHA deduplication and ingest pipeline. URL imports do not send cookies, authorization, or custom headers and do not parse HTML landing pages.
+- `POST /v1/groups/by-path/{group_path}/library/files/import-url` accepts a public HTTPS file URL and returns an asynchronous URL import job. Context69 validates every DNS/redirect target against private and special-use networks, limits downloads to `max_upload_size_mb`, persists the original in the configured S3/local content store, then reuses the normal SHA deduplication and ingest pipeline. URL imports do not send cookies, authorization, or custom headers and do not parse HTML landing pages. They connect directly unless the trusted environment proxy setting is enabled.
 - URL import jobs are read at `GET .../library/url-import-jobs/{job_id}` and failed jobs can be retried with `POST .../{job_id}/retry`. Originals remain managed library files until deletion; ingest-only retries reuse the stored original without downloading it again.
 - Text JSON upserts and binary uploads share the same internal metadata composition path: section metadata, then file business metadata, then protected Context69 library fields.
 - A repeated `(group, external_id, SHA-256)` upload updates metadata without parsing or embedding again. A changed SHA-256 replaces and re-ingests that logical file. Reusing one SHA-256 with another external ID returns `409 external_id_content_conflict`.

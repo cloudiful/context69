@@ -44,6 +44,7 @@ mod migration;
 pub use migration::StorageMigrationSummary;
 pub(crate) mod object_storage;
 mod remote_download;
+mod remote_proxy;
 mod resources;
 mod storage;
 mod text_creation;

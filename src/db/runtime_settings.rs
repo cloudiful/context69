@@ -97,6 +97,7 @@ impl Database {
                     .context("runtime file_library ingest_concurrency must be non-negative")?,
                 pdf_pages_per_task: u32::try_from(file_library.pdf_pages_per_task)
                     .context("runtime file_library pdf_pages_per_task must be non-negative")?,
+                trusted_proxy_enabled: file_library.trusted_proxy_enabled,
                 s3: match (
                     file_library.s3_endpoint,
                     file_library.s3_region,
@@ -198,6 +199,7 @@ impl Database {
             file_library_max_upload_request_size_mb,
             file_library_ingest_concurrency,
             i64::from(settings.file_library.pdf_pages_per_task),
+            settings.file_library.trusted_proxy_enabled,
             settings
                 .file_library
                 .s3

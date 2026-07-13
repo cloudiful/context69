@@ -1,9 +1,9 @@
-use std::{net::IpAddr, time::Duration};
-
 use anyhow::{Context, Result, anyhow};
 use bytes::{Bytes, BytesMut};
-use reqwest::{Client, StatusCode, Url, header};
+use reqwest::{StatusCode, Url, header};
 use tokio::net::lookup_host;
+
+use super::remote_proxy::{RemoteTransport, is_public_ip};
 
 const MAX_REDIRECTS: usize = 3;
 
@@ -19,29 +19,18 @@ pub(super) async fn download(
     filename: Option<&str>,
     media_type: Option<&str>,
     max_bytes: usize,
+    trusted_proxy_enabled: bool,
 ) -> Result<DownloadedFile> {
-    let client = Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(120))
-        .redirect(reqwest::redirect::Policy::none())
-        .no_gzip()
-        .no_brotli()
-        .no_deflate()
-        .no_zstd()
-        .build()?;
+    let transport = RemoteTransport::new(trusted_proxy_enabled).await?;
     let mut url = validate_url(source).await?;
     for redirect_count in 0..=MAX_REDIRECTS {
-        let mut response = client
+        let mut response = transport
+            .client()
             .get(url.clone())
             .send()
             .await
             .context("remote_download_failed")?;
-        if !response
-            .remote_addr()
-            .is_some_and(|address| is_public_ip(address.ip()))
-        {
-            return Err(anyhow!("remote_url_blocked"));
-        }
+        transport.validate_peer(response.remote_addr())?;
         if response.status().is_redirection() {
             if redirect_count == MAX_REDIRECTS {
                 return Err(anyhow!("remote_redirect_limit"));
@@ -214,63 +203,10 @@ fn validate_type_match(filename: &str, media_type: &str) -> Result<()> {
     Ok(())
 }
 
-fn is_public_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            let [a, b, c, _] = ip.octets();
-            !(a == 0
-                || a == 10
-                || a == 127
-                || a >= 224
-                || (a == 100 && (64..=127).contains(&b))
-                || (a == 169 && b == 254)
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192 && b == 168)
-                || (a == 192 && b == 0 && (c == 0 || c == 2))
-                || (a == 192 && b == 88 && c == 99)
-                || (a == 198 && (b == 18 || b == 19))
-                || (a == 198 && b == 51 && c == 100)
-                || (a == 203 && b == 0 && c == 113))
-        }
-        IpAddr::V6(ip) => {
-            if let Some(mapped) = ip.to_ipv4_mapped() {
-                return is_public_ip(IpAddr::V4(mapped));
-            }
-            let first = ip.segments()[0];
-            !(ip.is_unspecified()
-                || ip.is_loopback()
-                || ip.is_multicast()
-                || (first & 0xfe00) == 0xfc00
-                || (first & 0xffc0) == 0xfe80
-                || ip.segments()[0..2] == [0x2001, 0x0db8])
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{is_public_ip, resolve_filename, validate_type_match, validate_url};
+    use super::{resolve_filename, validate_type_match, validate_url};
     use reqwest::{Url, header};
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
-    #[test]
-    fn blocks_non_public_networks() {
-        for ip in [
-            Ipv4Addr::LOCALHOST,
-            Ipv4Addr::new(10, 0, 0, 1),
-            Ipv4Addr::new(169, 254, 169, 254),
-            Ipv4Addr::new(192, 0, 2, 1),
-            Ipv4Addr::new(198, 51, 100, 1),
-            Ipv4Addr::new(203, 0, 113, 1),
-        ] {
-            assert!(!is_public_ip(IpAddr::V4(ip)));
-        }
-        assert!(!is_public_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-        assert!(!is_public_ip(IpAddr::V6(
-            "::ffff:192.168.1.10".parse().unwrap()
-        )));
-        assert!(is_public_ip("8.8.8.8".parse().unwrap()));
-    }
 
     #[tokio::test]
     async fn rejects_non_https_and_userinfo() {

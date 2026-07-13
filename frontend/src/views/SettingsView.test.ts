@@ -42,6 +42,7 @@ const runtimeResponse = {
     max_upload_request_size_mb: 128,
     ingest_concurrency: 2,
     pdf_pages_per_task: 5,
+    trusted_proxy_enabled: false,
   },
 };
 
@@ -177,6 +178,8 @@ describe("SettingsView", () => {
     expect(wrapper.get("#runtime-embedding-base-url").element).toBeTruthy();
     expect(wrapper.find("#runtime-embedding-clear-api-key").exists()).toBe(false);
     expect(wrapper.find('[data-testid="runtime-vector-rebuild"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="runtime-file-library-trusted-proxy"]').exists()).toBe(true);
+    await wrapper.get('[data-testid="runtime-file-library-trusted-proxy"]').trigger("click");
     await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
 
     await router.push("/settings/docling");
@@ -200,6 +203,9 @@ describe("SettingsView", () => {
       }),
       scheduler: expect.objectContaining({
         valkey_url: "redis://valkey:6379/0",
+      }),
+      file_library: expect.objectContaining({
+        trusted_proxy_enabled: true,
       }),
     }));
     expect(apiSpies.updateDoclingSettings).toHaveBeenCalledWith(expect.objectContaining({

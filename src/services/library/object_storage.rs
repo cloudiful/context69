@@ -51,6 +51,7 @@ impl LibraryObjectStorage {
             max_upload_request_size_mb: 1,
             ingest_concurrency: 1,
             pdf_pages_per_task: 1,
+            trusted_proxy_enabled: false,
             s3: Some(config.clone()),
         };
         Self::from_config(&wrapper)
@@ -153,6 +154,7 @@ mod tests {
             max_upload_request_size_mb: 1,
             ingest_concurrency: 1,
             pdf_pages_per_task: 1,
+            trusted_proxy_enabled: false,
             s3: None,
         }
     }

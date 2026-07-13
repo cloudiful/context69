@@ -250,6 +250,7 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             max_upload_request_size_mb: config.file_library.max_upload_request_size_mb,
             ingest_concurrency: config.file_library.ingest_concurrency,
             pdf_pages_per_task: config.file_library.pdf_pages_per_task,
+            trusted_proxy_enabled: config.file_library.trusted_proxy_enabled,
             s3: config
                 .file_library
                 .s3
@@ -355,6 +356,7 @@ fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) 
         max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
         ingest_concurrency: runtime.file_library.ingest_concurrency,
         pdf_pages_per_task: runtime.file_library.pdf_pages_per_task,
+        trusted_proxy_enabled: runtime.file_library.trusted_proxy_enabled,
         s3: runtime
             .file_library
             .s3

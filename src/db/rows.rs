@@ -174,6 +174,7 @@ pub(super) struct RuntimeFileLibrarySettingsRow {
     pub(super) max_upload_request_size_mb: i64,
     pub(super) ingest_concurrency: i64,
     pub(super) pdf_pages_per_task: i64,
+    pub(super) trusted_proxy_enabled: bool,
     pub(super) s3_endpoint: Option<String>,
     pub(super) s3_region: Option<String>,
     pub(super) s3_bucket: Option<String>,

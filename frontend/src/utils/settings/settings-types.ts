@@ -33,6 +33,7 @@ export type DraftRuntimeSettings = {
     max_upload_request_size_mb: number;
     ingest_concurrency: number;
     pdf_pages_per_task: number;
+    trusted_proxy_enabled: boolean;
     s3_enabled: boolean;
     s3: {
       endpoint: string;

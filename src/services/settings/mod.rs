@@ -1,13 +1,16 @@
 use anyhow::{Context, Result, anyhow};
 
 mod mappers;
+mod runtime_mappers;
 mod validate;
 
 use self::{
     mappers::{
-        config_from_stored, default_runtime_settings_response, docling_settings_from_request,
-        response_from_stored, runtime_settings_from_request, runtime_settings_response,
+        config_from_stored, docling_settings_from_request, response_from_stored,
         search_response_from_stored, search_settings_from_request, unconfigured_docling_response,
+    },
+    runtime_mappers::{
+        default_runtime_settings_response, runtime_settings_from_request, runtime_settings_response,
     },
     validate as settings_validate,
 };
@@ -40,6 +43,14 @@ impl SettingsService {
             .await?
             .map(runtime_settings_response)
             .unwrap_or_else(default_runtime_settings_response))
+    }
+
+    pub async fn trusted_proxy_enabled(&self) -> Result<bool> {
+        Ok(self
+            .db
+            .get_runtime_settings()
+            .await?
+            .is_some_and(|settings| settings.file_library.trusted_proxy_enabled))
     }
 
     pub async fn update_runtime_settings(
@@ -288,6 +299,7 @@ fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
 mod tests {
     use super::{
         mappers::{response_from_stored, search_response_from_stored},
+        runtime_mappers::{runtime_settings_from_request, runtime_settings_response},
         validate::{
             docling_request as validate_docling_request,
             runtime_settings_request as validate_runtime_settings_request,
@@ -370,6 +382,7 @@ mod tests {
                 max_upload_request_size_mb: 128,
                 ingest_concurrency: 2,
                 pdf_pages_per_task: 5,
+                trusted_proxy_enabled: false,
                 s3: None,
             },
         }
@@ -461,6 +474,25 @@ mod tests {
         let error =
             validate_runtime_settings_request(&request).expect_err("runtime request should fail");
         assert!(error.to_string().contains("overlap_chars"));
+    }
+
+    #[test]
+    fn trusted_proxy_setting_round_trips_and_defaults_off() {
+        let mut request = sample_runtime_request();
+        request.file_library.trusted_proxy_enabled = true;
+
+        let stored = runtime_settings_from_request(&request, None);
+        assert!(stored.file_library.trusted_proxy_enabled);
+        assert!(
+            runtime_settings_response(stored)
+                .file_library
+                .trusted_proxy_enabled
+        );
+        assert!(
+            !crate::config::Config::default()
+                .file_library
+                .trusted_proxy_enabled
+        );
     }
 
     #[test]

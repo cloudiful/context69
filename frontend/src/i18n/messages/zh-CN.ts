@@ -555,6 +555,8 @@ export const zhCN = {
       fileLibraryMaxRequestSize: "单次请求上限（MB）",
       fileLibraryConcurrency: "入库并发",
       fileLibraryPdfPagesPerTask: "每任务 PDF 页数",
+      trustedProxyEnabled: "信任环境出口代理",
+      trustedProxyHelper: "URL 导入使用 HTTPS_PROXY/ALL_PROXY 和 NO_PROXY；代理负责目标网络隔离。",
       s3Enabled: "使用 S3 对象存储",
       s3Endpoint: "S3 Endpoint",
       s3Region: "S3 Region",

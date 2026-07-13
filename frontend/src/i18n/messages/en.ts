@@ -555,6 +555,8 @@ export const en = {
       fileLibraryMaxRequestSize: "Max Request Size (MB)",
       fileLibraryConcurrency: "Ingest Concurrency",
       fileLibraryPdfPagesPerTask: "PDF Pages Per Task",
+      trustedProxyEnabled: "Trust environment egress proxy",
+      trustedProxyHelper: "URL imports use HTTPS_PROXY/ALL_PROXY and NO_PROXY; the proxy must enforce destination isolation.",
       s3Enabled: "Use S3 object storage",
       s3Endpoint: "S3 Endpoint",
       s3Region: "S3 Region",

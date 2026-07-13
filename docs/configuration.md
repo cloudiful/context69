@@ -83,6 +83,7 @@ Useful environment overrides:
 
 - `CONTEXT69_APP_DB__URL`
 - `CONTEXT69_SCHEDULER__VALKEY_URL`
+- `CONTEXT69_FILE_LIBRARY__TRUSTED_PROXY_ENABLED`
 
 Any nested config field can be overridden with `__` separators.
 
@@ -96,6 +97,18 @@ cargo run
 If you prefer bootstrap-by-config instead of using the frontend, runtime-related overrides
 such as `CONTEXT69_QDRANT__URL`, `CONTEXT69_EMBEDDING__API_KEY`, or Docling fields still work
 and will be imported into the database on first startup.
+
+## Trusted URL Import Proxy
+
+URL imports ignore proxy environment variables by default. Enable
+`file_library.trusted_proxy_enabled` from Runtime Settings, or use
+`CONTEXT69_FILE_LIBRARY__TRUSTED_PROXY_ENABLED=true` during initial bootstrap, to trust the
+deployment's HTTPS egress proxy. The setting takes effect for new downloads immediately.
+
+When enabled, Context69 uses `HTTPS_PROXY`/`https_proxy`, falling back to
+`ALL_PROXY`/`all_proxy`, and applies `NO_PROXY`/`no_proxy`. The proxy endpoint is resolved and
+validated separately from the requested public URL. The egress proxy must enforce destination
+network isolation because it performs the final target connection.
 
 ## SQLx CLI
 

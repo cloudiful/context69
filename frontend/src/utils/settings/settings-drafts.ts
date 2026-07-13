@@ -40,6 +40,7 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       max_upload_request_size_mb: 128,
       ingest_concurrency: 2,
       pdf_pages_per_task: 5,
+      trusted_proxy_enabled: false,
       s3_enabled: false,
       s3: {
         endpoint: "",
@@ -115,6 +116,7 @@ export function runtimeResponseToDraft(
       max_upload_request_size_mb: response.file_library.max_upload_request_size_mb,
       ingest_concurrency: response.file_library.ingest_concurrency,
       pdf_pages_per_task: response.file_library.pdf_pages_per_task,
+      trusted_proxy_enabled: response.file_library.trusted_proxy_enabled,
       s3_enabled: !!response.file_library.s3,
       s3: {
         endpoint: response.file_library.s3?.endpoint ?? "",

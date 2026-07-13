@@ -56,6 +56,7 @@ declare module 'vue' {
     SettingsAdminUsersSection: typeof import('./src/components/settings-sections/SettingsAdminUsersSection.vue')['default']
     SettingsAppearanceSection: typeof import('./src/components/settings-sections/SettingsAppearanceSection.vue')['default']
     SettingsDoclingSection: typeof import('./src/components/settings-sections/SettingsDoclingSection.vue')['default']
+    SettingsFileLibraryBlock: typeof import('./src/components/settings-sections/SettingsFileLibraryBlock.vue')['default']
     SettingsRuntimeSection: typeof import('./src/components/settings-sections/SettingsRuntimeSection.vue')['default']
     SettingsSearchSection: typeof import('./src/components/settings-sections/SettingsSearchSection.vue')['default']
     SourceEditorForm: typeof import('./src/components/SourceEditorForm.vue')['default']

@@ -6122,7 +6122,8 @@
           "max_upload_size_mb",
           "max_upload_request_size_mb",
           "ingest_concurrency",
-          "pdf_pages_per_task"
+          "pdf_pages_per_task",
+          "trusted_proxy_enabled"
         ],
         "properties": {
           "ingest_concurrency": {
@@ -6154,6 +6155,9 @@
           },
           "storage_root": {
             "type": "string"
+          },
+          "trusted_proxy_enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -7331,6 +7335,9 @@
           },
           "storage_root": {
             "type": "string"
+          },
+          "trusted_proxy_enabled": {
+            "type": "boolean"
           }
         }
       },

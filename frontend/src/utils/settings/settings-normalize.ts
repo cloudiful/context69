@@ -50,6 +50,7 @@ export function normalizeRuntimePayload(
       max_upload_request_size_mb: Number(value.file_library.max_upload_request_size_mb),
       ingest_concurrency: Number(value.file_library.ingest_concurrency),
       pdf_pages_per_task: Number(value.file_library.pdf_pages_per_task),
+      trusted_proxy_enabled: value.file_library.trusted_proxy_enabled,
       s3: value.file_library.s3_enabled && value.file_library.s3
         ? {
             endpoint: value.file_library.s3.endpoint.trim(),

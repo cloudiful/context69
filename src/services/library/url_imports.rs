@@ -131,6 +131,7 @@ impl LibraryService {
     }
 
     async fn download_and_import(&self, job: &UrlImportJobRecord) -> Result<()> {
+        let trusted_proxy_enabled = self.settings.trusted_proxy_enabled().await?;
         let downloaded = {
             let _permit = self.ingest_semaphore.acquire().await?;
             remote_download::download(
@@ -138,6 +139,7 @@ impl LibraryService {
                 job.requested_filename.as_deref(),
                 job.requested_media_type.as_deref(),
                 self.max_upload_size_bytes,
+                trusted_proxy_enabled,
             )
             .await?
         };
