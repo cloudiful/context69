@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::MembershipRole;
@@ -78,6 +78,33 @@ pub struct AdminUserResponse {
     pub disabled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AdminUserPageResponse {
+    pub items: Vec<AdminUserResponse>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct AdminUserPageQuery {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    #[serde(default)]
+    pub query: Option<String>,
+}
+
+const fn default_page() -> u32 {
+    1
+}
+const fn default_page_size() -> u32 {
+    50
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

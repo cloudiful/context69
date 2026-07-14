@@ -10,10 +10,10 @@ pub mod sources;
 pub mod translation;
 
 pub use auth::{
-    AdminUserResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse, CreateAdminUserRequest,
-    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
-    PersonalAccessTokenResponse, PersonalAccessTokenScope, ResetAdminUserPasswordRequest,
-    UpdateAdminUserRequest,
+    AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AuthLoginRequest, AuthMeResponse,
+    AuthUserResponse, CreateAdminUserRequest, CreatePersonalAccessTokenRequest,
+    CreatePersonalAccessTokenResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
+    ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
 };
 pub use common::{ApiErrorResponse, HealthResponse, HealthStatus};
 pub use documents::{
@@ -36,9 +36,9 @@ pub use library::{
 };
 pub use mcp::McpDocumentArgs;
 pub use namespace::{
-    CreateGroupRequest, GroupKind, GroupMemberResponse, GroupResponse, MembershipRole,
-    MoveGroupRequest, UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
-    Visibility,
+    CreateGroupRequest, GroupKind, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
+    GroupResponse, GroupSearchQuery, MembershipRole, MoveGroupRequest, NamespacePageQuery,
+    UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse, Visibility,
 };
 pub use search::{
     DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse,

@@ -20,7 +20,7 @@ WITH resources AS (
         folder.updated_at
     FROM context69.library_folders folder
     JOIN context69.groups groups ON groups.id = folder.group_id
-    WHERE folder.group_id = $1
+    WHERE ($1::BIGINT IS NULL OR folder.group_id = $1)
       AND folder.parent_id IS NOT DISTINCT FROM $2::UUID
 
     UNION ALL
@@ -46,7 +46,7 @@ WITH resources AS (
         file.updated_at
     FROM context69.library_files file
     JOIN context69.groups groups ON groups.id = file.group_id
-    WHERE file.group_id = $1
+    WHERE ($1::BIGINT IS NULL OR file.group_id = $1)
       AND file.folder_id IS NOT DISTINCT FROM $2::UUID
 )
 SELECT

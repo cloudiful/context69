@@ -10,7 +10,8 @@ use axum::{
     routing::{delete, get, post},
 };
 use context69_contracts::{
-    ApiErrorResponse, CreateGroupRequest, GroupMemberResponse, GroupResponse, MoveGroupRequest,
+    ApiErrorResponse, CreateGroupRequest, GroupMemberPageResponse, GroupMemberResponse,
+    GroupPageResponse, GroupResponse, GroupSearchQuery, MoveGroupRequest, NamespacePageQuery,
     UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use context69_http_support::{
@@ -21,12 +22,22 @@ use utoipa::OpenApi;
 
 #[async_trait]
 pub trait NamespaceApi: Send + Sync {
-    async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupResponse>>;
+    async fn list_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &NamespacePageQuery,
+    ) -> Result<GroupPageResponse>;
+    async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &GroupSearchQuery,
+    ) -> Result<Vec<GroupResponse>>;
     async fn list_child_groups_for_user(
         &self,
         user_id: i64,
         group_path: &str,
-    ) -> Result<Vec<GroupResponse>>;
+        query: &NamespacePageQuery,
+    ) -> Result<GroupPageResponse>;
     async fn get_group_for_user(
         &self,
         user_id: i64,
@@ -54,7 +65,8 @@ pub trait NamespaceApi: Send + Sync {
         &self,
         actor: &AuthenticatedUser,
         group_path: &str,
-    ) -> Result<Vec<GroupMemberResponse>>;
+        query: &NamespacePageQuery,
+    ) -> Result<GroupMemberPageResponse>;
     async fn upsert_group_member(
         &self,
         actor: &AuthenticatedUser,
@@ -93,6 +105,7 @@ where
     Router::new()
         .route("/v1/user-directory", get(search_user_directory))
         .route("/v1/groups", get(list_groups).post(create_group))
+        .route("/v1/groups/search", get(search_groups))
         .route(
             "/v1/groups/by-path/{group_path}",
             get(get_group).patch(update_group).delete(delete_group),
@@ -117,6 +130,7 @@ where
     paths(
         search_user_directory,
         list_groups,
+        search_groups,
         create_group,
         get_group,
         update_group,
@@ -136,6 +150,10 @@ where
             context69_contracts::GroupKind,
             GroupResponse,
             GroupMemberResponse,
+            GroupPageResponse,
+            GroupMemberPageResponse,
+            NamespacePageQuery,
+            GroupSearchQuery,
             CreateGroupRequest,
             UpdateGroupRequest,
             MoveGroupRequest,
@@ -189,12 +207,33 @@ async fn search_user_directory(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups", responses((status = 200, body = [GroupResponse])))]
+#[utoipa::path(get, path = "/v1/groups", params(NamespacePageQuery), responses((status = 200, body = GroupPageResponse)))]
 async fn list_groups(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
+    Query(query): Query<NamespacePageQuery>,
 ) -> impl IntoResponse {
-    match state.namespace.list_groups_for_user(user.user_id).await {
+    match state
+        .namespace
+        .list_groups_for_user(user.user_id, &query)
+        .await
+    {
+        Ok(groups) => (StatusCode::OK, axum::Json(groups)).into_response(),
+        Err(error) => internal_error_response(error),
+    }
+}
+
+#[utoipa::path(get, path = "/v1/groups/search", params(GroupSearchQuery), responses((status = 200, body = [GroupResponse])))]
+async fn search_groups(
+    State(state): State<NamespaceHttpState>,
+    CurrentUser(user): CurrentUser,
+    Query(query): Query<GroupSearchQuery>,
+) -> impl IntoResponse {
+    match state
+        .namespace
+        .search_groups_for_user(user.user_id, &query)
+        .await
+    {
         Ok(groups) => (StatusCode::OK, axum::Json(groups)).into_response(),
         Err(error) => internal_error_response(error),
     }
@@ -275,15 +314,16 @@ async fn delete_group(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/children", params(("group_path" = String, Path)), responses((status = 200, body = [GroupResponse])))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/children", params(("group_path" = String, Path), NamespacePageQuery), responses((status = 200, body = GroupPageResponse)))]
 async fn list_child_groups(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
     Path(group_path): Path<String>,
+    Query(query): Query<NamespacePageQuery>,
 ) -> impl IntoResponse {
     match state
         .namespace
-        .list_child_groups_for_user(user.user_id, &group_path)
+        .list_child_groups_for_user(user.user_id, &group_path, &query)
         .await
     {
         Ok(groups) => (StatusCode::OK, axum::Json(groups)).into_response(),
@@ -291,13 +331,18 @@ async fn list_child_groups(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path)), responses((status = 200, body = [GroupMemberResponse])))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path), NamespacePageQuery), responses((status = 200, body = GroupMemberPageResponse)))]
 async fn list_group_members(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
     Path(group_path): Path<String>,
+    Query(query): Query<NamespacePageQuery>,
 ) -> impl IntoResponse {
-    match state.namespace.list_group_members(&user, &group_path).await {
+    match state
+        .namespace
+        .list_group_members(&user, &group_path, &query)
+        .await
+    {
         Ok(members) => (StatusCode::OK, axum::Json(members)).into_response(),
         Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }

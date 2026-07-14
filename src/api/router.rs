@@ -35,21 +35,21 @@ use super::{
     forbid_personal_access_token_middleware, get_group_document_by_key, get_group_library_file,
     get_group_library_job, get_group_library_resources, get_group_library_tree,
     get_group_library_url_import_job, get_group_translation_settings, get_library_file,
-    get_library_job, get_library_tree, get_translation_job, get_translation_settings, healthz,
-    import_group_library_file_url, list_admin_users, list_document_translation_jobs,
-    list_metadata_indexes, list_personal_access_tokens, list_source_connections, list_sources,
-    login, logout, me, move_group_library_file, move_group_library_folder, move_library_file,
-    move_library_folder, openapi_json, prepare_group_library_upload, query_group_documents,
-    rebuild_document_translations, require_admin_scope_middleware,
-    require_library_scope_middleware, require_search_scope_middleware,
-    require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, reset_admin_user_password, retry_group_library_file,
-    retry_group_library_url_import_job, retry_metadata_index, retry_translation_job,
-    revoke_personal_access_token, sync_group_source_folder, sync_source,
-    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
-    update_group_translation_settings, update_metadata_index, update_source,
-    update_source_connection, update_translation_settings, upload_group_library_files,
-    upload_library_files, upsert_group_library_text,
+    get_library_job, get_library_resources, get_library_tree, get_translation_job,
+    get_translation_settings, healthz, import_group_library_file_url, list_admin_users,
+    list_document_translation_jobs, list_metadata_indexes, list_personal_access_tokens,
+    list_source_connections, list_sources, login, logout, me, move_group_library_file,
+    move_group_library_folder, move_library_file, move_library_folder, openapi_json,
+    prepare_group_library_upload, query_group_documents, rebuild_document_translations,
+    require_admin_scope_middleware, require_library_scope_middleware,
+    require_search_scope_middleware, require_settings_scope_middleware,
+    require_sources_scope_middleware, require_workspace_scope_middleware,
+    reset_admin_user_password, retry_group_library_file, retry_group_library_url_import_job,
+    retry_metadata_index, retry_translation_job, revoke_personal_access_token,
+    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
+    update_admin_user, update_group_source_folder_config, update_group_translation_settings,
+    update_metadata_index, update_source, update_source_connection, update_translation_settings,
+    upload_group_library_files, upload_library_files, upsert_group_library_text,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -286,6 +286,7 @@ fn settings_routes(api_state: ApiState) -> Router<ApiState> {
 fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiState> {
     Router::new()
         .route("/v1/library/tree", get(get_library_tree))
+        .route("/v1/library/resources", get(get_library_resources))
         .route("/v1/library/folders", post(create_library_folder))
         .route(
             "/v1/library/texts",

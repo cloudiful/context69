@@ -6,9 +6,35 @@ use crate::{
     NamespaceMemberRecord, UpdateGroupInput, UpsertMembershipInput,
 };
 
+#[derive(Debug, Clone)]
+pub struct PageRequest {
+    pub page: u32,
+    pub page_size: u32,
+    pub query: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
 #[async_trait]
 pub trait NamespaceRepository: Send + Sync {
-    async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>>;
+    async fn list_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>>;
+    async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<GroupRecord>>;
     async fn get_group_for_user(
         &self,
         user_id: i64,
@@ -36,7 +62,8 @@ pub trait NamespaceRepository: Send + Sync {
         &self,
         actor: &NamespaceActor,
         group_path: &str,
-    ) -> Result<Vec<NamespaceMemberRecord>>;
+        request: &PageRequest,
+    ) -> Result<Page<NamespaceMemberRecord>>;
     async fn upsert_group_member(
         &self,
         actor: &NamespaceActor,
@@ -53,7 +80,8 @@ pub trait NamespaceRepository: Send + Sync {
         &self,
         user_id: i64,
         group_path: &str,
-    ) -> Result<Vec<GroupRecord>>;
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>>;
     async fn resolve_access_scope(
         &self,
         user_id: Option<i64>,

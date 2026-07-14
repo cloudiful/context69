@@ -56,10 +56,29 @@ impl Database {
         Ok(user_from_row(row))
     }
 
-    pub async fn list_users(&self) -> Result<Vec<UserRecord>> {
-        let rows = sqlx::query_file_as!(UserRow, "src/sql/db/auth/list_users.sql")
-            .fetch_all(self.pool())
-            .await?;
+    pub async fn count_users(&self, query: &str) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/auth/count_users.sql", query)
+                .fetch_one(self.pool())
+                .await?,
+        )
+    }
+
+    pub async fn list_users(
+        &self,
+        query: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UserRecord>> {
+        let rows = sqlx::query_file_as!(
+            UserRow,
+            "src/sql/db/auth/list_users.sql",
+            query,
+            limit,
+            offset
+        )
+        .fetch_all(self.pool())
+        .await?;
         Ok(rows.into_iter().map(user_from_row).collect())
     }
 

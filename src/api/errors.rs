@@ -4,11 +4,15 @@ use crate::contracts::ApiErrorResponse;
 
 pub(crate) fn internal_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
-    (
-        runtime_aware_status(&message).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-        Json(ApiErrorResponse { error: message }),
-    )
-        .into_response()
+    let status = if message.contains("page must be")
+        || message.contains("page_size must be")
+        || message.contains("page offset is too large")
+    {
+        StatusCode::BAD_REQUEST
+    } else {
+        runtime_aware_status(&message).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+    };
+    (status, Json(ApiErrorResponse { error: message })).into_response()
 }
 
 pub(crate) fn source_management_error_response(error: anyhow::Error) -> axum::response::Response {

@@ -2,7 +2,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use context69_namespace::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
-    NamespaceMemberRecord, NamespaceRepository, UpdateGroupInput, UpsertMembershipInput,
+    NamespaceMemberRecord, NamespaceRepository, Page, PageRequest, UpdateGroupInput,
+    UpsertMembershipInput,
 };
 
 use crate::db::Database;
@@ -20,8 +21,21 @@ impl DbNamespaceRepository {
 
 #[async_trait]
 impl NamespaceRepository for DbNamespaceRepository {
-    async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>> {
-        self.db.list_groups_for_user(user_id).await
+    async fn list_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        self.db.list_groups_for_user(user_id, request).await
+    }
+
+    async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<GroupRecord>> {
+        self.db.search_groups_for_user(user_id, query, limit).await
     }
 
     async fn get_group_for_user(
@@ -66,8 +80,9 @@ impl NamespaceRepository for DbNamespaceRepository {
         &self,
         actor: &NamespaceActor,
         group_path: &str,
-    ) -> Result<Vec<NamespaceMemberRecord>> {
-        self.db.list_group_members(actor, group_path).await
+        request: &PageRequest,
+    ) -> Result<Page<NamespaceMemberRecord>> {
+        self.db.list_group_members(actor, group_path, request).await
     }
 
     async fn upsert_group_member(
@@ -96,9 +111,10 @@ impl NamespaceRepository for DbNamespaceRepository {
         &self,
         user_id: i64,
         group_path: &str,
-    ) -> Result<Vec<GroupRecord>> {
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
         self.db
-            .list_child_groups_for_user(user_id, group_path)
+            .list_child_groups_for_user(user_id, group_path, request)
             .await
     }
 

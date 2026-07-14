@@ -8,7 +8,6 @@ import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
 import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
 import LibraryMoveDialog from "./LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
-import LibraryPreviewShell from "./LibraryPreviewShell.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
 import LibraryToolbar from "./LibraryToolbar.vue";
 import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
@@ -20,12 +19,14 @@ import { useGroupBrowserEntries } from "../composables/project-library/use-group
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
 import { useProjectSourceFolder } from "../composables/project-library/use-project-source-folder";
-import type { GroupResponse } from "../services/api";
+import type { GroupPageResponse, GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry, GroupExplorerEntry } from "../types/library";
 
 const props = defineProps<{
   childGroups: GroupResponse[];
+  childGroupPage: GroupPageResponse;
+  childGroupSearch: string;
   groupPath: string;
 }>();
 
@@ -35,6 +36,8 @@ const emit = defineEmits<{
   "edit-child-group": [GroupResponse];
   "move-child-group": [GroupResponse];
   "open-child-group": [GroupResponse];
+  "child-group-page": [number];
+  "update:child-group-search": [string];
 }>();
 
 type FileUploadController = {
@@ -44,7 +47,6 @@ type FileUploadController = {
 const { t } = useI18n();
 const { statusLabel } = createLibraryStatusHelpers();
 const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed");
-
 const tree = useProjectLibraryTree({
   groupPath: () => props.groupPath,
   statusLabel: mapStatusLabel,
@@ -57,12 +59,10 @@ const page = useProjectLibraryPage({
   t,
 });
 const pageState = proxyRefs(page);
-
 async function refreshLibraryData() {
   await tree.loadTree();
   await page.loadPage();
 }
-
 const detail = useProjectLibraryDetail({
   groupPath: () => props.groupPath,
   loadTree: refreshLibraryData,
@@ -76,7 +76,6 @@ const sourceFolderState = proxyRefs(useProjectSourceFolder({
   refreshLibrary: () => treeState.refreshLibrary(detailState.loadDetail),
   t,
 }));
-
 const preview = useProjectLibraryPreview({
   allowDockedPreview: false,
   detail: detail.detail,
@@ -85,7 +84,6 @@ const preview = useProjectLibraryPreview({
   t,
 });
 const previewState = proxyRefs(preview);
-
 const actions = useProjectLibraryActions({
   groupPath: () => props.groupPath,
   loadTree: refreshLibraryData,
@@ -101,7 +99,6 @@ const actions = useProjectLibraryActions({
   previewDialogVisible: preview.previewDialogVisible,
 });
 const actionsState = proxyRefs(actions);
-
 const { filteredGroupEntries } = useGroupBrowserEntries({
   childGroups: () => props.childGroups,
   libraryEntryCount: () => pageState.entries.length,
@@ -111,6 +108,9 @@ const { filteredGroupEntries } = useGroupBrowserEntries({
 const visibleGroupEntries = computed(() => treeState.selectedFolderId || pageState.page !== 1 || pageState.statusFilter
   ? []
   : filteredGroupEntries.value);
+const visibleChildGroupPage = computed(() => treeState.selectedFolderId || pageState.page !== 1 || pageState.statusFilter
+  ? undefined
+  : props.childGroupPage);
 
 const groupContextEntry = ref<GroupExplorerEntry | null>(null);
 const fileUpload = ref<FileUploadController | null>(null);
@@ -215,6 +215,14 @@ watch(tree.selectedFolderId, (folderId) => {
   void page.loadPage();
 });
 
+watch(detail.detail, (nextDetail) => {
+  const fileId = tree.selectedFileId.value;
+  if (!fileId || !nextDetail || nextDetail.file_id !== fileId) return;
+  if (nextDetail.folder_id !== tree.selectedFolderId.value) {
+    void tree.replaceQuery(nextDetail.folder_id ?? null, fileId);
+  }
+});
+
 watch(page.entries, (entries) => {
   treeState.syncSelectedExplorerEntry(entries);
 }, { immediate: true });
@@ -228,6 +236,9 @@ watch(() => props.groupPath, async () => {
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 watch(page.query, () => {
+  if (!treeState.selectedFolderId && pageState.page === 1 && !pageState.statusFilter) {
+    emit("update:child-group-search", pageState.query);
+  }
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     pageState.page = 1;
@@ -277,6 +288,7 @@ onBeforeUnmount(() => {
       :error="treeState.treeError || pageState.error"
       :first="pageState.first"
       :group-entries="visibleGroupEntries"
+      :group-page="visibleChildGroupPage"
       hide-actions
       hide-group-paths
       compact
@@ -309,6 +321,7 @@ onBeforeUnmount(() => {
       @move-entry="actionsState.moveExplorerEntry"
       @delete-entry="actionsState.deleteExplorerEntry"
       @open-group="emit('open-child-group', $event.group)"
+      @group-page="emit('child-group-page', $event)"
       @edit-group="emit('edit-child-group', $event.group)"
       @move-group="emit('move-child-group', $event.group)"
       @delete-group="emit('delete-child-group', $event.group)"

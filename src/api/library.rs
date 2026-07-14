@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -8,8 +8,9 @@ use uuid::Uuid;
 
 use crate::contracts::{
     ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-    LibraryFolderResponse, LibraryIngestJobResponse, LibraryTreeResponse, LibraryUploadResponse,
-    MoveFileRequest, MoveFolderRequest,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryResourcePageQuery,
+    LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
+    MoveFolderRequest,
 };
 
 use super::{
@@ -27,6 +28,26 @@ use super::{
 pub(crate) async fn get_library_tree(State(state): State<ApiState>) -> impl IntoResponse {
     match state.app.library.list_tree().await {
         Ok(tree) => (StatusCode::OK, Json(tree)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/library/resources",
+    params(LibraryResourcePageQuery),
+    responses(
+        (status = 200, description = "Paginated library resources", body = LibraryResourcePageResponse),
+        (status = 400, description = "Invalid pagination parameters"),
+        (status = 404, description = "Folder not found")
+    )
+)]
+pub(crate) async fn get_library_resources(
+    State(state): State<ApiState>,
+    Query(query): Query<LibraryResourcePageQuery>,
+) -> impl IntoResponse {
+    match state.app.library.list_resources_page(&query).await {
+        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }

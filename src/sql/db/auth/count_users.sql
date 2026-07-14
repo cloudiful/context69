@@ -1,9 +1,7 @@
-SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at
+SELECT COUNT(*)::BIGINT AS "count!"
 FROM context69.users
 WHERE (
        NULLIF(BTRIM($1::TEXT), '') IS NULL
     OR login_name ILIKE '%' || BTRIM($1::TEXT) || '%'
     OR display_name ILIKE '%' || BTRIM($1::TEXT) || '%'
-)
-ORDER BY login_name
-LIMIT $2 OFFSET $3
+  )

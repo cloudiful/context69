@@ -4,33 +4,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
+import { apiClient, type SourceStatus } from "../services/api";
+import * as nuxtUiComposables from "@nuxt/ui/composables";
+import SourcesView from "./SourcesView.vue";
 
-const {
-  listSources,
-  listSourceConnections,
-  syncSource,
-  createSource,
-  updateSource,
-  deleteSource,
-} = vi.hoisted(() => ({
-  listSources: vi.fn(),
-  listSourceConnections: vi.fn(),
-  syncSource: vi.fn(),
-  createSource: vi.fn(),
-  updateSource: vi.fn(),
-  deleteSource: vi.fn(),
-}));
-
-vi.mock("../services/api", () => ({
-  apiClient: {
-    listSources,
-    listSourceConnections,
-    syncSource,
-    createSource,
-    updateSource,
-    deleteSource,
-  },
-}));
+const listSources = vi.spyOn(apiClient, "listSources");
+const listSourceConnections = vi.spyOn(apiClient, "listSourceConnections");
+const syncSource = vi.spyOn(apiClient, "syncSource");
+const createSource = vi.spyOn(apiClient, "createSource");
+const updateSource = vi.spyOn(apiClient, "updateSource");
+const deleteSource = vi.spyOn(apiClient, "deleteSource");
+const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 
 vi.mock("../components/AppMonacoEditor.vue", () => ({
   default: {
@@ -46,16 +30,19 @@ vi.mock("../components/AppMonacoEditor.vue", () => ({
   },
 }));
 
-vi.mock("../composables/use-app-confirm", () => ({
-  useAppConfirm: () => ({
-    require: (options: { accept?: () => void }) => options.accept?.(),
-    close: vi.fn(),
-  }),
-}));
+const appMonacoEditorStub = {
+  props: ["modelValue", "inputId"],
+  emits: ["update:modelValue"],
+  template: `
+    <textarea
+      :id="inputId"
+      :value="modelValue"
+      @input="$emit('update:modelValue', $event.target.value)"
+    />
+  `,
+};
 
-import SourcesView from "./SourcesView.vue";
-
-const baseSource = {
+const baseSource: SourceStatus = {
   source_key: "gov_documents",
   group_key: "personal-admin",
   group_path: "personal-admin/default",
@@ -78,13 +65,16 @@ const baseSource = {
 
 describe("SourcesView", () => {
   beforeEach(() => {
+    useOverlay.mockReset();
+    useOverlay.mockReturnValue({
+      create: () => ({ open: async () => true }),
+    } as never);
     listSources.mockReset();
     listSourceConnections.mockReset();
     syncSource.mockReset();
     createSource.mockReset();
     updateSource.mockReset();
     deleteSource.mockReset();
-    vi.restoreAllMocks();
   });
 
   it("loads sources and syncs one row independently", async () => {
@@ -108,6 +98,7 @@ describe("SourcesView", () => {
     const wrapper = mount(SourcesView, {
       global: {
         plugins: [testNuxtUiPlugin, createTestI18n()],
+        stubs: { AppMonacoEditor: appMonacoEditorStub },
       },
     });
     await flushPromises();
@@ -138,6 +129,7 @@ describe("SourcesView", () => {
     const wrapper = mount(SourcesView, {
       global: {
         plugins: [testNuxtUiPlugin, createTestI18n()],
+        stubs: { AppMonacoEditor: appMonacoEditorStub },
       },
     });
     await flushPromises();
@@ -181,6 +173,13 @@ describe("SourcesView", () => {
     const deleteButton = wrapper.findAll("button").find((button) => button.text() === "Delete");
     expect(deleteButton).toBeTruthy();
     await deleteButton!.trigger("click");
+    await flushPromises();
+    const confirmButton = [...document.body.querySelectorAll("button")].find((button) => (
+      button !== deleteButton!.element && button.textContent?.trim() === "Delete"
+    ));
+    if (confirmButton) {
+      confirmButton.click();
+    }
     await flushPromises();
 
     expect(deleteSource).toHaveBeenCalledWith("gov_documents");

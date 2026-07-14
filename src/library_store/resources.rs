@@ -10,7 +10,7 @@ use crate::contracts::{
 };
 
 pub struct ResourceListQuery<'a> {
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub folder_id: Option<Uuid>,
     pub query: Option<&'a str>,
     pub status: Option<LibraryIngestStatus>,
@@ -21,9 +21,9 @@ pub struct ResourceListQuery<'a> {
 }
 
 impl LibraryStore {
-    pub async fn count_resources_in_project_folder(
+    pub async fn count_resources_in_folder(
         &self,
-        project_id: i64,
+        project_id: Option<i64>,
         folder_id: Option<Uuid>,
         query: Option<&str>,
         status: Option<LibraryIngestStatus>,
@@ -37,6 +37,17 @@ impl LibraryStore {
         )
         .fetch_one(self.db.pool())
         .await?)
+    }
+
+    pub async fn count_resources_in_project_folder(
+        &self,
+        project_id: i64,
+        folder_id: Option<Uuid>,
+        query: Option<&str>,
+        status: Option<LibraryIngestStatus>,
+    ) -> Result<i64> {
+        self.count_resources_in_folder(Some(project_id), folder_id, query, status)
+            .await
     }
 
     pub async fn list_resources_in_project_folder(

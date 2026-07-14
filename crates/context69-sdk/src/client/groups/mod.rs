@@ -4,7 +4,8 @@ mod source_folders;
 mod translations;
 
 use context69_contracts::{
-    CreateGroupRequest, GroupResponse, MoveGroupRequest, UpdateGroupRequest,
+    CreateGroupRequest, GroupPageResponse, GroupResponse, MoveGroupRequest, NamespacePageQuery,
+    UpdateGroupRequest,
 };
 use reqwest::Method;
 
@@ -25,12 +26,23 @@ impl<'a> GroupsApi<'a> {
         Self { client }
     }
 
-    pub async fn list(&self) -> Result<Vec<GroupResponse>, Error> {
+    pub async fn list(&self) -> Result<GroupPageResponse, Error> {
         self.client
             .execute_json(
                 self.client
                     .authorized_request(Method::GET, "/v1/groups")
                     .await?,
+            )
+            .await
+    }
+
+    pub async fn list_page(&self, query: &NamespacePageQuery) -> Result<GroupPageResponse, Error> {
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::GET, "/v1/groups")
+                    .await?
+                    .query(query),
             )
             .await
     }
@@ -150,10 +162,22 @@ impl<'a> GroupChildrenApi<'a> {
         Self { client, group_path }
     }
 
-    pub async fn list(&self) -> Result<Vec<GroupResponse>, Error> {
+    pub async fn list(&self) -> Result<GroupPageResponse, Error> {
         let path = group_path(&self.group_path, "/children");
         self.client
             .execute_json(self.client.authorized_request(Method::GET, &path).await?)
+            .await
+    }
+
+    pub async fn list_page(&self, query: &NamespacePageQuery) -> Result<GroupPageResponse, Error> {
+        let path = group_path(&self.group_path, "/children");
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::GET, &path)
+                    .await?
+                    .query(query),
+            )
             .await
     }
 }

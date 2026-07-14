@@ -4,32 +4,10 @@ import { createMemoryHistory, createRouter } from "vue-router";
 
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
-
-const { getDocument, ApiError } = vi.hoisted(() => {
-  class MockApiError extends Error {
-    status: number;
-
-    constructor(message: string, status: number) {
-      super(message);
-      this.name = "ApiError";
-      this.status = status;
-    }
-  }
-
-  return {
-    getDocument: vi.fn(),
-    ApiError: MockApiError,
-  };
-});
-
-vi.mock("../services/api", () => ({
-  apiClient: {
-    getDocument,
-  },
-  ApiError,
-}));
-
+import { ApiError, apiClient } from "../services/api";
 import DocumentView from "./DocumentView.vue";
+
+const getDocument = vi.spyOn(apiClient, "getDocument");
 
 async function mountView(path = "/documents/42") {
   const router = createRouter({
@@ -56,7 +34,7 @@ describe("DocumentView", () => {
   });
 
   it("renders a not found message for missing documents", async () => {
-    getDocument.mockRejectedValue(new ApiError("Document missing", 404));
+    getDocument.mockImplementation(() => Promise.reject(new ApiError("Document missing", 404)));
 
     const wrapper = await mountView();
     await flushPromises();
@@ -69,13 +47,17 @@ describe("DocumentView", () => {
     getDocument.mockResolvedValue({
       document_id: 42,
       source_key: "gov_documents",
+      group_key: "personal-admin",
+      group_path: "personal-admin/default",
       external_id: "ext-42",
+      record_hash: "hash-42",
+      visibility: "private",
       title: "Cyber Policy Update",
       summary: "summary text",
       source_uri: "https://example.com/doc",
       published_at: "2025-01-01",
       updated_at: "2025-01-02T00:00:00Z",
-      metadata_json: { category: "policy" },
+      metadata_json: {},
       library_path: "/Policies/Cyber",
       library_section_label: "Summary",
       is_library_file: true,

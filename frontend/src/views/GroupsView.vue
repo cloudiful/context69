@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -13,14 +13,24 @@ const { t } = useI18n();
 const showErrorToast = useErrorToast();
 const groups = ref<GroupResponse[]>([]);
 const loading = ref(false);
+const page = ref(1);
+const pageSize = ref(50);
+const total = ref(0);
+const query = ref("");
 const createDialogVisible = ref(false);
 const createBusy = ref(false);
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function loadGroups() {
   loading.value = true;
   try {
-    const nextGroups = await apiClient.listGroups();
-    groups.value = nextGroups.filter((group) => !group.parent_group_path);
+    const response = await apiClient.listGroups({
+      page: page.value,
+      page_size: pageSize.value,
+      query: query.value.trim() || undefined,
+    });
+    groups.value = response.items;
+    total.value = response.total;
   } catch (error) {
     showErrorToast(error, t("groups.loadFailed"));
   } finally {
@@ -71,11 +81,22 @@ const columns = computed<TableColumn<GroupResponse>[]>(() => [
 onMounted(() => {
   void loadGroups();
 });
+
+watch(query, () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    page.value = 1;
+    void loadGroups();
+  }, 250);
+});
+
+onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 
 <template>
   <div class="grid min-w-0 gap-2">
-    <div class="flex justify-end">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <UInput v-model="query" class="w-64 max-w-full" icon="i-lucide-search" :placeholder="t('groups.groupName')" />
       <UButton @click="createDialogVisible = true">
         {{ t("groups.create") }}
       </UButton>
@@ -96,6 +117,15 @@ onMounted(() => {
       <template #kind-cell="{ row }"><UBadge :label="row.original.kind" color="neutral" variant="subtle" /></template>
       <template #current_role-cell="{ row }"><UBadge :label="row.original.current_role || '--'" :color="roleSeverity(row.original.current_role)" variant="subtle" /></template>
     </UTable>
+
+    <UPagination
+      v-if="total > pageSize"
+      v-model:page="page"
+      :items-per-page="pageSize"
+      :total="total"
+      class="justify-end"
+      @update:page="loadGroups"
+    />
 
     <EntityDialog
       v-model:visible="createDialogVisible"

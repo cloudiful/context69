@@ -1,7 +1,7 @@
 use anyhow::Result;
 use context69_namespace::{
     CreateGroupInput, MoveGroupInput, NamespaceActor, NamespaceService as CoreNamespaceService,
-    UpdateGroupInput, UpsertMembershipInput,
+    Page, PageRequest, UpdateGroupInput, UpsertMembershipInput,
 };
 
 use crate::{
@@ -28,8 +28,23 @@ impl NamespaceService {
         }
     }
 
-    pub async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>> {
-        self.inner.list_groups_for_user(user_id).await
+    pub async fn list_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        self.inner.list_groups_for_user(user_id, request).await
+    }
+
+    pub async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<GroupRecord>> {
+        self.inner
+            .search_groups_for_user(user_id, query, limit)
+            .await
     }
 
     pub async fn get_group_for_user(
@@ -90,9 +105,10 @@ impl NamespaceService {
         &self,
         actor: &UserRecord,
         group_path: &str,
-    ) -> Result<Vec<NamespaceMemberRecord>> {
+        request: &PageRequest,
+    ) -> Result<Page<NamespaceMemberRecord>> {
         self.inner
-            .list_group_members(&namespace_actor(actor), group_path)
+            .list_group_members(&namespace_actor(actor), group_path, request)
             .await
     }
 
@@ -126,9 +142,10 @@ impl NamespaceService {
         &self,
         user_id: i64,
         group_path: &str,
-    ) -> Result<Vec<GroupRecord>> {
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
         self.inner
-            .list_child_groups_for_user(user_id, group_path)
+            .list_child_groups_for_user(user_id, group_path, request)
             .await
     }
 

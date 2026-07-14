@@ -36,8 +36,8 @@ use crate::api::{
     library::{
         __path_create_library_folder, __path_create_library_text, __path_delete_library_file,
         __path_delete_library_folder, __path_get_library_file, __path_get_library_job,
-        __path_get_library_tree, __path_move_library_file, __path_move_library_folder,
-        __path_upload_library_files,
+        __path_get_library_resources, __path_get_library_tree, __path_move_library_file,
+        __path_move_library_folder, __path_upload_library_files,
     },
     personal_access_tokens::{
         __path_create_personal_access_token, __path_list_personal_access_tokens,
@@ -56,8 +56,9 @@ use crate::api::{
     },
 };
 use crate::contracts::{
-    AdminUserResponse, ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse,
-    BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CreateAdminUserRequest,
+    AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, ApiErrorResponse,
+    AuthLoginRequest, AuthMeResponse, AuthUserResponse, BatchDocumentItem,
+    BatchGetDocumentsRequest, BatchGetDocumentsResponse, CreateAdminUserRequest,
     CreateFolderRequest, CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
     CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest, DeeplPlan,
     DocumentKey, DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentSort,
@@ -106,6 +107,7 @@ use crate::contracts::{
         update_source,
         delete_source,
         get_library_tree,
+        get_library_resources,
         create_library_folder,
         create_library_text,
         move_library_folder,
@@ -165,6 +167,8 @@ use crate::contracts::{
         PersonalAccessTokenResponse,
         CreatePersonalAccessTokenResponse,
         AdminUserResponse,
+        AdminUserPageResponse,
+        AdminUserPageQuery,
         CreateAdminUserRequest,
         UpdateAdminUserRequest,
         ResetAdminUserPasswordRequest,

@@ -1,0 +1,157 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT g.id, CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END::smallint AS role_rank\n    FROM context69.group_memberships gm\n    JOIN context69.groups g ON g.id = gm.group_id\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.id\n), group_roles AS (\n    SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank\n    FROM inherited_groups GROUP BY id\n)\nSELECT\n    g.id AS \"id!\", g.parent_group_id AS \"parent_group_id?\", g.full_path AS \"group_path!\",\n    parent.full_path AS \"parent_group_path?\", g.group_key AS \"group_key!\", g.name AS \"name!\",\n    g.visibility AS \"visibility!\", g.kind AS \"kind!\", g.owner_user_id AS \"owner_user_id?\",\n    g.created_at AS \"created_at!\", g.updated_at AS \"updated_at!\", gr.role_rank AS \"current_role_rank?\"\nFROM context69.groups g\nLEFT JOIN context69.groups parent ON parent.id = g.parent_group_id\nLEFT JOIN group_roles gr ON gr.group_id = g.id\nWHERE (g.visibility = 'public' OR gr.role_rank IS NOT NULL)\n  AND (\n       NULLIF(BTRIM($2::TEXT), '') IS NULL\n    OR g.group_key ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR g.name ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR g.full_path ILIKE '%' || BTRIM($2::TEXT) || '%'\n  )\nORDER BY g.full_path\nLIMIT $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_group_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "parent_group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_group_path?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "visibility!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "kind!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "owner_user_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "owner_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "current_role_rank?",
+        "type_info": "Int2",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "2f2846ea63e792758be5e43b23d8180331e1c032b1974a43edf777eefc39bd55"
+}

@@ -1,8 +1,4 @@
-SELECT
-    u.id AS "user_id!",
-    u.login_name,
-    u.display_name,
-    gm.role
+SELECT COUNT(*)::BIGINT AS "count!"
 FROM context69.group_memberships gm
 JOIN context69.users u ON u.id = gm.user_id
 JOIN context69.groups g ON g.id = gm.group_id
@@ -12,5 +8,3 @@ WHERE g.full_path = $1
     OR u.login_name ILIKE '%' || BTRIM($2::TEXT) || '%'
     OR u.display_name ILIKE '%' || BTRIM($2::TEXT) || '%'
   )
-ORDER BY u.login_name
-LIMIT $3 OFFSET $4

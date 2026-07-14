@@ -1,21 +1,13 @@
-import { ref } from "vue";
+import { mount } from "@vue/test-utils";
+import { defineComponent, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { LibraryFolderNode, LibraryResourcePageResponse } from "../../services/api";
+import { apiClient, type LibraryFolderNode, type LibraryResourcePageResponse } from "../../services/api";
+import { createTestI18n } from "../../test-utils/i18n";
+import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
 import { useProjectLibraryPage } from "./use-project-library-page";
 
-const mocks = vi.hoisted(() => ({
-  getGroupLibraryResources: vi.fn(),
-  showErrorToast: vi.fn(),
-}));
-
-vi.mock("../../services/api", () => ({
-  apiClient: { getGroupLibraryResources: mocks.getGroupLibraryResources },
-}));
-
-vi.mock("../use-error-toast", () => ({
-  useErrorToast: () => mocks.showErrorToast,
-}));
+const getGroupLibraryResources = vi.spyOn(apiClient, "getGroupLibraryResources");
 
 const root: LibraryFolderNode = {
   children: [],
@@ -60,21 +52,27 @@ function response(): LibraryResourcePageResponse {
 
 describe("useProjectLibraryPage", () => {
   beforeEach(() => {
-    mocks.getGroupLibraryResources.mockReset();
-    mocks.showErrorToast.mockReset();
+    getGroupLibraryResources.mockReset();
   });
 
   it("loads a real backend page and forwards sorting parameters", async () => {
-    mocks.getGroupLibraryResources.mockResolvedValue(response());
+    getGroupLibraryResources.mockResolvedValue(response());
     const folder = ref<LibraryFolderNode | null>(root);
-    const state = useProjectLibraryPage({ groupPath: "stock/alpha", folder, t: (key) => key });
+    let state!: ReturnType<typeof useProjectLibraryPage>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryPage({ groupPath: "stock/alpha", folder, t: (key) => key });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
 
     state.query.value = "latest";
     await state.changeStatusFilter("failed");
     await state.changePage(25, 25);
     await state.changeSort("size", -1);
 
-    expect(mocks.getGroupLibraryResources).toHaveBeenLastCalledWith("stock/alpha", {
+    expect(getGroupLibraryResources).toHaveBeenLastCalledWith("stock/alpha", {
       folderId: null,
       page: 1,
       pageSize: 25,
@@ -89,19 +87,28 @@ describe("useProjectLibraryPage", () => {
       sizeBytes: 2048,
     });
     expect(state.total.value).toBe(80);
+    wrapper.unmount();
   });
 
   it("returns to the first page when the status filter changes", async () => {
-    mocks.getGroupLibraryResources.mockResolvedValue(response());
-    const state = useProjectLibraryPage({ groupPath: "stock/alpha", folder: root, t: (key) => key });
+    getGroupLibraryResources.mockResolvedValue(response());
+    let state!: ReturnType<typeof useProjectLibraryPage>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryPage({ groupPath: "stock/alpha", folder: root, t: (key) => key });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
 
     await state.changePage(50, 25);
     await state.changeStatusFilter("running");
 
     expect(state.page.value).toBe(1);
-    expect(mocks.getGroupLibraryResources).toHaveBeenLastCalledWith("stock/alpha", expect.objectContaining({
+    expect(getGroupLibraryResources).toHaveBeenLastCalledWith("stock/alpha", expect.objectContaining({
       page: 1,
       status: "running",
     }));
+    wrapper.unmount();
   });
 });

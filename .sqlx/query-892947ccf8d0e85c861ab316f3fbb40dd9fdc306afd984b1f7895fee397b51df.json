@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT\n        g.id,\n        CASE gm.role\n            WHEN 'owner' THEN 3\n            WHEN 'maintainer' THEN 2\n            ELSE 1\n        END::smallint AS role_rank\n    FROM context69.group_memberships gm\n    JOIN context69.groups g ON g.id = gm.group_id\n    WHERE gm.user_id = $1\n\n    UNION ALL\n\n    SELECT\n        child.id,\n        inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.id\n),\ngroup_roles AS (\n    SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank\n    FROM inherited_groups\n    GROUP BY id\n)\nSELECT\n    g.id AS \"id!\",\n    g.parent_group_id AS \"parent_group_id?\",\n    g.full_path AS \"group_path!\",\n    parent.full_path AS \"parent_group_path?\",\n    g.group_key AS \"group_key!\",\n    g.name AS \"name!\",\n    g.visibility AS \"visibility!\",\n    g.kind AS \"kind!\",\n    g.owner_user_id AS \"owner_user_id?\",\n    g.created_at AS \"created_at!\",\n    g.updated_at AS \"updated_at!\",\n    gr.role_rank AS \"current_role_rank?\"\nFROM context69.groups g\nJOIN context69.groups parent ON parent.id = g.parent_group_id\nLEFT JOIN group_roles gr ON gr.group_id = g.id\nWHERE parent.full_path = $2\n  AND (g.visibility = 'public' OR gr.role_rank IS NOT NULL)\nORDER BY g.group_key\n",
+  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT\n        g.id,\n        CASE gm.role\n            WHEN 'owner' THEN 3\n            WHEN 'maintainer' THEN 2\n            ELSE 1\n        END::smallint AS role_rank\n    FROM context69.group_memberships gm\n    JOIN context69.groups g ON g.id = gm.group_id\n    WHERE gm.user_id = $1\n\n    UNION ALL\n\n    SELECT\n        child.id,\n        inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.id\n),\ngroup_roles AS (\n    SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank\n    FROM inherited_groups\n    GROUP BY id\n)\nSELECT\n    g.id AS \"id!\",\n    g.parent_group_id AS \"parent_group_id?\",\n    g.full_path AS \"group_path!\",\n    parent.full_path AS \"parent_group_path?\",\n    g.group_key AS \"group_key!\",\n    g.name AS \"name!\",\n    g.visibility AS \"visibility!\",\n    g.kind AS \"kind!\",\n    g.owner_user_id AS \"owner_user_id?\",\n    g.created_at AS \"created_at!\",\n    g.updated_at AS \"updated_at!\",\n    gr.role_rank AS \"current_role_rank?\"\nFROM context69.groups g\nJOIN context69.groups parent ON parent.id = g.parent_group_id\nLEFT JOIN group_roles gr ON gr.group_id = g.id\nWHERE parent.full_path = $2\n  AND (g.visibility = 'public' OR gr.role_rank IS NOT NULL)\n  AND (\n       NULLIF(BTRIM($3::TEXT), '') IS NULL\n    OR g.group_key ILIKE '%' || BTRIM($3::TEXT) || '%'\n    OR g.name ILIKE '%' || BTRIM($3::TEXT) || '%'\n    OR g.full_path ILIKE '%' || BTRIM($3::TEXT) || '%'\n  )\nORDER BY g.group_key\nLIMIT $4 OFFSET $5\n",
   "describe": {
     "columns": [
       {
@@ -134,7 +134,10 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Text"
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -152,5 +155,5 @@
       null
     ]
   },
-  "hash": "d1210838348a40b230be4a8c94a94062b83f72c62e632dc4aefce6eb09878f7e"
+  "hash": "892947ccf8d0e85c861ab316f3fbb40dd9fdc306afd984b1f7895fee397b51df"
 }

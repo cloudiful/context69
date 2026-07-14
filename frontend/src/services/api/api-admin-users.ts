@@ -1,5 +1,6 @@
 import type {
   CreateAdminUserRequest,
+  AdminUserPageQuery,
   RequestOptions,
   ResetAdminUserPasswordRequest,
   UpdateAdminUserRequest,
@@ -12,8 +13,8 @@ type Deps = {
 
 export function createAdminUsersApi({ openapiClient, unwrapResponse }: Deps) {
   return {
-    listAdminUsers(options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/admin/users", { signal: options?.signal }));
+    listAdminUsers(params: AdminUserPageQuery, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/admin/users", { params: { query: { ...params, query: params.query ?? undefined } }, signal: options?.signal }));
     },
     createAdminUser(payload: CreateAdminUserRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/admin/users", { body: payload, signal: options?.signal }));

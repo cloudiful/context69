@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestI18n } from "../test-utils/i18n";
 import { apiClient } from "../services/api";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
+import type { LibraryResourceItem, LibraryResourcePageResponse } from "../services/api";
 import type { ExplorerEntry } from "../types/library";
 import LibraryView from "./LibraryView.vue";
 
@@ -28,25 +29,65 @@ const treeResponse = {
         name: "Policies",
         path: "/Policies",
         processing_count: 0,
-        files: [
-          {
-            file_id: "file-1",
-            folder_id: "folder-1",
-            filename: "Quarterly Report.pdf",
-            media_type: "application/pdf",
-            size_bytes: 4096,
-            ingest_status: "succeeded",
-            error_message: null,
-            created_at: "2026-04-07T00:00:00Z",
-            updated_at: "2026-04-07T00:00:00Z",
-            ingested_at: "2026-04-07T00:00:00Z",
-          },
-        ],
+        files: [],
         children: [],
       },
     ],
   },
 };
+
+const rootResource: LibraryResourceItem = {
+  child_folder_count: 0,
+  created_at: "2026-04-07T00:00:00Z",
+  file_count: 1,
+  group_key: "library",
+  group_path: "library",
+  id: "folder-1",
+  is_source_folder: false,
+  is_source_records_folder: false,
+  kind: "folder",
+  name: "Policies",
+  parent_folder_id: null,
+  processing_count: 0,
+  updated_at: "2026-04-07T00:00:00Z",
+  visibility: "private",
+};
+
+const fileResource: LibraryResourceItem = {
+  child_folder_count: 0,
+  created_at: "2026-04-07T00:00:00Z",
+  file_count: 0,
+  group_key: "library",
+  group_path: "library",
+  id: "file-1",
+  ingest_status: "succeeded",
+  is_source_folder: false,
+  is_source_records_folder: false,
+  kind: "file",
+  media_type: "application/pdf",
+  name: "Quarterly Report.pdf",
+  parent_folder_id: "folder-1",
+  processing_count: 0,
+  size_bytes: 4096,
+  updated_at: "2026-04-07T00:00:00Z",
+  visibility: "private",
+};
+
+function resourcePage(items: LibraryResourceItem[]): LibraryResourcePageResponse {
+  return {
+    items,
+    page: 1,
+    page_size: 50,
+    total: items.length,
+    total_pages: items.length > 0 ? 1 : 0,
+  };
+}
+
+function mockLibraryResources() {
+  return vi.spyOn(apiClient, "getLibraryResources").mockImplementation(async (params) => (
+    resourcePage(params.folderId === "folder-1" ? [fileResource] : [rootResource])
+  ));
+}
 
 describe("LibraryView", () => {
   beforeEach(() => {
@@ -56,6 +97,7 @@ describe("LibraryView", () => {
 
   it("loads the tree and opens file details from the route query", async () => {
     const getLibraryTree = vi.spyOn(apiClient, "getLibraryTree").mockResolvedValue(treeResponse as never);
+    const getLibraryResources = mockLibraryResources();
     const getLibraryFile = vi.spyOn(apiClient, "getLibraryFile").mockResolvedValue({
       file_id: "file-1",
       folder_id: "folder-1",
@@ -99,6 +141,7 @@ describe("LibraryView", () => {
     });
     await vi.waitFor(() => {
       expect(getLibraryTree).toHaveBeenCalled();
+      expect(getLibraryResources).toHaveBeenCalled();
       expect(getLibraryFile).toHaveBeenCalledWith("file-1", expect.any(Object));
       expect(router.currentRoute.value.query.folder).toBe("folder-1");
     });
@@ -115,6 +158,7 @@ describe("LibraryView", () => {
 
   it("selects a folder and creates a subfolder from the browser actions", async () => {
     const getLibraryTree = vi.spyOn(apiClient, "getLibraryTree");
+    const getLibraryResources = mockLibraryResources();
     getLibraryTree
       .mockResolvedValueOnce(treeResponse as never)
       .mockResolvedValueOnce({
@@ -165,6 +209,7 @@ describe("LibraryView", () => {
     });
     await vi.waitFor(() => {
       expect(getLibraryTree).toHaveBeenCalled();
+      expect(getLibraryResources).toHaveBeenCalled();
       expect(wrapper.find("[data-entry-key='folder:folder-1']").exists()).toBe(true);
     });
 
@@ -207,6 +252,7 @@ describe("LibraryView", () => {
 
   it("opens the preview dialog when preview is triggered from the file context menu", async () => {
     vi.spyOn(apiClient, "getLibraryTree").mockResolvedValue(treeResponse as never);
+    mockLibraryResources();
     const getLibraryFile = vi.spyOn(apiClient, "getLibraryFile").mockResolvedValue({
       file_id: "file-1",
       folder_id: "folder-1",
@@ -286,6 +332,7 @@ describe("LibraryView", () => {
       removeEventListener: vi.fn(),
     } as unknown as MediaQueryList);
     vi.spyOn(apiClient, "getLibraryTree").mockResolvedValue(treeResponse as never);
+    mockLibraryResources();
     vi.spyOn(apiClient, "getLibraryFile").mockResolvedValue(null as never);
 
     const router = createRouter({
@@ -304,7 +351,7 @@ describe("LibraryView", () => {
     });
 
     await vi.waitFor(() => {
-      expect(wrapper.find("[data-entry-key='folder:folder-1']").exists()).toBe(true);
+      expect(wrapper.find("[data-entry-key='file:file-1']").exists()).toBe(true);
     });
 
     expect(wrapper.find(".library-docked-preview").exists()).toBe(false);

@@ -2,7 +2,8 @@ use anyhow::Result;
 
 use crate::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
-    NamespaceMemberRecord, NamespaceRepository, UpdateGroupInput, UpsertMembershipInput,
+    NamespaceMemberRecord, NamespaceRepository, Page, PageRequest, UpdateGroupInput,
+    UpsertMembershipInput,
 };
 
 #[derive(Clone)]
@@ -17,8 +18,23 @@ impl<R> NamespaceService<R> {
 }
 
 impl<R: NamespaceRepository> NamespaceService<R> {
-    pub async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>> {
-        self.repository.list_groups_for_user(user_id).await
+    pub async fn list_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        self.repository.list_groups_for_user(user_id, request).await
+    }
+
+    pub async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<GroupRecord>> {
+        self.repository
+            .search_groups_for_user(user_id, query, limit)
+            .await
     }
 
     pub async fn get_group_for_user(
@@ -67,8 +83,11 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         &self,
         actor: &NamespaceActor,
         group_path: &str,
-    ) -> Result<Vec<NamespaceMemberRecord>> {
-        self.repository.list_group_members(actor, group_path).await
+        request: &PageRequest,
+    ) -> Result<Page<NamespaceMemberRecord>> {
+        self.repository
+            .list_group_members(actor, group_path, request)
+            .await
     }
 
     pub async fn upsert_group_member(
@@ -97,9 +116,10 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         &self,
         user_id: i64,
         group_path: &str,
-    ) -> Result<Vec<GroupRecord>> {
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
         self.repository
-            .list_child_groups_for_user(user_id, group_path)
+            .list_child_groups_for_user(user_id, group_path, request)
             .await
     }
 

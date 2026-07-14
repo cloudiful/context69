@@ -19,7 +19,10 @@ const columns = computed<TableColumn<GroupMemberResponse>[]>(() => [
 <template>
   <section class="grid gap-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
-      <p class="text-base font-semibold text-color">{{ $t("groups.membersTitle") }}</p>
+      <div class="flex flex-wrap items-center gap-2">
+        <p class="text-base font-semibold text-color">{{ $t("groups.membersTitle") }}</p>
+        <UInput v-model="state.membersSearch" class="w-56" icon="i-lucide-search" :placeholder="$t('members.searchUserPlaceholder')" />
+      </div>
       <UButton v-if="state.canManageGroup" size="sm" @click="state.openCreateMemberDialog">
         {{ $t("members.add") }}
       </UButton>
@@ -42,5 +45,14 @@ const columns = computed<TableColumn<GroupMemberResponse>[]>(() => [
           </div>
       </template>
     </UTable>
+
+    <UPagination
+      v-if="state.membersPage.total > state.membersPage.page_size"
+      :page="state.membersPageNumber"
+      :items-per-page="state.membersPage.page_size"
+      :total="state.membersPage.total"
+      class="justify-end"
+      @update:page="state.changeMembersPage"
+    />
   </section>
 </template>

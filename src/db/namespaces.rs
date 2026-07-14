@@ -2,7 +2,8 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use context69_namespace::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
-    NamespaceMemberRecord, PersonalGroupRecord, UpdateGroupInput, UpsertMembershipInput,
+    NamespaceMemberRecord, Page, PageRequest, PersonalGroupRecord, UpdateGroupInput,
+    UpsertMembershipInput,
 };
 use sqlx::FromRow;
 
@@ -101,11 +102,50 @@ impl Database {
         }))
     }
 
-    pub async fn list_groups_for_user(&self, user_id: i64) -> Result<Vec<GroupRecord>> {
+    pub async fn list_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        let total = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/count_groups_for_user.sql",
+            user_id,
+            &request.query
+        )
+        .fetch_one(self.pool())
+        .await?;
         let rows = sqlx::query_file_as!(
             GroupRow,
             "src/sql/db/namespaces/list_groups_for_user.sql",
-            user_id
+            user_id,
+            &request.query,
+            i64::from(request.page_size),
+            page_offset(request)?
+        )
+        .fetch_all(self.pool())
+        .await?;
+        page_result(
+            rows.into_iter()
+                .map(group_from_row)
+                .collect::<Result<_>>()?,
+            total,
+            request,
+        )
+    }
+
+    pub async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<GroupRecord>> {
+        let limit = i64::from(limit.clamp(1, 20));
+        let rows = sqlx::query_file_as!(
+            GroupRow,
+            "src/sql/db/namespaces/search_groups_for_user.sql",
+            user_id,
+            query,
+            limit
         )
         .fetch_all(self.pool())
         .await?;
@@ -337,7 +377,8 @@ impl Database {
         &self,
         actor: &NamespaceActor,
         group_path: &str,
-    ) -> Result<Vec<NamespaceMemberRecord>> {
+        request: &PageRequest,
+    ) -> Result<Page<NamespaceMemberRecord>> {
         let group = self
             .get_group_for_user(actor.user_id, group_path)
             .await?
@@ -345,14 +386,30 @@ impl Database {
         if group.visibility == Visibility::Private && group.current_role.is_none() {
             return Err(anyhow!("unknown group"));
         }
+        let total = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/count_group_members.sql",
+            group_path,
+            &request.query
+        )
+        .fetch_one(self.pool())
+        .await?;
         let rows = sqlx::query_file_as!(
             MemberRow,
             "src/sql/db/namespaces/list_group_members.sql",
-            group_path
+            group_path,
+            &request.query,
+            i64::from(request.page_size),
+            page_offset(request)?
         )
         .fetch_all(self.pool())
         .await?;
-        rows.into_iter().map(member_from_row).collect()
+        page_result(
+            rows.into_iter()
+                .map(member_from_row)
+                .collect::<Result<_>>()?,
+            total,
+            request,
+        )
     }
 
     pub async fn upsert_group_member(
@@ -413,16 +470,34 @@ impl Database {
         &self,
         user_id: i64,
         group_path: &str,
-    ) -> Result<Vec<GroupRecord>> {
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        let total = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/count_child_groups_for_user.sql",
+            user_id,
+            group_path,
+            &request.query
+        )
+        .fetch_one(self.pool())
+        .await?;
         let rows = sqlx::query_file_as!(
             GroupRow,
             "src/sql/db/namespaces/list_child_groups_for_user.sql",
             user_id,
-            group_path
+            group_path,
+            &request.query,
+            i64::from(request.page_size),
+            page_offset(request)?
         )
         .fetch_all(self.pool())
         .await?;
-        rows.into_iter().map(group_from_row).collect()
+        page_result(
+            rows.into_iter()
+                .map(group_from_row)
+                .collect::<Result<_>>()?,
+            total,
+            request,
+        )
     }
 
     pub async fn resolve_access_scope(
@@ -492,6 +567,34 @@ fn member_from_row(row: MemberRow) -> Result<NamespaceMemberRecord> {
         login_name: row.login_name,
         display_name: row.display_name,
         role: row.role.parse()?,
+    })
+}
+
+fn page_offset(request: &PageRequest) -> Result<i64> {
+    if request.page == 0 {
+        return Err(anyhow!("page must be greater than 0"));
+    }
+    if !(1..=100).contains(&request.page_size) {
+        return Err(anyhow!("page_size must be between 1 and 100"));
+    }
+    i64::from(request.page - 1)
+        .checked_mul(i64::from(request.page_size))
+        .ok_or_else(|| anyhow!("page offset is too large"))
+}
+
+fn page_result<T>(items: Vec<T>, total: i64, request: &PageRequest) -> Result<Page<T>> {
+    let total = u64::try_from(total).context("negative page count")?;
+    let total_pages = if total == 0 {
+        0
+    } else {
+        total.div_ceil(u64::from(request.page_size))
+    };
+    Ok(Page {
+        items,
+        page: request.page,
+        page_size: request.page_size,
+        total,
+        total_pages: u32::try_from(total_pages).context("page count is too large")?,
     })
 }
 

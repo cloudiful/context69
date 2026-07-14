@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use context69_contracts::{
-    CreateGroupRequest, GroupMemberResponse, GroupResponse, MoveGroupRequest, UpdateGroupRequest,
+    CreateGroupRequest, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
+    GroupResponse, GroupSearchQuery, MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest,
     UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use context69_http_support::AuthenticatedUser;
+use context69_namespace::PageRequest;
 use context69_namespace_http::{NamespaceApi, UserDirectoryApi};
 
 use crate::{
@@ -25,10 +27,26 @@ impl NamespaceApiAdapter {
 
 #[async_trait]
 impl NamespaceApi for NamespaceApiAdapter {
-    async fn list_groups_for_user(&self, user_id: i64) -> anyhow::Result<Vec<GroupResponse>> {
+    async fn list_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &NamespacePageQuery,
+    ) -> anyhow::Result<GroupPageResponse> {
+        let page = self
+            .service
+            .list_groups_for_user(user_id, &page_request(query))
+            .await?;
+        Ok(group_page_response(page))
+    }
+
+    async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &GroupSearchQuery,
+    ) -> anyhow::Result<Vec<GroupResponse>> {
         Ok(self
             .service
-            .list_groups_for_user(user_id)
+            .search_groups_for_user(user_id, &query.query, query.limit)
             .await?
             .into_iter()
             .map(group_response)
@@ -39,14 +57,13 @@ impl NamespaceApi for NamespaceApiAdapter {
         &self,
         user_id: i64,
         group_path: &str,
-    ) -> anyhow::Result<Vec<GroupResponse>> {
-        Ok(self
+        query: &NamespacePageQuery,
+    ) -> anyhow::Result<GroupPageResponse> {
+        let page = self
             .service
-            .list_child_groups_for_user(user_id, group_path)
-            .await?
-            .into_iter()
-            .map(group_response)
-            .collect())
+            .list_child_groups_for_user(user_id, group_path, &page_request(query))
+            .await?;
+        Ok(group_page_response(page))
     }
 
     async fn get_group_for_user(
@@ -110,14 +127,13 @@ impl NamespaceApi for NamespaceApiAdapter {
         &self,
         actor: &AuthenticatedUser,
         group_path: &str,
-    ) -> anyhow::Result<Vec<GroupMemberResponse>> {
-        Ok(self
+        query: &NamespacePageQuery,
+    ) -> anyhow::Result<GroupMemberPageResponse> {
+        let page = self
             .service
-            .list_group_members(&to_user_record(actor), group_path)
-            .await?
-            .into_iter()
-            .map(group_member_response)
-            .collect())
+            .list_group_members(&to_user_record(actor), group_path, &page_request(query))
+            .await?;
+        Ok(group_member_page_response(page))
     }
 
     async fn upsert_group_member(
@@ -210,5 +226,35 @@ fn group_member_response(member: NamespaceMemberRecord) -> GroupMemberResponse {
         login_name: member.login_name,
         display_name: member.display_name,
         role: member.role,
+    }
+}
+
+fn page_request(query: &NamespacePageQuery) -> PageRequest {
+    PageRequest {
+        page: query.page,
+        page_size: query.page_size,
+        query: query.query.clone().unwrap_or_default(),
+    }
+}
+
+fn group_page_response(page: context69_namespace::Page<GroupRecord>) -> GroupPageResponse {
+    GroupPageResponse {
+        items: page.items.into_iter().map(group_response).collect(),
+        page: page.page,
+        page_size: page.page_size,
+        total: page.total,
+        total_pages: page.total_pages,
+    }
+}
+
+fn group_member_page_response(
+    page: context69_namespace::Page<NamespaceMemberRecord>,
+) -> GroupMemberPageResponse {
+    GroupMemberPageResponse {
+        items: page.items.into_iter().map(group_member_response).collect(),
+        page: page.page,
+        page_size: page.page_size,
+        total: page.total,
+        total_pages: page.total_pages,
     }
 }

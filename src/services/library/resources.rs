@@ -3,9 +3,25 @@ use anyhow::{Result, anyhow};
 use super::*;
 
 impl LibraryService {
+    pub async fn list_resources_page(
+        &self,
+        query: &LibraryResourcePageQuery,
+    ) -> Result<LibraryResourcePageResponse> {
+        self.list_resources_page_for_project(None, query).await
+    }
+
     pub async fn list_resources_page_in_project(
         &self,
         project: &crate::domain::GroupRecord,
+        query: &LibraryResourcePageQuery,
+    ) -> Result<LibraryResourcePageResponse> {
+        self.list_resources_page_for_project(Some(project.id), query)
+            .await
+    }
+
+    async fn list_resources_page_for_project(
+        &self,
+        project_id: Option<i64>,
         query: &LibraryResourcePageQuery,
     ) -> Result<LibraryResourcePageResponse> {
         if query.page == 0 {
@@ -14,14 +30,18 @@ impl LibraryService {
         if !(1..=100).contains(&query.page_size) {
             return Err(anyhow!("page_size must be between 1 and 100"));
         }
-        if let Some(folder_id) = query.folder_id
-            && self
-                .store
-                .get_folder_in_project(project.id, folder_id)
-                .await?
-                .is_none()
-        {
-            return Err(anyhow!("unknown folder {folder_id}"));
+        if let Some(folder_id) = query.folder_id {
+            let folder = match project_id {
+                Some(project_id) => {
+                    self.store
+                        .get_folder_in_project(project_id, folder_id)
+                        .await?
+                }
+                None => self.store.get_folder(folder_id).await?,
+            };
+            if folder.is_none() {
+                return Err(anyhow!("unknown folder {folder_id}"));
+            }
         }
 
         let search = query
@@ -31,7 +51,7 @@ impl LibraryService {
             .filter(|value| !value.is_empty());
         let total = self
             .store
-            .count_resources_in_project_folder(project.id, query.folder_id, search, query.status)
+            .count_resources_in_folder(project_id, query.folder_id, search, query.status)
             .await?;
         let page_size = i64::from(query.page_size);
         let offset = i64::from(query.page - 1)
@@ -40,7 +60,7 @@ impl LibraryService {
         let items = self
             .store
             .list_resources_in_project_folder(&crate::library_store::ResourceListQuery {
-                project_id: project.id,
+                project_id,
                 folder_id: query.folder_id,
                 query: search,
                 status: query.status,

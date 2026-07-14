@@ -1,9 +1,12 @@
 import type {
   CreateFolderRequest,
+  LibraryIngestStatus,
+  LibraryResourceSortBy,
   LibraryUploadResponse,
   MoveFileRequest,
   MoveFolderRequest,
   RequestOptions,
+  SortDirection,
 } from "./api-types";
 
 type Deps = {
@@ -28,6 +31,30 @@ export function createLibraryApi({
           signal: options?.signal,
         }),
       );
+    },
+    getLibraryResources(params: {
+      folderId: string | null;
+      page: number;
+      pageSize: number;
+      query: string;
+      status: LibraryIngestStatus | null;
+      sortBy: LibraryResourceSortBy;
+      sortDirection: SortDirection;
+    }, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/library/resources", {
+        params: {
+          query: {
+            folder_id: params.folderId ?? undefined,
+            page: params.page,
+            page_size: params.pageSize,
+            query: params.query || undefined,
+            status: params.status ?? undefined,
+            sort_by: params.sortBy,
+            sort_direction: params.sortDirection,
+          },
+        },
+        signal: options?.signal,
+      }));
     },
     createLibraryFolder(payload: CreateFolderRequest, options?: RequestOptions) {
       return unwrapResponse(

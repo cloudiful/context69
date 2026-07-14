@@ -13,26 +13,33 @@ import LibraryToolbar from "../components/LibraryToolbar.vue";
 import { useLibraryActions } from "../composables/library/use-library-actions";
 import { useLibraryDetail } from "../composables/library/use-library-detail";
 import { useLibraryPreview } from "../composables/library/use-library-preview";
+import { useLibraryPage } from "../composables/library/use-library-page";
 import { useLibraryTree } from "../composables/library/use-library-tree";
-import { createLibraryStatusHelpers } from "../utils/library-status";
 import type { ExplorerEntry } from "../types/library";
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
-const { statusLabel } = createLibraryStatusHelpers();
-const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed");
-
 const tree = useLibraryTree({
   route,
   router,
-  statusLabel: mapStatusLabel,
   t,
 });
 const treeState = proxyRefs(tree);
 
+const page = useLibraryPage({
+  folder: tree.selectedFolder,
+  t,
+});
+const pageState = proxyRefs(page);
+
+async function refreshLibraryData() {
+  await tree.loadTree();
+  await page.loadPage();
+}
+
 const detail = useLibraryDetail({
-  loadTree: tree.loadTree,
+  loadTree: refreshLibraryData,
   selectedFileId: tree.selectedFileId,
   t,
 });
@@ -47,7 +54,7 @@ const preview = useLibraryPreview({
 const previewState = proxyRefs(preview);
 
 const actions = useLibraryActions({
-  loadTree: tree.loadTree,
+  loadTree: refreshLibraryData,
   moveOptions: tree.moveOptions,
   replaceQuery: tree.replaceQuery,
   schedulePolling: detail.schedulePolling,
@@ -174,7 +181,8 @@ function handleExplorerRowContextMenu(event: { originalEvent: Event; data: Explo
 }
 
 async function refreshLibrary() {
-  await treeState.refreshLibrary(detailState.loadDetail);
+  await refreshLibraryData();
+  await detailState.loadDetail(treeState.selectedFileId);
 }
 
 watch(
@@ -195,17 +203,31 @@ watch(
   },
 );
 
-watch(
-  tree.explorerEntries,
-  (entries) => {
-    treeState.syncSelectedExplorerEntry(entries);
-  },
-  { immediate: true },
-);
+watch(page.entries, (entries) => {
+  treeState.syncSelectedExplorerEntry(entries);
+}, { immediate: true });
 
-void tree.loadTree();
+watch(tree.selectedFolderId, () => {
+  page.reset();
+  void page.loadPage();
+});
 
-const explorerEntries = computed(() => tree.explorerEntries.value);
+watch(detail.detail, (nextDetail) => {
+  const fileId = tree.selectedFileId.value;
+  if (!fileId || !nextDetail || nextDetail.file_id !== fileId) return;
+  if (nextDetail.folder_id !== tree.selectedFolderId.value) {
+    void tree.replaceQuery(nextDetail.folder_id ?? null, fileId);
+  }
+});
+
+watch(page.query, () => {
+  pageState.page = 1;
+  void page.loadPage();
+});
+
+void refreshLibraryData();
+
+const explorerEntries = computed(() => page.entries.value);
 
 defineExpose({
   explorerEntries,
@@ -220,9 +242,9 @@ defineExpose({
     <LibraryToolbar
       :breadcrumb-home="treeState.breadcrumbHome"
       :breadcrumb-items="treeState.breadcrumbItems"
-      :count-label="treeState.filteredResourceCountLabel"
-      :search-query="treeState.resourceSearchQuery"
-      @update:search-query="treeState.resourceSearchQuery = $event"
+      :count-label="t('library.resourceCount', { count: pageState.total })"
+      :search-query="pageState.query"
+      @update:search-query="pageState.query = $event"
     />
 
     <UContextMenu :items="[resourceMenuItems]">
@@ -233,19 +255,30 @@ defineExpose({
         <UDashboardPanel :default-size="62" :min-size="42" resizable>
           <LibraryResourceTable
             :create-folder-busy="actionsState.createFolderBusy"
-            :entries="treeState.filteredExplorerEntries"
+            :entries="pageState.entries"
+            :error="pageState.error"
+            :first="pageState.first"
             :expanded-keys="treeState.expandedTreeKeys"
-            :loading="treeState.treeLoading"
-            :resource-search-query="treeState.resourceSearchQuery"
+            :loading="treeState.treeLoading || pageState.loading"
+            paginated
+            :page-size="pageState.pageSize"
+            :resource-search-query="pageState.query"
             :selected-folder-ready="!!treeState.selectedFolder"
             :selection="treeState.selectedExplorerEntry"
+            :sort-field="pageState.sortBy"
+            :sort-order="pageState.sortOrder"
+            :status-filter="pageState.statusFilter"
             :table-context-selection="treeState.resourceContextEntry"
+            :total-records="pageState.total"
             :upload-busy="actionsState.uploadBusy"
             @update:selection="treeState.selectedExplorerEntry = $event"
             @update:tableContextSelection="treeState.resourceContextEntry = $event"
             @row-click="handleExplorerRowClick"
             @row-dblclick="handleExplorerRowDoubleClick"
             @row-contextmenu="handleExplorerRowContextMenu"
+            @page="pageState.changePage($event.first, $event.rows)"
+            @sort="pageState.changeSort($event.sortField, $event.sortOrder)"
+            @status-filter="pageState.changeStatusFilter($event)"
             @open-entry="openExplorerEntry"
             @move-entry="moveExplorerEntry"
             @delete-entry="deleteExplorerEntry"
@@ -277,19 +310,30 @@ defineExpose({
       <LibraryResourceTable
         v-else
         :create-folder-busy="actionsState.createFolderBusy"
-        :entries="treeState.filteredExplorerEntries"
+        :entries="pageState.entries"
+        :error="pageState.error"
+        :first="pageState.first"
         :expanded-keys="treeState.expandedTreeKeys"
-        :loading="treeState.treeLoading"
-        :resource-search-query="treeState.resourceSearchQuery"
+        :loading="treeState.treeLoading || pageState.loading"
+        paginated
+        :page-size="pageState.pageSize"
+        :resource-search-query="pageState.query"
         :selected-folder-ready="!!treeState.selectedFolder"
         :selection="treeState.selectedExplorerEntry"
+        :sort-field="pageState.sortBy"
+        :sort-order="pageState.sortOrder"
+        :status-filter="pageState.statusFilter"
         :table-context-selection="treeState.resourceContextEntry"
+        :total-records="pageState.total"
         :upload-busy="actionsState.uploadBusy"
         @update:selection="treeState.selectedExplorerEntry = $event"
         @update:tableContextSelection="treeState.resourceContextEntry = $event"
         @row-click="handleExplorerRowClick"
         @row-dblclick="handleExplorerRowDoubleClick"
         @row-contextmenu="handleExplorerRowContextMenu"
+        @page="pageState.changePage($event.first, $event.rows)"
+        @sort="pageState.changeSort($event.sortField, $event.sortOrder)"
+        @status-filter="pageState.changeStatusFilter($event)"
         @open-entry="openExplorerEntry"
         @move-entry="moveExplorerEntry"
         @delete-entry="deleteExplorerEntry"

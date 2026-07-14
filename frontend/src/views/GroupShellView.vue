@@ -68,6 +68,7 @@ provide(groupWorkspaceStateKey, state);
             :items="state.groupSuggestions"
             label-key="name"
             :placeholder="$t('groups.selectTargetGroup')"
+            @update:search-term="state.searchGroupTargets"
           >
             <template #item="{ item }">
               <div class="grid gap-0.5">

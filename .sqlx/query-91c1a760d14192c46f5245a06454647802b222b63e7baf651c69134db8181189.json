@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)::BIGINT AS \"count!\"\nFROM context69.group_memberships gm\nJOIN context69.users u ON u.id = gm.user_id\nJOIN context69.groups g ON g.id = gm.group_id\nWHERE g.full_path = $1\n  AND (\n       NULLIF(BTRIM($2::TEXT), '') IS NULL\n    OR u.login_name ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR u.display_name ILIKE '%' || BTRIM($2::TEXT) || '%'\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "91c1a760d14192c46f5245a06454647802b222b63e7baf651c69134db8181189"
+}

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT g.id, CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END::smallint AS role_rank\n    FROM context69.group_memberships gm\n    JOIN context69.groups g ON g.id = gm.group_id\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.id\n), group_roles AS (\n    SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank\n    FROM inherited_groups GROUP BY id\n)\nSELECT COUNT(*)::BIGINT AS \"count!\"\nFROM context69.groups g\nJOIN context69.groups parent ON parent.id = g.parent_group_id\nLEFT JOIN group_roles gr ON gr.group_id = g.id\nWHERE parent.full_path = $2\n  AND (g.visibility = 'public' OR gr.role_rank IS NOT NULL)\n  AND (\n       NULLIF(BTRIM($3::TEXT), '') IS NULL\n    OR g.group_key ILIKE '%' || BTRIM($3::TEXT) || '%'\n    OR g.name ILIKE '%' || BTRIM($3::TEXT) || '%'\n    OR g.full_path ILIKE '%' || BTRIM($3::TEXT) || '%'\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "210978d7f11a45dc9967a658906b282f6a8f1fd7eac8ec2916b82e9639770575"
+}

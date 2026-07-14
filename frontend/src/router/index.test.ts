@@ -1,37 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as authSession from "../services/auth/session";
+import { router } from "./index";
 
-const {
-  authSessionState,
-  ensureSessionReady,
-  isAuthenticated,
-  setAuthNavigator,
-} = vi.hoisted(() => ({
-  authSessionState: {
-    ready: true,
-    lastFailureReason: null,
-    restoreError: null,
-    user: null,
-  } as {
-    ready: boolean;
-    lastFailureReason: string | null;
-    restoreError: string | null;
-    user: { is_admin: boolean } | null;
-  },
-  ensureSessionReady: vi.fn(),
-  isAuthenticated: vi.fn(),
-  setAuthNavigator: vi.fn(),
-}));
-
-vi.mock("../services/auth/session", () => ({
-  authSessionState,
-  ensureSessionReady,
-  isAuthenticated,
-  setAuthNavigator,
-}));
+const { authSessionState } = authSession;
+const ensureSessionReady = vi.spyOn(authSession, "ensureSessionReady");
+const isAuthenticated = vi.spyOn(authSession, "isAuthenticated");
 
 describe("router auth guards", () => {
   beforeEach(() => {
-    vi.resetModules();
     ensureSessionReady.mockReset();
     isAuthenticated.mockReset();
     Object.defineProperty(document, "queryCommandSupported", {
@@ -39,6 +15,7 @@ describe("router auth guards", () => {
       value: vi.fn(() => false),
     });
     authSessionState.ready = true;
+    authSessionState.status = "guest";
     authSessionState.lastFailureReason = null;
     authSessionState.restoreError = null;
     authSessionState.user = null;
@@ -70,6 +47,10 @@ describe("router auth guards", () => {
     authSessionState.ready = false;
     isAuthenticated.mockReturnValue(true);
     authSessionState.user = {
+      user_id: 1,
+      display_name: "Test User",
+      login_name: "test-user",
+      personal_group_path: "personal/test-user",
       is_admin: true,
     };
 

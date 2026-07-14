@@ -2,14 +2,14 @@ SELECT COUNT(*)::BIGINT AS "count!"
 FROM (
     SELECT name, NULL::TEXT AS media_type, NULL::TEXT AS ingest_status
     FROM context69.library_folders
-    WHERE group_id = $1
+    WHERE ($1::BIGINT IS NULL OR group_id = $1)
       AND parent_id IS NOT DISTINCT FROM $2::UUID
 
     UNION ALL
 
     SELECT filename AS name, media_type, ingest_status
     FROM context69.library_files
-    WHERE group_id = $1
+    WHERE ($1::BIGINT IS NULL OR group_id = $1)
       AND folder_id IS NOT DISTINCT FROM $2::UUID
 ) resources
 WHERE (

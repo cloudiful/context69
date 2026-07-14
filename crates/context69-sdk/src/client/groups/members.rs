@@ -1,4 +1,4 @@
-use context69_contracts::{GroupMemberResponse, UpsertMembershipRequest};
+use context69_contracts::{GroupMemberPageResponse, NamespacePageQuery, UpsertMembershipRequest};
 use reqwest::Method;
 
 use super::Context69Client;
@@ -17,10 +17,25 @@ impl<'a> GroupMembersApi<'a> {
         Self { client, group_path }
     }
 
-    pub async fn list(&self) -> Result<Vec<GroupMemberResponse>, Error> {
+    pub async fn list(&self) -> Result<GroupMemberPageResponse, Error> {
         let path = group_path(&self.group_path, "/members");
         self.client
             .execute_json(self.client.authorized_request(Method::GET, &path).await?)
+            .await
+    }
+
+    pub async fn list_page(
+        &self,
+        query: &NamespacePageQuery,
+    ) -> Result<GroupMemberPageResponse, Error> {
+        let path = group_path(&self.group_path, "/members");
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(Method::GET, &path)
+                    .await?
+                    .query(query),
+            )
             .await
     }
 

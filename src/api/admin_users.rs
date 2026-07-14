@@ -1,14 +1,14 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
 
 use crate::{
     contracts::{
-        AdminUserResponse, ApiErrorResponse, CreateAdminUserRequest, ResetAdminUserPasswordRequest,
-        UpdateAdminUserRequest,
+        AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, ApiErrorResponse,
+        CreateAdminUserRequest, ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
     },
     domain::UserRecord,
 };
@@ -18,24 +18,37 @@ use super::{ApiState, auth::CurrentUser, errors::admin_user_error_response};
 #[utoipa::path(
     get,
     path = "/v1/admin/users",
+    params(AdminUserPageQuery),
     responses(
-        (status = 200, description = "List all users", body = [AdminUserResponse]),
+        (status = 200, description = "Paginated users", body = AdminUserPageResponse),
         (status = 403, description = "Admin access required", body = ApiErrorResponse)
     )
 )]
 pub(crate) async fn list_admin_users(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
+    Query(query): Query<AdminUserPageQuery>,
 ) -> impl IntoResponse {
-    match state.app.auth.list_admin_users(&session.user).await {
-        Ok(users) => (
+    match state
+        .app
+        .auth
+        .list_admin_users(
+            &session.user,
+            query.page,
+            query.page_size,
+            query.query.as_deref().unwrap_or_default(),
+        )
+        .await
+    {
+        Ok(page) => (
             StatusCode::OK,
-            Json(
-                users
-                    .into_iter()
-                    .map(admin_user_response)
-                    .collect::<Vec<_>>(),
-            ),
+            Json(AdminUserPageResponse {
+                items: page.users.into_iter().map(admin_user_response).collect(),
+                page: page.page,
+                page_size: page.page_size,
+                total: page.total,
+                total_pages: page.total_pages,
+            }),
         )
             .into_response(),
         Err(error) => admin_user_error_response(error),

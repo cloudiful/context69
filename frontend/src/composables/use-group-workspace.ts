@@ -13,6 +13,7 @@ import {
 } from "../services/api";
 import { setWorkspaceNavigationGroup } from "./use-workspace-navigation-context";
 import { useErrorToast } from "./use-error-toast";
+import { useGroupWorkspacePagination } from "./use-group-workspace-pagination";
 
 function roleRank(role?: string | null) {
   if (role === "owner") return 3;
@@ -34,9 +35,13 @@ export function useGroupWorkspace() {
 
   const groupPath = computed(() => String(route.params.groupPath ?? ""));
   const group = ref<GroupResponse | null>(null);
-  const members = ref<GroupMemberResponse[]>([]);
-  const childGroups = ref<GroupResponse[]>([]);
   const loading = ref(false);
+  const pagination = useGroupWorkspacePagination({ groupPath, t });
+  const {
+    changeChildrenPage, changeMembersPage, childGroups, childrenPage, childrenPageNumber,
+    childrenSearch, loadChildrenPage, loadMembersPage, members, membersPage, membersPageNumber,
+    membersSearch, pageSize, reset: resetPagination,
+  } = pagination;
 
   const groupDialogVisible = ref(false);
   const groupDialogBusy = ref(false);
@@ -58,19 +63,18 @@ export function useGroupWorkspace() {
   const canManageGroup = computed(() => roleRank(group.value?.current_role) >= 2);
   const canOwnGroup = computed(() => roleRank(group.value?.current_role) >= 3);
 
+  function filterGroupSuggestions(groups: GroupResponse[]) {
+    const movingPath = movingGroup.value?.group_path ?? groupPath.value;
+    return groups.filter((item) => !isDescendantPath(item.group_path, movingPath));
+  }
+
   async function loadPage() {
     loading.value = true;
     try {
-      const [nextGroup, nextMembers, nextChildren, nextGroups] = await Promise.all([
-        apiClient.getGroup(groupPath.value),
-        apiClient.listGroupMembers(groupPath.value),
-        apiClient.listChildGroups(groupPath.value),
-        apiClient.listGroups(),
-      ]);
+      const nextGroup = await apiClient.getGroup(groupPath.value);
       group.value = nextGroup;
-      members.value = nextMembers;
-      childGroups.value = nextChildren;
-      groupSuggestions.value = nextGroups.filter((item: GroupResponse) => !isDescendantPath(item.group_path, nextGroup.group_path ?? groupPath.value));
+      await Promise.all([loadMembersPage(), loadChildrenPage()]);
+      groupSuggestions.value = filterGroupSuggestions(groupSuggestions.value);
       setWorkspaceNavigationGroup(nextGroup.group_path ?? groupPath.value, nextGroup.name);
     } catch (error) {
       showErrorToast(error, t("groups.loadFailed"));
@@ -85,6 +89,14 @@ export function useGroupWorkspace() {
       memberSuggestions.value = await apiClient.searchUserDirectory(query, 10);
     } catch (error) {
       showErrorToast(error, t("adminUsers.loadFailed"));
+    }
+  }
+
+  async function searchGroupTargets(query: string) {
+    try {
+      groupSuggestions.value = filterGroupSuggestions(await apiClient.searchGroups(query, 20));
+    } catch (error) {
+      showErrorToast(error, t("groups.loadFailed"));
     }
   }
 
@@ -138,7 +150,7 @@ export function useGroupWorkspace() {
       memberDialogVisible.value = false;
       editingMember.value = null;
       selectedMemberUser.value = null;
-      members.value = await apiClient.listGroupMembers(groupPath.value);
+      await loadMembersPage();
     } catch (error) {
       showErrorToast(error, t("groups.membersFailed"));
     } finally {
@@ -230,7 +242,7 @@ export function useGroupWorkspace() {
   async function removeMember(loginName: string) {
     try {
       await apiClient.deleteGroupMember(groupPath.value, loginName);
-      members.value = await apiClient.listGroupMembers(groupPath.value);
+      await loadMembersPage();
     } catch (error) {
       showErrorToast(error, t("groups.membersFailed"));
     }
@@ -250,6 +262,7 @@ export function useGroupWorkspace() {
     movingGroup.value = childGroup;
     selectedTargetGroup.value = null;
     moveGroupDialogVisible.value = true;
+    void searchGroupTargets("");
   }
 
   function openMoveCurrentGroupDialog() {
@@ -257,6 +270,7 @@ export function useGroupWorkspace() {
     movingGroup.value = group.value;
     selectedTargetGroup.value = null;
     moveGroupDialogVisible.value = true;
+    void searchGroupTargets("");
   }
 
   function openCreateMemberDialog() {
@@ -286,6 +300,8 @@ export function useGroupWorkspace() {
   }
 
   watch(groupPath, (nextGroupPath) => {
+    resetPagination();
+    groupSuggestions.value = [];
     setWorkspaceNavigationGroup(nextGroupPath);
     void loadPage();
   }, { immediate: true });
@@ -293,9 +309,14 @@ export function useGroupWorkspace() {
   return {
     canManageGroup,
     canOwnGroup,
+    changeChildrenPage,
+    changeMembersPage,
     childGroupDialogBusy,
     childGroupDialogVisible,
     childGroups,
+    childrenPage,
+    childrenPageNumber,
+    childrenSearch,
     confirmDeleteChildGroup,
     confirmDeleteGroup,
     confirmRemoveMember,
@@ -313,6 +334,9 @@ export function useGroupWorkspace() {
     memberDialogVisible,
     memberSuggestions,
     members,
+    membersPage,
+    membersPageNumber,
+    membersSearch,
     moveGroupDialogVisible,
     movingGroup,
     openCreateChildGroupDialog,
@@ -322,11 +346,13 @@ export function useGroupWorkspace() {
     openGroup,
     openMoveChildGroupDialog,
     openMoveCurrentGroupDialog,
+    pageSize,
     roleSeverity,
     saveChildGroup,
     saveGroup,
     saveMember,
     searchUsers,
+    searchGroupTargets,
     selectedMemberUser,
     selectedTargetGroup,
     submitMoveGroup,

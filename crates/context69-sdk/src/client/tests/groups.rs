@@ -20,16 +20,26 @@ fn group_json() -> serde_json::Value {
     })
 }
 
+fn group_page_json() -> serde_json::Value {
+    json!({
+        "items": [group_json()],
+        "page": 1,
+        "page_size": 50,
+        "total": 1,
+        "total_pages": 1
+    })
+}
+
 #[tokio::test]
 async fn groups_collection_lists() {
-    let (base_url, captured) = spawn_json(StatusCode::OK, &vec![group_json()]).await;
+    let (base_url, captured) = spawn_json(StatusCode::OK, &group_page_json()).await;
     let groups = client(&base_url)
         .groups()
         .list()
         .await
         .expect("list groups");
     let request = captured.await.expect("captured request");
-    assert_eq!(groups[0].group_key, "platform");
+    assert_eq!(groups.items[0].group_key, "platform");
     assert_eq!(request.method, Method::GET);
     assert_eq!(request.uri.path(), "/v1/groups");
     assert_authorized(&request);

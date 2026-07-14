@@ -11,6 +11,10 @@ import type { AdminUserResponse } from "../../services/api";
 const props = defineProps<{
   busy?: boolean;
   createBusy?: boolean;
+  page: number;
+  pageSize: number;
+  query: string;
+  total: number;
   users: AdminUserResponse[];
 }>();
 
@@ -20,6 +24,8 @@ const emit = defineEmits<{
   update: [{ login_name: string; display_name: string; is_admin: boolean }];
   disable: [string];
   enable: [string];
+  "update:query": [string];
+  page: [number];
 }>();
 
 const { t } = useI18n();
@@ -122,6 +128,7 @@ function confirmEnable(loginNameValue: string) {
 <template>
   <AppSettingsBlock id="settings-admin-users" compact :title="t('adminUsers.title')">
     <template #actions>
+      <UInput :model-value="query" class="w-56" icon="i-lucide-search" :placeholder="t('adminUsers.loginName')" @update:model-value="emit('update:query', $event)" />
       <UButton size="sm" :disabled="createBusy" @click="openCreate">{{ t("adminUsers.create") }}</UButton>
     </template>
 
@@ -129,6 +136,7 @@ function confirmEnable(loginNameValue: string) {
       class="min-w-0 max-w-full"
       :data="users"
       :columns="columns"
+      :loading="busy"
     >
       <template #is_admin-cell="{ row }">
           <UBadge
@@ -171,6 +179,15 @@ function confirmEnable(loginNameValue: string) {
           </div>
       </template>
     </UTable>
+
+    <UPagination
+      v-if="total > pageSize"
+      :page="page"
+      :items-per-page="pageSize"
+      :total="total"
+      class="justify-end"
+      @update:page="emit('page', $event)"
+    />
 
     <UModal
       v-model:open="createDialogVisible"

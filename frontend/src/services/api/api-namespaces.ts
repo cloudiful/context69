@@ -1,5 +1,6 @@
 import type {
   CreateGroupRequest,
+  NamespacePageQuery,
   MoveGroupRequest,
   RequestOptions,
   UpdateGroupRequest,
@@ -13,8 +14,14 @@ type Deps = {
 
 export function createNamespacesApi({ openapiClient, unwrapResponse }: Deps) {
   return {
-    listGroups(options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups", { signal: options?.signal }));
+    listGroups(params: NamespacePageQuery, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups", { params: { query: { ...params, query: params.query ?? undefined } }, signal: options?.signal }));
+    },
+    searchGroups(query: string, limit = 20, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/search", {
+        params: { query: { query, limit } },
+        signal: options?.signal,
+      }));
     },
     createGroup(payload: CreateGroupRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/groups", { body: payload, signal: options?.signal }));
@@ -45,15 +52,15 @@ export function createNamespacesApi({ openapiClient, unwrapResponse }: Deps) {
         signal: options?.signal,
       }));
     },
-    listChildGroups(groupPath: string, options?: RequestOptions) {
+    listChildGroups(groupPath: string, params: NamespacePageQuery, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/children", {
-        params: { path: { group_path: groupPath } },
+        params: { path: { group_path: groupPath }, query: { ...params, query: params.query ?? undefined } },
         signal: options?.signal,
       }));
     },
-    listGroupMembers(groupPath: string, options?: RequestOptions) {
+    listGroupMembers(groupPath: string, params: NamespacePageQuery, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/members", {
-        params: { path: { group_path: groupPath } },
+        params: { path: { group_path: groupPath }, query: { ...params, query: params.query ?? undefined } },
         signal: options?.signal,
       }));
     },

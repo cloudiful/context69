@@ -14,6 +14,15 @@ use crate::{
     domain::{AccessScope, PersonalGroupRecord, UserRecord},
 };
 
+#[derive(Debug, Clone)]
+pub struct AdminUserPage {
+    pub users: Vec<UserRecord>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
 pub const SESSION_COOKIE_NAME: &str = "context69_session_v2";
 pub const AUTH_SESSION_DATA_KEY: &str = "context69.auth_session_v2";
 
@@ -115,9 +124,39 @@ impl AuthService {
         Ok(AuthPrincipal(self.session_for_user_id(user.id).await?))
     }
 
-    pub async fn list_admin_users(&self, actor: &UserRecord) -> Result<Vec<UserRecord>> {
+    pub async fn list_admin_users(
+        &self,
+        actor: &UserRecord,
+        page: u32,
+        page_size: u32,
+        query: &str,
+    ) -> Result<AdminUserPage> {
         require_admin(actor)?;
-        self.db.list_users().await
+        if page == 0 {
+            return Err(anyhow!("page must be greater than 0"));
+        }
+        if !(1..=100).contains(&page_size) {
+            return Err(anyhow!("page_size must be between 1 and 100"));
+        }
+        let total = u64::try_from(self.db.count_users(query).await?)?;
+        let offset = i64::from(page - 1)
+            .checked_mul(i64::from(page_size))
+            .ok_or_else(|| anyhow!("page offset is too large"))?;
+        let total_pages = if total == 0 {
+            0
+        } else {
+            total.div_ceil(u64::from(page_size))
+        };
+        Ok(AdminUserPage {
+            users: self
+                .db
+                .list_users(query, i64::from(page_size), offset)
+                .await?,
+            page,
+            page_size,
+            total,
+            total_pages: u32::try_from(total_pages)?,
+        })
     }
 
     pub async fn create_admin_user(

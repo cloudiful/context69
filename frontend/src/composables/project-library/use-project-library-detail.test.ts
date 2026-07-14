@@ -2,31 +2,22 @@ import { mount } from "@vue/test-utils";
 import { defineComponent, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { apiClient } from "../../services/api";
+import { createTestI18n } from "../../test-utils/i18n";
+import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
 import { useProjectLibraryDetail } from "./use-project-library-detail";
 
-const mocks = vi.hoisted(() => ({
-  getGroupLibraryFile: vi.fn(),
-  getGroupLibraryJob: vi.fn(),
-  showErrorToast: vi.fn(),
-}));
-
-vi.mock("../../services/api", () => ({
-  apiClient: {
-    getGroupLibraryFile: mocks.getGroupLibraryFile,
-    getGroupLibraryJob: mocks.getGroupLibraryJob,
-  },
-}));
-vi.mock("../use-error-toast", () => ({ useErrorToast: () => mocks.showErrorToast }));
+const getGroupLibraryFile = vi.spyOn(apiClient, "getGroupLibraryFile");
+const getGroupLibraryJob = vi.spyOn(apiClient, "getGroupLibraryJob");
 
 describe("useProjectLibraryDetail", () => {
   beforeEach(() => {
-    mocks.getGroupLibraryFile.mockReset();
-    mocks.getGroupLibraryJob.mockReset();
-    mocks.showErrorToast.mockReset();
+    getGroupLibraryFile.mockReset();
+    getGroupLibraryJob.mockReset();
   });
 
   it("loads details with the current group path after navigation", async () => {
-    mocks.getGroupLibraryFile.mockResolvedValue({ jobs: [], sections: [] });
+    getGroupLibraryFile.mockResolvedValue({ jobs: [], sections: [] } as never);
     const groupPath = ref("stock/group-a");
     const wrapper = mount(defineComponent({
       setup() {
@@ -38,12 +29,12 @@ describe("useProjectLibraryDetail", () => {
         });
       },
       template: "<div />",
-    }));
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
 
     groupPath.value = "stock/group-b";
     await wrapper.vm.loadDetail("file-id");
 
-    expect(mocks.getGroupLibraryFile).toHaveBeenCalledWith(
+    expect(getGroupLibraryFile).toHaveBeenCalledWith(
       "stock/group-b",
       "file-id",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),

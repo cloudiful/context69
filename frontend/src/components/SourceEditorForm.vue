@@ -2,7 +2,7 @@
 import { computed, reactive, watch } from "vue";
 import type { FormSubmitEvent } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import { z } from "zod";
+import z from "zod";
 
 import AppMonacoEditor from "./AppMonacoEditor.vue";
 import type { SourceConfigInput, SourceConnectionResponse, SourceStatus } from "../services/api";

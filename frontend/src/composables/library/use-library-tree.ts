@@ -1,11 +1,10 @@
 import { computed, ref } from "vue";
 import type { Router, RouteLocationNormalizedLoadedGeneric } from "vue-router";
 
-import { apiClient, type LibraryFileSummary, type LibraryFolderNode, type LibraryTreeResponse } from "../../services/api";
-import type { ExplorerEntry, FileExplorerEntry, FolderExplorerEntry, FolderSummary } from "../../types/library";
+import { apiClient, type LibraryFolderNode, type LibraryTreeResponse } from "../../services/api";
+import type { ExplorerEntry, FolderSummary } from "../../types/library";
 import { useErrorToast } from "../use-error-toast";
 import {
-  findFileLocation,
   findFolderById,
   findFolderTrail,
   flattenFolderOptions,
@@ -16,18 +15,16 @@ import {
 interface UseLibraryTreeOptions {
   route: RouteLocationNormalizedLoadedGeneric;
   router: Router;
-  statusLabel: (status: string) => string;
   t: (key: string, params?: Record<string, unknown>) => string;
 }
 
-export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTreeOptions) {
+export function useLibraryTree({ route, router, t }: UseLibraryTreeOptions) {
   const showErrorToast = useErrorToast();
   const tree = ref<LibraryTreeResponse | null>(null);
   const treeLoading = ref(false);
   const expandedTreeKeys = ref<Record<string, boolean>>({
     [folderKey(null)]: true,
   });
-  const resourceSearchQuery = ref("");
   const selectedExplorerEntry = ref<ExplorerEntry | null>(null);
   const resourceContextEntry = ref<ExplorerEntry | null>(null);
 
@@ -102,102 +99,6 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
     return folder.name === "records" && !!folder.parent_folder_id;
   }
 
-  function buildFolderExplorerEntry(folder: LibraryFolderNode, depth: number, parentFolderId: string | null): FolderExplorerEntry {
-    return {
-      key: `folder:${folderKey(folder.folder_id ?? null)}`,
-      kind: "folder",
-      id: folder.folder_id ?? null,
-      depth,
-      name: folder.name,
-      parentFolderId,
-      path: folder.path,
-      updatedAt: null,
-      childFolderCount: folder.children.length,
-      fileCount: folder.files.length,
-      isSourceFolder: isSourceFolderNode(folder),
-      isSourceRecordsFolder: isSourceRecordsFolderNode(folder),
-      processingCount: folder.processing_count,
-      folder,
-    };
-  }
-
-  function buildFileExplorerEntry(
-    file: LibraryFileSummary,
-    depth: number,
-    parentFolderId: string | null,
-    parentPath: string,
-    parentFolder: LibraryFolderNode,
-  ): FileExplorerEntry {
-    return {
-      key: `file:${file.file_id}`,
-      kind: "file",
-      id: file.file_id,
-      depth,
-      name: file.filename,
-      parentFolderId,
-      path: parentPath,
-      updatedAt: file.updated_at,
-      mediaType: file.media_type,
-      sizeBytes: file.size_bytes,
-      ingestStatus: file.ingest_status,
-      errorMessage: file.error_message ?? null,
-      isSourceConfigFile: file.filename.toLowerCase() === "source.json" && isSourceFolderNode(parentFolder),
-      isSourceRecordFile: parentFolder.name === "records",
-      file,
-    };
-  }
-
-  const explorerEntries = computed<ExplorerEntry[]>(() => {
-    if (!tree.value) {
-      return [];
-    }
-
-    const rows: ExplorerEntry[] = [];
-
-    function appendFolderRows(folder: LibraryFolderNode, depth: number) {
-      const sortedChildren = [...folder.children].sort((left, right) =>
-        left.name.localeCompare(right.name, undefined, { sensitivity: "base" }),
-      );
-      const sortedFiles = [...folder.files].sort((left, right) =>
-        left.filename.localeCompare(right.filename, undefined, { sensitivity: "base" }),
-      );
-
-      for (const childFolder of sortedChildren) {
-        rows.push(buildFolderExplorerEntry(childFolder, depth, folder.folder_id ?? null));
-
-        if (expandedTreeKeys.value[folderKey(childFolder.folder_id ?? null)]) {
-          appendFolderRows(childFolder, depth + 1);
-        }
-      }
-
-      for (const file of sortedFiles) {
-        rows.push(buildFileExplorerEntry(file, depth, folder.folder_id ?? null, folder.path, folder));
-      }
-    }
-
-    appendFolderRows(tree.value.root, 0);
-    return rows;
-  });
-
-  const filteredExplorerEntries = computed(() => {
-    const query = resourceSearchQuery.value.trim().toLowerCase();
-    if (!query) {
-      return explorerEntries.value;
-    }
-
-    return explorerEntries.value.filter((entry) => {
-      const values = entry.kind === "folder"
-        ? [entry.name, entry.path, t("library.folderType")]
-        : [entry.name, entry.path, entry.mediaType, entry.errorMessage ?? "", statusLabel(entry.ingestStatus)];
-
-      return values.some((value) => value.toLowerCase().includes(query));
-    });
-  });
-
-  const filteredResourceCountLabel = computed(() =>
-    t("library.resourceCount", { count: filteredExplorerEntries.value.length }),
-  );
-
   const selectedFolderSummary = computed<FolderSummary | null>(() => {
     if (!selectedFolder.value) {
       return null;
@@ -242,21 +143,7 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
         return;
       }
 
-      if (selectedFileId.value) {
-        const location = findFileLocation(nextTree.root, selectedFileId.value);
-        if (!location) {
-          await replaceQuery(selectedFolderId.value, null);
-          return;
-        }
-
-        updateExpandedForFolder(location.folder.folder_id ?? null);
-        if (selectedFolderId.value !== location.folder.folder_id) {
-          await replaceQuery(location.folder.folder_id ?? null, selectedFileId.value);
-          return;
-        }
-      } else {
-        updateExpandedForFolder(selectedFolderId.value);
-      }
+      updateExpandedForFolder(selectedFolderId.value);
     } catch (error) {
       showErrorToast(error, t("library.loadFailed"));
     } finally {
@@ -310,15 +197,11 @@ export function useLibraryTree({ route, router, statusLabel, t }: UseLibraryTree
     breadcrumbHome,
     breadcrumbItems,
     expandedTreeKeys,
-    explorerEntries,
-    filteredExplorerEntries,
-    filteredResourceCountLabel,
     loadTree,
     moveOptions,
     refreshLibrary,
     replaceQuery,
     resourceContextEntry,
-    resourceSearchQuery,
     selectFile,
     selectedExplorerEntry,
     selectedFileId,

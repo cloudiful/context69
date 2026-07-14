@@ -280,6 +280,10 @@ Runtime endpoints include:
 - `GET /healthz`
 - `GET /openapi.json`
 - `POST /v1/search`
+- `GET /v1/library/resources` for database-backed folder pagination, search, and sorting in the file library
+- `GET /v1/groups` and `GET /v1/groups/by-path/{group_path}/children` return paginated group pages
+- `GET /v1/groups/by-path/{group_path}/members` and `GET /v1/admin/users` return paginated, searchable pages
+- `GET /v1/groups/search` provides bounded remote group search for move targets
 - `GET /v1/groups/by-path/{group_path}/library/resources` for database-backed folder pagination, search, and sorting
 - `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/retry` to reprocess a failed file from its saved original
 - `POST /v1/groups/by-path/{group_path}/library/files/prepare-upload` to reuse an existing SHA-256 object inside the same group while applying optional business metadata

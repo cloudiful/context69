@@ -7,6 +7,7 @@ import { useErrorToast } from "./use-error-toast";
 import {
   apiClient,
   type AdminUserResponse,
+  type AdminUserPageResponse,
   type DoclingSettingsResponse,
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
@@ -59,10 +60,15 @@ export function useSettingsPage() {
   const translationSettings = ref<TranslationSettingsResponse | null>(null);
   const translationProviders = ref<TranslationProviderDraft[]>([]);
   const adminUsers = ref<AdminUserResponse[]>([]);
+  const adminUsersPage = ref<AdminUserPageResponse>({ items: [], page: 1, page_size: 50, total: 0, total_pages: 0 });
+  const adminUsersPageNumber = ref(1);
+  const adminUsersPageSize = ref(50);
+  const adminUsersQuery = ref("");
   const adminUsersBusy = ref(false);
   const adminUsersCreateBusy = ref(false);
   const rerankApiKeyDraft = ref("");
   let vectorRebuildTimer: ReturnType<typeof setTimeout> | undefined;
+  let adminUsersSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
   const runtimeDraft = reactive<DraftRuntimeSettings>(createRuntimeDraft());
   const doclingDraft = reactive<DraftDoclingSettings>(createDoclingDraft());
@@ -143,12 +149,23 @@ export function useSettingsPage() {
 
     adminUsersBusy.value = true;
     try {
-      adminUsers.value = await apiClient.listAdminUsers();
+      const response = await apiClient.listAdminUsers({
+        page: adminUsersPageNumber.value,
+        page_size: adminUsersPageSize.value,
+        query: adminUsersQuery.value.trim() || undefined,
+      });
+      adminUsersPage.value = response;
+      adminUsers.value = response.items;
     } catch (error) {
       showErrorToast(error, t("adminUsers.loadFailed"));
     } finally {
       adminUsersBusy.value = false;
     }
+  }
+
+  function changeAdminUsersPage(page: number) {
+    adminUsersPageNumber.value = page;
+    void loadAdminUsers();
   }
 
   async function loadPage() {
@@ -423,12 +440,28 @@ export function useSettingsPage() {
     void personalAccessTokens.loadPersonalAccessTokens();
   });
 
-  onBeforeUnmount(() => clearTimeout(vectorRebuildTimer));
+  watch(adminUsersQuery, () => {
+    clearTimeout(adminUsersSearchTimer);
+    adminUsersSearchTimer = setTimeout(() => {
+      adminUsersPageNumber.value = 1;
+      void loadAdminUsers();
+    }, 250);
+  });
+
+  onBeforeUnmount(() => {
+    clearTimeout(vectorRebuildTimer);
+    clearTimeout(adminUsersSearchTimer);
+  });
 
   return {
     adminUsers,
     adminUsersBusy,
     adminUsersCreateBusy,
+    adminUsersPage,
+    adminUsersPageNumber,
+    adminUsersPageSize,
+    adminUsersQuery,
+    changeAdminUsersPage,
     createAdminUser,
     doclingDraft,
     disableAdminUser,

@@ -1,33 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const { GET, POST, PUT, DELETE, PATCH } = vi.hoisted(() => ({
-  GET: vi.fn(),
-  POST: vi.fn(),
-  PUT: vi.fn(),
-  DELETE: vi.fn(),
-  PATCH: vi.fn(),
-}));
-
-vi.mock("./openapi-client", () => ({
-  openapiClient: {
-    GET,
-    POST,
-    PUT,
-    DELETE,
-    PATCH,
-  },
-}));
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, apiClient } from "./api";
+import { openapiClient } from "./openapi-client";
+
+let GET: ReturnType<typeof vi.fn>;
+let POST: ReturnType<typeof vi.fn>;
+let PUT: ReturnType<typeof vi.fn>;
+let DELETE: ReturnType<typeof vi.fn>;
+let PATCH: ReturnType<typeof vi.fn>;
 
 describe("apiClient", () => {
+  beforeEach(() => {
+    GET = vi.spyOn(openapiClient, "GET") as unknown as ReturnType<typeof vi.fn>;
+    POST = vi.spyOn(openapiClient, "POST") as unknown as ReturnType<typeof vi.fn>;
+    PUT = vi.spyOn(openapiClient, "PUT") as unknown as ReturnType<typeof vi.fn>;
+    DELETE = vi.spyOn(openapiClient, "DELETE") as unknown as ReturnType<typeof vi.fn>;
+    PATCH = vi.spyOn(openapiClient, "PATCH") as unknown as ReturnType<typeof vi.fn>;
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
-    GET.mockReset();
-    POST.mockReset();
-    PUT.mockReset();
-    DELETE.mockReset();
-    PATCH.mockReset();
   });
 
   it("posts search payloads and returns typed results", async () => {

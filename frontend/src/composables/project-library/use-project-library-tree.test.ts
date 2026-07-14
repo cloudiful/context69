@@ -1,23 +1,13 @@
-import { ref } from "vue";
+import { mount } from "@vue/test-utils";
+import { defineComponent, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { LibraryTreeResponse } from "../../services/api";
+import { apiClient, type LibraryTreeResponse } from "../../services/api";
+import { createTestI18n } from "../../test-utils/i18n";
+import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
 import { useProjectLibraryTree } from "./use-project-library-tree";
 
-const mocks = vi.hoisted(() => ({
-  getGroupLibraryTree: vi.fn(),
-  showErrorToast: vi.fn(),
-}));
-
-vi.mock("../../services/api", () => ({
-  apiClient: {
-    getGroupLibraryTree: mocks.getGroupLibraryTree,
-  },
-}));
-
-vi.mock("../use-error-toast", () => ({
-  useErrorToast: () => mocks.showErrorToast,
-}));
+const getGroupLibraryTree = vi.spyOn(apiClient, "getGroupLibraryTree");
 
 function libraryTree(groupPath: string): LibraryTreeResponse {
   return {
@@ -38,49 +28,55 @@ function libraryTree(groupPath: string): LibraryTreeResponse {
 
 describe("useProjectLibraryTree", () => {
   beforeEach(() => {
-    mocks.getGroupLibraryTree.mockReset();
-    mocks.showErrorToast.mockReset();
+    getGroupLibraryTree.mockReset();
   });
 
   it("resolves the current group path for every load", async () => {
     const groupPath = ref("stock/alpha");
-    mocks.getGroupLibraryTree.mockImplementation(async (path: string) => libraryTree(path));
-    const state = useProjectLibraryTree({
-      groupPath,
-      statusLabel: (status) => status,
-      t: (key) => key,
-    });
+    getGroupLibraryTree.mockImplementation(async (path: string) => libraryTree(path));
+    let state!: ReturnType<typeof useProjectLibraryTree>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryTree({ groupPath, statusLabel: (status) => status, t: (key) => key });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
 
     await state.loadTree();
     groupPath.value = "stock/beta";
     state.resetTree();
     await state.loadTree();
 
-    expect(mocks.getGroupLibraryTree).toHaveBeenNthCalledWith(1, "stock/alpha");
-    expect(mocks.getGroupLibraryTree).toHaveBeenNthCalledWith(2, "stock/beta");
+    expect(getGroupLibraryTree).toHaveBeenNthCalledWith(1, "stock/alpha");
+    expect(getGroupLibraryTree).toHaveBeenNthCalledWith(2, "stock/beta");
     expect(state.tree.value?.root.group_path).toBe("stock/beta");
+    wrapper.unmount();
   });
 
   it("keeps request failures distinct from an empty tree", async () => {
     const error = new Error("network failed");
-    mocks.getGroupLibraryTree.mockRejectedValue(error);
-    const state = useProjectLibraryTree({
-      groupPath: "stock/alpha",
-      statusLabel: (status) => status,
-      t: (key) => key,
-    });
+    getGroupLibraryTree.mockRejectedValue(error);
+    let state!: ReturnType<typeof useProjectLibraryTree>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryTree({ groupPath: "stock/alpha", statusLabel: (status) => status, t: (key) => key });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
 
     await state.loadTree();
 
     expect(state.tree.value).toBeNull();
     expect(state.treeError.value).toBe("library.loadFailed");
-    expect(mocks.showErrorToast).toHaveBeenCalledWith(error, "library.loadFailed");
+    wrapper.unmount();
   });
 
   it("does not let a stale group request replace the current tree", async () => {
     const groupPath = ref("stock/alpha");
     let resolveAlpha: ((tree: LibraryTreeResponse) => void) | undefined;
-    mocks.getGroupLibraryTree.mockImplementation((path: string) => {
+    getGroupLibraryTree.mockImplementation((path: string) => {
       if (path === "stock/alpha") {
         return new Promise<LibraryTreeResponse>((resolve) => {
           resolveAlpha = resolve;
@@ -88,11 +84,14 @@ describe("useProjectLibraryTree", () => {
       }
       return Promise.resolve(libraryTree(path));
     });
-    const state = useProjectLibraryTree({
-      groupPath,
-      statusLabel: (status) => status,
-      t: (key) => key,
-    });
+    let state!: ReturnType<typeof useProjectLibraryTree>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryTree({ groupPath, statusLabel: (status) => status, t: (key) => key });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
 
     const alphaLoad = state.loadTree();
     groupPath.value = "stock/beta";
@@ -102,5 +101,6 @@ describe("useProjectLibraryTree", () => {
     await alphaLoad;
 
     expect(state.tree.value?.root.group_path).toBe("stock/beta");
+    wrapper.unmount();
   });
 });

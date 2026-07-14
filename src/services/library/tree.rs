@@ -4,14 +4,13 @@ use crate::contracts::Visibility;
 impl LibraryService {
     pub async fn list_tree(&self) -> Result<LibraryTreeResponse> {
         let folders = self.store.list_folders().await?;
-        let files = self.store.list_files().await?;
         Ok(LibraryTreeResponse {
             root: build_tree(
                 "public".to_string(),
                 "public".to_string(),
                 Visibility::Public,
                 folders,
-                files,
+                Vec::new(),
             ),
         })
     }
@@ -21,14 +20,13 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
     ) -> Result<LibraryTreeResponse> {
         let folders = self.store.list_folders_in_project(project.id).await?;
-        let files = self.store.list_files_in_project(project.id).await?;
         Ok(LibraryTreeResponse {
             root: build_tree(
                 project.group_key.clone(),
                 project.group_path.clone(),
                 project.visibility,
                 folders,
-                files,
+                Vec::new(),
             ),
         })
     }

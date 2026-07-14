@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -159,4 +159,53 @@ pub struct UserDirectoryEntryResponse {
     pub user_id: i64,
     pub login_name: String,
     pub display_name: String,
+}
+
+fn default_page() -> u32 {
+    1
+}
+fn default_page_size() -> u32 {
+    50
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct NamespacePageQuery {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    #[serde(default)]
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GroupPageResponse {
+    pub items: Vec<GroupResponse>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GroupMemberPageResponse {
+    pub items: Vec<GroupMemberResponse>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct GroupSearchQuery {
+    #[serde(default)]
+    pub query: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: u32,
+}
+
+const fn default_search_limit() -> u32 {
+    20
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at\nFROM context69.users\nORDER BY login_name\n",
+  "query": "SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at\nFROM context69.users\nWHERE (\n       NULLIF(BTRIM($1::TEXT), '') IS NULL\n    OR login_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n    OR display_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n)\nORDER BY login_name\nLIMIT $2 OFFSET $3\n",
   "describe": {
     "columns": [
       {
@@ -93,7 +93,11 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
     },
     "nullable": [
       false,
@@ -106,5 +110,5 @@
       false
     ]
   },
-  "hash": "39aa1943e22b6d80f529d2475ab019d682303b40585d943469714b9f0cceb6aa"
+  "hash": "743f955a6973c3f04e3591bc5e4eaee75fccbc83f28887700f83589849482a8b"
 }
