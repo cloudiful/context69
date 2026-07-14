@@ -72,7 +72,7 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="grid gap-3 rounded-[1rem] border border-surface bg-emphasis p-4">
+  <UCard>
     <div class="flex items-center justify-between gap-2">
       <strong>{{ t("groups.translation.title") }}</strong>
       <span class="text-xs text-muted-color">{{ t("groups.translation.stats", stats) }}</span>
@@ -94,5 +94,5 @@ onMounted(load);
         <span>{{ t("common.save") }}</span>
       </UButton>
     </div>
-  </section>
+  </UCard>
 </template>

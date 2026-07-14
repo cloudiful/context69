@@ -5,7 +5,6 @@ import { useI18n } from "vue-i18n";
 import { en, zh_cn } from "@nuxt/ui/locale";
 
 import AppMobileNav from "./components/AppMobileNav.vue";
-import AppStateMessage from "./components/AppStateMessage.vue";
 import AppRouteBreadcrumbs from "./components/AppRouteBreadcrumbs.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import { useUiPreferences } from "./composables/use-ui-preferences";
@@ -55,9 +54,12 @@ onMounted(() => {
         class="grid flex-1 place-items-center px-4"
       >
         <div class="grid max-w-md justify-items-center gap-3 text-center">
-          <AppStateMessage color="error" :title="$t('auth.sessionUnavailable')">
-            {{ $t("auth.sessionUnavailableMessage") }}
-          </AppStateMessage>
+          <UAlert
+            color="error"
+            variant="subtle"
+            :title="$t('auth.sessionUnavailable')"
+            :description="$t('auth.sessionUnavailableMessage')"
+          />
           <UButton size="sm" @click="retrySessionRestore">
             <UIcon name="i-lucide-refresh-cw" />
             <span>{{ $t("common.retry") }}</span>

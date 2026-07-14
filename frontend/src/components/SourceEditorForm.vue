@@ -114,7 +114,7 @@ function handleSubmit(event: FormSubmitEvent<Record<string, unknown>>) {
     >
       <div class="grid min-h-0 gap-4 [grid-template-columns:minmax(19rem,22rem)_minmax(0,1fr)] max-md:grid-cols-1">
         <section class="min-h-0 min-w-0">
-          <div class="rounded-[1.1rem] border border-surface bg-emphasis p-3">
+          <UCard>
             <div class="mb-4 grid gap-1">
               <p class="text-base font-semibold text-color">{{ t("sources.form.sourceSectionTitle") }}</p>
               <p class="text-xs leading-6 text-muted-color">{{ t("sources.form.sourceSectionDescription") }}</p>
@@ -241,7 +241,7 @@ function handleSubmit(event: FormSubmitEvent<Record<string, unknown>>) {
                 </label>
               </UFormField>
             </div>
-          </div>
+          </UCard>
         </section>
 
         <section class="min-h-0 min-w-0">

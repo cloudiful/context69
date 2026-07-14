@@ -3,11 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
-import AppRecordCard from "../components/AppRecordCard.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
-import AppInfoCard from "../components/AppInfoCard.vue";
-import AppPanel from "../components/AppPanel.vue";
-import AppStateMessage from "../components/AppStateMessage.vue";
 import { apiClient, ApiError, type DocumentResponse } from "../services/api";
 import { formatDate, formatJson, formatTimestamp } from "../utils/format";
 import { useErrorToast } from "../composables/use-error-toast";
@@ -104,7 +100,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <AppPanel :title="t('document.title')">
+  <UCard>
+    <template #header><h1 class="text-base font-semibold text-color">{{ t("document.title") }}</h1></template>
     <AsyncStateBlock
       :loading="loading"
       :error="loadError"
@@ -115,24 +112,22 @@ onBeforeUnmount(() => {
     >
       <div v-if="documentData" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div class="grid gap-2">
-          <AppRecordCard
-            :title="documentData.title"
-            :subtitle="formatDate(documentData.published_at)"
-          >
-            <template #tags>
+          <UCard>
+            <template #header>
+              <div class="grid gap-2">
               <div class="flex flex-wrap items-center gap-2">
                 <UBadge :label="documentData.source_key" color="neutral" />
                 <UBadge :label="documentData.external_id" color="neutral" />
               </div>
-            </template>
-
-            <template #meta>
+                <h2 class="text-lg font-semibold text-color">{{ documentData.title }}</h2>
+                <p class="text-sm text-muted-color">{{ formatDate(documentData.published_at) }}</p>
               <p v-if="documentData.library_path" class="break-words">
                 {{ documentData.library_path }}
                 <span v-if="documentData.library_section_label"> · {{ documentData.library_section_label }}</span>
               </p>
+              </div>
             </template>
-          </AppRecordCard>
+          </UCard>
 
           <div class="grid gap-2">
             <UCard
@@ -145,13 +140,13 @@ onBeforeUnmount(() => {
               <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-elevated px-3 py-2 text-sm leading-6 text-muted">{{ chunk.text }}</pre>
             </UCard>
 
-            <AppStateMessage
+            <UAlert
               v-if="documentData.chunks.length === 0"
               color="neutral"
+              variant="subtle"
               :title="t('document.noBodyChunksTitle')"
-            >
-              {{ t("document.noBodyChunksMessage") }}
-            </AppStateMessage>
+              :description="t('document.noBodyChunksMessage')"
+            />
           </div>
 
           <UButton
@@ -166,9 +161,16 @@ onBeforeUnmount(() => {
         </div>
 
         <aside class="grid gap-2">
-          <AppInfoCard :label="t('document.published')" :value="formatDate(documentData.published_at)" />
-          <AppInfoCard :label="t('document.updated')" :value="formatTimestamp(documentData.updated_at)" />
-          <AppInfoCard :label="t('document.sourceLink')">
+          <UCard>
+            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.published") }}</p>
+            <p class="text-sm text-color">{{ formatDate(documentData.published_at) }}</p>
+          </UCard>
+          <UCard>
+            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.updated") }}</p>
+            <p class="text-sm text-color">{{ formatTimestamp(documentData.updated_at) }}</p>
+          </UCard>
+          <UCard>
+            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.sourceLink") }}</p>
             <UButton
               color="neutral"
               variant="outline"
@@ -176,18 +178,18 @@ onBeforeUnmount(() => {
             >
               {{ libraryRoute ? t("document.openLibraryFile") : t("document.openOrigin") }}
             </UButton>
-          </AppInfoCard>
-          <AppInfoCard
-            v-if="documentData.library_path"
-            :label="t('document.libraryPath')"
-            :value="documentData.library_path"
-            :meta="documentData.library_section_label"
-          />
-          <AppInfoCard :label="t('document.metadata')">
+          </UCard>
+          <UCard v-if="documentData.library_path">
+            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.libraryPath") }}</p>
+            <p class="text-sm text-color">{{ documentData.library_path }}</p>
+            <p v-if="documentData.library_section_label" class="text-xs text-muted-color">{{ documentData.library_section_label }}</p>
+          </UCard>
+          <UCard>
+            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.metadata") }}</p>
             <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
-          </AppInfoCard>
+          </UCard>
         </aside>
       </div>
     </AsyncStateBlock>
-  </AppPanel>
+  </UCard>
 </template>

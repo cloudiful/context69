@@ -5,7 +5,6 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import * as z from "zod";
 
-import AppPanel from "../components/AppPanel.vue";
 import { useErrorToast } from "../composables/use-error-toast";
 import { AuthError, authSessionState, login } from "../services/auth/session";
 
@@ -81,7 +80,8 @@ async function submit(event: FormSubmitEvent<z.output<typeof schema.value>>) {
 
 <template>
   <div class="flex min-h-[calc(100vh-5rem)] w-full items-center justify-center px-3 py-6">
-    <AppPanel class="w-full max-w-[24rem]" :title="t('auth.title')">
+    <UCard class="w-full max-w-[24rem]">
+      <template #header><h1 class="text-base font-semibold text-color">{{ t("auth.title") }}</h1></template>
       <div v-if="authSessionState.user" class="grid gap-1 rounded-xl border border-surface bg-emphasis px-3 py-2">
         <span class="text-sm font-semibold text-color">{{ authSessionState.user.display_name }}</span>
         <span class="text-xs text-muted-color">{{ authSessionState.user.login_name }}</span>
@@ -115,6 +115,6 @@ async function submit(event: FormSubmitEvent<z.output<typeof schema.value>>) {
           </div>
         </UForm>
       </div>
-    </AppPanel>
+    </UCard>
   </div>
 </template>

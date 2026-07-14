@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AppStateMessage from "./AppStateMessage.vue";
 import EmptyState from "./EmptyState.vue";
 
 withDefaults(defineProps<{
@@ -41,9 +40,7 @@ withDefaults(defineProps<{
   </slot>
 
   <slot v-else-if="error" name="error" :error="error">
-    <AppStateMessage :color="errorColor" :title="errorTitle">
-      {{ error }}
-    </AppStateMessage>
+    <UAlert :color="errorColor" variant="subtle" :title="errorTitle || undefined" :description="error" />
   </slot>
 
   <slot v-else-if="empty" name="empty">

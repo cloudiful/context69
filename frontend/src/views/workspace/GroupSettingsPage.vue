@@ -34,7 +34,7 @@ function save() {
 
 <template>
   <div class="grid gap-3 xl:max-w-[28rem]">
-    <section class="grid gap-3 rounded-[1rem] border border-surface bg-emphasis p-4">
+    <UCard>
       <form class="grid gap-3" @submit.prevent="save">
         <dl class="grid gap-2">
         <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
@@ -86,12 +86,12 @@ function save() {
           </UButton>
         </div>
       </form>
-    </section>
+    </UCard>
 
     <MetadataIndexesSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
     <GroupTranslationSettingsSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
 
-    <section class="grid gap-3 rounded-[1rem] border border-surface bg-emphasis p-4">
+    <UCard>
       <div class="flex flex-wrap items-center gap-2">
         <UButton v-if="state.canManageGroup" color="neutral" variant="outline" @click="state.openMoveCurrentGroupDialog">
           {{ $t("common.move") }}
@@ -100,6 +100,6 @@ function save() {
           {{ $t("common.delete") }}
         </UButton>
       </div>
-    </section>
+    </UCard>
   </div>
 </template>

@@ -4,7 +4,6 @@ import { useI18n } from "vue-i18n";
 import { useToast } from "@nuxt/ui/composables";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
-import AppStateMessage from "../components/AppStateMessage.vue";
 import SourceEditorForm from "../components/SourceEditorForm.vue";
 import SourceTable from "../components/SourceTable.vue";
 import {
@@ -188,13 +187,17 @@ onMounted(async () => {
           />
         </section>
 
-        <AppStateMessage v-if="sources.length === 0" :title="t('sources.emptyTitle')">
-          {{ t("sources.emptyMessage") }}
-        </AppStateMessage>
+        <UAlert
+          v-if="sources.length === 0"
+          variant="subtle"
+          :title="t('sources.emptyTitle')"
+          :description="t('sources.emptyMessage')"
+        />
       </div>
 
       <section v-else class="min-h-[calc(100vh-8.25rem)] max-md:min-h-0 xl:min-h-[calc(100vh-8.5rem)]">
-        <div class="grid h-full gap-4 rounded-[0.8rem] border border-surface bg-emphasis p-3">
+        <UCard class="h-full">
+          <div class="grid gap-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p class="text-base font-semibold text-color">
@@ -225,7 +228,8 @@ onMounted(async () => {
             @cancel="resetEditor"
             @save="saveSource"
           />
-        </div>
+          </div>
+        </UCard>
       </section>
     </AsyncStateBlock>
   </div>

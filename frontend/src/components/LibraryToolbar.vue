@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import type { BreadcrumbItem as NuxtBreadcrumbItem } from "@nuxt/ui";
 
-import AppTableToolbar from "./AppTableToolbar.vue";
 
 interface BreadcrumbItem {
   label: string;
@@ -31,24 +30,26 @@ const breadcrumbModel = computed<NuxtBreadcrumbItem[]>(() => [props.breadcrumbHo
 </script>
 
 <template>
-  <AppTableToolbar
+  <UDashboardToolbar
     class="library-toolbar-shell"
-    :count-label="countLabel"
-    :search-enabled="showSearch"
-    :search-query="searchQuery"
-    @update:search-query="emit('update:searchQuery', $event)"
   >
-    <template #main>
-      <div class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
-        <UBreadcrumb
-          v-if="breadcrumbItems.length > 0"
-          :items="breadcrumbModel"
-          class="min-w-0"
-        />
-      </div>
-    </template>
-    <template #actions>
+    <div class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+      <UBreadcrumb
+        v-if="breadcrumbItems.length > 0"
+        :items="breadcrumbModel"
+        class="min-w-0"
+      />
+      <UBadge v-if="countLabel" :label="countLabel" color="neutral" variant="subtle" />
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <UInput
+        v-if="showSearch"
+        class="w-full min-w-0 md:w-72"
+        icon="i-lucide-search"
+        :model-value="searchQuery"
+        @update:model-value="emit('update:searchQuery', String($event ?? ''))"
+      />
       <slot name="actions" />
-    </template>
-  </AppTableToolbar>
+    </div>
+  </UDashboardToolbar>
 </template>

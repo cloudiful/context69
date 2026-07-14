@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 
-import AppStateMessage from "./AppStateMessage.vue";
 import type { SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
 
@@ -17,7 +16,7 @@ const { t } = useI18n();
 </script>
 
 <template>
-  <aside class="min-w-0 rounded-[1.1rem] border border-surface bg-emphasis p-3 xl:sticky xl:top-3 xl:max-h-[calc(100vh-6rem)] xl:overflow-auto">
+  <UCard class="min-w-0 xl:sticky xl:top-3 xl:max-h-[calc(100vh-6rem)] xl:overflow-auto">
     <div v-if="selectedHit" class="grid gap-3">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
@@ -47,8 +46,11 @@ const { t } = useI18n();
       <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ selectedHit.chunk_text }}</pre>
     </div>
 
-    <AppStateMessage v-else :title="t('search.noMatchesTitle')">
-      {{ t("search.noMatchesMessage") }}
-    </AppStateMessage>
-  </aside>
+    <UAlert
+      v-else
+      variant="subtle"
+      :title="t('search.noMatchesTitle')"
+      :description="t('search.noMatchesMessage')"
+    />
+  </UCard>
 </template>

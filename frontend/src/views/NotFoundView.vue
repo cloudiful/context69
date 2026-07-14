@@ -2,7 +2,6 @@
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
-import AppStateMessage from "../components/AppStateMessage.vue";
 
 const router = useRouter();
 const { t } = useI18n();
@@ -21,9 +20,7 @@ function returnToSearch() {
             <h1>{{ t("notFound.title") }}</h1>
           </div>
 
-          <AppStateMessage color="neutral">
-            {{ t("notFound.message") }}
-          </AppStateMessage>
+          <UAlert color="neutral" variant="subtle" :description="t('notFound.message')" />
 
           <div class="flex justify-center">
             <UButton @click="returnToSearch">{{ t("notFound.action") }}</UButton>

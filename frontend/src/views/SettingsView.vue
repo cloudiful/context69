@@ -3,7 +3,6 @@ import { computed, provide, unref } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 
-import AppPanel from "../components/AppPanel.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import { settingsPageStateKey } from "../composables/settings-page-context";
 import { useUiPreferences } from "../composables/use-ui-preferences";
@@ -62,13 +61,11 @@ function switchLocale(nextLocale: AppLocale) {
 </script>
 
 <template>
-  <AppPanel surface="plain">
-    <template #actions>
-      <div class="flex flex-wrap items-center justify-end gap-1.5">
-        <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
-        <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />
-      </div>
-    </template>
+  <section class="grid min-w-0 gap-3">
+    <div class="flex flex-wrap justify-end gap-1.5">
+      <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
+      <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />
+    </div>
 
     <AsyncStateBlock
       :loading="loading"
@@ -104,5 +101,5 @@ function switchLocale(nextLocale: AppLocale) {
         </div>
       </form>
     </AsyncStateBlock>
-  </AppPanel>
+  </section>
 </template>

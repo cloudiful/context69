@@ -9,7 +9,6 @@ import { formatBytes, formatTimestamp } from "../utils/format";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import LibraryPreviewContent from "./LibraryPreviewContent.vue";
-import AppStateMessage from "./AppStateMessage.vue";
 import EmptyState from "./EmptyState.vue";
 
 const props = defineProps<{
@@ -123,27 +122,27 @@ const jobColumns = computed<TableColumn<LibraryJob>[]>(() => [
           </div>
         </dl>
 
-        <AppStateMessage
+        <UAlert
           v-if="detail.ingest_status === 'running' || detail.ingest_status === 'pending'"
           color="warning"
+          variant="subtle"
           :title="t('library.processingTitle')"
-        >
-          {{ t("library.processingMessage") }}
-        </AppStateMessage>
+          :description="t('library.processingMessage')"
+        />
         <div v-else-if="detail.ingest_status === 'failed'" class="grid justify-items-start gap-3">
-          <AppStateMessage
+          <UAlert
             color="error"
+            variant="subtle"
             :title="t('library.processingFailedTitle')"
-          >
-            {{ detail.error_message || t("library.failedMessage") }}
-          </AppStateMessage>
-          <AppStateMessage
+            :description="detail.error_message || t('library.failedMessage')"
+          />
+          <UAlert
             v-if="!detail.source_available"
             color="warning"
+            variant="subtle"
             :title="t('library.sourceMissingTitle')"
-          >
-            {{ t("library.sourceMissingMessage") }}
-          </AppStateMessage>
+            :description="t('library.sourceMissingMessage')"
+          />
           <UButton
             v-else
             :disabled="retrying"

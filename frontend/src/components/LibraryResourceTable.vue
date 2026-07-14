@@ -4,7 +4,6 @@ import type { DropdownMenuItem, TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
-import AppStateMessage from "./AppStateMessage.vue";
 import { useLibraryResourceTable } from "../composables/library/use-library-resource-table";
 import type { LibraryIngestStatus } from "../services/api";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
@@ -144,7 +143,7 @@ function handleSurfaceContextMenu(event: MouseEvent) {
       <AsyncStateBlock :error="props.error" :loading="props.loading" :loading-title="t('common.loading')" :loading-message="t('library.loadingFiles')">
         <template #error>
           <div class="grid justify-items-center gap-3 py-8 text-center">
-            <AppStateMessage color="error" :title="t('common.error')">{{ props.error }}</AppStateMessage>
+            <UAlert color="error" variant="subtle" :title="t('common.error')" :description="props.error" />
             <UButton size="sm" :label="t('common.retry')" :aria-label="t('common.retry')" @click="emit('retry')" />
           </div>
         </template>

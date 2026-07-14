@@ -3,7 +3,6 @@ import { computed, ref } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
-import AppTableToolbar from "./AppTableToolbar.vue";
 import type { SourceStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
 
@@ -99,22 +98,25 @@ function selectRow(_event: Event, row: { original: SourceStatus }) {
 
 <template>
   <div class="grid gap-2">
-    <AppTableToolbar
-      :count-label="t('sources.summary.total', { count: filteredSources.length })"
-      search-enabled
-      :search-placeholder="t('sources.table.filterPlaceholder')"
-      :search-query="searchQuery"
-      @update:search-query="searchQuery = $event"
-    >
-      <template #actions>
+    <UDashboardToolbar class="flex-wrap justify-between gap-2">
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <UBadge :label="t('sources.summary.total', { count: filteredSources.length })" color="neutral" variant="subtle" />
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <UInput
+          v-model="searchQuery"
+          class="w-full min-w-0 md:w-72"
+          icon="i-lucide-search"
+          :placeholder="t('sources.table.filterPlaceholder')"
+        />
         <UButton color="neutral" variant="outline" @click="emit('refresh')">
           {{ t("sources.refresh") }}
         </UButton>
         <UButton v-if="props.canManage" type="button" @click="emit('create')">
           {{ t("sources.newSource") }}
         </UButton>
-      </template>
-    </AppTableToolbar>
+      </div>
+    </UDashboardToolbar>
 
     <UTable
         class="min-w-0 max-w-full"

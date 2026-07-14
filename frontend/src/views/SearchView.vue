@@ -4,8 +4,6 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
-import AppPanel from "../components/AppPanel.vue";
-import AppStateMessage from "../components/AppStateMessage.vue";
 import SearchForm from "../components/SearchForm.vue";
 import SearchResultList from "../components/SearchResultList.vue";
 import SearchSelectionPreview from "../components/SearchSelectionPreview.vue";
@@ -134,11 +132,11 @@ onBeforeUnmount(() => {
       />
     </section>
 
-    <AppPanel
+    <UCard
       v-if="showResultsPanel"
       class="search-results-panel"
-      :title="t('search.resultsTitle')"
     >
+      <template #header><h2 class="text-base font-semibold text-color">{{ t("search.resultsTitle") }}</h2></template>
       <AsyncStateBlock
         :loading="loading"
         :loading-title="t('search.scanningTitle')"
@@ -147,9 +145,11 @@ onBeforeUnmount(() => {
         :empty="searched && !!results && results.hits.length === 0"
       >
         <template #empty>
-          <AppStateMessage :title="t('search.noMatchesTitle')">
-            {{ t("search.noMatchesMessage") }}
-          </AppStateMessage>
+          <UAlert
+            variant="subtle"
+            :title="t('search.noMatchesTitle')"
+            :description="t('search.noMatchesMessage')"
+          />
         </template>
 
         <div v-if="results" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start">
@@ -168,6 +168,6 @@ onBeforeUnmount(() => {
           />
         </div>
       </AsyncStateBlock>
-    </AppPanel>
+    </UCard>
   </div>
 </template>
