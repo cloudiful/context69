@@ -18,6 +18,8 @@ impl Database {
                     .context("docling timeout_secs must be non-negative")?,
                 poll_interval_secs: u64::try_from(row.poll_interval_secs)
                     .context("docling poll_interval_secs must be non-negative")?,
+                task_timeout_secs: u64::try_from(row.task_timeout_secs)
+                    .context("docling task_timeout_secs must be non-negative")?,
                 pdf_backend: row.pdf_backend,
                 images_scale: row.images_scale,
                 image_export_mode: row.image_export_mode,
@@ -46,6 +48,8 @@ impl Database {
             i64::try_from(settings.timeout_secs).context("docling timeout is too large")?;
         let poll_interval_secs = i64::try_from(settings.poll_interval_secs)
             .context("docling poll interval is too large")?;
+        let task_timeout_secs = i64::try_from(settings.task_timeout_secs)
+            .context("docling task timeout is too large")?;
 
         let row = sqlx::query_file_as!(
             DoclingSettingsRow,
@@ -53,6 +57,7 @@ impl Database {
             settings.base_url,
             timeout_secs,
             poll_interval_secs,
+            task_timeout_secs,
             settings.pdf_backend,
             settings.images_scale,
             settings.image_export_mode,
@@ -78,6 +83,8 @@ impl Database {
                 .context("docling timeout_secs must be non-negative")?,
             poll_interval_secs: u64::try_from(row.poll_interval_secs)
                 .context("docling poll_interval_secs must be non-negative")?,
+            task_timeout_secs: u64::try_from(row.task_timeout_secs)
+                .context("docling task_timeout_secs must be non-negative")?,
             pdf_backend: row.pdf_backend,
             images_scale: row.images_scale,
             image_export_mode: row.image_export_mode,

@@ -41,6 +41,13 @@ const { t } = useI18n();
             :min="1"
             :step="1"
           />
+          <AppNumberField
+            input-id="docling-task-timeout"
+            v-model="doclingDraft.connection.task_timeout_secs"
+            :label="t('settings.docling.taskTimeout')"
+            :min="1"
+            :step="1"
+          />
         </div>
       </AppSettingsBlock>
 

@@ -115,6 +115,7 @@ describe("apiClient", () => {
           base_url: null,
           timeout_secs: 120,
           poll_interval_secs: 2,
+          task_timeout_secs: 600,
         },
         vlm: {
           openai_base_url: null,
@@ -134,6 +135,7 @@ describe("apiClient", () => {
           base_url: "http://docling:5001",
           timeout_secs: 180,
           poll_interval_secs: 3,
+          task_timeout_secs: 600,
         },
         vlm: {
           openai_base_url: "https://openrouter.ai/api/v1",
@@ -160,6 +162,7 @@ describe("apiClient", () => {
           base_url: "http://docling:5001",
           timeout_secs: 180,
           poll_interval_secs: 3,
+          task_timeout_secs: 600,
         },
         vlm: {
           openai_base_url: "https://openrouter.ai/api/v1",
@@ -184,6 +187,7 @@ describe("apiClient", () => {
           base_url: "http://docling:5001",
           timeout_secs: 180,
           poll_interval_secs: 3,
+          task_timeout_secs: 600,
         },
         vlm: {
           openai_base_url: "https://openrouter.ai/api/v1",

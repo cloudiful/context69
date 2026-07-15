@@ -4641,7 +4641,8 @@
         "type": "object",
         "required": [
           "timeout_secs",
-          "poll_interval_secs"
+          "poll_interval_secs",
+          "task_timeout_secs"
         ],
         "properties": {
           "base_url": {
@@ -4651,6 +4652,11 @@
             ]
           },
           "poll_interval_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "task_timeout_secs": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -7530,13 +7536,19 @@
         "required": [
           "base_url",
           "timeout_secs",
-          "poll_interval_secs"
+          "poll_interval_secs",
+          "task_timeout_secs"
         ],
         "properties": {
           "base_url": {
             "type": "string"
           },
           "poll_interval_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "task_timeout_secs": {
             "type": "integer",
             "format": "int64",
             "minimum": 0

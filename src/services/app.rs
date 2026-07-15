@@ -281,6 +281,7 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             base_url: docling.connection.base_url.clone(),
             timeout_secs: docling.connection.timeout.as_secs(),
             poll_interval_secs: docling.connection.poll_interval.as_secs(),
+            task_timeout_secs: docling.connection.task_timeout.as_secs(),
             pdf_backend: None,
             images_scale: None,
             image_export_mode: Some("placeholder".to_string()),

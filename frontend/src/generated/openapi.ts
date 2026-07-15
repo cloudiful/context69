@@ -1280,6 +1280,8 @@ export interface components {
             /** Format: int64 */
             poll_interval_secs: number;
             /** Format: int64 */
+            task_timeout_secs: number;
+            /** Format: int64 */
             timeout_secs: number;
         };
         DoclingSettingsResponse: {
@@ -2006,6 +2008,8 @@ export interface components {
             base_url: string;
             /** Format: int64 */
             poll_interval_secs: number;
+            /** Format: int64 */
+            task_timeout_secs: number;
             /** Format: int64 */
             timeout_secs: number;
         };

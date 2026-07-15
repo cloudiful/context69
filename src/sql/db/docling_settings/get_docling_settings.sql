@@ -2,6 +2,7 @@ SELECT
     base_url,
     timeout_secs,
     poll_interval_secs,
+    task_timeout_secs,
     pdf_backend,
     images_scale,
     image_export_mode,

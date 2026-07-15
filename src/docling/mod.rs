@@ -7,12 +7,18 @@ use serde::{Deserialize, Serialize};
 use crate::{serde_helpers, support::normalize::normalize_optional_string};
 
 mod client;
+mod retry;
+mod xlsx_polling;
+
+#[cfg(test)]
+mod client_tests;
 
 pub use client::DoclingXlsxClient;
 
 pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
+pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -22,6 +28,8 @@ pub struct DoclingConnectionConfig {
     pub timeout: Duration,
     #[serde(rename = "poll_interval_secs", with = "serde_helpers::seconds")]
     pub poll_interval: Duration,
+    #[serde(rename = "task_timeout_secs", with = "serde_helpers::seconds")]
+    pub task_timeout: Duration,
 }
 
 impl Default for DoclingConnectionConfig {
@@ -30,6 +38,7 @@ impl Default for DoclingConnectionConfig {
             base_url: DEFAULT_DOCLING_BASE_URL.to_string(),
             timeout: Duration::from_secs(DEFAULT_DOCLING_TIMEOUT_SECS),
             poll_interval: Duration::from_secs(DEFAULT_DOCLING_POLL_INTERVAL_SECS),
+            task_timeout: Duration::from_secs(DEFAULT_DOCLING_TASK_TIMEOUT_SECS),
         }
     }
 }
@@ -138,6 +147,7 @@ mod tests {
                 base_url: "http://localhost:5001".to_string(),
                 timeout: Duration::from_secs(120),
                 poll_interval: Duration::from_secs(2),
+                task_timeout: Duration::from_secs(600),
             },
             vlm: DoclingVlmConfig {
                 openai_base_url: Some("https://example.com/v1".to_string()),
@@ -170,6 +180,7 @@ mod tests {
                 base_url: "http://localhost:5001".to_string(),
                 timeout: Duration::from_secs(120),
                 poll_interval: Duration::from_secs(2),
+                task_timeout: Duration::from_secs(600),
             },
             vlm: DoclingVlmConfig::default(),
         };

@@ -1,30 +1,33 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use bytes::Bytes;
 use reqwest::{Client, multipart};
 use serde_json::Value;
-use tokio::time::sleep;
 
-use super::{DoclingConfig, api_base_url};
+use super::{DoclingConfig, api_base_url, xlsx_polling};
 
 #[derive(Debug, Clone)]
 pub struct DoclingXlsxClient {
     http: Client,
     base_url: String,
     poll_interval: Duration,
+    task_timeout: Duration,
 }
 
 impl DoclingXlsxClient {
     pub fn new(config: DoclingConfig) -> Result<Self> {
         let http = Client::builder()
             .timeout(config.connection.timeout)
+            .tcp_keepalive(Duration::from_secs(60))
+            .pool_idle_timeout(Duration::from_secs(30))
             .build()
             .context("failed to build docling http client")?;
         Ok(Self {
             http,
             base_url: api_base_url(&config.connection.base_url),
             poll_interval: config.connection.poll_interval,
+            task_timeout: config.connection.task_timeout,
         })
     }
 
@@ -34,20 +37,16 @@ impl DoclingXlsxClient {
         media_type: &str,
         bytes: Bytes,
     ) -> Result<Value> {
+        // Do not replay submission: the server may have accepted the POST even if its response was lost.
         let task_id = self.submit_async(filename, media_type, bytes).await?;
-
-        loop {
-            let status = self.poll_status(&task_id).await?;
-            match status.as_str() {
-                "success" => return self.fetch_result(&task_id).await,
-                "failure" | "revoked" => {
-                    return Err(anyhow!(
-                        "docling task {task_id} failed with status {status}"
-                    ));
-                }
-                _ => sleep(self.poll_interval).await,
-            }
-        }
+        xlsx_polling::wait_for_result(
+            &self.http,
+            &self.base_url,
+            &task_id,
+            self.poll_interval,
+            self.task_timeout,
+        )
+        .await
     }
 
     fn build_form(
@@ -87,47 +86,5 @@ impl DoclingXlsxClient {
             .and_then(Value::as_str)
             .context("docling async submission missing task_id")?;
         Ok(task_id.to_string())
-    }
-
-    async fn poll_status(&self, task_id: &str) -> Result<String> {
-        let response = self
-            .http
-            .get(format!("{}/status/poll/{task_id}", self.base_url))
-            .send()
-            .await
-            .context("failed to poll docling status")?;
-        let response = response
-            .error_for_status()
-            .context("docling status polling returned error status")?;
-        let body = response
-            .json::<Value>()
-            .await
-            .context("failed to parse docling status response")?;
-        body.get("task_status")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .context("docling status response missing task_status")
-    }
-
-    async fn fetch_result(&self, task_id: &str) -> Result<Value> {
-        let response = self
-            .http
-            .get(format!("{}/result/{task_id}", self.base_url))
-            .send()
-            .await
-            .context("failed to fetch docling result")?;
-        let response = response
-            .error_for_status()
-            .context("docling result returned error status")?;
-        let body = response
-            .json::<Value>()
-            .await
-            .context("failed to parse docling result")?;
-        Ok(body
-            .get("document")
-            .and_then(|document| document.get("json_content"))
-            .cloned()
-            .or_else(|| body.get("json_content").cloned())
-            .unwrap_or(body))
     }
 }

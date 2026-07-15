@@ -61,6 +61,7 @@ export function createDoclingDraft(): DraftDoclingSettings {
       base_url: "",
       timeout_secs: 120,
       poll_interval_secs: 2,
+      task_timeout_secs: 600,
     },
     vlm: {
       openai_base_url: "",
@@ -139,6 +140,7 @@ export function doclingResponseToDraft(
       base_url: response.connection.base_url ?? "",
       timeout_secs: response.connection.timeout_secs,
       poll_interval_secs: response.connection.poll_interval_secs,
+      task_timeout_secs: response.connection.task_timeout_secs,
     },
     vlm: {
       openai_base_url: response.vlm.openai_base_url ?? "",

@@ -83,6 +83,7 @@ export function normalizeDoclingPayload(
       base_url: payload.connection.base_url.trim(),
       timeout_secs: Number(payload.connection.timeout_secs),
       poll_interval_secs: Number(payload.connection.poll_interval_secs),
+      task_timeout_secs: Number(payload.connection.task_timeout_secs),
     },
     vlm: {
       openai_base_url: cleanOptional(vlm.openai_base_url),

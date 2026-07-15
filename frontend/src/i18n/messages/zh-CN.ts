@@ -576,6 +576,7 @@ export const zhCN = {
       baseUrl: "基础地址",
       timeout: "超时（秒）",
       pollInterval: "轮询间隔（秒）",
+      taskTimeout: "任务超时（秒）",
       openAiBaseUrl: "OpenAI 基础地址",
       apiKey: "API Key",
       vlmPipelineModel: "VLM 流水线模型",

@@ -323,6 +323,7 @@ mod tests {
                 base_url: "http://docling:5001".to_string(),
                 timeout_secs: 120,
                 poll_interval_secs: 2,
+                task_timeout_secs: 600,
             },
             vlm: UpdateDoclingVlmSettings::default(),
         }
@@ -333,6 +334,7 @@ mod tests {
             base_url: "http://docling:5001".to_string(),
             timeout_secs: 120,
             poll_interval_secs: 2,
+            task_timeout_secs: 600,
             pdf_backend: None,
             images_scale: None,
             image_export_mode: None,
@@ -405,6 +407,16 @@ mod tests {
     #[test]
     fn request_allows_docling_vlm_to_be_disabled() {
         validate_docling_request(&sample_request()).expect("request without vlm should be valid");
+    }
+
+    #[test]
+    fn request_rejects_zero_docling_task_timeout() {
+        let mut request = sample_request();
+        request.connection.task_timeout_secs = 0;
+
+        let error =
+            validate_docling_request(&request).expect_err("zero task timeout should be rejected");
+        assert!(error.to_string().contains("task_timeout_secs"));
     }
 
     #[test]

@@ -8,8 +8,8 @@ use crate::{
     },
     db::{StoredDoclingSettings, StoredSearchSettings},
     docling::{
-        DEFAULT_DOCLING_POLL_INTERVAL_SECS, DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig,
-        DoclingConnectionConfig, DoclingVlmConfig,
+        DEFAULT_DOCLING_POLL_INTERVAL_SECS, DEFAULT_DOCLING_TASK_TIMEOUT_SECS,
+        DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig, DoclingConnectionConfig, DoclingVlmConfig,
     },
     support::normalize::{normalize_optional_string, normalize_string_list},
 };
@@ -22,6 +22,7 @@ pub(super) fn docling_settings_from_request(
         base_url: request.connection.base_url.trim().to_string(),
         timeout_secs: request.connection.timeout_secs,
         poll_interval_secs: request.connection.poll_interval_secs,
+        task_timeout_secs: request.connection.task_timeout_secs,
         pdf_backend: None,
         images_scale: None,
         image_export_mode: Some("placeholder".to_string()),
@@ -65,6 +66,7 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
             base_url: None,
             timeout_secs: DEFAULT_DOCLING_TIMEOUT_SECS,
             poll_interval_secs: DEFAULT_DOCLING_POLL_INTERVAL_SECS,
+            task_timeout_secs: DEFAULT_DOCLING_TASK_TIMEOUT_SECS,
         },
         vlm: DoclingVlmSettingsResponse {
             openai_base_url: None,
@@ -105,6 +107,7 @@ pub(super) fn response_from_stored(
             base_url: Some(settings.base_url),
             timeout_secs: settings.timeout_secs,
             poll_interval_secs: settings.poll_interval_secs,
+            task_timeout_secs: settings.task_timeout_secs,
         },
         vlm: DoclingVlmSettingsResponse {
             openai_base_url: settings.openai_base_url,
@@ -125,6 +128,7 @@ pub(super) fn config_from_stored(settings: StoredDoclingSettings) -> DoclingConf
             base_url: settings.base_url,
             timeout: Duration::from_secs(settings.timeout_secs),
             poll_interval: Duration::from_secs(settings.poll_interval_secs),
+            task_timeout: Duration::from_secs(settings.task_timeout_secs),
         },
         vlm: DoclingVlmConfig {
             openai_base_url: settings.openai_base_url,

@@ -195,6 +195,7 @@ pub struct DoclingConnectionSettingsResponse {
     pub base_url: Option<String>,
     pub timeout_secs: u64,
     pub poll_interval_secs: u64,
+    pub task_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -202,6 +203,7 @@ pub struct UpdateDoclingConnectionSettings {
     pub base_url: String,
     pub timeout_secs: u64,
     pub poll_interval_secs: u64,
+    pub task_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

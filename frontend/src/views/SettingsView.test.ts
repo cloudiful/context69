@@ -53,6 +53,7 @@ const doclingResponse = {
     base_url: "http://docling:5001",
     timeout_secs: 120,
     poll_interval_secs: 2,
+    task_timeout_secs: 600,
   },
   vlm: {
     openai_base_url: "https://openrouter.ai/api/v1",

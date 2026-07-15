@@ -55,6 +55,7 @@ The supported config shape is:
 - `docling.connection.base_url`
 - `docling.connection.timeout_secs`
 - `docling.connection.poll_interval_secs`
+- `docling.connection.task_timeout_secs` (default `600`), the maximum time to wait for an async XLSX task after submission
 - `docling.vlm.openai_base_url`
 - `docling.vlm.api_key`
 - `docling.vlm.vlm_pipeline_model`
@@ -72,6 +73,10 @@ If you use raw Docling VLM config, set all five raw VLM fields together:
 
 In the frontend settings page, configure Docling VLM directly with `openai_base_url`, `api_key`,
 and the three model fields.
+
+XLSX status and result requests retry transient connection errors, HTTP `429`, and `5xx`
+responses with backoff. The async submission is not replayed, because the service may have
+accepted it even when the response is lost.
 
 Legacy OCR, PDF backend, image export, and enrichment toggle fields are no longer used.
 

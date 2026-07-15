@@ -52,6 +52,7 @@ export type DraftDoclingSettings = {
     base_url: string;
     timeout_secs: number;
     poll_interval_secs: number;
+    task_timeout_secs: number;
   };
   vlm: {
     openai_base_url: string;

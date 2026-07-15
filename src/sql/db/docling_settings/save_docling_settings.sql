@@ -3,6 +3,7 @@ INSERT INTO context69.docling_settings (
     base_url,
     timeout_secs,
     poll_interval_secs,
+    task_timeout_secs,
     pdf_backend,
     images_scale,
     image_export_mode,
@@ -40,12 +41,14 @@ VALUES (
     $16,
     $17,
     $18,
+    $19,
     now()
 )
 ON CONFLICT (singleton) DO UPDATE
 SET base_url = EXCLUDED.base_url,
     timeout_secs = EXCLUDED.timeout_secs,
     poll_interval_secs = EXCLUDED.poll_interval_secs,
+    task_timeout_secs = EXCLUDED.task_timeout_secs,
     pdf_backend = EXCLUDED.pdf_backend,
     images_scale = EXCLUDED.images_scale,
     image_export_mode = EXCLUDED.image_export_mode,
@@ -66,6 +69,7 @@ RETURNING
     base_url,
     timeout_secs,
     poll_interval_secs,
+    task_timeout_secs,
     pdf_backend,
     images_scale,
     image_export_mode,

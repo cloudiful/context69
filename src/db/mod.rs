@@ -55,6 +55,7 @@ pub struct StoredDoclingSettings {
     pub base_url: String,
     pub timeout_secs: u64,
     pub poll_interval_secs: u64,
+    pub task_timeout_secs: u64,
     pub pdf_backend: Option<String>,
     pub images_scale: Option<f64>,
     pub image_export_mode: Option<String>,

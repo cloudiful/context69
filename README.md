@@ -81,6 +81,8 @@ the frontend and save Qdrant, embedding, Docling, scheduler, and source settings
 Search and library ingest become available after those settings are saved and the service restarts.
 Text-only ingest does not require Docling. PDF/DOCX/XLSX conversion needs Docling connection
 settings, while Docling VLM fields can be left empty unless you want VLM-based enrichment.
+Async XLSX conversion polls until a terminal task state, retries transient status/result failures,
+and is bounded by the configured Docling task timeout (default 600 seconds).
 
 The service records the active embedding Base URL, model, and dimensions for each Qdrant
 collection. Changing any of them starts a background rebuild of all stored chunk vectors from

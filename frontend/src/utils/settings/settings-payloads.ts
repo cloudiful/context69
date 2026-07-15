@@ -24,6 +24,7 @@ export function buildDoclingPayload(
       base_url: draft.connection.base_url,
       timeout_secs: draft.connection.timeout_secs,
       poll_interval_secs: draft.connection.poll_interval_secs,
+      task_timeout_secs: draft.connection.task_timeout_secs,
     },
     vlm: {
       openai_base_url: draft.vlm.openai_base_url,

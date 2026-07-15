@@ -107,6 +107,9 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
     if request.connection.poll_interval_secs == 0 {
         return Err(anyhow!("docling.poll_interval_secs must be greater than 0"));
     }
+    if request.connection.task_timeout_secs == 0 {
+        return Err(anyhow!("docling.task_timeout_secs must be greater than 0"));
+    }
 
     Ok(())
 }

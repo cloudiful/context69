@@ -576,6 +576,7 @@ export const en = {
       baseUrl: "Base URL",
       timeout: "Timeout (seconds)",
       pollInterval: "Poll Interval (seconds)",
+      taskTimeout: "Task Timeout (seconds)",
       openAiBaseUrl: "OpenAI Base URL",
       apiKey: "API Key",
       vlmPipelineModel: "VLM Pipeline Model",
