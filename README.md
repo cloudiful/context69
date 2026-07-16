@@ -79,6 +79,9 @@ With the current startup path, only `app_db.url` is required for the backend to 
 If runtime settings are still empty, the service starts in degraded mode so you can open
 the frontend and save Qdrant, embedding, Docling, scheduler, and source settings there.
 Search and library ingest become available after those settings are saved and the service restarts.
+If the configured browser-session Valkey is unavailable, the service still starts with an
+in-memory session store so you can open Settings and correct the Valkey URL. Those sessions
+are lost on restart; configure Valkey and restart the service to restore shared session storage.
 Text-only ingest does not require Docling. PDF/DOCX/XLSX conversion needs Docling connection
 settings, while Docling VLM fields can be left empty unless you want VLM-based enrichment.
 Async XLSX conversion polls until a terminal task state, retries transient status/result failures,
@@ -311,7 +314,7 @@ For the full surface:
 
 ## Security
 
-- Browser authentication uses the signed `context69_session_v2` HttpOnly cookie and a shared Valkey session store.
+- Browser authentication uses the signed `context69_session_v2` HttpOnly cookie and a shared Valkey session store when Valkey is available. Startup falls back to an in-memory store when Valkey is unavailable so Settings remains accessible for repair.
 - Browser sessions reuse the runtime scheduler Valkey URL configured in Settings. If none is configured, the local default is `redis://127.0.0.1:6379`. Context69 generates the shared signing key once and stores it internally in PostgreSQL, so instances using the same database require no separate key configuration.
 - Set `CONTEXT69_AUTH__SESSION_VALKEY_URL` or `CONTEXT69_AUTH__SESSION_SECRET_KEY` only as break-glass overrides. Production deployments should set `CONTEXT69_AUTH__SESSION_COOKIE_SECURE=true`.
 - Browser UI and API must remain same-origin, either directly or through the documented frontend reverse proxy. Session cookies are not configured for cross-origin API access.

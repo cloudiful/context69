@@ -57,7 +57,7 @@ def main [command?: string] {
       print "  RUST_LOG defaults to info if not set"
       print "  Frontend listens on 0.0.0.0:5173"
       print "  Frontend proxies /v1, /healthz, and /openapi.json to http://127.0.0.1:8096"
-      print "  Backend startup fails with an auth session Valkey error when the configured store is unavailable"
+      print "  Backend uses in-memory browser sessions when configured Valkey is unavailable"
       print "  CONTEXT69_AUTH__SESSION_VALKEY_URL is available as a break-glass override"
     }
     _ => {

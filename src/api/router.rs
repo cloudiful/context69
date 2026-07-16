@@ -11,14 +11,14 @@ use axum::{
 use axum_login::AuthManagerLayerBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tower_sessions::{
-    Expiry, SessionManagerLayer,
+    Expiry, MemoryStore, SessionManagerLayer, SessionStore,
     cookie::{Key, SameSite},
 };
 use tower_sessions_redis_store::{
     RedisStore,
     fred::{
         interfaces::ClientLike,
-        prelude::{Builder, Config as FredConfig, ReconnectPolicy},
+        prelude::{Builder, Config as FredConfig, Pool, ReconnectPolicy},
     },
 };
 
@@ -56,6 +56,33 @@ use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 pub async fn router(app: Arc<Context69App>) -> Result<Router> {
     let upload_body_limit = app.library.max_upload_request_size_bytes();
     let api_state = build_api_state(app);
+    match build_redis_session_store(&api_state).await {
+        Ok(redis_store) => {
+            log_session_configuration(&api_state, "valkey");
+            build_router_with_session_store(api_state, upload_body_limit, redis_store)
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "auth session Valkey unavailable; using in-memory browser sessions until restart"
+            );
+            log_session_configuration(&api_state, "memory");
+            build_router_with_session_store(api_state, upload_body_limit, MemoryStore::default())
+        }
+    }
+}
+
+fn log_session_configuration(api_state: &ApiState, backend: &'static str) {
+    tracing::info!(
+        session_backend = backend,
+        session_cookie_name = SESSION_COOKIE_NAME,
+        secure_cookies = api_state.app.config.auth.session_cookie_secure,
+        idle_ttl_secs = api_state.app.config.auth.session_idle_ttl.as_secs(),
+        "configured browser sessions"
+    );
+}
+
+async fn build_redis_session_store(api_state: &ApiState) -> Result<RedisStore<Pool>> {
     let redis_pool = Builder::from_config(
         FredConfig::from_url(&api_state.app.browser_sessions.valkey_url)
             .context("failed to parse browser session Valkey URL")?,
@@ -67,8 +94,15 @@ pub async fn router(app: Arc<Context69App>) -> Result<Router> {
         .init()
         .await
         .context("failed to connect auth session Valkey pool")?;
+    Ok(RedisStore::new(redis_pool))
+}
+
+fn build_router_with_session_store<S: SessionStore + Clone + Send + Sync + 'static>(
+    api_state: ApiState,
+    upload_body_limit: usize,
+    session_store: S,
+) -> Result<Router> {
     let session_key = Key::from(&api_state.app.browser_sessions.signing_key);
-    let session_store = RedisStore::new(redis_pool);
     let session_layer = SessionManagerLayer::new(session_store)
         .with_name(SESSION_COOKIE_NAME)
         .with_path("/")
@@ -84,12 +118,6 @@ pub async fn router(app: Arc<Context69App>) -> Result<Router> {
     let auth_layer = AuthManagerLayerBuilder::new(api_state.app.auth.clone(), session_layer)
         .with_data_key(AUTH_SESSION_DATA_KEY)
         .build();
-    tracing::info!(
-        session_cookie_name = SESSION_COOKIE_NAME,
-        secure_cookies = api_state.app.config.auth.session_cookie_secure,
-        idle_ttl_secs = api_state.app.config.auth.session_idle_ttl.as_secs(),
-        "configured Valkey-backed browser sessions"
-    );
     let protected_v1 = protected_routes(upload_body_limit, api_state.clone())
         .layer(from_fn_with_state(api_state.clone(), auth_middleware));
 
