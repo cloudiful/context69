@@ -1,0 +1,82 @@
+name: Build and Publish
+run-name: Build and Publish by ${{ github.actor }}
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-tags:
+    runs-on: ubuntu-latest
+    outputs:
+      manifest_tag: ${{ steps.tags.outputs.manifest_tag }}
+      amd64_tag: ${{ steps.tags.outputs.amd64_tag }}
+      arm64_tag: ${{ steps.tags.outputs.arm64_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve image tags
+        id: tags
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/resolve-image-tags@v0.1.8
+
+  build-arm64-image:
+    runs-on: rust-arm
+    needs:
+      - resolve-tags
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Restore Bun install cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-install-arm64-${{ hashFiles('frontend/package.json', 'frontend/bunfig.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-install-arm64-
+            ${{ runner.os }}-bun-install-
+
+      - name: Prepare arm64 build context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf ci-image-input
+          mkdir -p ci-image-input/frontend-dist
+
+          cargo build --release --bin context69
+          install -Dm755 target/release/context69 ci-image-input/context69
+
+          target/release/context69 export-openapi
+          pushd frontend >/dev/null
+          bun install --minimum-release-age 604800
+          bun run generate:api
+          bun run build
+          test -f dist/index.html
+          cp -R dist/. ../ci-image-input/frontend-dist/
+          popd >/dev/null
+
+      - name: Build and push arm64 image
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-rust-docker-image@v0.1.8
+        with:
+          dockerfile: ./Dockerfile
+          target: runtime
+          platform: linux/arm64
+          manifest_tag: ${{ needs.resolve-tags.outputs.manifest_tag }}
+          amd64_tag: ${{ needs.resolve-tags.outputs.amd64_tag }}
+          arm64_tag: ${{ needs.resolve-tags.outputs.arm64_tag }}
+          publish_amd64: "false"
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}

@@ -226,6 +226,18 @@ describe("SettingsView", () => {
     expect(wrapper.text()).toContain("Settings saved");
   });
 
+  it("keeps long settings sections in a scrollable content region", async () => {
+    const { wrapper } = await mountSettingsView("/settings/runtime");
+
+    const scrollRegion = wrapper.get('[data-testid="settings-page-scroll"]');
+
+    expect(scrollRegion.classes()).toEqual(expect.arrayContaining([
+      "h-full",
+      "min-h-0",
+      "overflow-y-auto",
+    ]));
+  });
+
   it("switches locale and theme from the settings page", async () => {
     const i18n = createTestI18n("en");
     const { wrapper } = await mountSettingsView("/settings/appearance", i18n);

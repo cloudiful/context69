@@ -23,6 +23,7 @@ const showGlobalRouteBar = computed(() => {
     || routeName === "group-settings"
     || routeName.startsWith("settings-");
 });
+const isSettingsRoute = computed(() => String(route.name ?? "").startsWith("settings-"));
 const fillsRouteContent = computed(() => route.meta.contentLayout === "fill");
 
 async function retrySessionRestore() {
@@ -45,8 +46,12 @@ onMounted(() => {
       <UDashboardPanel class="min-w-0">
         <main
           :class="[
-            'min-w-0 px-2 py-2 pb-20 md:px-3 md:pb-3',
-            fillsRouteContent ? 'md:h-screen md:overflow-hidden' : 'min-h-screen',
+            'flex min-h-0 min-w-0 flex-1 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3',
+            isSettingsRoute
+              ? 'h-screen overflow-hidden'
+              : fillsRouteContent
+                ? 'md:h-screen md:overflow-hidden'
+                : 'min-h-screen',
           ]"
         >
       <div

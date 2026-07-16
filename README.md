@@ -237,6 +237,8 @@ This repository includes GitHub Actions workflows for:
 The Docker workflow builds backend and frontend artifacts on native GitHub-hosted runners for both `amd64` and `arm64`, then assembles and publishes runtime-only images before publishing a multi-architecture manifest.
 Release tags use `v*`; the same tag publishes Docker and both crates.
 
+Forgejo also has a separate workflow that publishes a `linux/arm64` image for pushes to `main` and manual runs. It does not process release tags; formal releases and multi-architecture GHCR images remain managed by GitHub Actions.
+
 Release details:
 
 - [Release Guide](/Users/cloudiful/codes/research/context69/docs/release.md)

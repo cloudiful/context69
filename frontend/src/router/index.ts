@@ -87,6 +87,7 @@ export const router = createRouter({
       name: "settings-appearance",
       component: () => import("../views/SettingsView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
       },
     },
@@ -95,6 +96,7 @@ export const router = createRouter({
       name: "settings-access-tokens",
       component: () => import("../views/SettingsView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
       },
     },
@@ -103,6 +105,7 @@ export const router = createRouter({
       name: "settings-search",
       component: () => import("../views/SettingsView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
       },
     },
@@ -111,6 +114,7 @@ export const router = createRouter({
       name: "settings-runtime",
       component: () => import("../views/SettingsView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
       },
     },
@@ -119,6 +123,7 @@ export const router = createRouter({
       name: "settings-docling",
       component: () => import("../views/SettingsView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
       },
     },
@@ -127,6 +132,7 @@ export const router = createRouter({
       name: "settings-translation",
       component: () => import("../views/SettingsView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
         requiresAdmin: true,
       },
@@ -136,6 +142,7 @@ export const router = createRouter({
       name: "settings-admin-users",
       component: () => import("../views/SettingsView.vue"),
       meta: {
+        contentLayout: "fill",
         requiresAuth: true,
         requiresAdmin: true,
       },

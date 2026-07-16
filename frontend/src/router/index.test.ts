@@ -101,4 +101,20 @@ describe("router auth guards", () => {
     expect(router.currentRoute.value.fullPath).toBe("/groups/stock/settings");
   });
 
+  it("uses a fill layout for every settings section", () => {
+    const settingsPaths = [
+      "/settings/appearance",
+      "/settings/access-tokens",
+      "/settings/search",
+      "/settings/runtime",
+      "/settings/docling",
+      "/settings/translation",
+      "/settings/admin-users",
+    ];
+
+    for (const path of settingsPaths) {
+      expect(router.resolve(path).meta.contentLayout).toBe("fill");
+    }
+  });
+
 });
