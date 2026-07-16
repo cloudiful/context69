@@ -28,7 +28,7 @@ const adminUsersQuery = computed(() => unref(state.adminUsersQuery));
     @enable="state.enableAdminUser"
     @reset-password="state.resetAdminUserPassword"
     @update="state.updateAdminUser"
-    @update:query="state.adminUsersQuery = $event"
+    @update:query="state.adminUsersQuery.value = $event"
     @page="state.changeAdminUsersPage"
   />
 </template>

@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "bun run check && vite build",
     "preview": "vite preview",
     "generate:api": "openapi-typescript ./openapi/context69.openapi.json -o ./src/generated/openapi.ts",
     "generate:api:from-backend": "cd .. && cargo run --bin context69 -- export-openapi && cd frontend && bun run generate:api",
     "build:with-api": "bun run generate:api:from-backend && bun run build",
-    "check": "vue-tsc --noEmit",
+    "check": "bun -e \"import { createRequire } from 'node:module'; import { dirname, join } from 'node:path'; const require = createRequire(import.meta.url); const packageJson = require.resolve('typescript-vue-compat/package.json'); require('vue-tsc').run(join(dirname(packageJson), 'lib', 'tsc.js'));\" --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -34,6 +34,7 @@
     "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4.3.2",
     "typescript": "^7.0.2",
+    "typescript-vue-compat": "npm:typescript@5.9.3",
     "vite": "^8.1.4",
     "vitest": "^4.1.10",
     "vue-tsc": "^3.3.7"

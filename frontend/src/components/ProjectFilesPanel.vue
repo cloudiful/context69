@@ -219,7 +219,7 @@ watch(detail.detail, (nextDetail) => {
   const fileId = tree.selectedFileId.value;
   if (!fileId || !nextDetail || nextDetail.file_id !== fileId) return;
   if (nextDetail.folder_id !== tree.selectedFolderId.value) {
-    void tree.replaceQuery(nextDetail.folder_id ?? null, fileId);
+    void tree.replaceSelection(nextDetail.folder_id ?? null, fileId);
   }
 });
 
