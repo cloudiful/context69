@@ -220,6 +220,9 @@ docker run --rm \
   context69:latest
 ```
 
+The bundled Nginx proxy does not emit access or error logs; application logs remain available from
+the container output.
+
 Then open the frontend settings page and save runtime and Docling settings.
 Until that happens, `/healthz` is expected to report a degraded state.
 
