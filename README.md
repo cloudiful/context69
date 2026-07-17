@@ -253,10 +253,10 @@ The repository contains a Vue 3 + Vite + bun frontend under `frontend/`.
 The frontend uses Nuxt UI with Vue 3, Vite, Tailwind CSS, and bundled Lucide icons. Prefer Nuxt UI
 components and default theme tokens before adding project-specific controls or CSS.
 
-The frontend project compiler uses TypeScript 7.x. Because the current `vue-tsc` release does not
-yet load TypeScript 7's native compiler entry, `bun run check` uses the explicit
-`typescript-vue-compat` 5.9.3 alias for Vue SFC checking; do not replace it with bare `tsc`, which
-does not type-check `.vue` files.
+The frontend OpenAPI generator uses TypeScript 5.9.3 because `openapi-typescript` 7.x currently
+requires the TypeScript 5 API. Vue SFC checking remains on the separate `typescript-vue-compat`
+7.0.2 alias through the custom `bun run check` script; do not replace it with bare `tsc`, which does
+not type-check `.vue` files.
 
 Development guides:
 
