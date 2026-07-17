@@ -1,6 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 
+import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import LibraryPreviewContent from "./LibraryPreviewContent.vue";
 
 describe("LibraryPreviewContent", () => {
@@ -32,5 +33,27 @@ describe("LibraryPreviewContent", () => {
     expect(wrapper.find("pre").exists()).toBe(true);
     expect(wrapper.text()).toContain("# Title");
     expect(wrapper.find(".library-markdown-content").exists()).toBe(false);
+  });
+
+  it("paginates markdown by semantic blocks without adding a vertical content scroll", async () => {
+    const content = Array.from({ length: 20 }, (_, index) => `# Section ${index + 1}`).join("\n\n");
+    const wrapper = mount(LibraryPreviewContent, {
+      props: { content, contentFormat: "markdown" },
+      global: { plugins: [testNuxtUiPlugin] },
+    });
+
+    await vi.waitFor(() => {
+      expect(wrapper.findComponent({ name: "Pagination" }).exists()).toBe(true);
+    });
+
+    expect(wrapper.find(".library-markdown-content").classes()).not.toContain("overflow-auto");
+    expect(wrapper.text()).toContain("Section 1");
+
+    const pagination = wrapper.findComponent({ name: "Pagination" });
+    pagination.vm.$emit("update:page", 2);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain("Section 10");
+    expect(wrapper.text()).not.toContain("Section 2");
   });
 });

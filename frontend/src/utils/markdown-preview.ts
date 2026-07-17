@@ -1,3 +1,5 @@
+import type { MarkdownPreviewBlock } from "./markdown-preview-pagination";
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -77,8 +79,24 @@ function isOrderedListItem(line: string): boolean {
   return /^\d+\.\s+/.test(line.trim());
 }
 
-export function renderMarkdownPreview(markdown: string): string {
-  const blocks: string[] = [];
+function estimateBlockWeight(source: string, kind: "code" | "heading" | "list" | "paragraph"): number {
+  if (kind === "heading") {
+    return 2;
+  }
+
+  if (kind === "code") {
+    return Math.max(3, Math.ceil(source.split("\n").length * 1.5));
+  }
+
+  if (kind === "list") {
+    return Math.max(2, Math.ceil(source.split("\n").length * 1.5));
+  }
+
+  return Math.max(2, Math.ceil(source.length / 80) + 1);
+}
+
+export function renderMarkdownPreviewBlocks(markdown: string): MarkdownPreviewBlock[] {
+  const blocks: MarkdownPreviewBlock[] = [];
   const lines = markdown.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
 
   for (let index = 0; index < lines.length; ) {
@@ -103,14 +121,21 @@ export function renderMarkdownPreview(markdown: string): string {
         index += 1;
       }
 
-      blocks.push(`<pre class="library-markdown-pre"><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+      const source = codeLines.join("\n");
+      blocks.push({
+        html: `<pre class="library-markdown-pre"><code>${escapeHtml(source)}</code></pre>`,
+        weight: estimateBlockWeight(source, "code"),
+      });
       continue;
     }
 
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
-      blocks.push(`<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`);
+      blocks.push({
+        html: `<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`,
+        weight: estimateBlockWeight(headingMatch[2], "heading"),
+      });
       index += 1;
       continue;
     }
@@ -132,7 +157,10 @@ export function renderMarkdownPreview(markdown: string): string {
 
       const tagName = ordered ? "ol" : "ul";
       const itemsHtml = items.map((item) => `<li>${applyInlineMarkdown(item)}</li>`).join("");
-      blocks.push(`<${tagName}>${itemsHtml}</${tagName}>`);
+      blocks.push({
+        html: `<${tagName}>${itemsHtml}</${tagName}>`,
+        weight: estimateBlockWeight(items.join("\n"), "list"),
+      });
       continue;
     }
 
@@ -155,8 +183,16 @@ export function renderMarkdownPreview(markdown: string): string {
       index += 1;
     }
 
-    blocks.push(`<p>${applyInlineMarkdown(paragraphLines.join("\n"))}</p>`);
+    const source = paragraphLines.join("\n");
+    blocks.push({
+      html: `<p>${applyInlineMarkdown(source)}</p>`,
+      weight: estimateBlockWeight(source, "paragraph"),
+    });
   }
 
-  return blocks.join("");
+  return blocks;
+}
+
+export function renderMarkdownPreview(markdown: string): string {
+  return renderMarkdownPreviewBlocks(markdown).map((block) => block.html).join("");
 }
