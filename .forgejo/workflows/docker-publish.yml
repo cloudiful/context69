@@ -49,7 +49,6 @@ jobs:
             ${{ runner.os }}-bun-install-
 
       - name: Prepare arm64 build context
-        shell: bash
         run: |
           set -euo pipefail
 
@@ -61,7 +60,7 @@ jobs:
 
           target/release/context69 export-openapi
           pushd frontend >/dev/null
-          bun install --minimum-release-age 604800
+          bun install
           bun run generate:api
           bun run build
           test -f dist/index.html
