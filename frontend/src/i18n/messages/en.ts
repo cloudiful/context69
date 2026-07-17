@@ -593,8 +593,6 @@ export const en = {
     chunkLabel: "Content Block {index}",
     noBodyChunksTitle: "No Content",
     noBodyChunksMessage: "This document has metadata, but no stored body content.",
-    collapse: "Show Less",
-    showAll: "Show All ({count})",
     published: "Published",
     updated: "Updated",
     sourceLink: "Source Link",

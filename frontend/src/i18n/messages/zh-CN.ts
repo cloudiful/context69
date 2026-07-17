@@ -593,8 +593,6 @@ export const zhCN = {
     chunkLabel: "内容块 {index}",
     noBodyChunksTitle: "暂无内容",
     noBodyChunksMessage: "该文档包含元数据，但没有存储正文内容。",
-    collapse: "收起",
-    showAll: "显示全部（{count}）",
     published: "发布时间",
     updated: "更新时间",
     sourceLink: "来源链接",

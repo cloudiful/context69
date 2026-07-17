@@ -16,7 +16,8 @@ const showErrorToast = useErrorToast();
 const documentData = ref<DocumentResponse | null>(null);
 const loadError = ref<string | null>(null);
 const loading = ref(false);
-const expanded = ref(false);
+const chunkPage = ref(1);
+const chunkPageSize = 10;
 
 let controller: AbortController | null = null;
 
@@ -25,7 +26,8 @@ const visibleChunks = computed(() => {
     return [];
   }
 
-  return expanded.value ? documentData.value.chunks : documentData.value.chunks.slice(0, 3);
+  const start = (chunkPage.value - 1) * chunkPageSize;
+  return documentData.value.chunks.slice(start, start + chunkPageSize);
 });
 
 const libraryRoute = computed(() => {
@@ -89,7 +91,7 @@ onMounted(() => {
 watch(
   () => route.params.id,
   () => {
-    expanded.value = false;
+    chunkPage.value = 1;
     void loadDocument();
   },
 );
@@ -149,15 +151,13 @@ onBeforeUnmount(() => {
             />
           </div>
 
-          <UButton
-            v-if="documentData.chunks.length > 3"
-            color="neutral"
-            variant="outline"
-            type="button"
-            @click="expanded = !expanded"
-          >
-            {{ expanded ? t("document.collapse") : t("document.showAll", { count: documentData.chunks.length }) }}
-          </UButton>
+          <UPagination
+            v-if="documentData.chunks.length > chunkPageSize"
+            v-model:page="chunkPage"
+            :items-per-page="chunkPageSize"
+            :total="documentData.chunks.length"
+            class="justify-end"
+          />
         </div>
 
         <aside class="grid gap-2">
