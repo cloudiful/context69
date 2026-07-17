@@ -65,6 +65,7 @@ declare module 'vue' {
     UContextMenu: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/ContextMenu.vue')['default']
     UDashboardGroup: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/DashboardGroup.vue')['default']
     UDashboardPanel: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/DashboardPanel.vue')['default']
+    UDashboardResizeHandle: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/DashboardResizeHandle.vue')['default']
     UDashboardSidebar: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/DashboardSidebar.vue')['default']
     UDashboardSidebarCollapse: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/DashboardSidebarCollapse.vue')['default']
     UDashboardToolbar: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/DashboardToolbar.vue')['default']

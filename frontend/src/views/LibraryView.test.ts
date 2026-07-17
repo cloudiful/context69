@@ -318,7 +318,9 @@ describe("LibraryView", () => {
     await vi.waitFor(() => {
       expect(router.currentRoute.value.query.file).toBe("file-1");
       expect(getLibraryFile).toHaveBeenCalledWith("file-1", expect.any(Object));
-      expect(document.body.querySelector(".library-preview-dialog")).not.toBeNull();
+      const previewDialog = document.body.querySelector(".library-preview-dialog");
+      expect(previewDialog).not.toBeNull();
+      expect(previewDialog?.classList.contains("max-w-[min(96vw,72rem)]")).toBe(true);
       expect(document.body.textContent).toContain("Parsed report text");
     });
 

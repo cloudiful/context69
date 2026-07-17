@@ -234,6 +234,7 @@ describe("SettingsView", () => {
     expect(scrollRegion.classes()).toEqual(expect.arrayContaining([
       "h-full",
       "min-h-0",
+      "grid-rows-[auto_minmax(0,1fr)]",
       "overflow-y-auto",
     ]));
   });

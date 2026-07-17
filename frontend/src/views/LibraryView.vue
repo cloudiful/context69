@@ -347,7 +347,7 @@ defineExpose({
 
     <UModal
       v-model:open="previewState.previewDialogVisible"
-      class="library-preview-dialog w-[min(96vw,58rem)]"
+      class="library-preview-dialog w-[min(96vw,72rem)] max-w-[min(96vw,72rem)]"
       :modal="true"
       :title="previewState.previewTitle"
     >

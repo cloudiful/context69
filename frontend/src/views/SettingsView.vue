@@ -61,7 +61,7 @@ function switchLocale(nextLocale: AppLocale) {
 </script>
 
 <template>
-  <section class="grid h-full min-h-0 min-w-0 gap-3 overflow-y-auto" data-testid="settings-page-scroll">
+  <section class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-y-auto" data-testid="settings-page-scroll">
     <div class="flex flex-wrap justify-end gap-1.5">
       <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
       <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />

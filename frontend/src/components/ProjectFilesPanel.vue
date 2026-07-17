@@ -253,146 +253,148 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <UFileUpload
-    ref="fileUpload"
-    v-model="uploadFiles"
-    class="sr-only"
-    multiple
-    :preview="false"
-    :dropzone="false"
-    accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
-  />
-  <Teleport to="#app-route-actions">
-    <UInput v-model="pageState.query" class="w-56" icon="i-lucide-search" :placeholder="t('nav.search')" />
-  </Teleport>
-
-  <UContextMenu :items="activeContextMenuItems">
-    <section
-    class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950"
-    :class="treeState.breadcrumbItems.length > 0
-      ? 'grid-rows-[auto_minmax(0,1fr)]'
-      : 'grid-rows-[minmax(0,1fr)]'"
-  >
-    <LibraryToolbar
-      v-if="treeState.breadcrumbItems.length > 0"
-      :breadcrumb-home="treeState.breadcrumbHome"
-      :breadcrumb-items="treeState.breadcrumbItems"
-      :search-query="pageState.query"
-      :show-search="false"
-      @update:search-query="pageState.query = $event"
+  <div class="project-files-panel h-full min-h-0">
+    <UFileUpload
+      ref="fileUpload"
+      v-model="uploadFiles"
+      class="sr-only"
+      multiple
+      :preview="false"
+      :dropzone="false"
+      accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
     />
-    <LibraryResourceTable
-      :create-folder-busy="actionsState.createFolderBusy"
-      :create-source-folder-busy="sourceFolderState.busy"
-      :entries="pageState.entries"
-      :error="treeState.treeError || pageState.error"
-      :first="pageState.first"
-      :group-entries="visibleGroupEntries"
-      :group-page="visibleChildGroupPage"
-      hide-actions
-      hide-group-paths
-      compact
-      :expanded-keys="treeState.expandedTreeKeys"
-      :loading="treeState.treeLoading || pageState.loading"
-      paginated
-      :page-size="pageState.pageSize"
-      :resource-search-query="pageState.query"
-      :retrying-file-ids="actionsState.retryingFileIds"
-      :unavailable-file-ids="actionsState.unavailableFileIds"
-      :selected-folder-ready="!!treeState.selectedFolder"
-      :selection="treeState.selectedExplorerEntry"
-      :sort-field="pageState.sortBy"
-      :sort-order="pageState.sortOrder"
-      :status-filter="pageState.statusFilter"
-      :table-context-selection="treeState.resourceContextEntry"
-      :upload-busy="actionsState.uploadBusy"
-      :total-records="pageState.total"
-      @update:selection="treeState.selectedExplorerEntry = $event"
-      @update:tableContextSelection="treeState.resourceContextEntry = $event"
-      @row-click="handleExplorerRowClick"
-      @row-dblclick="handleExplorerRowDoubleClick"
-      @row-contextmenu="handleExplorerRowContextMenu"
-      @page="pageState.changePage($event.first, $event.rows)"
-      @sort="pageState.changeSort($event.sortField, $event.sortOrder)"
-      @status-filter="pageState.changeStatusFilter($event)"
-      @group-contextmenu="handleGroupRowContextMenu"
-      @surface-contextmenu="handleSurfaceContextMenu"
-      @open-entry="openExplorerEntry"
-      @move-entry="actionsState.moveExplorerEntry"
-      @delete-entry="actionsState.deleteExplorerEntry"
-      @open-group="emit('open-child-group', $event.group)"
-      @group-page="emit('child-group-page', $event)"
-      @edit-group="emit('edit-child-group', $event.group)"
-      @move-group="emit('move-child-group', $event.group)"
-      @delete-group="emit('delete-child-group', $event.group)"
-      @toggle-folder="treeState.toggleFolderExpansion($event.id)"
-      @refresh="treeState.refreshLibrary(detailState.loadDetail)"
-      @retry="refreshLibraryData"
-      @retry-entry="retryExplorerEntry"
-      @create-folder="actionsState.openCreateFolderDialog()"
-      @create-source-folder="sourceFolderState.openCreate()"
-      @sync-source-folder="sourceFolderState.sync($event.id)"
-      @upload-select="actionsState.handleFileSelection"
+    <Teleport to="#app-route-actions">
+      <UInput v-model="pageState.query" class="w-56" icon="i-lucide-search" :placeholder="t('nav.search')" />
+    </Teleport>
+
+    <UContextMenu :items="activeContextMenuItems">
+      <section
+        class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950"
+        :class="treeState.breadcrumbItems.length > 0
+          ? 'grid-rows-[auto_minmax(0,1fr)]'
+          : 'grid-rows-[minmax(0,1fr)]'"
+      >
+        <LibraryToolbar
+          v-if="treeState.breadcrumbItems.length > 0"
+          :breadcrumb-home="treeState.breadcrumbHome"
+          :breadcrumb-items="treeState.breadcrumbItems"
+          :search-query="pageState.query"
+          :show-search="false"
+          @update:search-query="pageState.query = $event"
+        />
+        <LibraryResourceTable
+          :create-folder-busy="actionsState.createFolderBusy"
+          :create-source-folder-busy="sourceFolderState.busy"
+          :entries="pageState.entries"
+          :error="treeState.treeError || pageState.error"
+          :first="pageState.first"
+          :group-entries="visibleGroupEntries"
+          :group-page="visibleChildGroupPage"
+          hide-actions
+          hide-group-paths
+          compact
+          :expanded-keys="treeState.expandedTreeKeys"
+          :loading="treeState.treeLoading || pageState.loading"
+          paginated
+          :page-size="pageState.pageSize"
+          :resource-search-query="pageState.query"
+          :retrying-file-ids="actionsState.retryingFileIds"
+          :unavailable-file-ids="actionsState.unavailableFileIds"
+          :selected-folder-ready="!!treeState.selectedFolder"
+          :selection="treeState.selectedExplorerEntry"
+          :sort-field="pageState.sortBy"
+          :sort-order="pageState.sortOrder"
+          :status-filter="pageState.statusFilter"
+          :table-context-selection="treeState.resourceContextEntry"
+          :upload-busy="actionsState.uploadBusy"
+          :total-records="pageState.total"
+          @update:selection="treeState.selectedExplorerEntry = $event"
+          @update:tableContextSelection="treeState.resourceContextEntry = $event"
+          @row-click="handleExplorerRowClick"
+          @row-dblclick="handleExplorerRowDoubleClick"
+          @row-contextmenu="handleExplorerRowContextMenu"
+          @page="pageState.changePage($event.first, $event.rows)"
+          @sort="pageState.changeSort($event.sortField, $event.sortOrder)"
+          @status-filter="pageState.changeStatusFilter($event)"
+          @group-contextmenu="handleGroupRowContextMenu"
+          @surface-contextmenu="handleSurfaceContextMenu"
+          @open-entry="openExplorerEntry"
+          @move-entry="actionsState.moveExplorerEntry"
+          @delete-entry="actionsState.deleteExplorerEntry"
+          @open-group="emit('open-child-group', $event.group)"
+          @group-page="emit('child-group-page', $event)"
+          @edit-group="emit('edit-child-group', $event.group)"
+          @move-group="emit('move-child-group', $event.group)"
+          @delete-group="emit('delete-child-group', $event.group)"
+          @toggle-folder="treeState.toggleFolderExpansion($event.id)"
+          @refresh="treeState.refreshLibrary(detailState.loadDetail)"
+          @retry="refreshLibraryData"
+          @retry-entry="retryExplorerEntry"
+          @create-folder="actionsState.openCreateFolderDialog()"
+          @create-source-folder="sourceFolderState.openCreate()"
+          @sync-source-folder="sourceFolderState.sync($event.id)"
+          @upload-select="actionsState.handleFileSelection"
+        />
+      </section>
+    </UContextMenu>
+
+    <LibraryCreateFolderDialog
+      :open="!!actionsState.createDialog"
+      :busy="actionsState.createFolderBusy"
+      :parent-name="actionsState.createDialog?.parentFolderName ?? t('library.rootFolder')"
+      @cancel="actionsState.createDialog = null"
+      @confirm="actionsState.confirmCreateFolder"
     />
-    </section>
-  </UContextMenu>
 
-  <LibraryCreateFolderDialog
-    :open="!!actionsState.createDialog"
-    :busy="actionsState.createFolderBusy"
-    :parent-name="actionsState.createDialog?.parentFolderName ?? t('library.rootFolder')"
-    @cancel="actionsState.createDialog = null"
-    @confirm="actionsState.confirmCreateFolder"
-  />
-
-  <LibraryCreateTextFileDialog
-    :open="!!actionsState.createTextDialog"
-    :busy="actionsState.createFolderBusy"
-    :parent-name="actionsState.createTextDialog?.parentFolderName ?? t('library.rootFolder')"
-    @cancel="actionsState.createTextDialog = null"
-    @confirm="actionsState.confirmCreateTextFile"
-  />
-
-  <LibraryMoveDialog
-    :open="!!actionsState.moveDialog"
-    :busy="actionsState.actionBusy"
-    :title="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderTitle', { name: actionsState.moveDialog?.name ?? '' }) : t('library.moveFileTitle', { name: actionsState.moveDialog?.name ?? '' })"
-    :description="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderDescription') : t('library.moveFileDescription')"
-    :options="actionsState.filteredMoveOptions"
-    :current-folder-id="actionsState.moveDialog?.currentFolderId ?? null"
-    @cancel="actionsState.moveDialog = null"
-    @confirm="actionsState.confirmMove"
-  />
-
-  <ProjectSourceFolderDialog
-    :open="sourceFolderState.open"
-    :busy="sourceFolderState.busy"
-    :folder-name="sourceFolderState.folderName"
-    :folder-name-readonly="!!sourceFolderState.folderId"
-    :title="sourceFolderState.title"
-    :value="sourceFolderState.value"
-    @cancel="sourceFolderState.open = false"
-    @confirm="sourceFolderState.save"
-    @update:value="sourceFolderState.value = $event"
-  />
-
-  <UModal
-    v-model:open="previewState.previewDialogVisible"
-
-    :title="previewState.previewTitle"
-    class="library-preview-dialog w-[min(96vw,58rem)]"
-  >
-    <template #body>
-<LibraryPreviewPanel
-      :active-section-key="detailState.activeSectionKey"
-      :detail="detailState.detail"
-      :detail-loading="detailState.detailLoading"
-      :selected-file-id="treeState.selectedFileId"
-      :selected-folder-summary="treeState.selectedFolderSummary"
-      :retrying="!!treeState.selectedFileId && actionsState.retryingFileIds.includes(treeState.selectedFileId)"
-      @retry="actionsState.retryFile"
-      @update:active-section-key="detailState.activeSectionKey = $event"
+    <LibraryCreateTextFileDialog
+      :open="!!actionsState.createTextDialog"
+      :busy="actionsState.createFolderBusy"
+      :parent-name="actionsState.createTextDialog?.parentFolderName ?? t('library.rootFolder')"
+      @cancel="actionsState.createTextDialog = null"
+      @confirm="actionsState.confirmCreateTextFile"
     />
-    </template>
-  </UModal>
+
+    <LibraryMoveDialog
+      :open="!!actionsState.moveDialog"
+      :busy="actionsState.actionBusy"
+      :title="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderTitle', { name: actionsState.moveDialog?.name ?? '' }) : t('library.moveFileTitle', { name: actionsState.moveDialog?.name ?? '' })"
+      :description="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderDescription') : t('library.moveFileDescription')"
+      :options="actionsState.filteredMoveOptions"
+      :current-folder-id="actionsState.moveDialog?.currentFolderId ?? null"
+      @cancel="actionsState.moveDialog = null"
+      @confirm="actionsState.confirmMove"
+    />
+
+    <ProjectSourceFolderDialog
+      :open="sourceFolderState.open"
+      :busy="sourceFolderState.busy"
+      :folder-name="sourceFolderState.folderName"
+      :folder-name-readonly="!!sourceFolderState.folderId"
+      :title="sourceFolderState.title"
+      :value="sourceFolderState.value"
+      @cancel="sourceFolderState.open = false"
+      @confirm="sourceFolderState.save"
+      @update:value="sourceFolderState.value = $event"
+    />
+
+    <UModal
+      v-model:open="previewState.previewDialogVisible"
+
+      :title="previewState.previewTitle"
+      class="library-preview-dialog w-[min(96vw,72rem)] max-w-[min(96vw,72rem)]"
+    >
+      <template #body>
+        <LibraryPreviewPanel
+          :active-section-key="detailState.activeSectionKey"
+          :detail="detailState.detail"
+          :detail-loading="detailState.detailLoading"
+          :selected-file-id="treeState.selectedFileId"
+          :selected-folder-summary="treeState.selectedFolderSummary"
+          :retrying="!!treeState.selectedFileId && actionsState.retryingFileIds.includes(treeState.selectedFileId)"
+          @retry="actionsState.retryFile"
+          @update:active-section-key="detailState.activeSectionKey = $event"
+        />
+      </template>
+    </UModal>
+  </div>
 </template>
