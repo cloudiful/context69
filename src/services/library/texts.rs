@@ -305,6 +305,7 @@ impl LibraryService {
                 LibraryIngestStatus::Running,
                 None,
                 None,
+                None,
                 true,
                 false,
             )
@@ -320,6 +321,7 @@ impl LibraryService {
                     .update_job_status(
                         job_id,
                         LibraryIngestStatus::Succeeded,
+                        None,
                         None,
                         None,
                         true,
@@ -340,6 +342,7 @@ impl LibraryService {
                         job_id,
                         LibraryIngestStatus::Failed,
                         None,
+                        Some(error.stage),
                         Some(&message),
                         true,
                         true,
@@ -348,7 +351,7 @@ impl LibraryService {
                 self.store
                     .update_file_status(file.id, LibraryIngestStatus::Failed, Some(&message), false)
                     .await?;
-                Err(error)
+                Err(error.into())
             }
         }
     }

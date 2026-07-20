@@ -288,6 +288,17 @@
             "name": "translation_target_locales"
           }
         }
+      },
+      {
+        "ordinal": 26,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "failure_stage"
+          }
+        }
       }
     ],
     "parameters": {
@@ -323,7 +334,8 @@
       false,
       false,
       true,
-      false
+      false,
+      true
     ]
   },
   "hash": "55537304a385180f833a8acfadace4ca05854e97d459f6056a2409982ae2caa4"

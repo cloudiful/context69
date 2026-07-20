@@ -5,8 +5,8 @@ use uuid::Uuid;
 use super::*;
 use crate::{
     contracts::{
-        ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata, LibraryUrlImportJobResponse,
-        LibraryUrlImportStatus,
+        ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata, LibraryIngestFailureStage,
+        LibraryUrlImportJobResponse, LibraryUrlImportStatus,
     },
     library_store::{NewLibraryUrlImportJob, UrlImportJobRecord},
 };
@@ -78,9 +78,10 @@ impl LibraryService {
         group_id: i64,
         job_id: Uuid,
     ) -> Result<LibraryUrlImportJobResponse> {
+        let retry_job_id = Uuid::new_v4();
         let job = self
             .store
-            .retry_url_import_job(group_id, job_id)
+            .retry_url_import_job(group_id, job_id, retry_job_id)
             .await?
             .context("URL import job is not failed and cannot be retried")?;
         self.spawn_url_import(job.id);
@@ -108,7 +109,7 @@ impl LibraryService {
         let Some(job) = self.store.claim_url_import_job(job_id).await? else {
             return Ok(());
         };
-        let result = if let Some(file_id) = job.file_id {
+        let result: IngestResult<()> = if let Some(file_id) = job.file_id {
             self.retry_url_import_ingest(&job, file_id).await
         } else {
             self.download_and_import(&job).await
@@ -116,24 +117,38 @@ impl LibraryService {
         match result {
             Ok(()) => {
                 self.store
-                    .finish_url_import_job(job_id, "succeeded", None, None)
+                    .finish_url_import_job(job_id, "succeeded", None, None, None)
                     .await
             }
             Err(error) => {
                 let message = error.to_string();
                 let code = message.split(':').next().unwrap_or("url_import_failed");
                 self.store
-                    .finish_url_import_job(job_id, "failed", Some(code), Some(&message))
+                    .finish_url_import_job(
+                        job_id,
+                        "failed",
+                        Some(code),
+                        Some(&message),
+                        Some(error.stage),
+                    )
                     .await?;
-                Err(error)
+                Err(error.into())
             }
         }
     }
 
-    async fn download_and_import(&self, job: &UrlImportJobRecord) -> Result<()> {
-        let trusted_proxy_enabled = self.settings.trusted_proxy_enabled().await?;
+    async fn download_and_import(&self, job: &UrlImportJobRecord) -> IngestResult<()> {
+        let trusted_proxy_enabled = self
+            .settings
+            .trusted_proxy_enabled()
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
         let downloaded = {
-            let _permit = self.ingest_semaphore.acquire().await?;
+            let _permit = self
+                .ingest_semaphore
+                .acquire()
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
             remote_download::download(
                 &job.source_url,
                 job.requested_filename.as_deref(),
@@ -141,13 +156,15 @@ impl LibraryService {
                 self.max_upload_size_bytes,
                 trusted_proxy_enabled,
             )
-            .await?
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Download, error))?
         };
         let sha = storage::hash_bytes(&downloaded.bytes);
         let existing = self
             .store
             .get_file_by_sha_in_project(job.group_id, &sha)
-            .await?;
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         let metadata = if job.metadata_provided {
             Some(job_metadata(job))
         } else if existing.is_none() {
@@ -171,40 +188,70 @@ impl LibraryService {
                     translation: job_translation(job),
                 },
             )
-            .await?;
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         self.store
             .mark_url_import_ingesting(job.id, file.file_id, Some(ingest_job.job_id))
-            .await?;
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         self.await_ingest(ingest_job.job_id).await
     }
 
-    async fn retry_url_import_ingest(&self, job: &UrlImportJobRecord, file_id: Uuid) -> Result<()> {
+    async fn retry_url_import_ingest(
+        &self,
+        job: &UrlImportJobRecord,
+        file_id: Uuid,
+    ) -> IngestResult<()> {
         let file = self
             .store
             .get_file_in_project(job.group_id, file_id)
-            .await?
-            .context("URL import file no longer exists")?;
-        let kind = storage::detect_file_kind(&file.filename, &file.media_type)?;
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?
+            .context("URL import file no longer exists")
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
+        let kind = storage::detect_file_kind(&file.filename, &file.media_type)
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
         let ingest_job_id = Uuid::new_v4();
-        self.store.create_job(ingest_job_id, file_id).await?;
+        self.store
+            .create_job(ingest_job_id, file_id)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         self.store
             .mark_url_import_ingesting(job.id, file_id, Some(ingest_job_id))
-            .await?;
-        self.run_retry_ingest(file_id, ingest_job_id, kind).await
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
+        match self.run_retry_ingest(file_id, ingest_job_id, kind).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let stage = self
+                    .store
+                    .get_job(ingest_job_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|job| job.failure_stage)
+                    .unwrap_or(LibraryIngestFailureStage::Other);
+                Err(IngestFailure::new(stage, error))
+            }
+        }
     }
 
-    async fn await_ingest(&self, job_id: Uuid) -> Result<()> {
+    async fn await_ingest(&self, job_id: Uuid) -> IngestResult<()> {
         loop {
             let job = self
                 .store
                 .get_job(job_id)
-                .await?
-                .context("unknown ingest job")?;
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?
+                .context("unknown ingest job")
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
             match job.status {
                 LibraryIngestStatus::Succeeded => return Ok(()),
                 LibraryIngestStatus::Failed => {
-                    return Err(anyhow!(
-                        job.error_message.unwrap_or_else(|| "ingest_failed".into())
+                    return Err(IngestFailure::new(
+                        job.failure_stage
+                            .unwrap_or(LibraryIngestFailureStage::Other),
+                        anyhow!(job.error_message.unwrap_or_else(|| "ingest_failed".into())),
                     ));
                 }
                 _ => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
@@ -242,6 +289,7 @@ impl LibraryService {
             ingest_job,
             error_code: job.error_code,
             error_message: job.error_message,
+            failure_stage: job.failure_stage.as_deref().map(str::parse).transpose()?,
             created_at: job.created_at,
             started_at: job.started_at,
             finished_at: job.finished_at,

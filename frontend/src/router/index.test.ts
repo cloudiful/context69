@@ -70,6 +70,13 @@ describe("router auth guards", () => {
     expect(resolved.fullPath).toBe("/groups/stock");
   });
 
+  it("exposes the authenticated processing queue route", () => {
+    const resolved = router.resolve("/processing-queue");
+
+    expect(resolved.name).toBe("processing-queue");
+    expect(resolved.meta.requiresAuth).toBe(true);
+  });
+
   it("supports encoded nested group paths", async () => {
     const { router } = await import("./index");
     const resolved = router.resolve("/groups/stock%2Falpha");

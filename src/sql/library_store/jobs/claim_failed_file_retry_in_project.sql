@@ -27,6 +27,7 @@ RETURNING
     file_id,
     status,
     docling_task_id,
+    failure_stage,
     error_message,
     created_at,
     started_at,

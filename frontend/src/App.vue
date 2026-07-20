@@ -21,7 +21,8 @@ const showGlobalRouteBar = computed(() => {
   return routeName === "group-overview"
     || routeName === "group-members"
     || routeName === "group-settings"
-    || routeName.startsWith("settings-");
+    || routeName.startsWith("settings-")
+    || routeName === "processing-queue";
 });
 const isSettingsRoute = computed(() => String(route.name ?? "").startsWith("settings-"));
 const fillsRouteContent = computed(() => route.meta.contentLayout === "fill");

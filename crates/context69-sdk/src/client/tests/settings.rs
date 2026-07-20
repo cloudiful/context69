@@ -29,7 +29,7 @@ async fn runtime_settings_get_uses_nested_resource() {
 async fn docling_settings_get_uses_nested_resource() {
     let response = json!({
         "configured": false, "source": "unconfigured",
-        "connection": {"base_url":null,"timeout_secs":10,"poll_interval_secs":1},
+        "connection": {"base_url":null,"timeout_secs":10,"poll_interval_secs":1,"task_timeout_secs":600},
         "vlm": {"openai_base_url":null,"has_api_key":false,
             "vlm_pipeline_model":null,"picture_description_model":null,"code_formula_model":null}
     });

@@ -103,13 +103,16 @@ impl LibraryStore {
         status: &str,
         error_code: Option<&str>,
         error_message: Option<&str>,
+        failure_stage: Option<crate::contracts::LibraryIngestFailureStage>,
     ) -> Result<()> {
+        let failure_stage = failure_stage.map(crate::contracts::LibraryIngestFailureStage::as_str);
         sqlx::query_file!(
             "src/sql/library_store/url_imports/finish.sql",
             job_id,
             status,
             error_code,
-            error_message
+            error_message,
+            failure_stage
         )
         .fetch_optional(self.db.pool())
         .await?;
@@ -120,12 +123,14 @@ impl LibraryStore {
         &self,
         group_id: i64,
         job_id: Uuid,
+        retry_job_id: Uuid,
     ) -> Result<Option<UrlImportJobRecord>> {
         Ok(sqlx::query_file_as!(
             UrlImportJobRecord,
             "src/sql/library_store/url_imports/retry.sql",
             group_id,
-            job_id
+            job_id,
+            retry_job_id
         )
         .fetch_optional(self.db.pool())
         .await?)

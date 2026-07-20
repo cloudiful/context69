@@ -136,6 +136,7 @@ impl LibraryService {
                     job_id,
                     LibraryIngestStatus::Failed,
                     None,
+                    Some(LibraryIngestFailureStage::Storage),
                     Some(&message),
                     false,
                     true,

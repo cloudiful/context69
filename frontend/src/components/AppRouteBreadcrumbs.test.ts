@@ -51,6 +51,22 @@ describe("AppRouteBreadcrumbs", () => {
     expect(wrapper.find("#app-route-actions").exists()).toBe(true);
   });
 
+  it("keeps the processing queue route out of unrelated breadcrumbs", async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
+    });
+    router.push("/processing-queue");
+    await router.isReady();
+
+    const wrapper = mount(AppRouteBreadcrumbs, {
+      global: { plugins: [testNuxtUiPlugin, router, createAppI18n("en")] },
+    });
+
+    expect(wrapper.find("nav").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Search");
+  });
+
   it("renders navigable group path before the current section", async () => {
     const router = createRouter({
       history: createMemoryHistory(),

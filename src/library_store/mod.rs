@@ -17,6 +17,7 @@ mod folders;
 mod jobs;
 mod mappers;
 pub(crate) mod objects;
+mod processing_jobs;
 mod resources;
 mod url_imports;
 pub use resources::ResourceListQuery;
@@ -97,6 +98,7 @@ pub struct UrlImportJobRecord {
     pub ingest_job_id: Option<Uuid>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    pub failure_stage: Option<String>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
@@ -172,11 +174,32 @@ struct JobRow {
     file_id: Uuid,
     status: String,
     docling_task_id: Option<String>,
+    failure_stage: Option<String>,
     error_message: Option<String>,
     created_at: DateTime<Utc>,
     started_at: Option<DateTime<Utc>>,
     finished_at: Option<DateTime<Utc>>,
     updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub(crate) struct ProcessingJobRow {
+    pub kind: String,
+    pub job_id: Uuid,
+    pub group_key: String,
+    pub group_path: String,
+    pub visibility: String,
+    pub file_id: Option<Uuid>,
+    pub filename: Option<String>,
+    pub source_url: Option<String>,
+    pub status: String,
+    pub failure_stage: Option<String>,
+    pub error_message: Option<String>,
+    pub can_retry: bool,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, FromRow)]

@@ -43,6 +43,54 @@ impl std::str::FromStr for LibraryIngestStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryIngestFailureStage {
+    Download,
+    Storage,
+    Docling,
+    Parsing,
+    Embedding,
+    Indexing,
+    Translation,
+    Other,
+}
+
+impl LibraryIngestFailureStage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Download => "download",
+            Self::Storage => "storage",
+            Self::Docling => "docling",
+            Self::Parsing => "parsing",
+            Self::Embedding => "embedding",
+            Self::Indexing => "indexing",
+            Self::Translation => "translation",
+            Self::Other => "other",
+        }
+    }
+}
+
+impl std::str::FromStr for LibraryIngestFailureStage {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "download" => Ok(Self::Download),
+            "storage" => Ok(Self::Storage),
+            "docling" => Ok(Self::Docling),
+            "parsing" => Ok(Self::Parsing),
+            "embedding" => Ok(Self::Embedding),
+            "indexing" => Ok(Self::Indexing),
+            "translation" => Ok(Self::Translation),
+            "other" => Ok(Self::Other),
+            other => Err(anyhow::anyhow!(
+                "unsupported library ingest failure stage: {other}"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateFolderRequest {
     #[serde(default)]
@@ -292,6 +340,8 @@ pub struct LibraryIngestJobResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub docling_task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_stage: Option<LibraryIngestFailureStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     pub created_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -299,6 +349,64 @@ pub struct LibraryIngestJobResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryProcessingJobKind {
+    Ingest,
+    UrlImport,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryProcessingJobResponse {
+    pub job_id: Uuid,
+    pub kind: LibraryProcessingJobKind,
+    pub group_key: String,
+    pub group_path: String,
+    pub visibility: Visibility,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    pub status: LibraryIngestStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_stage: Option<LibraryIngestFailureStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    pub can_retry: bool,
+    pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct LibraryProcessingJobPageQuery {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub status: Option<LibraryIngestStatus>,
+    #[serde(default)]
+    pub failure_stage: Option<LibraryIngestFailureStage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryProcessingJobPageResponse {
+    pub items: Vec<LibraryProcessingJobResponse>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
@@ -439,6 +547,8 @@ pub struct LibraryUrlImportJobResponse {
     pub file: Option<LibraryFileSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ingest_job: Option<LibraryIngestJobResponse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_stage: Option<LibraryIngestFailureStage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

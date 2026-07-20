@@ -35,6 +35,15 @@ export const router = createRouter({
       },
     },
     {
+      path: "/processing-queue",
+      name: "processing-queue",
+      component: () => import("../views/ProcessingQueueView.vue"),
+      meta: {
+        contentLayout: "fill",
+        requiresAuth: true,
+      },
+    },
+    {
       path: "/groups/:groupPath",
       component: () => import("../views/GroupShellView.vue"),
       meta: {

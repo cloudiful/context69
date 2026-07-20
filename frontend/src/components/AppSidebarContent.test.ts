@@ -11,6 +11,7 @@ import AppSidebarContent from "./AppSidebarContent.vue";
 const sidebarRoutes = [
   { path: "/login", component: { template: "<div />" } },
   { path: "/search", component: { template: "<div />" } },
+  { path: "/processing-queue", component: { template: "<div />" } },
   { path: "/groups", component: { template: "<div />" } },
   { path: "/groups/:groupPath", name: "group-overview", component: { template: "<div />" } },
   { path: "/groups/:groupPath/members", name: "group-members", component: { template: "<div />" } },
@@ -70,6 +71,21 @@ describe("AppSidebarContent", () => {
     expect(wrapper.get('a[href="/settings/access-tokens"]').attributes("aria-current")).toBe("page");
     expect(wrapper.text()).toContain("访问令牌");
     expect(wrapper.text()).toContain("运行时");
+  });
+
+  it("renders the processing queue navigation entry", async () => {
+    setAuthenticatedUser();
+
+    const router = await routerAt("/processing-queue");
+
+    const wrapper = mount(AppSidebarContent, {
+      global: {
+        plugins: [testNuxtUiPlugin, router, createAppI18n("en")],
+      },
+    });
+
+    expect(wrapper.get('a[href="/processing-queue"]').attributes("aria-current")).toBe("page");
+    expect(wrapper.text()).toContain("Processing Queue");
   });
 
   it("renders group secondary navigation when a group route is active", async () => {

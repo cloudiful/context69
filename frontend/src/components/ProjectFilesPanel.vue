@@ -65,8 +65,6 @@ async function refreshLibraryData() {
 }
 const detail = useProjectLibraryDetail({
   groupPath: () => props.groupPath,
-  loadTree: refreshLibraryData,
-  selectedFileId: tree.selectedFileId,
   t,
 });
 const detailState = proxyRefs(detail);
@@ -89,7 +87,6 @@ const actions = useProjectLibraryActions({
   loadTree: refreshLibraryData,
   moveOptions: tree.moveOptions,
   replaceSelection: tree.replaceSelection,
-  schedulePolling: detail.schedulePolling,
   selectFile: tree.selectFile,
   selectedFolder: tree.selectedFolder,
   selectedFileId: tree.selectedFileId,

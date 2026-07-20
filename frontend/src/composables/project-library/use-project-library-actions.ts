@@ -30,7 +30,6 @@ interface UseProjectLibraryActionsOptions {
   loadTree: () => Promise<void>;
   moveOptions: Ref<Array<{ label: string; value: string | null }>>;
   replaceSelection: (folderId: string | null, fileId: string | null) => Promise<void>;
-  schedulePolling: (jobIds: string[]) => void;
   selectFile: (fileId: string) => Promise<void>;
   selectedFolder: Ref<LibraryFolderNode | null>;
   selectedFileId: Ref<string | null>;
@@ -45,7 +44,6 @@ export function useProjectLibraryActions({
   loadTree,
   moveOptions,
   replaceSelection,
-  schedulePolling,
   selectFile,
   selectedFolder,
   selectedFileId,
@@ -120,7 +118,6 @@ export function useProjectLibraryActions({
       if (nextFile) {
         await replaceSelection(nextFile.folder_id ?? selectedFolder.value?.folder_id ?? null, nextFile.file_id);
       }
-      schedulePolling(response.jobs.map((job: { job_id: string }) => job.job_id));
       toast.add({ color: "success", title: t("library.newTextFile"), description: payload.title, duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.createTextFileFailed"));
@@ -143,7 +140,6 @@ export function useProjectLibraryActions({
       if (response.files.length > 0) {
         await replaceSelection(response.files[0].folder_id ?? selectedFolder.value?.folder_id ?? null, response.files[0].file_id);
       }
-      schedulePolling(response.jobs.map((job) => job.job_id));
       toast.add({ color: "success", title: t("common.upload"), description: t("library.uploadSuccess"), duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.uploadFailed"));
@@ -168,7 +164,6 @@ export function useProjectLibraryActions({
       }
       const job = await apiClient.retryGroupLibraryFile(toValue(groupPath), fileId);
       await loadTree();
-      schedulePolling([job.job_id]);
       toast.add({
         color: "success",
         title: t("library.retryAccepted"),

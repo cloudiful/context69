@@ -5,6 +5,7 @@ SET status = 'downloading',
     finished_at = NULL,
     error_code = NULL,
     error_message = NULL,
+    failure_stage = NULL,
     updated_at = now()
 WHERE id = $1 AND status = 'queued'
 RETURNING *

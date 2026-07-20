@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_url_import_jobs\nSET status = 'queued',\n    error_code = NULL,\n    error_message = NULL,\n    finished_at = NULL,\n    updated_at = now()\nWHERE group_id = $1 AND id = $2 AND status = 'failed'\nRETURNING *\n",
+  "query": "INSERT INTO context69.library_url_import_jobs (\n    id,\n    group_id,\n    visibility,\n    folder_id,\n    source_url,\n    dedupe_key,\n    requested_filename,\n    requested_media_type,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    metadata_provided,\n    translation_provided,\n    translation_source_locale,\n    translation_target_locales,\n    file_id\n)\nSELECT\n    $3,\n    group_id,\n    visibility,\n    folder_id,\n    source_url,\n    dedupe_key,\n    requested_filename,\n    requested_media_type,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    metadata_provided,\n    translation_provided,\n    translation_source_locale,\n    translation_target_locales,\n    file_id\nFROM context69.library_url_import_jobs\nWHERE group_id = $1 AND id = $2 AND status = 'failed'\nRETURNING *\n",
   "describe": {
     "columns": [
       {
@@ -288,11 +288,23 @@
             "name": "translation_target_locales"
           }
         }
+      },
+      {
+        "ordinal": 26,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "failure_stage"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Int8",
+        "Uuid",
         "Uuid"
       ]
     },
@@ -322,8 +334,9 @@
       false,
       false,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "85a34f131396e350275062115bf35eac6785ec1892dc9b2112262f07abc32eb6"
+  "hash": "da1d27907708535765f33fab6a9b61ead98b1042ed39dbe56dc5b36a0196866a"
 }

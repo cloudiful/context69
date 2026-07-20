@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_url_import_jobs\nSET status = $2,\n    error_code = $3,\n    error_message = $4,\n    finished_at = now(),\n    updated_at = now()\nWHERE id = $1\nRETURNING *\n",
+  "query": "UPDATE context69.library_url_import_jobs\nSET status = 'downloading',\n    attempt_count = attempt_count + 1,\n    started_at = COALESCE(started_at, now()),\n    finished_at = NULL,\n    error_code = NULL,\n    error_message = NULL,\n    failure_stage = NULL,\n    updated_at = now()\nWHERE id = $1 AND status = 'queued'\nRETURNING *\n",
   "describe": {
     "columns": [
       {
@@ -288,14 +288,22 @@
             "name": "translation_target_locales"
           }
         }
+      },
+      {
+        "ordinal": 26,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "failure_stage"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Text",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -324,8 +332,9 @@
       false,
       false,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "64ba32da30e0077b68d5e2b0e045c675593f27f7cdadf22bc8cb41dff69614ee"
+  "hash": "53ec8c14a2106a96bc478381710c7be4ceb11df538539d98a82a115c7c8d606b"
 }

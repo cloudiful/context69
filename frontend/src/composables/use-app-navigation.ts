@@ -40,6 +40,7 @@ export function useAppNavigation() {
 
   return computed<AppNavItem[]>(() => [
     { to: "/search", label: t("nav.search"), icon: "i-lucide-search" },
+    { to: "/processing-queue", label: t("nav.processingQueue"), icon: "i-lucide-list-checks" },
     {
       to: groupPath.value ? `/groups/${encodeURIComponent(groupPath.value)}` : "/groups",
       activePrefix: "/groups",

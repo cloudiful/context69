@@ -27,12 +27,14 @@ pub use library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
     LibraryDocumentSectionPreview, LibraryFileDetailResponse, LibraryFileIngestOptions,
     LibraryFileSummary, LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse,
-    LibraryIngestJobResponse, LibraryIngestStatus, LibraryPreviewContentFormat,
-    LibraryResourceItem, LibraryResourceKind, LibraryResourcePageQuery,
-    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTextContentFormat,
-    LibraryTreeResponse, LibraryUploadResponse, LibraryUrlImportJobResponse,
-    LibraryUrlImportStatus, MoveFileRequest, MoveFolderRequest, PrepareLibraryUploadRequest,
-    PrepareLibraryUploadResponse, SortDirection, UpsertLibraryTextRequest,
+    LibraryIngestFailureStage, LibraryIngestJobResponse, LibraryIngestStatus,
+    LibraryPreviewContentFormat, LibraryProcessingJobKind, LibraryProcessingJobPageQuery,
+    LibraryProcessingJobPageResponse, LibraryProcessingJobResponse, LibraryResourceItem,
+    LibraryResourceKind, LibraryResourcePageQuery, LibraryResourcePageResponse,
+    LibraryResourceSortBy, LibraryTextContentFormat, LibraryTreeResponse, LibraryUploadResponse,
+    LibraryUrlImportJobResponse, LibraryUrlImportStatus, MoveFileRequest, MoveFolderRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
+    UpsertLibraryTextRequest,
 };
 pub use mcp::McpDocumentArgs;
 pub use namespace::{

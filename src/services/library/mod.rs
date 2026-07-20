@@ -20,7 +20,8 @@ use crate::{
     contracts::{
         CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryFileSummary,
         LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse,
-        LibraryIngestJobResponse, LibraryIngestStatus, LibraryResourcePageQuery,
+        LibraryIngestFailureStage, LibraryIngestJobResponse, LibraryIngestStatus,
+        LibraryProcessingJobPageQuery, LibraryProcessingJobPageResponse, LibraryResourcePageQuery,
         LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
         MoveFolderRequest, UpsertLibraryTextRequest,
     },
@@ -43,6 +44,7 @@ mod metadata;
 mod migration;
 pub use migration::StorageMigrationSummary;
 pub(crate) mod object_storage;
+mod processing_jobs;
 mod remote_download;
 mod remote_proxy;
 mod resources;
@@ -109,6 +111,35 @@ struct IngestSection {
     published_at: Option<chrono::DateTime<chrono::Utc>>,
     metadata_json: Value,
 }
+
+#[derive(Debug)]
+pub(super) struct IngestFailure {
+    pub stage: LibraryIngestFailureStage,
+    pub error: anyhow::Error,
+}
+
+impl IngestFailure {
+    pub fn new(stage: LibraryIngestFailureStage, error: impl Into<anyhow::Error>) -> Self {
+        Self {
+            stage,
+            error: error.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for IngestFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl std::error::Error for IngestFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.error.source()
+    }
+}
+
+type IngestResult<T> = std::result::Result<T, IngestFailure>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct UpsertNamedTextFileRequest {

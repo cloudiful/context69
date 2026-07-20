@@ -47,6 +47,7 @@ impl LibraryService {
                 LibraryIngestStatus::Running,
                 None,
                 None,
+                None,
                 true,
                 false,
             )
@@ -55,18 +56,28 @@ impl LibraryService {
             .update_file_status(file_id, LibraryIngestStatus::Running, None, false)
             .await?;
 
-        let file = match self.store.get_file(file_id).await? {
-            Some(file) => file,
-            None => return Ok(()),
-        };
-        let bytes = self
-            .storage
-            .read(&file.storage_rel_path)
-            .await?
-            .with_context(|| format!("stored file not found for file {file_id}"))?;
+        let result: IngestResult<()> = async {
+            let file = self
+                .store
+                .get_file(file_id)
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?
+                .ok_or_else(|| {
+                    IngestFailure::new(
+                        LibraryIngestFailureStage::Storage,
+                        anyhow!("unknown file {file_id}"),
+                    )
+                })?;
+            let bytes = self
+                .storage
+                .read(&file.storage_rel_path)
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?
+                .with_context(|| format!("stored file not found for file {file_id}"))
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
 
-        let result = async {
-            let _runtime = self.runtime()?;
+            self.runtime()
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
             let sections = match kind {
                 LibraryFileKind::Pdf => self.ingest_pdf(&file, &bytes, job_id).await?,
                 LibraryFileKind::Docx => self.ingest_docx(&file, &bytes).await?,
@@ -83,6 +94,7 @@ impl LibraryService {
                     .update_job_status(
                         job_id,
                         LibraryIngestStatus::Succeeded,
+                        None,
                         None,
                         None,
                         true,
@@ -105,6 +117,7 @@ impl LibraryService {
                         job_id,
                         LibraryIngestStatus::Failed,
                         None,
+                        Some(error.stage),
                         Some(&message),
                         true,
                         true,
@@ -113,7 +126,7 @@ impl LibraryService {
                 self.store
                     .update_file_status(file_id, LibraryIngestStatus::Failed, Some(&message), false)
                     .await?;
-                Err(error)
+                Err(anyhow::Error::new(error))
             }
         }
     }
@@ -153,10 +166,16 @@ impl LibraryService {
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
         job_id: Uuid,
-    ) -> Result<Vec<IngestSection>> {
-        let converter = self.load_docling_pdf_converter().await?;
+    ) -> IngestResult<Vec<IngestSection>> {
+        let converter = self
+            .load_docling_pdf_converter()
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let input = InputDocument::new(&file.filename, &file.media_type, bytes.clone());
-        let converted = converter.convert_input(input).await?;
+        let converted = converter
+            .convert_input(input)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
 
         let total = converted.chunks.len().max(1);
         for index in 0..total {
@@ -167,10 +186,12 @@ impl LibraryService {
                     LibraryIngestStatus::Running,
                     Some(&status_id),
                     None,
+                    None,
                     true,
                     false,
                 )
-                .await?;
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
         }
 
         let body_text = converted
@@ -196,10 +217,16 @@ impl LibraryService {
         &self,
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
-    ) -> Result<Vec<IngestSection>> {
-        let converter = self.load_docling_pdf_converter().await?;
+    ) -> IngestResult<Vec<IngestSection>> {
+        let converter = self
+            .load_docling_pdf_converter()
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let input = InputDocument::new(&file.filename, &file.media_type, bytes.clone());
-        let converted = converter.convert_input(input).await?;
+        let converted = converter
+            .convert_input(input)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let text = converted
             .markdown
             .or(converted.text)
@@ -222,13 +249,18 @@ impl LibraryService {
         &self,
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
-    ) -> Result<Vec<IngestSection>> {
-        let docling = self.load_docling_xlsx_client().await?;
+    ) -> IngestResult<Vec<IngestSection>> {
+        let docling = self
+            .load_docling_xlsx_client()
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let json = docling
             .convert_xlsx(&file.filename, &file.media_type, bytes.clone())
             .await
-            .context("docling did not return json_content for xlsx")?;
-        let sections = xlsx::extract_xlsx_sections(&file.filename, &json)?;
+            .context("docling did not return json_content for xlsx")
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
+        let sections = xlsx::extract_xlsx_sections(&file.filename, &json)
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
         if sections.is_empty() {
             let fallback = xlsx::extract_json_text(&json).unwrap_or_default();
             return Ok(vec![IngestSection {
@@ -250,12 +282,14 @@ impl LibraryService {
         &self,
         file: &crate::domain::LibraryFileRecord,
         bytes: &Bytes,
-    ) -> Result<Vec<IngestSection>> {
+    ) -> IngestResult<Vec<IngestSection>> {
         let text = std::str::from_utf8(bytes)
-            .with_context(|| format!("failed to decode utf-8 text {}", file.filename))?;
+            .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
         if file.filename.eq_ignore_ascii_case("source.json") {
             let _: SourceConfigPreview = serde_json::from_str(text)
-                .with_context(|| format!("failed to parse source config json {}", file.filename))?;
+                .with_context(|| format!("failed to parse source config json {}", file.filename))
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
             return Ok(vec![IngestSection {
                 section_key: "source-config".to_string(),
                 section_label: file.filename.clone(),
@@ -272,7 +306,8 @@ impl LibraryService {
         }
         if file.filename.to_ascii_lowercase().ends_with(".json") {
             let parsed: SourceRecordJson = serde_json::from_str(text)
-                .with_context(|| format!("failed to parse source record json {}", file.filename))?;
+                .with_context(|| format!("failed to parse source record json {}", file.filename))
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
             return Ok(vec![IngestSection {
                 section_key: "record".to_string(),
                 section_label: parsed.title.clone(),
@@ -302,12 +337,24 @@ impl LibraryService {
         &self,
         file: &crate::domain::LibraryFileRecord,
         sections: Vec<IngestSection>,
-    ) -> Result<()> {
-        let runtime = self.runtime()?.clone();
-        self.cleanup_ingest_artifacts(file.id).await?;
-        let translation_directive = self.store.file_translation_directive(file.id).await?;
+    ) -> IngestResult<()> {
+        let runtime = self
+            .runtime()
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?
+            .clone();
+        self.cleanup_ingest_artifacts(file.id)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
+        let translation_directive = self
+            .store
+            .file_translation_directive(file.id)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
 
-        let folder_path = self.folder_path_by_id(file.folder_id).await?;
+        let folder_path = self
+            .folder_path_by_id(file.folder_id)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
         let mut mappings = Vec::new();
 
         for (index, section) in sections.into_iter().enumerate() {
@@ -320,7 +367,8 @@ impl LibraryService {
                     &section.section_key,
                     &section.section_label,
                 ),
-            )?;
+            )
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
             let external_id = file
                 .external_id
                 .as_ref()
@@ -370,7 +418,11 @@ impl LibraryService {
                 source_locale: None,
                 translation_provider: None,
             };
-            let upserted = self.db.upsert_document(&seed_payload).await?;
+            let upserted = self
+                .db
+                .upsert_document(&seed_payload)
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
             let chunks = crate::chunking::chunk_document(
                 upserted.document_id,
                 FILE_LIBRARY_SOURCE_KEY,
@@ -381,7 +433,11 @@ impl LibraryService {
                 .iter()
                 .map(|chunk| chunk.text.clone())
                 .collect::<Vec<_>>();
-            let embeddings = runtime.embedding.embed_texts(&texts).await?;
+            let embeddings = runtime
+                .embedding
+                .embed_texts(&texts)
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Embedding, error))?;
             let payloads = chunks
                 .iter()
                 .map(|chunk| ChunkPayload {
@@ -409,17 +465,22 @@ impl LibraryService {
                 .collect::<Vec<_>>();
             self.db
                 .replace_document_chunks(upserted.document_id, &normalized.record_hash, &chunks)
-                .await?;
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
             runtime
                 .index
                 .replace_document_chunks(&[], &payloads, &embeddings)
-                .await?;
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
             self.translation
                 .enqueue(context69_translation::EnqueueTranslation {
                     document_id: upserted.document_id,
                     directive: translation_directive.clone(),
                 })
-                .await?;
+                .await
+                .map_err(|error| {
+                    IngestFailure::new(LibraryIngestFailureStage::Translation, error)
+                })?;
 
             mappings.push(LibraryFileDocumentRecord {
                 file_id: file.id,
@@ -438,8 +499,11 @@ impl LibraryService {
 
         self.store
             .replace_file_documents(file.id, &mappings)
-            .await?;
-        self.bump_search_generation("library ingest").await?;
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+        self.bump_search_generation("library ingest")
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
         Ok(())
     }
 }

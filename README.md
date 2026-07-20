@@ -296,6 +296,7 @@ Runtime endpoints include:
 - `GET /openapi.json`
 - `POST /v1/search`
 - `GET /v1/library/resources` for database-backed folder pagination, search, and sorting in the file library
+- `GET /v1/library/processing-jobs` for paginated processing history across visible public and private groups, with status/failure-stage filters and maintainer retry capability
 - `GET /v1/groups` and `GET /v1/groups/by-path/{group_path}/children` return paginated group pages
 - `GET /v1/groups/by-path/{group_path}/members` and `GET /v1/admin/users` return paginated, searchable pages
 - `GET /v1/groups/search` provides bounded remote group search for move targets

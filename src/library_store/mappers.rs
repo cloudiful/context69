@@ -6,7 +6,7 @@ use super::{
     FileRow, FolderRow, JobRow, LibraryFileSummary, LibraryIngestJobResponse,
     LibraryPreviewContentFormat,
 };
-use crate::contracts::{LibraryIngestStatus, Visibility};
+use crate::contracts::{LibraryIngestFailureStage, LibraryIngestStatus, Visibility};
 use crate::domain::{LibraryFileRecord, LibraryFolderRecord, LibraryIngestJobRecord};
 
 pub(crate) fn infer_preview_content_format(
@@ -80,6 +80,11 @@ pub(super) fn job_from_row(row: JobRow) -> Result<LibraryIngestJobRecord> {
         file_id: row.file_id,
         status: LibraryIngestStatus::from_str(&row.status)?,
         docling_task_id: row.docling_task_id,
+        failure_stage: row
+            .failure_stage
+            .as_deref()
+            .map(LibraryIngestFailureStage::from_str)
+            .transpose()?,
         error_message: row.error_message,
         created_at: row.created_at,
         started_at: row.started_at,
@@ -119,6 +124,7 @@ pub fn job_to_response(job: LibraryIngestJobRecord) -> LibraryIngestJobResponse 
         file_id: job.file_id,
         status: job.status,
         docling_task_id: job.docling_task_id,
+        failure_stage: job.failure_stage,
         error_message: job.error_message,
         created_at: job.created_at,
         started_at: job.started_at,

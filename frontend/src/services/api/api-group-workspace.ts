@@ -208,6 +208,12 @@ export function createGroupWorkspaceApi({
         signal: options?.signal,
       }));
     },
+    retryGroupLibraryUrlImportJob(groupPath: string, jobId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry", {
+        params: { path: { group_path: groupPath, job_id: jobId } },
+        signal: options?.signal,
+      }));
+    },
     moveGroupLibraryFile(groupPath: string, fileId: string, payload: MoveFileRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/{file_id}/move", {
         params: { path: { group_path: groupPath, file_id: fileId } },

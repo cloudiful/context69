@@ -8,12 +8,10 @@ import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
 import { useProjectLibraryDetail } from "./use-project-library-detail";
 
 const getGroupLibraryFile = vi.spyOn(apiClient, "getGroupLibraryFile");
-const getGroupLibraryJob = vi.spyOn(apiClient, "getGroupLibraryJob");
 
 describe("useProjectLibraryDetail", () => {
   beforeEach(() => {
     getGroupLibraryFile.mockReset();
-    getGroupLibraryJob.mockReset();
   });
 
   it("loads details with the current group path after navigation", async () => {
@@ -23,8 +21,6 @@ describe("useProjectLibraryDetail", () => {
       setup() {
         return useProjectLibraryDetail({
           groupPath,
-          loadTree: vi.fn().mockResolvedValue(undefined),
-          selectedFileId: ref(null),
           t: (key) => key,
         });
       },

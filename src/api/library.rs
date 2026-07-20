@@ -8,13 +8,14 @@ use uuid::Uuid;
 
 use crate::contracts::{
     ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-    LibraryFolderResponse, LibraryIngestJobResponse, LibraryResourcePageQuery,
-    LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
-    MoveFolderRequest,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryProcessingJobPageQuery,
+    LibraryProcessingJobPageResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
+    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
 };
 
 use super::{
-    ApiState, errors::library_management_error_response, library_upload::read_library_uploads,
+    ApiState, auth::CurrentUser, errors::library_management_error_response,
+    library_upload::read_library_uploads,
 };
 
 #[utoipa::path(
@@ -47,6 +48,36 @@ pub(crate) async fn get_library_resources(
     Query(query): Query<LibraryResourcePageQuery>,
 ) -> impl IntoResponse {
     match state.app.library.list_resources_page(&query).await {
+        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/library/processing-jobs",
+    params(LibraryProcessingJobPageQuery),
+    responses(
+        (status = 200, description = "Visible library processing jobs", body = LibraryProcessingJobPageResponse),
+        (status = 400, description = "Invalid pagination parameters", body = ApiErrorResponse),
+        (status = 500, description = "Internal error", body = ApiErrorResponse)
+    )
+)]
+pub(crate) async fn get_library_processing_jobs(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Query(query): Query<LibraryProcessingJobPageQuery>,
+) -> impl IntoResponse {
+    let scope = match state
+        .app
+        .auth
+        .access_scope(Some(session.user.id), None)
+        .await
+    {
+        Ok(scope) => scope,
+        Err(error) => return library_management_error_response(error),
+    };
+    match state.app.library.list_processing_jobs(&scope, &query).await {
         Ok(page) => (StatusCode::OK, Json(page)).into_response(),
         Err(error) => library_management_error_response(error),
     }

@@ -191,7 +191,6 @@ describe("LibraryView", () => {
       updated_at: "2026-04-07T00:00:00Z",
     } as never);
     vi.spyOn(apiClient, "getLibraryFile").mockResolvedValue(null as never);
-    vi.spyOn(apiClient, "getLibraryJob").mockResolvedValue(null as never);
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -279,7 +278,6 @@ describe("LibraryView", () => {
         },
       ],
     } as never);
-    vi.spyOn(apiClient, "getLibraryJob").mockResolvedValue(null as never);
 
     const router = createRouter({
       history: createMemoryHistory(),

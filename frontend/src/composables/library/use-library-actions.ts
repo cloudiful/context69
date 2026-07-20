@@ -31,7 +31,6 @@ interface UseLibraryActionsOptions {
   loadTree: () => Promise<void>;
   moveOptions: Ref<Array<{ label: string; value: string | null }>>;
   replaceQuery: (folderId: string | null, fileId: string | null) => Promise<void>;
-  schedulePolling: (jobIds: string[]) => void;
   selectFile: (fileId: string) => Promise<void>;
   selectedFolder: Ref<LibraryFolderNode | null>;
   selectedFileId: Ref<string | null>;
@@ -45,7 +44,6 @@ export function useLibraryActions({
   loadTree,
   moveOptions,
   replaceQuery,
-  schedulePolling,
   selectFile,
   selectedFolder,
   selectedFileId,
@@ -122,7 +120,6 @@ export function useLibraryActions({
         await replaceQuery(response.files[0].folder_id ?? selectedFolder.value?.folder_id ?? null, response.files[0].file_id);
       }
 
-      schedulePolling(response.jobs.map((job) => job.job_id));
       toast.add({
         color: "success",
         title: t("common.upload"),

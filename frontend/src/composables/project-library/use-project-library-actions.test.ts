@@ -2,7 +2,7 @@ import { mount } from "@vue/test-utils";
 import { defineComponent, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiClient, type LibraryFolderNode, type LibraryIngestJobResponse } from "../../services/api";
+import { apiClient, type LibraryFolderNode } from "../../services/api";
 import { createTestI18n } from "../../test-utils/i18n";
 import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
 import { useProjectLibraryActions } from "./use-project-library-actions";
@@ -34,13 +34,9 @@ describe("useProjectLibraryActions retry", () => {
     retryGroupLibraryFile.mockReset();
   });
 
-  it("prevents duplicate retry requests and starts job polling", async () => {
-    let resolveJob: ((job: LibraryIngestJobResponse) => void) | undefined;
-    retryGroupLibraryFile.mockImplementation(() => new Promise((resolve) => {
-      resolveJob = resolve;
-    }) as never);
+  it("prevents duplicate retry requests and refreshes the tree once", async () => {
+    retryGroupLibraryFile.mockResolvedValue({ job_id: "job-id" } as never);
     const loadTree = vi.fn().mockResolvedValue(undefined);
-    const schedulePolling = vi.fn();
     const groupPath = ref("group-a");
     let state!: ReturnType<typeof useProjectLibraryActions>;
     const wrapper = mount(defineComponent({
@@ -50,7 +46,6 @@ describe("useProjectLibraryActions retry", () => {
           loadTree,
           moveOptions: ref([]),
           replaceSelection: vi.fn().mockResolvedValue(undefined),
-          schedulePolling,
           selectFile: vi.fn().mockResolvedValue(undefined),
           selectedFolder: ref(root),
           selectedFileId: ref("file-id"),
@@ -71,11 +66,9 @@ describe("useProjectLibraryActions retry", () => {
     expect(retryGroupLibraryFile).toHaveBeenCalledWith("group-b", "file-id");
     expect(state.retryingFileIds.value).toEqual(["file-id"]);
 
-    resolveJob?.({ job_id: "job-id" } as LibraryIngestJobResponse);
     await first;
 
     expect(loadTree).toHaveBeenCalledOnce();
-    expect(schedulePolling).toHaveBeenCalledWith(["job-id"]);
     expect(state.retryingFileIds.value).toEqual([]);
     wrapper.unmount();
   });
@@ -90,7 +83,6 @@ describe("useProjectLibraryActions retry", () => {
           loadTree: vi.fn(),
           moveOptions: ref([]),
           replaceSelection: vi.fn(),
-          schedulePolling: vi.fn(),
           selectFile: vi.fn(),
           selectedFolder: ref(root),
           selectedFileId: ref("file-id"),

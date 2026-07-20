@@ -1,6 +1,8 @@
 import type {
   CreateFolderRequest,
+  LibraryIngestFailureStage,
   LibraryIngestStatus,
+  LibraryProcessingJobPageResponse,
   LibraryResourceSortBy,
   LibraryUploadResponse,
   MoveFileRequest,
@@ -55,6 +57,26 @@ export function createLibraryApi({
         },
         signal: options?.signal,
       }));
+    },
+    getLibraryProcessingJobs(params: {
+      page: number;
+      pageSize: number;
+      query: string;
+      status: LibraryIngestStatus | null;
+      failureStage: LibraryIngestFailureStage | null;
+    }, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/library/processing-jobs", {
+        params: {
+          query: {
+            page: params.page,
+            page_size: params.pageSize,
+            query: params.query || undefined,
+            status: params.status ?? undefined,
+            failure_stage: params.failureStage ?? undefined,
+          },
+        },
+        signal: options?.signal,
+      })) as Promise<LibraryProcessingJobPageResponse>;
     },
     createLibraryFolder(payload: CreateFolderRequest, options?: RequestOptions) {
       return unwrapResponse(

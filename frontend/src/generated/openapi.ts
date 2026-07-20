@@ -884,6 +884,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/library/processing-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_library_processing_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/library/resources": {
         parameters: {
             query?: never;
@@ -1551,11 +1567,14 @@ export interface components {
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
         };
+        /** @enum {string} */
+        LibraryIngestFailureStage: "download" | "storage" | "docling" | "parsing" | "embedding" | "indexing" | "translation" | "other";
         LibraryIngestJobResponse: {
             /** Format: date-time */
             created_at: string;
             docling_task_id?: string | null;
             error_message?: string | null;
+            failure_stage?: null | components["schemas"]["LibraryIngestFailureStage"];
             /** Format: uuid */
             file_id: string;
             /** Format: date-time */
@@ -1575,6 +1594,43 @@ export interface components {
         LibraryIngestStatus: "pending" | "running" | "succeeded" | "failed";
         /** @enum {string} */
         LibraryPreviewContentFormat: "plain_text" | "markdown";
+        /** @enum {string} */
+        LibraryProcessingJobKind: "ingest" | "url_import";
+        LibraryProcessingJobPageResponse: {
+            items: components["schemas"]["LibraryProcessingJobResponse"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
+        };
+        LibraryProcessingJobResponse: {
+            can_retry: boolean;
+            /** Format: date-time */
+            created_at: string;
+            error_message?: string | null;
+            failure_stage?: null | components["schemas"]["LibraryIngestFailureStage"];
+            /** Format: uuid */
+            file_id?: string | null;
+            filename?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            group_key: string;
+            group_path: string;
+            /** Format: uuid */
+            job_id: string;
+            kind: components["schemas"]["LibraryProcessingJobKind"];
+            source_url?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["LibraryIngestStatus"];
+            /** Format: date-time */
+            updated_at: string;
+            visibility: components["schemas"]["Visibility"];
+        };
         LibraryResourceItem: {
             /** Format: int64 */
             child_folder_count: number;
@@ -1634,6 +1690,7 @@ export interface components {
             created_at: string;
             error_code?: string | null;
             error_message?: string | null;
+            failure_stage?: null | components["schemas"]["LibraryIngestFailureStage"];
             file?: null | components["schemas"]["LibraryFileSummary"];
             /** Format: date-time */
             finished_at?: string | null;
@@ -4459,6 +4516,50 @@ export interface operations {
             };
             /** @description Job not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_library_processing_jobs: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                query?: string;
+                status?: components["schemas"]["LibraryIngestStatus"];
+                failure_stage?: components["schemas"]["LibraryIngestFailureStage"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Visible library processing jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryProcessingJobPageResponse"];
+                };
+            };
+            /** @description Invalid pagination parameters */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

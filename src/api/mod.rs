@@ -118,8 +118,8 @@ pub(crate) use group_source_folders::{
 pub(crate) use health::healthz;
 pub(crate) use library::{
     create_library_folder, create_library_text, delete_library_file, delete_library_folder,
-    get_library_file, get_library_job, get_library_resources, get_library_tree, move_library_file,
-    move_library_folder, upload_library_files,
+    get_library_file, get_library_job, get_library_processing_jobs, get_library_resources,
+    get_library_tree, move_library_file, move_library_folder, upload_library_files,
 };
 pub(crate) use personal_access_tokens::{
     create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,

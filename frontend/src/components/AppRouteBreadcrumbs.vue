@@ -40,6 +40,10 @@ const items = computed<Crumb[]>(() => {
     return [{ label: t("nav.groups") }];
   }
 
+  if (routeName.value === "processing-queue") {
+    return [{ label: t("nav.processingQueue") }];
+  }
+
   if (routeName.value.startsWith("group-")) {
     const isOverview = routeName.value === "group-overview";
     const crumbs: Crumb[] = [

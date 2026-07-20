@@ -39,8 +39,6 @@ async function refreshLibraryData() {
 }
 
 const detail = useLibraryDetail({
-  loadTree: refreshLibraryData,
-  selectedFileId: tree.selectedFileId,
   t,
 });
 const detailState = proxyRefs(detail);
@@ -57,7 +55,6 @@ const actions = useLibraryActions({
   loadTree: refreshLibraryData,
   moveOptions: tree.moveOptions,
   replaceQuery: tree.replaceQuery,
-  schedulePolling: detail.schedulePolling,
   selectFile: tree.selectFile,
   selectedFolder: tree.selectedFolder,
   selectedFileId: tree.selectedFileId,
