@@ -19,6 +19,7 @@ use super::{DoclingConfig, DoclingConnectionConfig, DoclingVlmConfig, DoclingXls
 
 #[derive(Clone)]
 struct MockState {
+    submit_responses: Arc<Mutex<Vec<MockResponse>>>,
     poll_calls: Arc<AtomicUsize>,
     result_calls: Arc<AtomicUsize>,
     poll_responses: Arc<Mutex<Vec<MockResponse>>>,
@@ -30,11 +31,17 @@ struct MockState {
 enum MockResponse {
     Status(StatusCode),
     Json(Value),
+    Text(StatusCode, String),
 }
 
 impl MockState {
-    fn new(poll_responses: Vec<MockResponse>, result_responses: Vec<MockResponse>) -> Self {
+    fn new(
+        submit_responses: Vec<MockResponse>,
+        poll_responses: Vec<MockResponse>,
+        result_responses: Vec<MockResponse>,
+    ) -> Self {
         Self {
+            submit_responses: Arc::new(Mutex::new(submit_responses)),
             poll_calls: Arc::new(AtomicUsize::new(0)),
             result_calls: Arc::new(AtomicUsize::new(0)),
             poll_responses: Arc::new(Mutex::new(poll_responses)),
@@ -45,6 +52,7 @@ impl MockState {
 }
 
 async fn spawn_mock(
+    submit_responses: Vec<MockResponse>,
     poll_responses: Vec<MockResponse>,
     result_responses: Vec<MockResponse>,
 ) -> (String, MockState, JoinHandle<()>) {
@@ -52,7 +60,7 @@ async fn spawn_mock(
         .await
         .expect("bind mock server");
     let address = listener.local_addr().expect("mock server address");
-    let state = MockState::new(poll_responses, result_responses);
+    let state = MockState::new(submit_responses, poll_responses, result_responses);
     let app = Router::new()
         .route("/v1/convert/file/async", post(submit_handler))
         .route("/v1/status/poll/{task_id}", get(poll_handler))
@@ -64,8 +72,13 @@ async fn spawn_mock(
     (format!("http://{address}"), state, handle)
 }
 
-async fn submit_handler() -> Json<Value> {
-    Json(json!({"task_id": "task-1"}))
+async fn submit_handler(State(state): State<MockState>) -> Response {
+    let response = take_response(
+        &state.submit_responses,
+        MockResponse::Json(json!({"task_id": "task-1"})),
+    )
+    .await;
+    response.into_response()
 }
 
 async fn poll_handler(State(state): State<MockState>, Path(_task_id): Path<String>) -> Response {
@@ -96,6 +109,7 @@ async fn take_response(queue: &Mutex<Vec<MockResponse>>, default: MockResponse) 
     match response {
         MockResponse::Status(status) => status.into_response(),
         MockResponse::Json(value) => (StatusCode::OK, Json(value)).into_response(),
+        MockResponse::Text(status, body) => (status, body).into_response(),
     }
 }
 
@@ -125,6 +139,7 @@ async fn convert(client: &DoclingXlsxClient) -> anyhow::Result<Value> {
 #[tokio::test]
 async fn polls_to_success_and_retries_transient_status_and_result_errors() {
     let (base_url, state, server) = spawn_mock(
+        vec![],
         vec![
             MockResponse::Status(StatusCode::SERVICE_UNAVAILABLE),
             MockResponse::Json(json!({"task_status": "pending"})),
@@ -149,8 +164,12 @@ async fn polls_to_success_and_retries_transient_status_and_result_errors() {
 
 #[tokio::test]
 async fn does_not_retry_permanent_status_errors() {
-    let (base_url, state, server) =
-        spawn_mock(vec![MockResponse::Status(StatusCode::NOT_FOUND)], vec![]).await;
+    let (base_url, state, server) = spawn_mock(
+        vec![],
+        vec![MockResponse::Status(StatusCode::NOT_FOUND)],
+        vec![],
+    )
+    .await;
 
     let error = convert(&client(base_url, Duration::from_secs(10), Duration::ZERO))
         .await
@@ -164,6 +183,7 @@ async fn does_not_retry_permanent_status_errors() {
 #[tokio::test]
 async fn terminal_failure_does_not_fetch_result() {
     let (base_url, state, server) = spawn_mock(
+        vec![],
         vec![MockResponse::Json(json!({"task_status": "failure"}))],
         vec![],
     )
@@ -181,6 +201,7 @@ async fn terminal_failure_does_not_fetch_result() {
 #[tokio::test]
 async fn pending_or_unknown_status_is_bounded_by_task_timeout() {
     let (base_url, state, server) = spawn_mock(
+        vec![],
         vec![MockResponse::Json(json!({"task_status": "unexpected"}))],
         vec![],
     )
@@ -197,4 +218,25 @@ async fn pending_or_unknown_status_is_bounded_by_task_timeout() {
 
     assert!(error.to_string().contains("timed out"));
     assert!(state.poll_calls.load(Ordering::Relaxed) > 1);
+}
+
+#[tokio::test]
+async fn submission_error_includes_response_body() {
+    let (base_url, _, server) = spawn_mock(
+        vec![MockResponse::Text(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            r#"{"detail":"target_type must be inbody"}"#.to_string(),
+        )],
+        vec![],
+        vec![],
+    )
+    .await;
+
+    let error = convert(&client(base_url, Duration::from_secs(10), Duration::ZERO))
+        .await
+        .expect_err("422 submission should fail");
+    server.abort();
+
+    assert!(error.to_string().contains("422 Unprocessable Entity"));
+    assert!(error.to_string().contains("target_type must be inbody"));
 }

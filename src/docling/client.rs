@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use bytes::Bytes;
 use reqwest::{Client, multipart};
 use serde_json::Value;
@@ -62,7 +62,8 @@ impl DoclingXlsxClient {
         Ok(multipart::Form::new()
             .part("files", part)
             .text("from_formats", "xlsx".to_string())
-            .text("to_formats", "json".to_string()))
+            .text("to_formats", "json".to_string())
+            .text("target_type", "inbody".to_string()))
     }
 
     async fn submit_async(&self, filename: &str, media_type: &str, bytes: Bytes) -> Result<String> {
@@ -74,12 +75,20 @@ impl DoclingXlsxClient {
             .send()
             .await
             .context("failed to submit docling async job")?;
-        let response = response
-            .error_for_status()
-            .context("docling async submission returned error status")?;
+        let status = response.status();
         let body = response
-            .json::<Value>()
+            .text()
             .await
+            .context("failed to read docling async submission response body")?;
+        if !status.is_success() {
+            let detail = if body.trim().is_empty() {
+                status.canonical_reason().unwrap_or("empty response body")
+            } else {
+                body.trim()
+            };
+            return Err(anyhow!("HTTP {status}: {detail}"));
+        }
+        let body = serde_json::from_str::<Value>(&body)
             .context("failed to parse docling async submission response")?;
         let task_id = body
             .get("task_id")
