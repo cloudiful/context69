@@ -1,5 +1,8 @@
-FROM debian:trixie-slim AS runtime
+FROM dockerhub.cloud1ful.com/library/debian:trixie-slim AS runtime
 ARG TARGETARCH
+
+COPY docker/apt-cloud1ful-insecure.conf /etc/apt/apt.conf.d/99apt-cloud1ful-insecure
+COPY docker/debian.sources /etc/apt/sources.list.d/debian.sources
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \

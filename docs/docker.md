@@ -2,7 +2,7 @@
 
 ## All-in-One Image
 
-The root `Dockerfile` is a runtime-only assembly image based on `ubuntu:24.04`. It does not
+The root `Dockerfile` is a runtime-only assembly image based on `debian:trixie-slim`. It does not
 compile Rust or frontend assets inside Docker. Instead it copies prebuilt inputs from
 `ci-image-input/`:
 
@@ -27,6 +27,10 @@ Build:
 ```bash
 docker build -t context69:latest .
 ```
+
+Forgejo CI uses `Dockerfile.forgejo` instead. That file uses
+`dockerhub.cloud1ful.com/library/debian:trixie-slim` and `apt.cloud1ful.com`; keep it out of
+GitHub Actions and local public builds.
 
 Run:
 

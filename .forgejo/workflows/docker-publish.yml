@@ -70,7 +70,7 @@ jobs:
       - name: Build and push arm64 image
         uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-rust-docker-image@v0.1.8
         with:
-          dockerfile: ./Dockerfile
+          dockerfile: ./Dockerfile.forgejo
           target: runtime
           platform: linux/arm64
           manifest_tag: ${{ needs.resolve-tags.outputs.manifest_tag }}

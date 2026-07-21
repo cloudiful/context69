@@ -186,7 +186,7 @@ Detailed configuration docs:
 
 ## Docker
 
-The root `Dockerfile` is now a runtime-only assembly image. It expects prebuilt inputs under
+The root `Dockerfile` is a runtime-only assembly image based on Debian trixie. It expects prebuilt inputs under
 `ci-image-input/`:
 
 - `ci-image-input/context69`
@@ -210,6 +210,10 @@ Then build the all-in-one image:
 ```bash
 docker build -t context69:latest .
 ```
+
+Forgejo CI uses `Dockerfile.forgejo`, which pulls its Debian base from
+`dockerhub.cloud1ful.com` and installs packages through `apt.cloud1ful.com`. GitHub Actions and
+local builds use the public Debian image and sources instead.
 
 Run it:
 
