@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_url_import_jobs\nSET status = 'ingesting', file_id = $2, ingest_job_id = $3, updated_at = now()\nWHERE id = $1\nRETURNING *\n",
+  "query": "UPDATE context69.library_url_import_jobs\nSET status = 'ingesting', file_id = $2, ingest_job_id = $3, updated_at = now()\nWHERE id = $1\n  AND status IN ('downloading', 'ingesting')\nRETURNING *\n",
   "describe": {
     "columns": [
       {
@@ -338,5 +338,5 @@
       true
     ]
   },
-  "hash": "55537304a385180f833a8acfadace4ca05854e97d459f6056a2409982ae2caa4"
+  "hash": "f6526ea6b368a40df6a39f310b725ed3a4d8e3ef29c7e83646eff82f88dbd151"
 }

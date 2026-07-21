@@ -8,9 +8,10 @@ use uuid::Uuid;
 
 use crate::contracts::{
     ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-    LibraryFolderResponse, LibraryIngestJobResponse, LibraryProcessingJobPageQuery,
-    LibraryProcessingJobPageResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
-    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
+    LibraryFolderResponse, LibraryIngestJobResponse, LibraryProcessingJobBulkActionResponse,
+    LibraryProcessingJobPageQuery, LibraryProcessingJobPageResponse, LibraryResourcePageQuery,
+    LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
+    MoveFolderRequest,
 };
 
 use super::{
@@ -79,6 +80,67 @@ pub(crate) async fn get_library_processing_jobs(
     };
     match state.app.library.list_processing_jobs(&scope, &query).await {
         Ok(page) => (StatusCode::OK, Json(page)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/library/processing-jobs/retry-failed",
+    responses(
+        (status = 200, description = "Accepted and skipped failed processing jobs", body = LibraryProcessingJobBulkActionResponse),
+        (status = 403, description = "Owner or maintainer access required", body = ApiErrorResponse),
+        (status = 500, description = "Internal error", body = ApiErrorResponse)
+    )
+)]
+pub(crate) async fn retry_failed_library_processing_jobs(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+) -> impl IntoResponse {
+    let scope = match state
+        .app
+        .auth
+        .access_scope(Some(session.user.id), None)
+        .await
+    {
+        Ok(scope) => scope,
+        Err(error) => return library_management_error_response(error),
+    };
+    match state.app.library.retry_failed_processing_jobs(&scope).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/library/processing-jobs/cleanup-stuck",
+    responses(
+        (status = 200, description = "Accepted and skipped stuck processing jobs", body = LibraryProcessingJobBulkActionResponse),
+        (status = 403, description = "Owner or maintainer access required", body = ApiErrorResponse),
+        (status = 500, description = "Internal error", body = ApiErrorResponse)
+    )
+)]
+pub(crate) async fn cleanup_stuck_library_processing_jobs(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+) -> impl IntoResponse {
+    let scope = match state
+        .app
+        .auth
+        .access_scope(Some(session.user.id), None)
+        .await
+    {
+        Ok(scope) => scope,
+        Err(error) => return library_management_error_response(error),
+    };
+    match state
+        .app
+        .library
+        .cleanup_stuck_processing_jobs(&scope)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }

@@ -1,10 +1,20 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
-import { apiClient, type LibraryIngestFailureStage, type LibraryIngestStatus, type LibraryProcessingJobResponse } from "../services/api";
+import { apiClient, type LibraryIngestFailureStage, type LibraryIngestStatus, type LibraryProcessingJobResponse, type LibraryProcessingJobSummaryResponse } from "../services/api";
+import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
 import { useToast } from "@nuxt/ui/composables";
 
 const PAGE_SIZE = 25;
+const EMPTY_SUMMARY: LibraryProcessingJobSummaryResponse = {
+  can_manage: false,
+  cleanupable_stuck_count: 0,
+  failed_count: 0,
+  pending_count: 0,
+  retryable_failed_count: 0,
+  running_count: 0,
+  stuck_count: 0,
+};
 
 interface UseProcessingQueueOptions {
   t: (key: string) => string;
@@ -13,17 +23,20 @@ interface UseProcessingQueueOptions {
 export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const showErrorToast = useErrorToast();
   const toast = useToast();
+  const confirm = useAppConfirm();
   const items = ref<LibraryProcessingJobResponse[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const page = ref(1);
   const total = ref(0);
   const totalPages = ref(0);
+  const summary = ref<LibraryProcessingJobSummaryResponse>(EMPTY_SUMMARY);
   const searchInput = ref("");
   const query = ref("");
   const statusFilter = ref<LibraryIngestStatus | null>(null);
   const failureStageFilter = ref<LibraryIngestFailureStage | null>(null);
   const retryingJobIds = ref<string[]>([]);
+  const bulkAction = ref<"retry" | "cleanup" | null>(null);
   let requestController: AbortController | null = null;
   let requestId = 0;
 
@@ -51,6 +64,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       page.value = response.page;
       total.value = response.total;
       totalPages.value = response.total_pages;
+      summary.value = response.summary ?? EMPTY_SUMMARY;
     } catch (loadError) {
       if (loadError instanceof Error && loadError.name === "AbortError") return;
       if (currentRequest !== requestId) return;
@@ -132,6 +146,70 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     return retryingJobIds.value.includes(item.job_id);
   }
 
+  async function retryAllFailed() {
+    if (!summary.value.can_manage || summary.value.retryable_failed_count === 0 || bulkAction.value) return;
+    bulkAction.value = "retry";
+    try {
+      const response = await apiClient.retryFailedLibraryProcessingJobs();
+      await load();
+      toast.add({
+        color: "success",
+        title: t("processingQueue.bulkCompleted"),
+        description: t("processingQueue.accepted") + ": " + response.accepted + "; " + t("processingQueue.skipped") + ": " + response.skipped,
+        duration: 3500,
+      });
+    } catch (retryError) {
+      showErrorToast(retryError, t("processingQueue.bulkRetryFailed"));
+    } finally {
+      bulkAction.value = null;
+    }
+  }
+
+  async function cleanupStuck() {
+    if (!summary.value.can_manage || summary.value.cleanupable_stuck_count === 0 || bulkAction.value) return;
+    bulkAction.value = "cleanup";
+    try {
+      const response = await apiClient.cleanupStuckLibraryProcessingJobs();
+      await load();
+      toast.add({
+        color: "success",
+        title: t("processingQueue.bulkCompleted"),
+        description: t("processingQueue.accepted") + ": " + response.accepted + "; " + t("processingQueue.skipped") + ": " + response.skipped,
+        duration: 3500,
+      });
+    } catch (cleanupError) {
+      showErrorToast(cleanupError, t("processingQueue.bulkCleanupFailed"));
+    } finally {
+      bulkAction.value = null;
+    }
+  }
+
+  function confirmRetryAllFailed() {
+    if (!summary.value.can_manage || summary.value.retryable_failed_count === 0 || bulkAction.value) return;
+    confirm.require({
+      header: t("processingQueue.retryAll"),
+      message: t("processingQueue.retryAllConfirm"),
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("processingQueue.retryAllAction"),
+      accept: () => {
+        void retryAllFailed();
+      },
+    });
+  }
+
+  function confirmCleanupStuck() {
+    if (!summary.value.can_manage || summary.value.cleanupable_stuck_count === 0 || bulkAction.value) return;
+    confirm.require({
+      header: t("processingQueue.cleanupStuck"),
+      message: t("processingQueue.cleanupStuckConfirm"),
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("processingQueue.cleanupStuckAction"),
+      accept: () => {
+        void cleanupStuck();
+      },
+    });
+  }
+
   onMounted(() => {
     void load();
   });
@@ -149,11 +227,13 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     pageSize: PAGE_SIZE,
     total,
     totalPages,
+    summary,
     searchInput,
     query,
     statusFilter,
     failureStageFilter,
     retryingJobIds,
+    bulkAction,
     load,
     refresh: () => load(),
     submitSearch,
@@ -162,5 +242,9 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     changePage,
     retryJob,
     isRetrying,
+    retryAllFailed,
+    cleanupStuck,
+    confirmRetryAllFailed,
+    confirmCleanupStuck,
   };
 }

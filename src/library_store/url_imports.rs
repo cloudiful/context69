@@ -85,8 +85,8 @@ impl LibraryStore {
         job_id: Uuid,
         file_id: Uuid,
         ingest_job_id: Option<Uuid>,
-    ) -> Result<()> {
-        sqlx::query_file!(
+    ) -> Result<bool> {
+        let row = sqlx::query_file!(
             "src/sql/library_store/url_imports/mark_ingesting.sql",
             job_id,
             file_id,
@@ -94,7 +94,7 @@ impl LibraryStore {
         )
         .fetch_optional(self.db.pool())
         .await?;
-        Ok(())
+        Ok(row.is_some())
     }
 
     pub async fn finish_url_import_job(
@@ -104,9 +104,9 @@ impl LibraryStore {
         error_code: Option<&str>,
         error_message: Option<&str>,
         failure_stage: Option<crate::contracts::LibraryIngestFailureStage>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let failure_stage = failure_stage.map(crate::contracts::LibraryIngestFailureStage::as_str);
-        sqlx::query_file!(
+        let row = sqlx::query_file!(
             "src/sql/library_store/url_imports/finish.sql",
             job_id,
             status,
@@ -116,7 +116,7 @@ impl LibraryStore {
         )
         .fetch_optional(self.db.pool())
         .await?;
-        Ok(())
+        Ok(row.is_some())
     }
 
     pub async fn retry_url_import_job(

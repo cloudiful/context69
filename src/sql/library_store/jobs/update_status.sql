@@ -7,6 +7,7 @@ SET status = $2,
     finished_at = $7,
     updated_at = now()
 WHERE id = $1
+  AND status IN ('pending', 'running')
 RETURNING
     group_id,
     (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",

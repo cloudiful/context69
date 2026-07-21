@@ -80,9 +80,17 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
         file_id: Uuid,
     ) -> Result<LibraryIngestJobResponse> {
+        self.retry_file_with_group_id(project.id, file_id).await
+    }
+
+    pub(super) async fn retry_file_with_group_id(
+        &self,
+        group_id: i64,
+        file_id: Uuid,
+    ) -> Result<LibraryIngestJobResponse> {
         let file = self
             .store
-            .get_file_in_project(project.id, file_id)
+            .get_file_in_project(group_id, file_id)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
         if file.ingest_status != LibraryIngestStatus::Failed {
@@ -109,7 +117,7 @@ impl LibraryService {
         let job_id = Uuid::new_v4();
         let job = self
             .store
-            .claim_failed_file_retry_in_project(project.id, file_id, job_id)
+            .claim_failed_file_retry_in_project(group_id, file_id, job_id)
             .await?
             .ok_or_else(|| anyhow!("file {file_id} is not failed and cannot be retried"))?;
 
@@ -131,7 +139,8 @@ impl LibraryService {
     ) -> Result<()> {
         if let Err(error) = self.cleanup_ingest_artifacts(file_id).await {
             let message = error.to_string();
-            self.store
+            let job_updated = self
+                .store
                 .update_job_status(
                     job_id,
                     LibraryIngestStatus::Failed,
@@ -142,9 +151,11 @@ impl LibraryService {
                     true,
                 )
                 .await?;
-            self.store
-                .update_file_status(file_id, LibraryIngestStatus::Failed, Some(&message), false)
-                .await?;
+            if job_updated.is_some() {
+                self.store
+                    .update_file_status(file_id, LibraryIngestStatus::Failed, Some(&message), false)
+                    .await?;
+            }
             return Err(error);
         }
 

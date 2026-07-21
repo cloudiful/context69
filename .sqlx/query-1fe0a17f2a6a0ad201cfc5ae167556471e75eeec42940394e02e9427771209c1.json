@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_url_import_jobs\nSET status = $2,\n    error_code = $3,\n    error_message = $4,\n    failure_stage = $5,\n    finished_at = now(),\n    updated_at = now()\nWHERE id = $1\nRETURNING *\n",
+  "query": "UPDATE context69.library_url_import_jobs\nSET status = $2,\n    error_code = $3,\n    error_message = $4,\n    failure_stage = $5,\n    finished_at = now(),\n    updated_at = now()\nWHERE id = $1\n  AND status IN ('queued', 'downloading', 'ingesting')\nRETURNING *\n",
   "describe": {
     "columns": [
       {
@@ -340,5 +340,5 @@
       true
     ]
   },
-  "hash": "f9316228f9b47eb9776b5dd915b2542beee05bb316d8df7c39846593cc355a48"
+  "hash": "1fe0a17f2a6a0ad201cfc5ae167556471e75eeec42940394e02e9427771209c1"
 }

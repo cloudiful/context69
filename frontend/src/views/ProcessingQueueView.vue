@@ -73,7 +73,29 @@ function itemLabel(item: LibraryProcessingJobResponse) {
         <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
         <p class="text-sm text-muted-color">{{ t("processingQueue.description") }}</p>
       </div>
-      <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :label="t('processingQueue.refresh')" @click="queue.refresh" />
+      <div class="flex flex-wrap items-center justify-end gap-2">
+        <UButton
+          v-if="queue.summary.can_manage && queue.summary.retryable_failed_count > 0"
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-refresh-cw"
+          :loading="queue.bulkAction === 'retry'"
+          :disabled="!!queue.bulkAction"
+          :label="t('processingQueue.retryAll') + ' (' + queue.summary.retryable_failed_count + ')'"
+          @click="queue.confirmRetryAllFailed"
+        />
+        <UButton
+          v-if="queue.summary.can_manage && queue.summary.cleanupable_stuck_count > 0"
+          color="error"
+          variant="outline"
+          icon="i-lucide-trash-2"
+          :loading="queue.bulkAction === 'cleanup'"
+          :disabled="!!queue.bulkAction"
+          :label="t('processingQueue.cleanupStuck') + ' (' + queue.summary.cleanupable_stuck_count + ')'"
+          @click="queue.confirmCleanupStuck"
+        />
+        <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :label="t('processingQueue.refresh')" @click="queue.refresh" />
+      </div>
     </div>
 
     <div class="flex flex-wrap items-center gap-2">

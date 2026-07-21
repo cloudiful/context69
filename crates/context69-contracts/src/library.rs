@@ -407,6 +407,24 @@ pub struct LibraryProcessingJobPageResponse {
     pub page_size: u32,
     pub total: u64,
     pub total_pages: u32,
+    pub summary: LibraryProcessingJobSummaryResponse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryProcessingJobSummaryResponse {
+    pub can_manage: bool,
+    pub pending_count: u64,
+    pub running_count: u64,
+    pub failed_count: u64,
+    pub stuck_count: u64,
+    pub retryable_failed_count: u64,
+    pub cleanupable_stuck_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryProcessingJobBulkActionResponse {
+    pub accepted: u64,
+    pub skipped: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]

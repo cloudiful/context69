@@ -25,13 +25,13 @@ use tower_sessions_redis_store::{
 use crate::services::app::Context69App;
 
 use super::{
-    ApiState, auth_middleware, batch_get_group_documents, build_api_state, create_admin_user,
-    create_group_library_folder, create_group_library_text, create_group_source_folder,
-    create_library_folder, create_library_text, create_metadata_index,
-    create_personal_access_token, create_source, create_source_connection,
-    delete_group_document_by_key, delete_group_library_file, delete_group_library_folder,
-    delete_library_file, delete_library_folder, delete_metadata_index, delete_source,
-    delete_source_connection, disable_admin_user, enable_admin_user,
+    ApiState, auth_middleware, batch_get_group_documents, build_api_state,
+    cleanup_stuck_library_processing_jobs, create_admin_user, create_group_library_folder,
+    create_group_library_text, create_group_source_folder, create_library_folder,
+    create_library_text, create_metadata_index, create_personal_access_token, create_source,
+    create_source_connection, delete_group_document_by_key, delete_group_library_file,
+    delete_group_library_folder, delete_library_file, delete_library_folder, delete_metadata_index,
+    delete_source, delete_source_connection, disable_admin_user, enable_admin_user,
     forbid_personal_access_token_middleware, get_group_document_by_key, get_group_library_file,
     get_group_library_job, get_group_library_resources, get_group_library_tree,
     get_group_library_url_import_job, get_group_translation_settings, get_library_file,
@@ -44,7 +44,8 @@ use super::{
     rebuild_document_translations, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, reset_admin_user_password, retry_group_library_file,
+    require_workspace_scope_middleware, reset_admin_user_password,
+    retry_failed_library_processing_jobs, retry_group_library_file,
     retry_group_library_url_import_job, retry_metadata_index, retry_translation_job,
     revoke_personal_access_token, sync_group_source_folder, sync_source,
     touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
@@ -319,6 +320,14 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         .route(
             "/v1/library/processing-jobs",
             get(get_library_processing_jobs),
+        )
+        .route(
+            "/v1/library/processing-jobs/retry-failed",
+            post(retry_failed_library_processing_jobs),
+        )
+        .route(
+            "/v1/library/processing-jobs/cleanup-stuck",
+            post(cleanup_stuck_library_processing_jobs),
         )
         .route("/v1/library/folders", post(create_library_folder))
         .route(

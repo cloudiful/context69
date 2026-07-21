@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_ingest_jobs\nSET status = $2,\n    docling_task_id = COALESCE($3, docling_task_id),\n    failure_stage = $4,\n    error_message = $5,\n    started_at = COALESCE($6, started_at),\n    finished_at = $7,\n    updated_at = now()\nWHERE id = $1\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    file_id,\n    status,\n    docling_task_id,\n    failure_stage,\n    error_message,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\n",
+  "query": "UPDATE context69.library_ingest_jobs\nSET status = $2,\n    docling_task_id = COALESCE($3, docling_task_id),\n    failure_stage = $4,\n    error_message = $5,\n    started_at = COALESCE($6, started_at),\n    finished_at = $7,\n    updated_at = now()\nWHERE id = $1\n  AND status IN ('pending', 'running')\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    file_id,\n    status,\n    docling_task_id,\n    failure_stage,\n    error_message,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\n",
   "describe": {
     "columns": [
       {
@@ -176,5 +176,5 @@
       false
     ]
   },
-  "hash": "63718079652661f84778556032349abd6cc2a76292d0c62dad8c9e21845ad8eb"
+  "hash": "2e57c66ce05c4cdd1501fbdc5d9ce25f326cdb2397d08a5ea0187b772a144281"
 }

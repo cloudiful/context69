@@ -2,6 +2,7 @@ import type {
   CreateFolderRequest,
   LibraryIngestFailureStage,
   LibraryIngestStatus,
+  LibraryProcessingJobBulkActionResponse,
   LibraryProcessingJobPageResponse,
   LibraryResourceSortBy,
   LibraryUploadResponse,
@@ -77,6 +78,20 @@ export function createLibraryApi({
         },
         signal: options?.signal,
       })) as Promise<LibraryProcessingJobPageResponse>;
+    },
+    retryFailedLibraryProcessingJobs(options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/library/processing-jobs/retry-failed", {
+          signal: options?.signal,
+        }),
+      ) as Promise<LibraryProcessingJobBulkActionResponse>;
+    },
+    cleanupStuckLibraryProcessingJobs(options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/library/processing-jobs/cleanup-stuck", {
+          signal: options?.signal,
+        }),
+      ) as Promise<LibraryProcessingJobBulkActionResponse>;
     },
     createLibraryFolder(payload: CreateFolderRequest, options?: RequestOptions) {
       return unwrapResponse(

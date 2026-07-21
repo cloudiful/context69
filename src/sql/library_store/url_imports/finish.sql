@@ -6,4 +6,5 @@ SET status = $2,
     finished_at = now(),
     updated_at = now()
 WHERE id = $1
+  AND status IN ('queued', 'downloading', 'ingesting')
 RETURNING *

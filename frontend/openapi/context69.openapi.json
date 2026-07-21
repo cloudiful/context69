@@ -3163,6 +3163,82 @@
         }
       }
     },
+    "/v1/library/processing-jobs/cleanup-stuck": {
+      "post": {
+        "tags": [],
+        "operationId": "cleanup_stuck_library_processing_jobs",
+        "responses": {
+          "200": {
+            "description": "Accepted and skipped stuck processing jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryProcessingJobBulkActionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner or maintainer access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/library/processing-jobs/retry-failed": {
+      "post": {
+        "tags": [],
+        "operationId": "retry_failed_library_processing_jobs",
+        "responses": {
+          "200": {
+            "description": "Accepted and skipped failed processing jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryProcessingJobBulkActionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner or maintainer access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/library/resources": {
       "get": {
         "tags": [],
@@ -5919,6 +5995,25 @@
           "markdown"
         ]
       },
+      "LibraryProcessingJobBulkActionResponse": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "skipped"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "LibraryProcessingJobKind": {
         "type": "string",
         "enum": [
@@ -5933,7 +6028,8 @@
           "page",
           "page_size",
           "total",
-          "total_pages"
+          "total_pages",
+          "summary"
         ],
         "properties": {
           "items": {
@@ -5951,6 +6047,9 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LibraryProcessingJobSummaryResponse"
           },
           "total": {
             "type": "integer",
@@ -6056,6 +6155,53 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
+          }
+        }
+      },
+      "LibraryProcessingJobSummaryResponse": {
+        "type": "object",
+        "required": [
+          "can_manage",
+          "pending_count",
+          "running_count",
+          "failed_count",
+          "stuck_count",
+          "retryable_failed_count",
+          "cleanupable_stuck_count"
+        ],
+        "properties": {
+          "can_manage": {
+            "type": "boolean"
+          },
+          "cleanupable_stuck_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failed_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pending_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retryable_failed_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "running_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stuck_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },

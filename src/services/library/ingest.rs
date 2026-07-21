@@ -41,7 +41,8 @@ impl LibraryService {
         kind: LibraryFileKind,
     ) -> Result<()> {
         let _permit = self.ingest_semaphore.acquire().await?;
-        self.store
+        let Some(_) = self
+            .store
             .update_job_status(
                 job_id,
                 LibraryIngestStatus::Running,
@@ -51,7 +52,10 @@ impl LibraryService {
                 true,
                 false,
             )
-            .await?;
+            .await?
+        else {
+            return Ok(());
+        };
         self.store
             .update_file_status(file_id, LibraryIngestStatus::Running, None, false)
             .await?;
@@ -90,7 +94,8 @@ impl LibraryService {
 
         match result {
             Ok(()) => {
-                self.store
+                let Some(_) = self
+                    .store
                     .update_job_status(
                         job_id,
                         LibraryIngestStatus::Succeeded,
@@ -100,7 +105,10 @@ impl LibraryService {
                         true,
                         true,
                     )
-                    .await?;
+                    .await?
+                else {
+                    return Ok(());
+                };
                 self.store
                     .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)
                     .await?;
@@ -112,7 +120,8 @@ impl LibraryService {
                 if let Err(cleanup_error) = self.cleanup_ingest_artifacts(file_id).await {
                     warn!(file_id = %file_id, error = %cleanup_error, "failed to clean ingest artifacts after failure");
                 }
-                self.store
+                let job_updated = self
+                    .store
                     .update_job_status(
                         job_id,
                         LibraryIngestStatus::Failed,
@@ -123,9 +132,16 @@ impl LibraryService {
                         true,
                     )
                     .await?;
-                self.store
-                    .update_file_status(file_id, LibraryIngestStatus::Failed, Some(&message), false)
-                    .await?;
+                if job_updated.is_some() {
+                    self.store
+                        .update_file_status(
+                            file_id,
+                            LibraryIngestStatus::Failed,
+                            Some(&message),
+                            false,
+                        )
+                        .await?;
+                }
                 Err(anyhow::Error::new(error))
             }
         }
@@ -180,7 +196,8 @@ impl LibraryService {
         let total = converted.chunks.len().max(1);
         for index in 0..total {
             let status_id = format!("{}/{}", index + 1, total);
-            self.store
+            let Some(_) = self
+                .store
                 .update_job_status(
                     job_id,
                     LibraryIngestStatus::Running,
@@ -191,7 +208,13 @@ impl LibraryService {
                     false,
                 )
                 .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?
+            else {
+                return Err(IngestFailure::new(
+                    LibraryIngestFailureStage::Other,
+                    anyhow!("ingest job {job_id} is no longer active"),
+                ));
+            };
         }
 
         let body_text = converted

@@ -116,14 +116,17 @@ impl LibraryService {
         };
         match result {
             Ok(()) => {
-                self.store
+                let _ = self
+                    .store
                     .finish_url_import_job(job_id, "succeeded", None, None, None)
-                    .await
+                    .await?;
+                Ok(())
             }
             Err(error) => {
                 let message = error.to_string();
                 let code = message.split(':').next().unwrap_or("url_import_failed");
-                self.store
+                let _ = self
+                    .store
                     .finish_url_import_job(
                         job_id,
                         "failed",
@@ -190,10 +193,41 @@ impl LibraryService {
             )
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
-        self.store
+        let marked = self
+            .store
             .mark_url_import_ingesting(job.id, file.file_id, Some(ingest_job.job_id))
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
+        if !marked {
+            let message = "parent URL import job is no longer active";
+            let child_updated = self
+                .store
+                .update_job_status(
+                    ingest_job.job_id,
+                    LibraryIngestStatus::Failed,
+                    None,
+                    Some(LibraryIngestFailureStage::Other),
+                    Some(message),
+                    false,
+                    true,
+                )
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
+            if child_updated.is_some() {
+                self.store
+                    .update_file_status(
+                        file.file_id,
+                        LibraryIngestStatus::Failed,
+                        Some(message),
+                        false,
+                    )
+                    .await
+                    .map_err(|error| {
+                        IngestFailure::new(LibraryIngestFailureStage::Storage, error)
+                    })?;
+            }
+            return Ok(());
+        }
         self.await_ingest(ingest_job.job_id).await
     }
 
@@ -216,10 +250,26 @@ impl LibraryService {
             .create_job(ingest_job_id, file_id)
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
-        self.store
+        let marked = self
+            .store
             .mark_url_import_ingesting(job.id, file_id, Some(ingest_job_id))
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
+        if !marked {
+            let _ = self
+                .store
+                .update_job_status(
+                    ingest_job_id,
+                    LibraryIngestStatus::Failed,
+                    None,
+                    Some(LibraryIngestFailureStage::Other),
+                    Some("parent URL import job is no longer active"),
+                    false,
+                    true,
+                )
+                .await;
+            return Ok(());
+        }
         match self.run_retry_ingest(file_id, ingest_job_id, kind).await {
             Ok(()) => Ok(()),
             Err(error) => {

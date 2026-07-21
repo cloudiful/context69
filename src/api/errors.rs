@@ -42,6 +42,8 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
     let message = error.to_string();
     let status = if let Some(status) = runtime_aware_status(&message) {
         status
+    } else if message.contains("processing job management requires") {
+        StatusCode::FORBIDDEN
     } else if message.contains("unknown folder")
         || message.contains("unknown file")
         || message.contains("unknown job")

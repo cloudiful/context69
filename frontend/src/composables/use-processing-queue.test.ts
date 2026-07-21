@@ -10,6 +10,8 @@ import { useProcessingQueue } from "./use-processing-queue";
 const getLibraryProcessingJobs = vi.spyOn(apiClient, "getLibraryProcessingJobs");
 const retryGroupLibraryFile = vi.spyOn(apiClient, "retryGroupLibraryFile");
 const retryGroupLibraryUrlImportJob = vi.spyOn(apiClient, "retryGroupLibraryUrlImportJob");
+const retryFailedLibraryProcessingJobs = vi.spyOn(apiClient, "retryFailedLibraryProcessingJobs");
+const cleanupStuckLibraryProcessingJobs = vi.spyOn(apiClient, "cleanupStuckLibraryProcessingJobs");
 
 const failedIngest: LibraryProcessingJobResponse = {
   can_retry: true,
@@ -30,8 +32,24 @@ const failedIngest: LibraryProcessingJobResponse = {
   visibility: "private",
 };
 
-function page(items: LibraryProcessingJobResponse[] = [failedIngest]) {
-  return { items, page: 1, page_size: 25, total: items.length, total_pages: items.length ? 1 : 0 };
+function page(items: LibraryProcessingJobResponse[] = [failedIngest], summary = {}) {
+  return {
+    items,
+    page: 1,
+    page_size: 25,
+    total: items.length,
+    total_pages: items.length ? 1 : 0,
+    summary: {
+      can_manage: false,
+      cleanupable_stuck_count: 0,
+      failed_count: 1,
+      pending_count: 0,
+      retryable_failed_count: 0,
+      running_count: 0,
+      stuck_count: 0,
+      ...summary,
+    },
+  };
 }
 
 describe("useProcessingQueue", () => {
@@ -39,6 +57,8 @@ describe("useProcessingQueue", () => {
     getLibraryProcessingJobs.mockReset().mockResolvedValue(page() as never);
     retryGroupLibraryFile.mockReset();
     retryGroupLibraryUrlImportJob.mockReset();
+    retryFailedLibraryProcessingJobs.mockReset();
+    cleanupStuckLibraryProcessingJobs.mockReset();
   });
 
   function mountState() {
@@ -123,6 +143,38 @@ describe("useProcessingQueue", () => {
 
     expect(retryGroupLibraryUrlImportJob).toHaveBeenCalledWith("research", "import-job-id");
     expect(state.items.value[0]).toMatchObject({ job_id: "new-import-job-id", status: "pending" });
+    wrapper.unmount();
+  });
+
+  it("retries all latest failures and refreshes exactly once", async () => {
+    getLibraryProcessingJobs
+      .mockResolvedValueOnce(page([failedIngest], { can_manage: true, retryable_failed_count: 2 }) as never)
+      .mockResolvedValueOnce(page([], { can_manage: true }) as never);
+    retryFailedLibraryProcessingJobs.mockResolvedValue({ accepted: 2, skipped: 1 } as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.retryAllFailed();
+    await flushPromises();
+
+    expect(retryFailedLibraryProcessingJobs).toHaveBeenCalledOnce();
+    expect(getLibraryProcessingJobs).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("cleans stuck tasks and refreshes exactly once", async () => {
+    getLibraryProcessingJobs
+      .mockResolvedValueOnce(page([failedIngest], { can_manage: true, cleanupable_stuck_count: 2 }) as never)
+      .mockResolvedValueOnce(page([], { can_manage: true }) as never);
+    cleanupStuckLibraryProcessingJobs.mockResolvedValue({ accepted: 1, skipped: 1 } as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.cleanupStuck();
+    await flushPromises();
+
+    expect(cleanupStuckLibraryProcessingJobs).toHaveBeenCalledOnce();
+    expect(getLibraryProcessingJobs).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 });

@@ -299,7 +299,8 @@ impl LibraryService {
         sections: Vec<IngestSection>,
         search_generation_reason: &str,
     ) -> Result<()> {
-        self.store
+        let Some(_) = self
+            .store
             .update_job_status(
                 job_id,
                 LibraryIngestStatus::Running,
@@ -309,7 +310,10 @@ impl LibraryService {
                 true,
                 false,
             )
-            .await?;
+            .await?
+        else {
+            return Ok(());
+        };
         self.store
             .update_file_status(file.id, LibraryIngestStatus::Running, None, false)
             .await?;
@@ -317,7 +321,8 @@ impl LibraryService {
         let persist_result = self.persist_sections(file, sections).await;
         match persist_result {
             Ok(()) => {
-                self.store
+                let Some(_) = self
+                    .store
                     .update_job_status(
                         job_id,
                         LibraryIngestStatus::Succeeded,
@@ -327,7 +332,10 @@ impl LibraryService {
                         true,
                         true,
                     )
-                    .await?;
+                    .await?
+                else {
+                    return Ok(());
+                };
                 self.store
                     .update_file_status(file.id, LibraryIngestStatus::Succeeded, None, true)
                     .await?;
@@ -337,7 +345,8 @@ impl LibraryService {
             }
             Err(error) => {
                 let message = error.to_string();
-                self.store
+                let job_updated = self
+                    .store
                     .update_job_status(
                         job_id,
                         LibraryIngestStatus::Failed,
@@ -348,9 +357,16 @@ impl LibraryService {
                         true,
                     )
                     .await?;
-                self.store
-                    .update_file_status(file.id, LibraryIngestStatus::Failed, Some(&message), false)
-                    .await?;
+                if job_updated.is_some() {
+                    self.store
+                        .update_file_status(
+                            file.id,
+                            LibraryIngestStatus::Failed,
+                            Some(&message),
+                            false,
+                        )
+                        .await?;
+                }
                 Err(error.into())
             }
         }

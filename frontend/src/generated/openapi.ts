@@ -900,6 +900,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/library/processing-jobs/cleanup-stuck": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cleanup_stuck_library_processing_jobs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/library/processing-jobs/retry-failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_failed_library_processing_jobs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/library/resources": {
         parameters: {
             query?: never;
@@ -1594,6 +1626,12 @@ export interface components {
         LibraryIngestStatus: "pending" | "running" | "succeeded" | "failed";
         /** @enum {string} */
         LibraryPreviewContentFormat: "plain_text" | "markdown";
+        LibraryProcessingJobBulkActionResponse: {
+            /** Format: int64 */
+            accepted: number;
+            /** Format: int64 */
+            skipped: number;
+        };
         /** @enum {string} */
         LibraryProcessingJobKind: "ingest" | "url_import";
         LibraryProcessingJobPageResponse: {
@@ -1602,6 +1640,7 @@ export interface components {
             page: number;
             /** Format: int32 */
             page_size: number;
+            summary: components["schemas"]["LibraryProcessingJobSummaryResponse"];
             /** Format: int64 */
             total: number;
             /** Format: int32 */
@@ -1630,6 +1669,21 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
+        };
+        LibraryProcessingJobSummaryResponse: {
+            can_manage: boolean;
+            /** Format: int64 */
+            cleanupable_stuck_count: number;
+            /** Format: int64 */
+            failed_count: number;
+            /** Format: int64 */
+            pending_count: number;
+            /** Format: int64 */
+            retryable_failed_count: number;
+            /** Format: int64 */
+            running_count: number;
+            /** Format: int64 */
+            stuck_count: number;
         };
         LibraryResourceItem: {
             /** Format: int64 */
@@ -4560,6 +4614,82 @@ export interface operations {
             };
             /** @description Invalid pagination parameters */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    cleanup_stuck_library_processing_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted and skipped stuck processing jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryProcessingJobBulkActionResponse"];
+                };
+            };
+            /** @description Owner or maintainer access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_failed_library_processing_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted and skipped failed processing jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryProcessingJobBulkActionResponse"];
+                };
+            };
+            /** @description Owner or maintainer access required */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
