@@ -46,6 +46,8 @@ pub(super) fn runtime_settings_from_request(
             max_upload_request_size_mb: request.file_library.max_upload_request_size_mb,
             ingest_concurrency: request.file_library.ingest_concurrency,
             pdf_pages_per_task: request.file_library.pdf_pages_per_task,
+            url_import_concurrency: request.file_library.url_import_concurrency,
+            url_import_min_interval_ms: request.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: request.file_library.trusted_proxy_enabled,
             s3: request
                 .file_library
@@ -101,6 +103,8 @@ pub(super) fn runtime_settings_response(
             max_upload_request_size_mb: settings.file_library.max_upload_request_size_mb,
             ingest_concurrency: settings.file_library.ingest_concurrency,
             pdf_pages_per_task: settings.file_library.pdf_pages_per_task,
+            url_import_concurrency: settings.file_library.url_import_concurrency,
+            url_import_min_interval_ms: settings.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: settings.file_library.trusted_proxy_enabled,
             s3: settings
                 .file_library
@@ -154,6 +158,8 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             max_upload_request_size_mb: defaults.file_library.max_upload_request_size_mb,
             ingest_concurrency: defaults.file_library.ingest_concurrency,
             pdf_pages_per_task: defaults.file_library.pdf_pages_per_task,
+            url_import_concurrency: defaults.file_library.url_import_concurrency,
+            url_import_min_interval_ms: defaults.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: defaults.file_library.trusted_proxy_enabled,
             s3: defaults
                 .file_library

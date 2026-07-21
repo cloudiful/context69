@@ -603,6 +603,8 @@ export const en = {
       fileLibraryMaxUploadSize: "Max Upload Size (MB)",
       fileLibraryMaxRequestSize: "Max Request Size (MB)",
       fileLibraryConcurrency: "Ingest Concurrency",
+      fileLibraryUrlImportConcurrency: "URL Import Workers",
+      fileLibraryUrlImportMinInterval: "URL Import Host Interval (ms)",
       fileLibraryPdfPagesPerTask: "PDF Pages Per Task",
       trustedProxyEnabled: "Trust environment egress proxy",
       trustedProxyHelper: "URL imports use HTTPS_PROXY/ALL_PROXY and NO_PROXY; the proxy must enforce destination isolation.",

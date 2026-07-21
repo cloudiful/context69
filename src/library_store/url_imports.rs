@@ -55,42 +55,60 @@ impl LibraryStore {
         .await?)
     }
 
-    pub async fn list_pending_url_import_ids(&self) -> Result<Vec<Uuid>> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/library_store/url_imports/list_pending_ids.sql")
-                .fetch_all(self.db.pool())
-                .await?,
-        )
-    }
-
-    pub async fn reset_interrupted_url_imports(&self) -> Result<()> {
-        sqlx::query_file!("src/sql/library_store/url_imports/reset_interrupted.sql")
-            .execute(self.db.pool())
-            .await?;
-        Ok(())
-    }
-
-    pub async fn claim_url_import_job(&self, job_id: Uuid) -> Result<Option<UrlImportJobRecord>> {
+    pub async fn claim_next_url_import_job(
+        &self,
+        lease_token: Uuid,
+        lease_ttl_secs: i64,
+    ) -> Result<Option<UrlImportJobRecord>> {
         Ok(sqlx::query_file_as!(
             UrlImportJobRecord,
-            "src/sql/library_store/url_imports/claim.sql",
-            job_id
+            "src/sql/library_store/url_imports/claim_next.sql",
+            lease_token,
+            lease_ttl_secs
         )
         .fetch_optional(self.db.pool())
         .await?)
     }
 
+    pub async fn recover_expired_url_import_jobs(&self) -> Result<()> {
+        sqlx::query_file!("src/sql/library_store/url_imports/recover_expired.sql")
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn heartbeat_url_import_job(
+        &self,
+        job_id: Uuid,
+        lease_token: Uuid,
+        lease_ttl_secs: i64,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/url_imports/heartbeat.sql",
+            job_id,
+            lease_token,
+            lease_ttl_secs
+        )
+        .fetch_optional(self.db.pool())
+        .await?
+        .is_some())
+    }
+
     pub async fn mark_url_import_ingesting(
         &self,
         job_id: Uuid,
+        lease_token: Uuid,
         file_id: Uuid,
         ingest_job_id: Option<Uuid>,
+        lease_ttl_secs: i64,
     ) -> Result<bool> {
         let row = sqlx::query_file!(
             "src/sql/library_store/url_imports/mark_ingesting.sql",
             job_id,
+            lease_token,
             file_id,
-            ingest_job_id
+            ingest_job_id,
+            lease_ttl_secs
         )
         .fetch_optional(self.db.pool())
         .await?;
@@ -100,6 +118,7 @@ impl LibraryStore {
     pub async fn finish_url_import_job(
         &self,
         job_id: Uuid,
+        lease_token: Uuid,
         status: &str,
         error_code: Option<&str>,
         error_message: Option<&str>,
@@ -112,7 +131,8 @@ impl LibraryStore {
             status,
             error_code,
             error_message,
-            failure_stage
+            failure_stage,
+            lease_token
         )
         .fetch_optional(self.db.pool())
         .await?;

@@ -105,4 +105,13 @@ impl LibraryStore {
 
         row.map(job_from_row).transpose()
     }
+
+    pub async fn touch_ingest_job(&self, job_id: Uuid) -> Result<bool> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/library_store/jobs/touch.sql", job_id)
+                .fetch_optional(self.db.pool())
+                .await?
+                .is_some(),
+        )
+    }
 }

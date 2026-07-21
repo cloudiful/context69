@@ -54,6 +54,7 @@ mod text_creation;
 mod texts;
 mod tree;
 mod uploads;
+mod url_import_runtime;
 mod url_imports;
 mod xlsx;
 
@@ -72,7 +73,14 @@ pub struct LibraryService {
     max_upload_request_size_bytes: usize,
     pdf_pages_per_task: u32,
     ingest_semaphore: Arc<Semaphore>,
+    url_import_runtime: Arc<url_import_runtime::UrlImportRuntime>,
     translation: TranslationService,
+}
+
+pub struct LibraryServiceConfig {
+    pub chunking: ChunkingConfig,
+    pub file_library: FileLibraryConfig,
+    pub valkey_url: Option<String>,
 }
 
 #[derive(Clone)]
@@ -159,18 +167,30 @@ struct FolderNodeSeed {
 }
 
 impl LibraryService {
-    pub fn new(
+    pub async fn new(
         db: Database,
         embedding: Option<Arc<dyn EmbeddingProvider>>,
         index: Option<QdrantIndex>,
-        chunking: ChunkingConfig,
+        service_config: LibraryServiceConfig,
         settings: SettingsService,
-        file_library_config: FileLibraryConfig,
         translation: TranslationService,
     ) -> Result<Self> {
+        let LibraryServiceConfig {
+            chunking,
+            file_library,
+            valkey_url,
+        } = service_config;
         let storage = Arc::new(object_storage::LibraryObjectStorage::from_config(
-            &file_library_config,
+            &file_library,
         )?);
+        let url_import_runtime = Arc::new(
+            url_import_runtime::UrlImportRuntime::new(
+                file_library.url_import_concurrency,
+                file_library.url_import_min_interval_ms,
+                valkey_url.as_deref(),
+            )
+            .await?,
+        );
 
         Ok(Self {
             db: db.clone(),
@@ -180,14 +200,13 @@ impl LibraryService {
                 .map(|(embedding, index)| LibraryRuntime { embedding, index }),
             chunking,
             settings,
-            storage_root: file_library_config.storage_root,
+            storage_root: file_library.storage_root,
             storage,
-            max_upload_size_bytes: file_library_config.max_upload_size_mb * 1024 * 1024,
-            max_upload_request_size_bytes: file_library_config.max_upload_request_size_mb
-                * 1024
-                * 1024,
-            pdf_pages_per_task: file_library_config.pdf_pages_per_task,
-            ingest_semaphore: Arc::new(Semaphore::new(file_library_config.ingest_concurrency)),
+            max_upload_size_bytes: file_library.max_upload_size_mb * 1024 * 1024,
+            max_upload_request_size_bytes: file_library.max_upload_request_size_mb * 1024 * 1024,
+            pdf_pages_per_task: file_library.pdf_pages_per_task,
+            ingest_semaphore: Arc::new(Semaphore::new(file_library.ingest_concurrency)),
+            url_import_runtime,
             translation,
         })
     }

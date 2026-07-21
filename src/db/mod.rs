@@ -134,6 +134,8 @@ pub struct StoredRuntimeFileLibrarySettings {
     pub max_upload_request_size_mb: usize,
     pub ingest_concurrency: usize,
     pub pdf_pages_per_task: u32,
+    pub url_import_concurrency: usize,
+    pub url_import_min_interval_ms: u64,
     pub trusted_proxy_enabled: bool,
     pub s3: Option<StoredRuntimeS3Settings>,
 }

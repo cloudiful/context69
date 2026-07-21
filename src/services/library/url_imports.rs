@@ -1,7 +1,13 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result, anyhow};
 use sha2::{Digest, Sha256};
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
+use super::url_import_runtime::{
+    URL_IMPORT_HEARTBEAT_INTERVAL, URL_IMPORT_LEASE_TTL_SECS, UrlImportRuntime,
+};
 use super::*;
 use crate::{
     contracts::{
@@ -56,7 +62,7 @@ impl LibraryService {
                 translation_target_locales: translation.target_locales,
             })
             .await?;
-        self.spawn_url_import(job.id);
+        self.url_import_runtime.notify();
         self.url_import_response(job).await
     }
 
@@ -84,41 +90,85 @@ impl LibraryService {
             .retry_url_import_job(group_id, job_id, retry_job_id)
             .await?
             .context("URL import job is not failed and cannot be retried")?;
-        self.spawn_url_import(job.id);
+        self.url_import_runtime.notify();
         self.url_import_response(job).await
     }
 
     pub async fn resume_url_imports(&self) -> Result<()> {
-        self.store.reset_interrupted_url_imports().await?;
-        for id in self.store.list_pending_url_import_ids().await? {
-            self.spawn_url_import(id);
-        }
+        self.store.recover_expired_url_import_jobs().await?;
+        self.url_import_runtime.start_workers(self.clone());
+        self.url_import_runtime.notify();
         Ok(())
     }
 
-    fn spawn_url_import(&self, job_id: Uuid) {
-        let service = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = service.run_url_import(job_id).await {
-                warn!(%job_id, %error, "URL import failed");
+    pub(super) async fn run_url_import_worker(&self, runtime: UrlImportRuntime, worker_id: usize) {
+        loop {
+            if let Err(error) = self.store.recover_expired_url_import_jobs().await {
+                warn!(worker_id, %error, "failed to recover expired URL import leases");
             }
-        });
+            let lease_token = Uuid::new_v4();
+            let job = match self
+                .store
+                .claim_next_url_import_job(lease_token, URL_IMPORT_LEASE_TTL_SECS)
+                .await
+            {
+                Ok(Some(job)) => job,
+                Ok(None) => {
+                    tokio::select! {
+                        _ = runtime.wait_for_work() => {}
+                        _ = tokio::time::sleep(UrlImportRuntime::poll_interval()) => {}
+                    }
+                    continue;
+                }
+                Err(error) => {
+                    warn!(worker_id, %error, "failed to claim URL import job");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+
+            let heartbeat = self.spawn_url_import_heartbeat(job.id, lease_token);
+            if let Err(error) = self.run_url_import(&job, lease_token).await {
+                warn!(worker_id, job_id = %job.id, %error, "URL import failed");
+            }
+            heartbeat.abort();
+        }
     }
 
-    async fn run_url_import(&self, job_id: Uuid) -> Result<()> {
-        let Some(job) = self.store.claim_url_import_job(job_id).await? else {
-            return Ok(());
-        };
+    fn spawn_url_import_heartbeat(&self, job_id: Uuid, lease_token: Uuid) -> JoinHandle<()> {
+        let service = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(URL_IMPORT_HEARTBEAT_INTERVAL);
+            loop {
+                interval.tick().await;
+                match service
+                    .store
+                    .heartbeat_url_import_job(job_id, lease_token, URL_IMPORT_LEASE_TTL_SECS)
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => break,
+                    Err(error) => {
+                        warn!(%job_id, %error, "failed to heartbeat URL import job");
+                    }
+                }
+            }
+        })
+    }
+
+    async fn run_url_import(&self, job: &UrlImportJobRecord, lease_token: Uuid) -> Result<()> {
+        let job_id = job.id;
         let result: IngestResult<()> = if let Some(file_id) = job.file_id {
-            self.retry_url_import_ingest(&job, file_id).await
+            self.retry_url_import_ingest(job, file_id, lease_token)
+                .await
         } else {
-            self.download_and_import(&job).await
+            self.download_and_import(job, lease_token).await
         };
         match result {
             Ok(()) => {
                 let _ = self
                     .store
-                    .finish_url_import_job(job_id, "succeeded", None, None, None)
+                    .finish_url_import_job(job_id, lease_token, "succeeded", None, None, None)
                     .await?;
                 Ok(())
             }
@@ -129,6 +179,7 @@ impl LibraryService {
                     .store
                     .finish_url_import_job(
                         job_id,
+                        lease_token,
                         "failed",
                         Some(code),
                         Some(&message),
@@ -140,28 +191,32 @@ impl LibraryService {
         }
     }
 
-    async fn download_and_import(&self, job: &UrlImportJobRecord) -> IngestResult<()> {
+    async fn download_and_import(
+        &self,
+        job: &UrlImportJobRecord,
+        lease_token: Uuid,
+    ) -> IngestResult<()> {
         let trusted_proxy_enabled = self
             .settings
             .trusted_proxy_enabled()
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
-        let downloaded = {
-            let _permit = self
-                .ingest_semaphore
-                .acquire()
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
-            remote_download::download(
-                &job.source_url,
-                job.requested_filename.as_deref(),
-                job.requested_media_type.as_deref(),
-                self.max_upload_size_bytes,
-                trusted_proxy_enabled,
+        let limiter = self.url_import_runtime.limiter().ok_or_else(|| {
+            IngestFailure::new(
+                LibraryIngestFailureStage::Download,
+                anyhow!("URL import rate limiter is unavailable; job remains queued"),
             )
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Download, error))?
-        };
+        })?;
+        let downloaded = remote_download::download(
+            &job.source_url,
+            job.requested_filename.as_deref(),
+            job.requested_media_type.as_deref(),
+            self.max_upload_size_bytes,
+            trusted_proxy_enabled,
+            limiter.as_ref(),
+        )
+        .await
+        .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Download, error))?;
         let sha = storage::hash_bytes(&downloaded.bytes);
         let existing = self
             .store
@@ -195,7 +250,13 @@ impl LibraryService {
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         let marked = self
             .store
-            .mark_url_import_ingesting(job.id, file.file_id, Some(ingest_job.job_id))
+            .mark_url_import_ingesting(
+                job.id,
+                lease_token,
+                file.file_id,
+                Some(ingest_job.job_id),
+                URL_IMPORT_LEASE_TTL_SECS,
+            )
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         if !marked {
@@ -235,6 +296,7 @@ impl LibraryService {
         &self,
         job: &UrlImportJobRecord,
         file_id: Uuid,
+        lease_token: Uuid,
     ) -> IngestResult<()> {
         let file = self
             .store
@@ -252,7 +314,13 @@ impl LibraryService {
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         let marked = self
             .store
-            .mark_url_import_ingesting(job.id, file_id, Some(ingest_job_id))
+            .mark_url_import_ingesting(
+                job.id,
+                lease_token,
+                file_id,
+                Some(ingest_job_id),
+                URL_IMPORT_LEASE_TTL_SECS,
+            )
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
         if !marked {

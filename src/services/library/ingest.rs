@@ -1,5 +1,7 @@
 use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
 use serde::Deserialize;
+use tokio::task::JoinHandle;
+use tokio::time::Duration;
 
 use super::*;
 
@@ -59,6 +61,7 @@ impl LibraryService {
         self.store
             .update_file_status(file_id, LibraryIngestStatus::Running, None, false)
             .await?;
+        let heartbeat = self.spawn_ingest_heartbeat(job_id);
 
         let result: IngestResult<()> = async {
             let file = self
@@ -91,6 +94,7 @@ impl LibraryService {
             self.persist_sections(&file, sections).await
         }
         .await;
+        heartbeat.abort();
 
         match result {
             Ok(()) => {
@@ -145,6 +149,23 @@ impl LibraryService {
                 Err(anyhow::Error::new(error))
             }
         }
+    }
+
+    fn spawn_ingest_heartbeat(&self, job_id: Uuid) -> JoinHandle<()> {
+        let service = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                match service.store.touch_ingest_job(job_id).await {
+                    Ok(true) => {}
+                    Ok(false) => break,
+                    Err(error) => {
+                        warn!(%job_id, %error, "failed to heartbeat library ingest job");
+                    }
+                }
+            }
+        })
     }
 
     pub(super) async fn load_docling_pdf_converter(&self) -> Result<PdfConvert> {

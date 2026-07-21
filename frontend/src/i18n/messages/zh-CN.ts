@@ -603,6 +603,8 @@ export const zhCN = {
       fileLibraryMaxUploadSize: "单文件上传上限（MB）",
       fileLibraryMaxRequestSize: "单次请求上限（MB）",
       fileLibraryConcurrency: "入库并发",
+      fileLibraryUrlImportConcurrency: "URL 导入 Worker 数",
+      fileLibraryUrlImportMinInterval: "URL 导入站点间隔（毫秒）",
       fileLibraryPdfPagesPerTask: "每任务 PDF 页数",
       trustedProxyEnabled: "信任环境出口代理",
       trustedProxyHelper: "URL 导入使用 HTTPS_PROXY/ALL_PROXY 和 NO_PROXY；代理负责目标网络隔离。",

@@ -23,6 +23,11 @@ WITH RECURSIVE inherited_roles AS (
             WHEN 'ingesting' THEN 'running'
             ELSE job.status
         END AS status,
+        (
+            job.status IN ('downloading', 'ingesting')
+            AND job.lease_expires_at IS NOT NULL
+            AND job.lease_expires_at < now()
+        ) AS is_stale,
         group_row.id IN (SELECT group_id FROM managed_groups) AS can_retry,
         job.created_at,
         job.updated_at
@@ -39,6 +44,7 @@ WITH RECURSIVE inherited_roles AS (
         NULL::TEXT AS dedupe_key,
         job.file_id,
         job.status,
+        (job.status IN ('pending', 'running') AND job.updated_at < $3) AS is_stale,
         group_row.id IN (SELECT group_id FROM managed_groups) AS can_retry,
         job.created_at,
         job.updated_at
@@ -91,7 +97,7 @@ SELECT
     COUNT(*) FILTER (WHERE status = 'running') AS "running_count!: i64",
     COUNT(*) FILTER (WHERE status = 'failed') AS "failed_count!: i64",
     COUNT(*) FILTER (
-        WHERE status IN ('pending', 'running') AND updated_at < $3
+        WHERE is_stale
     ) AS "stuck_count!: i64",
     (
         SELECT COUNT(*)
@@ -99,7 +105,6 @@ SELECT
     ) AS "retryable_failed_count!: i64",
     COUNT(*) FILTER (
         WHERE can_retry
-          AND status IN ('pending', 'running')
-          AND updated_at < $3
+          AND is_stale
     ) AS "cleanupable_stuck_count!: i64"
 FROM jobs

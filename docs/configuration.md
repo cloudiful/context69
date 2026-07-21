@@ -115,6 +115,17 @@ When enabled, Context69 uses `HTTPS_PROXY`/`https_proxy`, falling back to
 validated separately from the requested public URL. The egress proxy must enforce destination
 network isolation because it performs the final target connection.
 
+## URL Import Queue
+
+URL imports are processed by a persistent queue with two workers by default. Runtime Settings
+`file_library.url_import_concurrency` controls worker count, and
+`file_library.url_import_min_interval_ms` controls the minimum interval between requests to the
+same `scheme://host:port` (default 1000 ms). `ingest_concurrency` controls only file ingest after
+download. Without `scheduler.valkey_url`, throttling is local to each process; multi-instance
+deployments must configure the same Valkey URL on all instances. A Valkey limiter initialization
+failure does not fall back to local throttling, so queued URL jobs remain queued until the shared
+limiter is available. Runtime settings changes take effect after the service restarts.
+
 ## SQLx CLI
 
 Root `sqlx.toml` makes SQLx macros and `cargo sqlx prepare` read

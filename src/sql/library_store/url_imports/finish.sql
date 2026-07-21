@@ -4,7 +4,10 @@ SET status = $2,
     error_message = $4,
     failure_stage = $5,
     finished_at = now(),
+    lease_token = NULL,
+    lease_expires_at = NULL,
     updated_at = now()
 WHERE id = $1
+  AND lease_token = $6
   AND status IN ('queued', 'downloading', 'ingesting')
 RETURNING *

@@ -11,6 +11,7 @@ use super::{
     defaults::{
         DEFAULT_MCP_BIND_ADDR, default_scheduler_execution_guard_renew_interval,
         default_scheduler_execution_guard_ttl, default_session_idle_ttl,
+        default_url_import_concurrency, default_url_import_min_interval_ms,
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
@@ -61,6 +62,10 @@ pub struct FileLibraryConfig {
     pub max_upload_request_size_mb: usize,
     pub ingest_concurrency: usize,
     pub pdf_pages_per_task: u32,
+    #[serde(default = "default_url_import_concurrency")]
+    pub url_import_concurrency: usize,
+    #[serde(default = "default_url_import_min_interval_ms")]
+    pub url_import_min_interval_ms: u64,
     #[serde(default)]
     pub trusted_proxy_enabled: bool,
     #[serde(default)]

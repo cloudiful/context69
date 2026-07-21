@@ -167,14 +167,18 @@ impl Context69App {
             db.clone(),
             embedding.clone(),
             index.clone(),
-            ChunkingConfig {
-                max_chars: config.chunking.max_chars,
-                overlap_chars: config.chunking.overlap_chars,
+            crate::services::library::LibraryServiceConfig {
+                chunking: ChunkingConfig {
+                    max_chars: config.chunking.max_chars,
+                    overlap_chars: config.chunking.overlap_chars,
+                },
+                file_library: config.file_library.clone(),
+                valkey_url: config.scheduler.valkey_url.clone(),
             },
             settings.clone(),
-            config.file_library.clone(),
             translation.clone(),
-        )?;
+        )
+        .await?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
         library.resume_url_imports().await?;
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
@@ -250,6 +254,8 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             max_upload_request_size_mb: config.file_library.max_upload_request_size_mb,
             ingest_concurrency: config.file_library.ingest_concurrency,
             pdf_pages_per_task: config.file_library.pdf_pages_per_task,
+            url_import_concurrency: config.file_library.url_import_concurrency,
+            url_import_min_interval_ms: config.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: config.file_library.trusted_proxy_enabled,
             s3: config
                 .file_library
@@ -357,6 +363,8 @@ fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) 
         max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
         ingest_concurrency: runtime.file_library.ingest_concurrency,
         pdf_pages_per_task: runtime.file_library.pdf_pages_per_task,
+        url_import_concurrency: runtime.file_library.url_import_concurrency,
+        url_import_min_interval_ms: runtime.file_library.url_import_min_interval_ms,
         trusted_proxy_enabled: runtime.file_library.trusted_proxy_enabled,
         s3: runtime
             .file_library

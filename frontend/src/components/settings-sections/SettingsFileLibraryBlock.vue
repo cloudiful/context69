@@ -54,6 +54,20 @@ function updateS3PathStyle(value: Record<string, boolean>) {
         :step="1"
       />
       <AppNumberField
+        input-id="runtime-file-library-url-import-concurrency"
+        v-model="runtimeDraft.file_library.url_import_concurrency"
+        :label="t('settings.runtime.fileLibraryUrlImportConcurrency')"
+        :min="1"
+        :step="1"
+      />
+      <AppNumberField
+        input-id="runtime-file-library-url-import-min-interval"
+        v-model="runtimeDraft.file_library.url_import_min_interval_ms"
+        :label="t('settings.runtime.fileLibraryUrlImportMinInterval')"
+        :min="1"
+        :step="1"
+      />
+      <AppNumberField
         input-id="runtime-file-library-pages"
         v-model="runtimeDraft.file_library.pdf_pages_per_task"
         :label="t('settings.runtime.fileLibraryPdfPagesPerTask')"

@@ -59,6 +59,8 @@ max_upload_size_mb = 64
 max_upload_request_size_mb = 256
 ingest_concurrency = 2
 pdf_pages_per_task = 5
+url_import_concurrency = 2
+url_import_min_interval_ms = 1000
 
 [scheduler]
 interval_secs = 300

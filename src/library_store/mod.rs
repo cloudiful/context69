@@ -103,6 +103,8 @@ pub struct UrlImportJobRecord {
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    pub lease_token: Option<Uuid>,
+    pub lease_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, FromRow)]

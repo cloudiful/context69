@@ -20,6 +20,8 @@ pub const DEFAULT_SESSION_IDLE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 pub const DEFAULT_SESSION_VALKEY_URL: &str = "redis://127.0.0.1:6379";
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
+pub const DEFAULT_URL_IMPORT_CONCURRENCY: usize = 2;
+pub const DEFAULT_URL_IMPORT_MIN_INTERVAL_MS: u64 = 1000;
 
 pub(super) fn default_max_upload_request_size_mb() -> usize {
     256
@@ -35,6 +37,14 @@ pub(super) fn default_scheduler_execution_guard_ttl() -> Duration {
 
 pub(super) fn default_scheduler_execution_guard_renew_interval() -> Duration {
     Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS)
+}
+
+pub(super) fn default_url_import_concurrency() -> usize {
+    DEFAULT_URL_IMPORT_CONCURRENCY
+}
+
+pub(super) fn default_url_import_min_interval_ms() -> u64 {
+    DEFAULT_URL_IMPORT_MIN_INTERVAL_MS
 }
 
 impl Default for FileConfig {
@@ -74,6 +84,8 @@ impl Default for FileConfig {
                 max_upload_request_size_mb: default_max_upload_request_size_mb(),
                 ingest_concurrency: 2,
                 pdf_pages_per_task: 5,
+                url_import_concurrency: DEFAULT_URL_IMPORT_CONCURRENCY,
+                url_import_min_interval_ms: DEFAULT_URL_IMPORT_MIN_INTERVAL_MS,
                 trusted_proxy_enabled: false,
                 s3: None,
             },

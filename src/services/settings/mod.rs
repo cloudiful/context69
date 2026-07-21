@@ -384,6 +384,8 @@ mod tests {
                 max_upload_request_size_mb: 128,
                 ingest_concurrency: 2,
                 pdf_pages_per_task: 5,
+                url_import_concurrency: 2,
+                url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,
                 s3: None,
             },
@@ -486,6 +488,22 @@ mod tests {
         let error =
             validate_runtime_settings_request(&request).expect_err("runtime request should fail");
         assert!(error.to_string().contains("overlap_chars"));
+    }
+
+    #[test]
+    fn runtime_request_rejects_invalid_url_import_limits() {
+        let mut request = sample_runtime_request();
+        request.file_library.url_import_concurrency = 0;
+
+        let error = validate_runtime_settings_request(&request)
+            .expect_err("zero URL import workers should be rejected");
+        assert!(error.to_string().contains("url_import_concurrency"));
+
+        request.file_library.url_import_concurrency = 2;
+        request.file_library.url_import_min_interval_ms = 0;
+        let error = validate_runtime_settings_request(&request)
+            .expect_err("zero URL import interval should be rejected");
+        assert!(error.to_string().contains("url_import_min_interval_ms"));
     }
 
     #[test]

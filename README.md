@@ -105,6 +105,16 @@ Remote URL imports connect directly by default and ignore proxy environment vari
 downloads immediately. The configured proxy must enforce destination network isolation because it
 resolves and connects to the final target on Context69's behalf.
 
+URL imports use a persistent database queue with two workers by default. Configure
+`file_library.url_import_concurrency` to change the worker count and
+`file_library.url_import_min_interval_ms` to set the minimum interval between requests to the same
+`scheme://host:port` (default 1000 ms). `file_library.ingest_concurrency` only limits the actual
+file ingest pipeline. Without `scheduler.valkey_url`, host throttling is process-local. For multiple
+service instances, configure the same Valkey URL on every instance so host throttling is shared;
+Valkey initialization errors leave URL jobs queued and are not silently downgraded to local
+throttling. Stop old instances before applying the URL import queue migration.
+Runtime settings changes take effect after the service restarts.
+
 By default this starts:
 
 - HTTP API
@@ -177,6 +187,8 @@ Common environment overrides:
 - `CONTEXT69_APP_DB__URL`
 - `CONTEXT69_SCHEDULER__VALKEY_URL`
 - `CONTEXT69_FILE_LIBRARY__TRUSTED_PROXY_ENABLED`
+- `CONTEXT69_FILE_LIBRARY__URL_IMPORT_CONCURRENCY`
+- `CONTEXT69_FILE_LIBRARY__URL_IMPORT_MIN_INTERVAL_MS`
 
 Detailed configuration docs:
 

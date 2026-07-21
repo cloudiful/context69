@@ -42,6 +42,7 @@ docling-convert = { package = "cloudiful-docling-convert", version = "0.2.4" }
 futures = "0.3.32"
 getrandom = "0.3.4"
 qdrant-client = "1.18.0"
+rate-limiter = { package = "cloudiful-rate-limiter", version = "0.1.0", features = ["valkey"] }
 opendal = { version = "0.54.0", default-features = false, features = ["services-fs", "services-s3"] }
 reqwest = { version = "0.13.4", default-features = false }
 redis = "1.3.0"
@@ -99,6 +100,7 @@ docling-convert.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 qdrant-client.workspace = true
+rate-limiter.workspace = true
 opendal.workspace = true
 reqwest = { workspace = true, features = [ "charset", "gzip", "http2", "json", "multipart", "rustls", "system-proxy" ] }
 redis = { workspace = true, features = ["connection-manager", "tokio-comp"] }

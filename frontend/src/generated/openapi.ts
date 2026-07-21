@@ -1878,6 +1878,9 @@ export interface components {
             s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
             storage_root: string;
             trusted_proxy_enabled: boolean;
+            url_import_concurrency: number;
+            /** Format: int64 */
+            url_import_min_interval_ms: number;
         };
         RuntimeQdrantSettings: {
             collection_name: string;
@@ -2167,6 +2170,9 @@ export interface components {
             s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
             storage_root: string;
             trusted_proxy_enabled?: boolean;
+            url_import_concurrency: number;
+            /** Format: int64 */
+            url_import_min_interval_ms: number;
         };
         UpdateRuntimeS3Settings: {
             access_key: string;

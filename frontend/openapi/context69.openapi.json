@@ -6933,6 +6933,8 @@
           "max_upload_request_size_mb",
           "ingest_concurrency",
           "pdf_pages_per_task",
+          "url_import_concurrency",
+          "url_import_min_interval_ms",
           "trusted_proxy_enabled"
         ],
         "properties": {
@@ -6968,6 +6970,15 @@
           },
           "trusted_proxy_enabled": {
             "type": "boolean"
+          },
+          "url_import_concurrency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "url_import_min_interval_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -8119,7 +8130,9 @@
           "max_upload_size_mb",
           "max_upload_request_size_mb",
           "ingest_concurrency",
-          "pdf_pages_per_task"
+          "pdf_pages_per_task",
+          "url_import_concurrency",
+          "url_import_min_interval_ms"
         ],
         "properties": {
           "ingest_concurrency": {
@@ -8154,6 +8167,15 @@
           },
           "trusted_proxy_enabled": {
             "type": "boolean"
+          },
+          "url_import_concurrency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "url_import_min_interval_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },

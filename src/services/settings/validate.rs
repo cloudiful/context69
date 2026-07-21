@@ -76,6 +76,16 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
             "runtime.file_library.ingest_concurrency must be greater than 0"
         ));
     }
+    if request.file_library.url_import_concurrency == 0 {
+        return Err(anyhow!(
+            "runtime.file_library.url_import_concurrency must be greater than 0"
+        ));
+    }
+    if request.file_library.url_import_min_interval_ms == 0 {
+        return Err(anyhow!(
+            "runtime.file_library.url_import_min_interval_ms must be greater than 0"
+        ));
+    }
     if request.file_library.pdf_pages_per_task == 0 {
         return Err(anyhow!(
             "runtime.file_library.pdf_pages_per_task must be greater than 0"

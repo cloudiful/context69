@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_roles AS (\n    SELECT gm.group_id, gm.role\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_roles.role\n    FROM context69.groups child\n    JOIN inherited_roles ON child.parent_group_id = inherited_roles.group_id\n), managed_groups AS (\n    SELECT DISTINCT group_id\n    FROM inherited_roles\n    WHERE role IN ('owner', 'maintainer')\n), stale_urls AS (\n    SELECT job.id, job.file_id, job.ingest_job_id, job.lease_token\n    FROM context69.library_url_import_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND group_row.id IN (SELECT group_id FROM managed_groups)\n      AND job.status IN ('downloading', 'ingesting')\n      AND (\n          job.lease_expires_at IS NOT NULL\n          AND job.lease_expires_at < now()\n      )\n), stale_standalone_ingests AS (\n    SELECT job.id, job.file_id\n    FROM context69.library_ingest_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND group_row.id IN (SELECT group_id FROM managed_groups)\n      AND job.status IN ('pending', 'running')\n      AND job.updated_at < $3\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.library_url_import_jobs url_job\n          WHERE url_job.ingest_job_id = job.id\n      )\n), updated_urls AS (\n    UPDATE context69.library_url_import_jobs job\n    SET status = 'failed',\n        failure_stage = 'other',\n        error_code = 'processing_timeout',\n        error_message = $4,\n        finished_at = now(),\n        lease_token = NULL,\n        lease_expires_at = NULL,\n        updated_at = now()\n    FROM stale_urls target\n    WHERE job.id = target.id\n      AND job.status IN ('downloading', 'ingesting')\n      AND job.lease_token = target.lease_token\n      AND job.lease_expires_at IS NOT NULL\n      AND job.lease_expires_at < now()\n    RETURNING job.id, job.file_id, job.ingest_job_id\n), target_ingests AS (\n    SELECT id, file_id, TRUE AS canonical\n    FROM stale_standalone_ingests\n    UNION ALL\n    SELECT ingest.id, ingest.file_id, FALSE AS canonical\n    FROM updated_urls url_job\n    JOIN context69.library_ingest_jobs ingest ON ingest.id = url_job.ingest_job_id\n    WHERE ingest.status IN ('pending', 'running')\n), updated_ingests AS (\n    UPDATE context69.library_ingest_jobs job\n    SET status = 'failed',\n        failure_stage = 'other',\n        error_message = $4,\n        finished_at = now(),\n        updated_at = now()\n    FROM target_ingests target\n    WHERE job.id = target.id\n      AND job.status IN ('pending', 'running')\n    RETURNING job.id, job.file_id, target.canonical\n), target_files AS (\n    SELECT file_id FROM updated_ingests WHERE file_id IS NOT NULL\n    UNION ALL\n    SELECT file_id FROM updated_urls WHERE file_id IS NOT NULL\n), updated_files AS (\n    UPDATE context69.library_files file\n    SET ingest_status = 'failed',\n        error_message = $4,\n        updated_at = now()\n    FROM target_files target\n    WHERE file.id = target.file_id\n      AND file.ingest_status IN ('pending', 'running')\n    RETURNING file.id\n), action_targets AS (\n    SELECT id FROM stale_urls\n    UNION ALL\n    SELECT id FROM stale_standalone_ingests\n)\nSELECT\n    (\n        SELECT COUNT(*) FROM updated_ingests WHERE canonical\n    ) + (\n        SELECT COUNT(*) FROM updated_urls\n    ) AS \"accepted!: i64\",\n    (\n        SELECT COUNT(*) FROM action_targets\n    ) - (\n        (\n            SELECT COUNT(*) FROM updated_ingests WHERE canonical\n        ) + (\n            SELECT COUNT(*) FROM updated_urls\n        )\n    ) AS \"skipped!: i64\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "accepted!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "skipped!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "03033d460af3961017ba1f85e9d5da6ce4de3155cefbadad17594aa2984b0da5"
+}

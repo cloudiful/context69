@@ -97,6 +97,12 @@ impl Database {
                     .context("runtime file_library ingest_concurrency must be non-negative")?,
                 pdf_pages_per_task: u32::try_from(file_library.pdf_pages_per_task)
                     .context("runtime file_library pdf_pages_per_task must be non-negative")?,
+                url_import_concurrency: usize::try_from(file_library.url_import_concurrency)
+                    .context("runtime file_library url_import_concurrency must be non-negative")?,
+                url_import_min_interval_ms: u64::try_from(file_library.url_import_min_interval_ms)
+                    .context(
+                        "runtime file_library url_import_min_interval_ms must be non-negative",
+                    )?,
                 trusted_proxy_enabled: file_library.trusted_proxy_enabled,
                 s3: match (
                     file_library.s3_endpoint,
@@ -152,6 +158,12 @@ impl Database {
         let file_library_ingest_concurrency =
             i64::try_from(settings.file_library.ingest_concurrency)
                 .context("file_library ingest_concurrency too large")?;
+        let file_library_url_import_concurrency =
+            i64::try_from(settings.file_library.url_import_concurrency)
+                .context("file_library url_import_concurrency too large")?;
+        let file_library_url_import_min_interval_ms =
+            i64::try_from(settings.file_library.url_import_min_interval_ms)
+                .context("file_library url_import_min_interval_ms too large")?;
 
         sqlx::query_file!(
             "src/sql/db/runtime_settings/save_runtime_qdrant_settings.sql",
@@ -199,6 +211,8 @@ impl Database {
             file_library_max_upload_request_size_mb,
             file_library_ingest_concurrency,
             i64::from(settings.file_library.pdf_pages_per_task),
+            file_library_url_import_concurrency,
+            file_library_url_import_min_interval_ms,
             settings.file_library.trusted_proxy_enabled,
             settings
                 .file_library

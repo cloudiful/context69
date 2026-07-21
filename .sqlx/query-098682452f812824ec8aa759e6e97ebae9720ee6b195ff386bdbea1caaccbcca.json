@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_url_import_jobs\nSET status = 'downloading',\n    attempt_count = attempt_count + 1,\n    started_at = COALESCE(started_at, now()),\n    finished_at = NULL,\n    error_code = NULL,\n    error_message = NULL,\n    failure_stage = NULL,\n    updated_at = now()\nWHERE id = $1 AND status = 'queued'\nRETURNING *\n",
+  "query": "UPDATE context69.library_url_import_jobs\nSET status = $2,\n    error_code = $3,\n    error_message = $4,\n    failure_stage = $5,\n    finished_at = now(),\n    lease_token = NULL,\n    lease_expires_at = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $6\n  AND status IN ('queued', 'downloading', 'ingesting')\nRETURNING *\n",
   "describe": {
     "columns": [
       {
@@ -299,10 +299,37 @@
             "name": "failure_stage"
           }
         }
+      },
+      {
+        "ordinal": 27,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 28,
+        "name": "lease_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "lease_expires_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
         "Uuid"
       ]
     },
@@ -333,8 +360,10 @@
       false,
       true,
       false,
+      true,
+      true,
       true
     ]
   },
-  "hash": "53ec8c14a2106a96bc478381710c7be4ceb11df538539d98a82a115c7c8d606b"
+  "hash": "098682452f812824ec8aa759e6e97ebae9720ee6b195ff386bdbea1caaccbcca"
 }

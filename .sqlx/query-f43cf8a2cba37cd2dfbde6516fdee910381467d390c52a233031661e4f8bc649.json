@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_url_import_jobs\nSET status = $2,\n    error_code = $3,\n    error_message = $4,\n    failure_stage = $5,\n    finished_at = now(),\n    updated_at = now()\nWHERE id = $1\n  AND status IN ('queued', 'downloading', 'ingesting')\nRETURNING *\n",
+  "query": "UPDATE context69.library_url_import_jobs\nSET status = 'ingesting',\n    file_id = $3,\n    ingest_job_id = $4,\n    lease_expires_at = now() + ($5::BIGINT * INTERVAL '1 second'),\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status IN ('downloading', 'ingesting')\nRETURNING *\n",
   "describe": {
     "columns": [
       {
@@ -299,15 +299,37 @@
             "name": "failure_stage"
           }
         }
+      },
+      {
+        "ordinal": 27,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 28,
+        "name": "lease_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_url_import_jobs",
+            "name": "lease_expires_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
-        "Text",
-        "Text",
-        "Text"
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -337,8 +359,10 @@
       false,
       true,
       false,
+      true,
+      true,
       true
     ]
   },
-  "hash": "1fe0a17f2a6a0ad201cfc5ae167556471e75eeec42940394e02e9427771209c1"
+  "hash": "f43cf8a2cba37cd2dfbde6516fdee910381467d390c52a233031661e4f8bc649"
 }

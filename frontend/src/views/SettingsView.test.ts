@@ -42,6 +42,8 @@ const runtimeResponse = {
     max_upload_request_size_mb: 128,
     ingest_concurrency: 2,
     pdf_pages_per_task: 5,
+    url_import_concurrency: 2,
+    url_import_min_interval_ms: 1000,
     trusted_proxy_enabled: false,
   },
 };

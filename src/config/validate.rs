@@ -75,6 +75,16 @@ pub(super) fn validate_storage_config(
             "file_library.ingest_concurrency must be greater than 0"
         ));
     }
+    if file_library.url_import_concurrency == 0 {
+        return Err(anyhow!(
+            "file_library.url_import_concurrency must be greater than 0"
+        ));
+    }
+    if file_library.url_import_min_interval_ms == 0 {
+        return Err(anyhow!(
+            "file_library.url_import_min_interval_ms must be greater than 0"
+        ));
+    }
     if file_library.pdf_pages_per_task == 0 {
         return Err(anyhow!(
             "file_library.pdf_pages_per_task must be greater than 0"

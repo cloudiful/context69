@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use bytes::{Bytes, BytesMut};
+use rate_limiter::RateLimiter;
 use reqwest::{StatusCode, Url, header};
 use tokio::net::lookup_host;
 
@@ -20,10 +21,15 @@ pub(super) async fn download(
     media_type: Option<&str>,
     max_bytes: usize,
     trusted_proxy_enabled: bool,
+    limiter: &dyn RateLimiter,
 ) -> Result<DownloadedFile> {
     let transport = RemoteTransport::new(trusted_proxy_enabled).await?;
     let mut url = validate_url(source).await?;
     for redirect_count in 0..=MAX_REDIRECTS {
+        limiter
+            .acquire(&origin_key(&url)?)
+            .await
+            .map_err(|error| anyhow!("remote_rate_limit_failed: {error}"))?;
         let mut response = transport
             .client()
             .get(url.clone())
@@ -85,6 +91,17 @@ pub(super) async fn download(
         });
     }
     unreachable!()
+}
+
+fn origin_key(url: &Url) -> Result<String> {
+    let host = url.host_str().context("invalid_remote_url")?;
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    let port = url.port_or_known_default().context("invalid_remote_url")?;
+    Ok(format!("{}://{host}:{port}", url.scheme()))
 }
 
 pub(super) async fn validate_url(source: &str) -> Result<Url> {
@@ -205,8 +222,20 @@ fn validate_type_match(filename: &str, media_type: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_filename, validate_type_match, validate_url};
+    use super::{origin_key, resolve_filename, validate_type_match, validate_url};
     use reqwest::{Url, header};
+
+    #[test]
+    fn origin_key_normalizes_effective_port() {
+        assert_eq!(
+            origin_key(&Url::parse("https://example.com/report.pdf").unwrap()).unwrap(),
+            "https://example.com:443"
+        );
+        assert_eq!(
+            origin_key(&Url::parse("https://example.com:8443/report.pdf").unwrap()).unwrap(),
+            "https://example.com:8443"
+        );
+    }
 
     #[tokio::test]
     async fn rejects_non_https_and_userinfo() {

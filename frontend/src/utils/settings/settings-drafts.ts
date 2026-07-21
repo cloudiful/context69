@@ -40,6 +40,8 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       max_upload_request_size_mb: 128,
       ingest_concurrency: 2,
       pdf_pages_per_task: 5,
+      url_import_concurrency: 2,
+      url_import_min_interval_ms: 1000,
       trusted_proxy_enabled: false,
       s3_enabled: false,
       s3: {
@@ -117,6 +119,8 @@ export function runtimeResponseToDraft(
       max_upload_request_size_mb: response.file_library.max_upload_request_size_mb,
       ingest_concurrency: response.file_library.ingest_concurrency,
       pdf_pages_per_task: response.file_library.pdf_pages_per_task,
+      url_import_concurrency: response.file_library.url_import_concurrency,
+      url_import_min_interval_ms: response.file_library.url_import_min_interval_ms,
       trusted_proxy_enabled: response.file_library.trusted_proxy_enabled,
       s3_enabled: !!response.file_library.s3,
       s3: {
