@@ -166,7 +166,10 @@ async fn polls_to_success_and_retries_transient_status_and_result_errors() {
 async fn does_not_retry_permanent_status_errors() {
     let (base_url, state, server) = spawn_mock(
         vec![],
-        vec![MockResponse::Status(StatusCode::NOT_FOUND)],
+        vec![MockResponse::Text(
+            StatusCode::NOT_FOUND,
+            "task status endpoint rejected the request".to_string(),
+        )],
         vec![],
     )
     .await;
@@ -176,7 +179,16 @@ async fn does_not_retry_permanent_status_errors() {
         .expect_err("404 should fail");
     server.abort();
 
-    assert!(error.to_string().contains("failed to poll Docling task"));
+    assert!(
+        error.to_string().contains("failed to poll Docling task"),
+        "error: {error:?}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("task status endpoint rejected the request"),
+        "error: {error:?}"
+    );
     assert_eq!(state.poll_calls.load(Ordering::Relaxed), 1);
 }
 
@@ -199,6 +211,33 @@ async fn terminal_failure_does_not_fetch_result() {
 }
 
 #[tokio::test]
+async fn result_error_includes_response_body() {
+    let (base_url, _, server) = spawn_mock(
+        vec![],
+        vec![MockResponse::Json(json!({"task_status": "success"}))],
+        vec![MockResponse::Text(
+            StatusCode::BAD_REQUEST,
+            r#"{"error":"result_unavailable","message":"result is not ready","detail":"retry later"}"#
+                .to_string(),
+        )],
+    )
+    .await;
+
+    let error = convert(&client(base_url, Duration::from_secs(10), Duration::ZERO))
+        .await
+        .expect_err("400 result response should fail");
+    server.abort();
+
+    let message = error.to_string();
+    assert!(message.contains("400 Bad Request"));
+    assert!(message.contains("Docling task result fetch"));
+    assert!(message.contains("error: result_unavailable"));
+    assert!(message.contains("message: result is not ready"));
+    assert!(message.contains("detail: retry later"));
+    assert!(message.contains("result is not ready"));
+}
+
+#[tokio::test]
 async fn pending_or_unknown_status_is_bounded_by_task_timeout() {
     let (base_url, state, server) = spawn_mock(
         vec![],
@@ -216,7 +255,7 @@ async fn pending_or_unknown_status_is_bounded_by_task_timeout() {
     .expect_err("task should time out");
     server.abort();
 
-    assert!(error.to_string().contains("timed out"));
+    assert!(error.to_string().contains("timed out"), "error: {error:?}");
     assert!(state.poll_calls.load(Ordering::Relaxed) > 1);
 }
 
@@ -225,7 +264,7 @@ async fn submission_error_includes_response_body() {
     let (base_url, _, server) = spawn_mock(
         vec![MockResponse::Text(
             StatusCode::UNPROCESSABLE_ENTITY,
-            r#"{"detail":"target_type must be inbody"}"#.to_string(),
+            r#"{"error":"invalid_request","message":"invalid multipart form","detail":"target_type must be inbody"}"#.to_string(),
         )],
         vec![],
         vec![],
@@ -238,5 +277,17 @@ async fn submission_error_includes_response_body() {
     server.abort();
 
     assert!(error.to_string().contains("422 Unprocessable Entity"));
+    assert!(error.to_string().contains("Docling async submission"));
+    assert!(error.to_string().contains("error: invalid_request"));
+    assert!(
+        error
+            .to_string()
+            .contains("message: invalid multipart form")
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("detail: target_type must be inbody")
+    );
     assert!(error.to_string().contains("target_type must be inbody"));
 }

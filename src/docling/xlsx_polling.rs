@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde_json::Value;
 use tokio::time::sleep;
 
-use super::retry;
+use super::{client::ensure_success, retry};
 
 pub(super) async fn wait_for_result(
     http: &Client,
@@ -28,14 +28,16 @@ pub(super) async fn wait_for_result(
             last_status.as_deref(),
         )
         .await
-        .with_context(|| format!("failed to poll Docling task {task_id}"))?;
+        .map_err(|error| anyhow!("failed to poll Docling task {task_id}: {error}"))?;
         last_status = Some(status.clone());
 
         match status.as_str() {
             "success" => {
                 return fetch_result(http, base_url, task_id, deadline, started)
                     .await
-                    .with_context(|| format!("failed to fetch Docling task result {task_id}"));
+                    .map_err(|error| {
+                        anyhow!("failed to fetch Docling task result {task_id}: {error}")
+                    });
             }
             "failure" | "revoked" => {
                 return Err(anyhow!(
@@ -76,9 +78,7 @@ async fn poll_status(
                 .send()
                 .await
                 .context("failed to poll docling status")?;
-            let response = response
-                .error_for_status()
-                .context("docling status polling returned error status")?;
+            let response = ensure_success(response, "Docling task status polling").await?;
             let body = response
                 .json::<Value>()
                 .await
@@ -118,9 +118,7 @@ async fn fetch_result(
                 .send()
                 .await
                 .context("failed to fetch docling result")?;
-            let response = response
-                .error_for_status()
-                .context("docling result returned error status")?;
+            let response = ensure_success(response, "Docling task result fetch").await?;
             response
                 .json::<Value>()
                 .await

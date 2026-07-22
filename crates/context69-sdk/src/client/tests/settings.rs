@@ -10,7 +10,7 @@ async fn runtime_settings_get_uses_nested_resource() {
         "embedding": {"base_url":"https://example.test","model":"embed","dimensions":3,"timeout_secs":10,"has_api_key":true},
         "scheduler": {"interval_secs":60,"run_on_start":false,"max_concurrency":1,"job_id":"sync","valkey_url":null},
         "chunking": {"max_chars":1000,"overlap_chars":100},
-        "file_library": {"storage_root":"/tmp","max_upload_size_mb":10,"max_upload_request_size_mb":20,"ingest_concurrency":1,"pdf_pages_per_task":5,"trusted_proxy_enabled":false}
+        "file_library": {"storage_root":"/tmp","max_upload_size_mb":10,"max_upload_request_size_mb":20,"ingest_concurrency":1,"pdf_pages_per_task":5,"url_import_concurrency":2,"url_import_min_interval_ms":1000,"trusted_proxy_enabled":false}
     });
     let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
     let settings = client(&base_url)

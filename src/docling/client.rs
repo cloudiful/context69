@@ -1,11 +1,89 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use bytes::Bytes;
-use reqwest::{Client, multipart};
+use reqwest::{Client, Response, StatusCode, multipart};
 use serde_json::Value;
+use std::fmt;
 
 use super::{DoclingConfig, api_base_url, xlsx_polling};
+
+#[derive(Debug)]
+pub(crate) struct DoclingHttpError {
+    operation: String,
+    status: StatusCode,
+    body: String,
+    source: Option<reqwest::Error>,
+}
+
+impl fmt::Display for DoclingHttpError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{} failed: HTTP {}", self.operation, self.status)?;
+        if let Some(reason) = self.status.canonical_reason() {
+            write!(formatter, " {reason}")?;
+        }
+
+        if self.body.trim().is_empty() {
+            return Ok(());
+        }
+
+        let details = extract_error_details(&self.body);
+        if details.is_empty() {
+            write!(formatter, "; response body: {}", self.body)
+        } else {
+            write!(formatter, "; {details}; response body: {}", self.body)
+        }
+    }
+}
+
+impl std::error::Error for DoclingHttpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source
+            .as_ref()
+            .map(|error| error as &(dyn std::error::Error + 'static))
+    }
+}
+
+pub(crate) async fn ensure_success(response: Response, operation: &str) -> Result<Response> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+
+    let source = response.error_for_status_ref().err();
+    let body = response
+        .text()
+        .await
+        .context("failed to read Docling error response body")?;
+    Err(anyhow::Error::new(DoclingHttpError {
+        operation: operation.to_string(),
+        status,
+        body,
+        source,
+    }))
+}
+
+fn extract_error_details(body: &str) -> String {
+    let Ok(json) = serde_json::from_str::<Value>(body) else {
+        return String::new();
+    };
+
+    ["error", "message", "detail"]
+        .into_iter()
+        .filter_map(|key| {
+            json.get(key)
+                .map(|value| format!("{key}: {}", format_json_value(value)))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn format_json_value(value: &Value) -> String {
+    value
+        .as_str()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
 
 #[derive(Debug, Clone)]
 pub struct DoclingXlsxClient {
@@ -75,19 +153,11 @@ impl DoclingXlsxClient {
             .send()
             .await
             .context("failed to submit docling async job")?;
-        let status = response.status();
+        let response = ensure_success(response, "Docling async submission").await?;
         let body = response
             .text()
             .await
             .context("failed to read docling async submission response body")?;
-        if !status.is_success() {
-            let detail = if body.trim().is_empty() {
-                status.canonical_reason().unwrap_or("empty response body")
-            } else {
-                body.trim()
-            };
-            return Err(anyhow!("HTTP {status}: {detail}"));
-        }
         let body = serde_json::from_str::<Value>(&body)
             .context("failed to parse docling async submission response")?;
         let task_id = body
