@@ -370,7 +370,7 @@ mod tests {
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,
                 run_on_start: true,
-                max_concurrency: 4,
+                max_concurrency: 2,
                 job_id: "context69-sync".to_string(),
                 valkey_url: Some("redis://valkey:6379/0".to_string()),
             },
@@ -382,9 +382,9 @@ mod tests {
                 storage_root: "/tmp/library".to_string(),
                 max_upload_size_mb: 64,
                 max_upload_request_size_mb: 128,
-                ingest_concurrency: 2,
+                ingest_concurrency: 1,
                 pdf_pages_per_task: 5,
-                url_import_concurrency: 2,
+                url_import_concurrency: 1,
                 url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,
                 s3: None,
@@ -499,7 +499,7 @@ mod tests {
             .expect_err("zero URL import workers should be rejected");
         assert!(error.to_string().contains("url_import_concurrency"));
 
-        request.file_library.url_import_concurrency = 2;
+        request.file_library.url_import_concurrency = 1;
         request.file_library.url_import_min_interval_ms = 0;
         let error = validate_runtime_settings_request(&request)
             .expect_err("zero URL import interval should be rejected");

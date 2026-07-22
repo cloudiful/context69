@@ -1,9 +1,15 @@
 WITH expired AS (
     SELECT id, ingest_job_id
     FROM context69.library_url_import_jobs
-    WHERE status IN ('downloading', 'ingesting')
-      AND lease_expires_at IS NOT NULL
-      AND lease_expires_at <= now()
+    WHERE (
+        status IN ('downloading', 'ingesting')
+        AND lease_expires_at IS NOT NULL
+        AND lease_expires_at <= now()
+    ) OR (
+        status = 'downloading'
+        AND lease_token IS NULL
+        AND updated_at <= now() - INTERVAL '10 minutes'
+    )
     ORDER BY created_at, id
     FOR UPDATE SKIP LOCKED
 ), expired_ingests AS (
@@ -26,8 +32,14 @@ WITH expired AS (
     FROM expired
     WHERE job.id = expired.id
       AND job.status IN ('downloading', 'ingesting')
-      AND job.lease_expires_at IS NOT NULL
-      AND job.lease_expires_at <= now()
+      AND (
+          (job.lease_expires_at IS NOT NULL AND job.lease_expires_at <= now())
+          OR (
+              job.status = 'downloading'
+              AND job.lease_token IS NULL
+              AND job.updated_at <= now() - INTERVAL '10 minutes'
+          )
+      )
     RETURNING job.file_id
 ), affected_files AS (
     SELECT file_id FROM expired_ingests WHERE file_id IS NOT NULL

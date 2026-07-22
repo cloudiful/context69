@@ -3,7 +3,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::mappers::job_from_row;
-use super::{JobRow, LibraryIngestJobRecord, LibraryIngestStatus, LibraryStore};
+use super::{JobRow, JobStatusFlags, LibraryIngestJobRecord, LibraryIngestStatus, LibraryStore};
 use crate::contracts::LibraryIngestFailureStage;
 
 impl LibraryStore {
@@ -76,18 +76,17 @@ impl LibraryStore {
         rows.into_iter().map(job_from_row).collect()
     }
 
-    pub async fn update_job_status(
+    pub(crate) async fn update_job_status(
         &self,
         job_id: Uuid,
         status: LibraryIngestStatus,
         docling_task_id: Option<&str>,
         failure_stage: Option<LibraryIngestFailureStage>,
         error_message: Option<&str>,
-        mark_started_now: bool,
-        mark_finished_now: bool,
+        flags: JobStatusFlags,
     ) -> Result<Option<LibraryIngestJobRecord>> {
-        let started_at = mark_started_now.then(Utc::now);
-        let finished_at = mark_finished_now.then(Utc::now);
+        let started_at = flags.mark_started_now.then(Utc::now);
+        let finished_at = flags.mark_finished_now.then(Utc::now);
         let failure_stage = failure_stage.map(LibraryIngestFailureStage::as_str);
         let row = sqlx::query_file_as!(
             JobRow,

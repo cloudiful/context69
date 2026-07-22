@@ -3,7 +3,7 @@ use std::str::FromStr;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 
-use super::{LibraryStore, ProcessingJobRow};
+use super::{LibraryStore, ProcessingJobPage, ProcessingJobRow};
 use crate::contracts::{
     LibraryIngestFailureStage, LibraryIngestStatus, LibraryProcessingJobBulkActionResponse,
     LibraryProcessingJobKind, LibraryProcessingJobResponse, LibraryProcessingJobSummaryResponse,
@@ -131,15 +131,14 @@ impl LibraryStore {
         .unwrap_or_default())
     }
 
-    pub async fn list_processing_jobs(
+    pub(crate) async fn list_processing_jobs(
         &self,
         user_id: i64,
         private_group_ids: &[i64],
         query: Option<&str>,
         status: Option<LibraryIngestStatus>,
         failure_stage: Option<LibraryIngestFailureStage>,
-        limit: i64,
-        offset: i64,
+        page: ProcessingJobPage,
     ) -> Result<Vec<LibraryProcessingJobResponse>> {
         let rows = sqlx::query_file_as!(
             ProcessingJobRow,
@@ -149,8 +148,8 @@ impl LibraryStore {
             query,
             status.map(LibraryIngestStatus::as_str),
             failure_stage.map(LibraryIngestFailureStage::as_str),
-            limit,
-            offset
+            page.limit,
+            page.offset
         )
         .fetch_all(self.db.pool())
         .await?;

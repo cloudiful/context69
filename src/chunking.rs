@@ -1,3 +1,5 @@
+use std::mem;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -5,6 +7,7 @@ use crate::domain::{DocumentChunk, NormalizedDocument};
 
 const DEFAULT_MAX_CHARS: usize = 1200;
 const DEFAULT_OVERLAP_CHARS: usize = 200;
+const PARAGRAPH_SEPARATOR: &str = "\n\n";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkingConfig {
@@ -27,78 +30,197 @@ pub fn chunk_document(
     document: &NormalizedDocument,
     config: &ChunkingConfig,
 ) -> Vec<DocumentChunk> {
-    let paragraphs = split_paragraphs(&document.body_text);
-    let mut chunks = Vec::new();
-    let mut current = String::new();
+    chunk_document_iter(document_id, source_key, document, config).collect()
+}
 
-    for paragraph in paragraphs {
-        let candidate = if current.is_empty() {
-            paragraph.clone()
-        } else {
-            format!("{current}\n\n{paragraph}")
-        };
+pub fn chunk_document_iter<'a>(
+    document_id: i64,
+    source_key: &'a str,
+    document: &'a NormalizedDocument,
+    config: &ChunkingConfig,
+) -> ChunkDocumentIter<'a> {
+    ChunkDocumentIter::new(document_id, source_key, document, config)
+}
 
-        if candidate.chars().count() <= config.max_chars {
-            current = candidate;
-            continue;
-        }
+pub struct ChunkDocumentIter<'a> {
+    document_id: i64,
+    source_key: &'a str,
+    document: &'a NormalizedDocument,
+    paragraphs: std::str::Split<'a, &'static str>,
+    current: String,
+    current_chars: usize,
+    pending: Option<PendingParagraph<'a>>,
+    max_chars: usize,
+    overlap_chars: usize,
+    next_index: i32,
+    finished: bool,
+}
 
-        if !current.is_empty() {
-            chunks.push(current);
-            current = build_overlap(&chunks, config.overlap_chars);
-        }
+struct PendingParagraph<'a> {
+    text: &'a str,
+    offset: usize,
+    separator_offset: usize,
+}
 
-        if current.is_empty() {
-            current = paragraph.clone();
-        } else {
-            current = format!("{current}\n\n{paragraph}");
-        }
+impl<'a> ChunkDocumentIter<'a> {
+    fn new(
+        document_id: i64,
+        source_key: &'a str,
+        document: &'a NormalizedDocument,
+        config: &ChunkingConfig,
+    ) -> Self {
+        let max_chars = config.max_chars.max(1);
+        let overlap_chars = config.overlap_chars.min(max_chars - 1);
+        let paragraphs = document.body_text.split(PARAGRAPH_SEPARATOR);
 
-        while current.chars().count() > config.max_chars {
-            let head = take_chars(&current, config.max_chars);
-            chunks.push(head.clone());
-            current = build_overlap_from_text(&head, config.overlap_chars);
-        }
-    }
-
-    if !current.is_empty() {
-        chunks.push(current);
-    }
-
-    chunks
-        .into_iter()
-        .enumerate()
-        .map(|(index, text)| DocumentChunk {
-            id: chunk_uuid(
-                source_key,
-                &document.external_id,
-                &document.record_hash,
-                index as i32,
-            ),
+        Self {
             document_id,
-            chunk_index: index as i32,
-            text,
-            record_hash: document.record_hash.clone(),
+            source_key,
+            document,
+            paragraphs,
+            current: String::new(),
+            current_chars: 0,
+            pending: None,
+            max_chars,
+            overlap_chars,
+            next_index: 0,
+            finished: false,
+        }
+    }
+
+    fn next_paragraph(&mut self) -> Option<&'a str> {
+        self.paragraphs.find_map(|value| {
+            let value = value.trim();
+            (!value.is_empty()).then_some(value)
         })
-        .collect()
+    }
+
+    fn take_chunk(&mut self, keep_overlap: bool) -> String {
+        let chunk = mem::take(&mut self.current);
+        if keep_overlap {
+            self.current = build_overlap_from_text(&chunk, self.overlap_chars);
+            self.current_chars = self.current.chars().count();
+        } else {
+            self.current_chars = 0;
+        }
+        chunk
+    }
+
+    fn document_chunk(&mut self, text: String) -> DocumentChunk {
+        let index = self.next_index;
+        self.next_index += 1;
+        DocumentChunk {
+            id: chunk_uuid(
+                self.source_key,
+                &self.document.external_id,
+                &self.document.record_hash,
+                index,
+            ),
+            document_id: self.document_id,
+            chunk_index: index,
+            text,
+            record_hash: self.document.record_hash.clone(),
+        }
+    }
 }
 
-fn split_paragraphs(body: &str) -> Vec<String> {
-    body.split("\n\n")
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
-}
+impl Iterator for ChunkDocumentIter<'_> {
+    type Item = DocumentChunk;
 
-fn build_overlap(existing_chunks: &[String], overlap_chars: usize) -> String {
-    existing_chunks
-        .last()
-        .map(|last| build_overlap_from_text(last, overlap_chars))
-        .unwrap_or_default()
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.finished {
+                return None;
+            }
+
+            if let Some(mut pending) = self.pending.take() {
+                if pending.separator_offset < PARAGRAPH_SEPARATOR.len() {
+                    if self.current_chars == self.max_chars {
+                        self.pending = Some(pending);
+                        let chunk = self.take_chunk(true);
+                        return Some(self.document_chunk(chunk));
+                    }
+                    let remaining_separator = &PARAGRAPH_SEPARATOR[pending.separator_offset..];
+                    let capacity = self.max_chars - self.current_chars;
+                    let take_len = prefix_len_by_chars(remaining_separator, capacity);
+                    self.current.push_str(&remaining_separator[..take_len]);
+                    pending.separator_offset += take_len;
+                    self.current_chars += take_len;
+                    if pending.separator_offset < PARAGRAPH_SEPARATOR.len() {
+                        self.pending = Some(pending);
+                        let chunk = self.take_chunk(true);
+                        return Some(self.document_chunk(chunk));
+                    }
+                }
+
+                if pending.offset < pending.text.len() {
+                    if self.current_chars == self.max_chars {
+                        self.pending = Some(pending);
+                        let chunk = self.take_chunk(true);
+                        return Some(self.document_chunk(chunk));
+                    }
+
+                    let remaining = &pending.text[pending.offset..];
+                    let capacity = self.max_chars - self.current_chars;
+                    let take_len = prefix_len_by_chars(remaining, capacity);
+                    self.current.push_str(&remaining[..take_len]);
+                    pending.offset += take_len;
+                    self.current_chars += remaining[..take_len].chars().count();
+
+                    if pending.offset < pending.text.len() {
+                        self.pending = Some(pending);
+                        let chunk = self.take_chunk(true);
+                        return Some(self.document_chunk(chunk));
+                    }
+                }
+
+                continue;
+            }
+
+            let Some(paragraph) = self.next_paragraph() else {
+                if self.current.is_empty() {
+                    self.finished = true;
+                    return None;
+                }
+                let chunk = self.take_chunk(false);
+                self.finished = true;
+                return Some(self.document_chunk(chunk));
+            };
+
+            let paragraph_chars = paragraph.chars().count();
+            let separator_chars = if self.current.is_empty() { 0 } else { 2 };
+            if self.current_chars + separator_chars + paragraph_chars <= self.max_chars {
+                if separator_chars != 0 {
+                    self.current.push_str(PARAGRAPH_SEPARATOR);
+                }
+                self.current.push_str(paragraph);
+                self.current_chars += separator_chars + paragraph_chars;
+                continue;
+            }
+
+            if !self.current.is_empty() {
+                let chunk = self.take_chunk(true);
+                self.pending = Some(PendingParagraph {
+                    text: paragraph,
+                    offset: 0,
+                    separator_offset: 0,
+                });
+                return Some(self.document_chunk(chunk));
+            }
+
+            self.pending = Some(PendingParagraph {
+                text: paragraph,
+                offset: 0,
+                separator_offset: PARAGRAPH_SEPARATOR.len(),
+            });
+        }
+    }
 }
 
 fn build_overlap_from_text(text: &str, overlap_chars: usize) -> String {
+    if overlap_chars == 0 {
+        return String::new();
+    }
     let chars = text.chars().collect::<Vec<_>>();
     if chars.len() <= overlap_chars {
         return text.to_string();
@@ -106,8 +228,11 @@ fn build_overlap_from_text(text: &str, overlap_chars: usize) -> String {
     chars[chars.len() - overlap_chars..].iter().collect()
 }
 
-fn take_chars(text: &str, count: usize) -> String {
-    text.chars().take(count).collect()
+fn prefix_len_by_chars(text: &str, count: usize) -> usize {
+    text.char_indices()
+        .nth(count)
+        .map(|(index, _)| index)
+        .unwrap_or(text.len())
 }
 
 fn chunk_uuid(source_key: &str, external_id: &str, record_hash: &str, chunk_index: i32) -> Uuid {
@@ -116,43 +241,5 @@ fn chunk_uuid(source_key: &str, external_id: &str, record_hash: &str, chunk_inde
 }
 
 #[cfg(test)]
-mod tests {
-    use chrono::Utc;
-    use serde_json::json;
-
-    use super::{ChunkingConfig, chunk_document};
-    use crate::domain::NormalizedDocument;
-
-    #[test]
-    fn chunks_long_documents() {
-        let document = NormalizedDocument {
-            external_id: "doc-1".to_string(),
-            title: "title".to_string(),
-            summary: None,
-            body_text: format!("{}\n\n{}", "a".repeat(900), "b".repeat(900)),
-            source_uri: "https://example.com".to_string(),
-            published_at: None,
-            updated_at: Utc::now(),
-            metadata_json: json!({}),
-            record_hash: "hash".to_string(),
-        };
-
-        let chunks = chunk_document(
-            1,
-            "gov-info",
-            &document,
-            &ChunkingConfig {
-                max_chars: 1000,
-                overlap_chars: 100,
-            },
-        );
-
-        assert!(chunks.len() >= 2);
-        assert!(chunks[0].text.len() >= 900);
-        assert!(
-            chunks
-                .iter()
-                .any(|chunk| chunk.text.contains(&"b".repeat(300)))
-        );
-    }
-}
+#[path = "chunking_tests.rs"]
+mod tests;

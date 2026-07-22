@@ -147,8 +147,10 @@ impl LibraryService {
                     None,
                     Some(LibraryIngestFailureStage::Storage),
                     Some(&message),
-                    false,
-                    true,
+                    JobStatusFlags {
+                        mark_started_now: false,
+                        mark_finished_now: true,
+                    },
                 )
                 .await?;
             if job_updated.is_some() {

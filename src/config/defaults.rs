@@ -20,7 +20,7 @@ pub const DEFAULT_SESSION_IDLE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 pub const DEFAULT_SESSION_VALKEY_URL: &str = "redis://127.0.0.1:6379";
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
-pub const DEFAULT_URL_IMPORT_CONCURRENCY: usize = 2;
+pub const DEFAULT_URL_IMPORT_CONCURRENCY: usize = 1;
 pub const DEFAULT_URL_IMPORT_MIN_INTERVAL_MS: u64 = 1000;
 
 pub(super) fn default_max_upload_request_size_mb() -> usize {
@@ -82,7 +82,7 @@ impl Default for FileConfig {
                 storage_root: PathBuf::from("./data/library"),
                 max_upload_size_mb: 64,
                 max_upload_request_size_mb: default_max_upload_request_size_mb(),
-                ingest_concurrency: 2,
+                ingest_concurrency: 1,
                 pdf_pages_per_task: 5,
                 url_import_concurrency: DEFAULT_URL_IMPORT_CONCURRENCY,
                 url_import_min_interval_ms: DEFAULT_URL_IMPORT_MIN_INTERVAL_MS,
@@ -92,7 +92,7 @@ impl Default for FileConfig {
             scheduler: SchedulerConfig {
                 interval: Duration::from_secs(300),
                 run_on_start: true,
-                max_concurrency: 4,
+                max_concurrency: 2,
                 job_id: "context69-sync".to_string(),
                 valkey_url: None,
                 execution_guard_ttl: default_scheduler_execution_guard_ttl(),

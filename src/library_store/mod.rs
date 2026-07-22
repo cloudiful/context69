@@ -29,6 +29,18 @@ pub struct LibraryStore {
     db: Database,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct JobStatusFlags {
+    pub mark_started_now: bool,
+    pub mark_finished_now: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ProcessingJobPage {
+    pub limit: i64,
+    pub offset: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct NewLibraryFile {
     pub id: Uuid,

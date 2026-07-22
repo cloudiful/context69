@@ -307,8 +307,10 @@ impl LibraryService {
                 None,
                 None,
                 None,
-                true,
-                false,
+                JobStatusFlags {
+                    mark_started_now: true,
+                    mark_finished_now: false,
+                },
             )
             .await?
         else {
@@ -329,8 +331,10 @@ impl LibraryService {
                         None,
                         None,
                         None,
-                        true,
-                        true,
+                        JobStatusFlags {
+                            mark_started_now: true,
+                            mark_finished_now: true,
+                        },
                     )
                     .await?
                 else {
@@ -353,8 +357,10 @@ impl LibraryService {
                         None,
                         Some(error.stage),
                         Some(&message),
-                        true,
-                        true,
+                        JobStatusFlags {
+                            mark_started_now: true,
+                            mark_finished_now: true,
+                        },
                     )
                     .await?;
                 if job_updated.is_some() {

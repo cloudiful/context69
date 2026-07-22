@@ -30,7 +30,10 @@ use crate::{
     docling::DoclingXlsxClient,
     domain::{ChunkPayload, LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
     embedding::EmbeddingProvider,
-    library_store::{LibraryStore, NewLibraryFile, file_to_summary, job_to_response},
+    library_store::{
+        JobStatusFlags, LibraryStore, NewLibraryFile, ProcessingJobPage, file_to_summary,
+        job_to_response,
+    },
     normalize::{normalize_body, normalize_record, normalize_whitespace},
     qdrant_index::QdrantIndex,
     services::settings::SettingsService,
@@ -41,6 +44,7 @@ mod filenames;
 mod files;
 mod folders;
 mod ingest;
+mod ingest_batches;
 mod metadata;
 mod migration;
 pub use migration::StorageMigrationSummary;

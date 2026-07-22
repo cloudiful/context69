@@ -243,20 +243,39 @@ impl Database {
         .await?;
 
         for chunk in chunks {
-            sqlx::query_file!(
-                "src/sql/db/documents/insert_document_chunk.sql",
-                chunk.id,
-                document_id,
-                chunk.chunk_index,
-                chunk.text,
-                record_hash
-            )
-            .execute(&mut *tx)
-            .await?;
+            insert_document_chunk(&mut tx, document_id, record_hash, chunk).await?;
         }
 
         tx.commit().await?;
         Ok(chunks.iter().map(|chunk| chunk.id).collect())
+    }
+
+    pub async fn delete_document_chunks(&self, document_id: i64) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/documents/delete_document_chunks.sql",
+            document_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn insert_document_chunks(
+        &self,
+        document_id: i64,
+        record_hash: &str,
+        chunks: &[DocumentChunk],
+    ) -> Result<()> {
+        if chunks.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self.pool.begin().await?;
+        for chunk in chunks {
+            insert_document_chunk(&mut tx, document_id, record_hash, chunk).await?;
+        }
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn list_chunk_ids_for_document(&self, document_id: i64) -> Result<Vec<Uuid>> {
@@ -456,4 +475,23 @@ impl Database {
             is_fallback: false,
         }))
     }
+}
+
+async fn insert_document_chunk(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    document_id: i64,
+    record_hash: &str,
+    chunk: &DocumentChunk,
+) -> Result<()> {
+    sqlx::query_file!(
+        "src/sql/db/documents/insert_document_chunk.sql",
+        chunk.id,
+        document_id,
+        chunk.chunk_index,
+        chunk.text,
+        record_hash
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }

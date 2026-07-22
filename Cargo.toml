@@ -102,7 +102,7 @@ getrandom.workspace = true
 qdrant-client.workspace = true
 rate-limiter.workspace = true
 opendal.workspace = true
-reqwest = { workspace = true, features = [ "charset", "gzip", "http2", "json", "multipart", "rustls", "system-proxy" ] }
+reqwest = { workspace = true, features = [ "charset", "gzip", "http2", "json", "multipart", "rustls", "stream", "system-proxy" ] }
 redis = { workspace = true, features = ["connection-manager", "tokio-comp"] }
 rmcp = { workspace = true, features = [ "server", "macros", "schemars", "transport-io", "transport-streamable-http-server" ] }
 scheduler = { workspace = true, features = ["valkey-guard", "valkey-store"] }

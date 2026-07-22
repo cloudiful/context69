@@ -57,15 +57,15 @@ timeout_secs = 30
 storage_root = "./data/library"
 max_upload_size_mb = 64
 max_upload_request_size_mb = 256
-ingest_concurrency = 2
+ingest_concurrency = 1
 pdf_pages_per_task = 5
-url_import_concurrency = 2
+url_import_concurrency = 1
 url_import_min_interval_ms = 1000
 
 [scheduler]
 interval_secs = 300
 run_on_start = true
-max_concurrency = 4
+max_concurrency = 2
 job_id = "context69-sync"
 
 [api]

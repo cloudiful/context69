@@ -105,7 +105,7 @@ Remote URL imports connect directly by default and ignore proxy environment vari
 downloads immediately. The configured proxy must enforce destination network isolation because it
 resolves and connects to the final target on Context69's behalf.
 
-URL imports use a persistent database queue with two workers by default. Configure
+URL imports use a persistent database queue with one worker by default. Configure
 `file_library.url_import_concurrency` to change the worker count and
 `file_library.url_import_min_interval_ms` to set the minimum interval between requests to the same
 `scheme://host:port` (default 1000 ms). `file_library.ingest_concurrency` only limits the actual

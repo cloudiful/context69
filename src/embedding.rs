@@ -1,10 +1,15 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use reqwest::{Client, StatusCode, header::CONTENT_TYPE};
+use bytes::Bytes;
+use futures::StreamExt;
+use reqwest::{Client, Response, StatusCode, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::EmbeddingConfig;
+
+const MAX_EMBEDDING_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_EMBEDDING_ERROR_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
@@ -61,14 +66,13 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
             .and_then(|value| value.to_str().ok())
             .unwrap_or("unknown")
             .to_string();
-        let body = response.text().await.map_err(|error| {
-            format_embedding_transport_error(
-                "read response body",
-                &endpoint,
-                &self.config.model,
-                error,
-            )
-        })?;
+        let max_body_bytes = if status.is_success() {
+            MAX_EMBEDDING_RESPONSE_BYTES
+        } else {
+            MAX_EMBEDDING_ERROR_RESPONSE_BYTES
+        };
+        let body =
+            read_response_body(response, max_body_bytes, &endpoint, &self.config.model).await?;
 
         if !status.is_success() {
             return Err(format_embedding_http_error(
@@ -96,6 +100,58 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
         }
         Ok(vectors)
     }
+}
+
+async fn read_response_body(
+    response: Response,
+    max_bytes: usize,
+    endpoint: &str,
+    model: &str,
+) -> Result<String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(oversized_response_error(max_bytes, endpoint, model, &[]));
+    }
+
+    read_response_body_stream(response.bytes_stream(), max_bytes, endpoint, model).await
+}
+
+async fn read_response_body_stream<S>(
+    mut stream: S,
+    max_bytes: usize,
+    endpoint: &str,
+    model: &str,
+) -> Result<String>
+where
+    S: futures::Stream<Item = Result<Bytes, reqwest::Error>> + Unpin,
+{
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            format_embedding_transport_error("read response body", endpoint, model, error)
+        })?;
+        if body.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(oversized_response_error(max_bytes, endpoint, model, &body));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    String::from_utf8(body)
+        .map_err(|error| anyhow!("embedding response body is not valid UTF-8: {error}"))
+}
+
+fn oversized_response_error(
+    max_bytes: usize,
+    endpoint: &str,
+    model: &str,
+    body: &[u8],
+) -> anyhow::Error {
+    let preview = String::from_utf8_lossy(&body[..body.len().min(320)]);
+    anyhow!(
+        "embedding response body exceeds {max_bytes} bytes: endpoint={endpoint} model={model} body_preview={preview:?}"
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,71 +248,5 @@ fn truncate_for_error(input: &str, max_chars: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use reqwest::StatusCode;
-
-    use super::{
-        extract_error_message, format_embedding_http_error, format_embedding_transport_error,
-        parse_embedding_response,
-    };
-
-    #[test]
-    fn parse_error_includes_response_context() {
-        let error = parse_embedding_response(
-            "<html>upstream failure</html>",
-            "http://127.0.0.1:11434/v1/embeddings",
-            "nomic-embed-text",
-            "text/html",
-        )
-        .expect_err("html should not parse as embedding response");
-
-        let message = error.to_string();
-        assert!(message.contains("failed to parse embedding response"));
-        assert!(message.contains("endpoint=http://127.0.0.1:11434/v1/embeddings"));
-        assert!(message.contains("content_type=text/html"));
-        assert!(message.contains("body_preview"));
-    }
-
-    #[test]
-    fn http_error_extracts_provider_error_message() {
-        let error = format_embedding_http_error(
-            StatusCode::BAD_REQUEST,
-            "http://127.0.0.1:11434/v1/embeddings",
-            "nomic-embed-text",
-            "application/json",
-            r#"{"error":{"message":"model not found"}}"#,
-        );
-
-        let message = error.to_string();
-        assert!(message.contains("status=400 Bad Request"));
-        assert!(message.contains("provider_error=model not found"));
-    }
-
-    #[test]
-    fn extracts_top_level_error_string() {
-        assert_eq!(
-            extract_error_message(r#"{"error":"backend unavailable"}"#).as_deref(),
-            Some("backend unavailable")
-        );
-    }
-
-    #[test]
-    fn transport_error_includes_concrete_cause() {
-        let error = reqwest::Client::new()
-            .get("not a url")
-            .build()
-            .expect_err("invalid URL should fail");
-        let message = format_embedding_transport_error(
-            "send request",
-            "not a url/embeddings",
-            "test-model",
-            error,
-        )
-        .to_string();
-
-        assert!(message.contains("embedding upstream transport error"));
-        assert!(message.contains("operation=send request"));
-        assert!(message.contains("model=test-model"));
-        assert!(message.contains("builder error"));
-    }
-}
+#[path = "embedding_tests.rs"]
+mod tests;

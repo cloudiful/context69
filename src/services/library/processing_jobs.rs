@@ -56,8 +56,10 @@ impl LibraryService {
                 search,
                 query.status,
                 query.failure_stage,
-                page_size,
-                offset,
+                ProcessingJobPage {
+                    limit: page_size,
+                    offset,
+                },
             )
             .await?;
         let total = u64::try_from(total).map_err(|_| anyhow!("negative processing job count"))?;

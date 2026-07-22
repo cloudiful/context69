@@ -117,7 +117,7 @@ network isolation because it performs the final target connection.
 
 ## URL Import Queue
 
-URL imports are processed by a persistent queue with two workers by default. Runtime Settings
+URL imports are processed by a persistent queue with one worker by default. Runtime Settings
 `file_library.url_import_concurrency` controls worker count, and
 `file_library.url_import_min_interval_ms` controls the minimum interval between requests to the
 same `scheme://host:port` (default 1000 ms). `ingest_concurrency` controls only file ingest after

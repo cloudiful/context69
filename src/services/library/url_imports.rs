@@ -269,8 +269,10 @@ impl LibraryService {
                     None,
                     Some(LibraryIngestFailureStage::Other),
                     Some(message),
-                    false,
-                    true,
+                    JobStatusFlags {
+                        mark_started_now: false,
+                        mark_finished_now: true,
+                    },
                 )
                 .await
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
@@ -332,8 +334,10 @@ impl LibraryService {
                     None,
                     Some(LibraryIngestFailureStage::Other),
                     Some("parent URL import job is no longer active"),
-                    false,
-                    true,
+                    JobStatusFlags {
+                        mark_started_now: false,
+                        mark_finished_now: true,
+                    },
                 )
                 .await;
             return Ok(());

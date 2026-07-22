@@ -40,6 +40,14 @@ impl QdrantIndex {
     ) -> Result<()> {
         self.delete_points(existing_chunk_ids).await?;
 
+        self.upsert_document_chunks(payloads, embeddings).await
+    }
+
+    pub async fn upsert_document_chunks(
+        &self,
+        payloads: &[ChunkPayload],
+        embeddings: &[Vec<f32>],
+    ) -> Result<()> {
         if payloads.is_empty() {
             return Ok(());
         }
