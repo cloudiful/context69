@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod models;
 pub mod normalize;
 pub mod qdrant_index;
+pub(crate) mod retry;
 pub mod serde_helpers;
 pub mod services;
 pub mod source_store;

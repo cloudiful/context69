@@ -5,7 +5,8 @@ use reqwest::Client;
 use serde_json::Value;
 use tokio::time::sleep;
 
-use super::{client::ensure_success, retry};
+use super::client::ensure_success;
+use crate::retry;
 
 pub(super) async fn wait_for_result(
     http: &Client,
@@ -70,7 +71,7 @@ async fn poll_status(
     retry::retry_until(
         deadline,
         "docling status poll",
-        || task_timeout_error(task_id, started, "polling task status", last_status),
+        |_| task_timeout_error(task_id, started, "polling task status", last_status),
         retry::is_retryable,
         || async {
             let response = http
@@ -110,7 +111,7 @@ async fn fetch_result(
     let body = retry::retry_until(
         deadline,
         "docling result fetch",
-        || task_timeout_error(task_id, started, "fetching task result", Some("success")),
+        |_| task_timeout_error(task_id, started, "fetching task result", Some("success")),
         retry::is_retryable,
         || async {
             let response = http

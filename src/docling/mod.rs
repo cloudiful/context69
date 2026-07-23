@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::{serde_helpers, support::normalize::normalize_optional_string};
 
 mod client;
-mod retry;
 mod xlsx_polling;
 
 #[cfg(test)]

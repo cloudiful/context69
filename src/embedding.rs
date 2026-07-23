@@ -1,15 +1,25 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
-use reqwest::{Client, Response, StatusCode, header::CONTENT_TYPE};
+use reqwest::{Client, Response, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use tracing::info;
+use tracing::{error, info};
 
-use crate::config::EmbeddingConfig;
+use crate::{config::EmbeddingConfig, retry};
+
+mod errors;
+#[path = "embedding/retry.rs"]
+mod retry_support;
+
+use errors::{
+    extract_error_message, format_embedding_attempt_timeout, format_embedding_http_error,
+    format_embedding_retry_budget_error, format_embedding_transport_error,
+    oversized_response_error, truncate_for_error,
+};
+use retry_support::{finalize_error, retry_deadline};
 
 const MAX_EMBEDDING_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_EMBEDDING_ERROR_RESPONSE_BYTES: usize = 1024 * 1024;
@@ -47,21 +57,95 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
             return Ok(Vec::new());
         }
         let started = Instant::now();
+        let deadline = retry_deadline(started, self.config.timeout);
 
-        let request = EmbeddingRequest {
+        let request = Arc::new(EmbeddingRequest {
             model: self.config.model.clone(),
             input: texts.to_vec(),
-        };
+        });
 
-        let endpoint = format!("{}/embeddings", self.config.base_url.trim_end_matches('/'));
-        let mut builder = self.client.post(&endpoint).json(&request);
+        let endpoint = Arc::new(format!(
+            "{}/embeddings",
+            self.config.base_url.trim_end_matches('/')
+        ));
+        let mut attempts = 0;
+        let result = retry::retry_until(
+            deadline,
+            "embedding request",
+            format_embedding_retry_budget_error,
+            retry::is_retryable,
+            || {
+                attempts += 1;
+                let attempt = attempts;
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let request = Arc::clone(&request);
+                let endpoint = Arc::clone(&endpoint);
+                async move {
+                    if remaining.is_zero() {
+                        return Err(format_embedding_attempt_timeout(
+                            endpoint.as_str(),
+                            &self.config.model,
+                            attempt,
+                        ));
+                    }
+                    match tokio::time::timeout(
+                        remaining,
+                        self.embed_once(&request, endpoint.as_str(), texts.len()),
+                    )
+                    .await
+                    {
+                        Ok(result) => result,
+                        Err(_) => Err(format_embedding_attempt_timeout(
+                            endpoint.as_str(),
+                            &self.config.model,
+                            attempt,
+                        )),
+                    }
+                }
+            },
+        )
+        .await;
+
+        let vectors = match result {
+            Ok(vectors) => vectors,
+            Err(error) => {
+                let error = finalize_error(error, attempts, started, self.config.timeout);
+                error!(
+                    batch_size = texts.len(),
+                    attempts,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    error = %error,
+                    "embedding batch failed"
+                );
+                return Err(error);
+            }
+        };
+        info!(
+            batch_size = texts.len(),
+            vector_count = vectors.len(),
+            attempts,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "embedding batch completed"
+        );
+        Ok(vectors)
+    }
+}
+
+impl OpenAiCompatibleEmbeddingProvider {
+    async fn embed_once(
+        &self,
+        request: &EmbeddingRequest,
+        endpoint: &str,
+        input_count: usize,
+    ) -> Result<Vec<Vec<f32>>> {
+        let mut builder = self.client.post(endpoint).json(request);
 
         if let Some(api_key) = &self.config.api_key {
             builder = builder.bearer_auth(api_key);
         }
 
         let response = builder.send().await.map_err(|error| {
-            format_embedding_transport_error("send request", &endpoint, &self.config.model, error)
+            format_embedding_transport_error("send request", endpoint, &self.config.model, error)
         })?;
         let status = response.status();
         let content_type = response
@@ -76,38 +160,31 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
             MAX_EMBEDDING_ERROR_RESPONSE_BYTES
         };
         let body =
-            read_response_body(response, max_body_bytes, &endpoint, &self.config.model).await?;
+            read_response_body(response, max_body_bytes, endpoint, &self.config.model).await?;
 
         if !status.is_success() {
             return Err(format_embedding_http_error(
                 status,
-                &endpoint,
+                endpoint,
                 &self.config.model,
                 &content_type,
                 &body,
             ));
         }
 
-        let payload =
-            parse_embedding_response(&body, &endpoint, &self.config.model, &content_type)?;
+        let payload = parse_embedding_response(&body, endpoint, &self.config.model, &content_type)?;
         let vectors = payload
             .data
             .into_iter()
             .map(|item| item.embedding)
             .collect::<Vec<_>>();
-        if vectors.len() != texts.len() {
+        if vectors.len() != input_count {
             return Err(anyhow!(
                 "embedding provider returned {} vectors for {} inputs",
                 vectors.len(),
-                texts.len()
+                input_count
             ));
         }
-        info!(
-            batch_size = texts.len(),
-            vector_count = vectors.len(),
-            elapsed_ms = started.elapsed().as_millis() as u64,
-            "embedding batch completed"
-        );
         Ok(vectors)
     }
 }
@@ -152,18 +229,6 @@ where
         .map_err(|error| anyhow!("embedding response body is not valid UTF-8: {error}"))
 }
 
-fn oversized_response_error(
-    max_bytes: usize,
-    endpoint: &str,
-    model: &str,
-    body: &[u8],
-) -> anyhow::Error {
-    let preview = String::from_utf8_lossy(&body[..body.len().min(320)]);
-    anyhow!(
-        "embedding response body exceeds {max_bytes} bytes: endpoint={endpoint} model={model} body_preview={preview:?}"
-    )
-}
-
 #[derive(Debug, Clone, Serialize)]
 struct EmbeddingRequest {
     model: String,
@@ -195,66 +260,6 @@ fn parse_embedding_response(
             "failed to parse embedding response: endpoint={endpoint} model={model} content_type={content_type} body_preview={preview:?}{embedded_error}: {error}"
         )
     })
-}
-
-fn format_embedding_http_error(
-    status: StatusCode,
-    endpoint: &str,
-    model: &str,
-    content_type: &str,
-    body: &str,
-) -> anyhow::Error {
-    let preview = truncate_for_error(body, 320);
-    let embedded_error = extract_error_message(body)
-        .map(|message| format!(" provider_error={message}"))
-        .unwrap_or_default();
-    anyhow!(
-        "embedding request failed: status={status} endpoint={endpoint} model={model} content_type={content_type} body_preview={preview:?}{embedded_error}"
-    )
-}
-
-fn format_embedding_transport_error(
-    operation: &str,
-    endpoint: &str,
-    model: &str,
-    error: reqwest::Error,
-) -> anyhow::Error {
-    let kind = if error.is_timeout() {
-        "timeout"
-    } else if error.is_connect() {
-        "connect"
-    } else if error.is_decode() {
-        "decode"
-    } else {
-        "transport"
-    };
-
-    anyhow!(
-        "embedding upstream transport error: operation={operation} kind={kind} endpoint={endpoint} model={model}: {error}"
-    )
-}
-
-fn extract_error_message(body: &str) -> Option<String> {
-    let value = serde_json::from_str::<Value>(body).ok()?;
-
-    match value.get("error") {
-        Some(Value::String(message)) => Some(message.clone()),
-        Some(Value::Object(map)) => map
-            .get("message")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .or_else(|| Some(Value::Object(map.clone()).to_string())),
-        Some(other) => Some(other.to_string()),
-        None => None,
-    }
-}
-
-fn truncate_for_error(input: &str, max_chars: usize) -> String {
-    let mut truncated = input.chars().take(max_chars).collect::<String>();
-    if input.chars().count() > max_chars {
-        truncated.push_str("...");
-    }
-    truncated
 }
 
 #[cfg(test)]
