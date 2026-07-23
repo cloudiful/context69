@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -5,6 +7,7 @@ use futures::StreamExt;
 use reqwest::{Client, Response, StatusCode, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::info;
 
 use crate::config::EmbeddingConfig;
 
@@ -43,6 +46,7 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
+        let started = Instant::now();
 
         let request = EmbeddingRequest {
             model: self.config.model.clone(),
@@ -98,6 +102,12 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
                 texts.len()
             ));
         }
+        info!(
+            batch_size = texts.len(),
+            vector_count = vectors.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "embedding batch completed"
+        );
         Ok(vectors)
     }
 }

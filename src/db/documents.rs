@@ -4,12 +4,15 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 
 use super::{
-    ChunkRow, Database, DocumentRow, ExistingDocumentRow, KeywordSearchHitRow, ReindexChunkRow,
-    SearchHitRow, UpsertedDocument, is_library_file, keyword_terms, library_file_id, library_path,
-    library_section_label, search_hit_from_keyword_row, translation_status,
+    ChunkRow, Database, DocumentChunkRow, DocumentKeyLookupRow, DocumentRow, ExistingDocumentRow,
+    KeywordSearchHitRow, ReindexChunkRow, SearchHitRow, TranslationChunkBatchRow,
+    TranslationStatusBatchRow, TranslationVersionBatchRow, UpsertedDocument, is_library_file,
+    keyword_terms, library_file_id, library_path, library_section_label,
+    search_hit_from_keyword_row, translation_status,
 };
 use crate::contracts::{
-    DocumentChunkResponse, DocumentResponse, SearchHit, SearchRequest, Visibility,
+    DocumentChunkResponse, DocumentResponse, SearchHit, SearchRequest, TranslationStatus,
+    Visibility,
 };
 use crate::domain::{AccessScope, ChunkPayload, DocumentChunk};
 use crate::normalize::is_meaningful_text;
@@ -47,6 +50,188 @@ impl Database {
         )
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    pub async fn list_document_ids_by_keys(
+        &self,
+        group_id: i64,
+        source_keys: &[String],
+        external_ids: &[String],
+    ) -> Result<Vec<Option<i64>>> {
+        if source_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        if source_keys.len() != external_ids.len() {
+            return Err(anyhow::anyhow!(
+                "document key arrays must have the same length"
+            ));
+        }
+
+        let rows = sqlx::query_file_as!(
+            DocumentKeyLookupRow,
+            "src/sql/db/documents/get_document_ids_by_keys.sql",
+            group_id,
+            source_keys,
+            external_ids
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result = vec![None; source_keys.len()];
+        for row in rows {
+            let position = usize::try_from(row.ordinal.saturating_sub(1))
+                .context("document key ordinal is out of range")?;
+            if let Some(slot) = result.get_mut(position) {
+                *slot = row.document_id;
+            }
+        }
+        Ok(result)
+    }
+
+    pub async fn get_documents_localized(
+        &self,
+        document_ids: &[i64],
+        locale: Option<&str>,
+        scope: &AccessScope,
+    ) -> Result<HashMap<i64, DocumentResponse>> {
+        if document_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let ids = document_ids.to_vec();
+        let documents = sqlx::query_file_as!(
+            DocumentRow,
+            "src/sql/db/documents/get_documents_by_ids.sql",
+            &ids,
+            &scope.private_group_ids,
+            scope.group_path.as_deref()
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let chunks = sqlx::query_file_as!(
+            DocumentChunkRow,
+            "src/sql/db/documents/get_document_chunks_by_ids.sql",
+            &ids
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut chunks_by_document = HashMap::<i64, Vec<DocumentChunkResponse>>::new();
+        for chunk in chunks {
+            if is_meaningful_text(&chunk.chunk_text) {
+                chunks_by_document
+                    .entry(chunk.document_id)
+                    .or_default()
+                    .push(DocumentChunkResponse {
+                        chunk_id: chunk.id,
+                        chunk_index: chunk.chunk_index,
+                        text: chunk.chunk_text,
+                    });
+            }
+        }
+
+        let mut result = HashMap::with_capacity(documents.len());
+        for document in documents {
+            let document_id = document.id;
+            let chunks = chunks_by_document.remove(&document_id).unwrap_or_default();
+            result.insert(
+                document_id,
+                document_response_from_parts(document, chunks, None, None, false),
+            );
+        }
+
+        let Some(locale) = locale else {
+            for document in result.values_mut() {
+                document.content_locale = Some("original".to_string());
+            }
+            return Ok(result);
+        };
+
+        let versions = sqlx::query_file_as!(
+            TranslationVersionBatchRow,
+            "src/sql/db/translations/get_versions_by_document_ids.sql",
+            &ids,
+            locale
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let version_ids = versions
+            .iter()
+            .map(|version| version.id)
+            .collect::<Vec<_>>();
+        let translation_chunks = if version_ids.is_empty() {
+            Vec::new()
+        } else {
+            sqlx::query_file_as!(
+                TranslationChunkBatchRow,
+                "src/sql/db/translations/get_chunks_by_version_ids.sql",
+                &version_ids
+            )
+            .fetch_all(&self.pool)
+            .await?
+        };
+        let statuses = sqlx::query_file_as!(
+            TranslationStatusBatchRow,
+            "src/sql/db/translations/get_status_by_document_ids.sql",
+            &ids,
+            locale
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let versions_by_document = versions
+            .into_iter()
+            .map(|version| (version.document_id, version))
+            .collect::<HashMap<_, _>>();
+        let mut chunks_by_version = HashMap::<Uuid, Vec<DocumentChunkResponse>>::new();
+        for chunk in translation_chunks {
+            chunks_by_version
+                .entry(chunk.translation_id)
+                .or_default()
+                .push(DocumentChunkResponse {
+                    chunk_id: chunk.id,
+                    chunk_index: chunk.chunk_index,
+                    text: chunk.chunk_text,
+                });
+        }
+        let statuses_by_document = statuses
+            .into_iter()
+            .map(|status| (status.document_id, status))
+            .collect::<HashMap<_, _>>();
+
+        for (document_id, document) in &mut result {
+            if let Some(version) = versions_by_document.get(document_id) {
+                document.title = version.translated_title.clone();
+                document.summary = version.translated_summary.clone();
+                document.chunks = chunks_by_version
+                    .get(&version.id)
+                    .cloned()
+                    .unwrap_or_default();
+                document.requested_locale = Some(locale.to_string());
+                document.content_locale = Some(version.target_locale.clone());
+                document.translation_status = Some(TranslationStatus::Succeeded);
+                document.is_fallback = false;
+                continue;
+            }
+
+            let status = statuses_by_document.get(document_id);
+            document.requested_locale = Some(locale.to_string());
+            document.content_locale = status
+                .and_then(|value| value.source_locale.clone())
+                .or_else(|| Some("original".to_string()));
+            document.translation_status = Some(match status.map(|value| value.status.as_str()) {
+                Some("queued") => TranslationStatus::Queued,
+                Some("running") => TranslationStatus::Running,
+                Some("failed") => TranslationStatus::Failed,
+                Some("skipped") => TranslationStatus::Skipped,
+                Some("quota_exceeded") => TranslationStatus::QuotaExceeded,
+                Some("succeeded") => TranslationStatus::Succeeded,
+                _ => TranslationStatus::Unavailable,
+            });
+            document.is_fallback = true;
+        }
+
+        Ok(result)
     }
 
     pub async fn document_chunk_ids(&self, document_id: i64) -> Result<Vec<Uuid>> {
@@ -149,19 +334,27 @@ impl Database {
         }
 
         tx.commit().await?;
+        let mut metadata_keys = Vec::new();
+        let mut metadata_values = Vec::new();
         for definition in self
             .list_metadata_indexes(payload.group_id, &payload.source_key)
             .await?
             .into_iter()
             .filter(|definition| definition.status == "ready")
         {
+            metadata_keys.push((definition.index_id, document_id));
             let values = crate::services::document_store::metadata::extract_values(
                 &definition,
                 &payload.metadata_json,
             )?;
-            self.replace_metadata_values(definition.index_id, document_id, &values)
-                .await?;
+            metadata_values.extend(crate::db::metadata_indexes::metadata_value_rows(
+                definition.index_id,
+                document_id,
+                &values,
+            ));
         }
+        self.replace_metadata_values_bulk(&metadata_keys, &metadata_values)
+            .await?;
         Ok(UpsertedDocument {
             document_id,
             changed,
@@ -200,30 +393,22 @@ impl Database {
         )
         .execute(&mut *tx)
         .await?;
-        for (index_id, values) in definitions {
-            sqlx::query_file!(
-                "src/sql/db/metadata_indexes/delete_document_values.sql",
-                index_id,
-                document_id
-            )
-            .execute(&mut *tx)
-            .await?;
-            for (ordinal, value) in values.iter().enumerate() {
-                sqlx::query_file!(
-                    "src/sql/db/metadata_indexes/insert_value.sql",
-                    index_id,
-                    document_id,
-                    ordinal as i32,
-                    value.keyword_value.as_deref(),
-                    value.integer_value,
-                    value.float_value,
-                    value.boolean_value,
-                    value.datetime_value
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
+        let metadata_keys = definitions
+            .iter()
+            .map(|(index_id, _)| (*index_id, document_id))
+            .collect::<Vec<_>>();
+        let metadata_values = definitions
+            .into_iter()
+            .flat_map(|(index_id, values)| {
+                crate::db::metadata_indexes::metadata_value_rows(index_id, document_id, &values)
+            })
+            .collect::<Vec<_>>();
+        crate::db::metadata_indexes::replace_metadata_values_in_transaction(
+            &mut tx,
+            &metadata_keys,
+            &metadata_values,
+        )
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -242,9 +427,7 @@ impl Database {
         .execute(&mut *tx)
         .await?;
 
-        for chunk in chunks {
-            insert_document_chunk(&mut tx, document_id, record_hash, chunk).await?;
-        }
+        insert_document_chunks_in_transaction(&mut tx, document_id, record_hash, chunks).await?;
 
         tx.commit().await?;
         Ok(chunks.iter().map(|chunk| chunk.id).collect())
@@ -271,9 +454,7 @@ impl Database {
         }
 
         let mut tx = self.pool.begin().await?;
-        for chunk in chunks {
-            insert_document_chunk(&mut tx, document_id, record_hash, chunk).await?;
-        }
+        insert_document_chunks_in_transaction(&mut tx, document_id, record_hash, chunks).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -355,6 +536,7 @@ impl Database {
         }
         let phrase_pattern = format!("%{normalized_query}%");
         let terms = keyword_terms(&normalized_query);
+        let metadata_filters = serde_json::to_value(&request.metadata_filters)?;
         let keyword_limit = i64::try_from(limit).context("keyword search limit is too large")?;
 
         let rows = sqlx::query_file_as!(
@@ -369,7 +551,8 @@ impl Database {
             request.published_before,
             &scope.private_group_ids,
             keyword_limit,
-            request.locale.as_deref()
+            request.locale.as_deref(),
+            metadata_filters
         )
         .fetch_all(&self.pool)
         .await?;
@@ -388,31 +571,33 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| ChunkPayload {
-                chunk_id: row.chunk_id,
-                document_id: row.document_id,
-                group_id: row.group_id,
-                group_key: row.group_key,
-                group_path: row.group_path,
-                visibility: row.visibility.parse().unwrap_or(Visibility::Private),
-                source_key: row.source_key,
-                external_id: row.external_id,
-                title: row.title,
-                summary: row.summary,
-                source_uri: row.source_uri,
-                published_at: row.published_at,
-                updated_at_source: row.updated_at_source,
-                record_hash: row.record_hash,
-                chunk_index: row.chunk_index,
-                chunk_text: row.chunk_text,
-                metadata_json: row.metadata_json,
-                content_locale: "original".to_string(),
-                source_locale: None,
-                translation_provider: None,
-            })
-            .collect())
+        Ok(rows.into_iter().map(reindex_payload_from_row).collect())
+    }
+
+    pub async fn count_chunk_payloads_for_reindex(&self) -> Result<usize> {
+        let count =
+            sqlx::query_file_scalar!("src/sql/db/documents/count_chunk_payloads_for_reindex.sql")
+                .fetch_one(&self.pool)
+                .await?;
+        usize::try_from(count).context("reindex chunk count is out of range")
+    }
+
+    pub async fn list_chunk_payloads_for_reindex_page(
+        &self,
+        last_document_id: Option<i64>,
+        last_chunk_index: Option<i32>,
+        limit: i64,
+    ) -> Result<Vec<ChunkPayload>> {
+        let rows = sqlx::query_file_as!(
+            ReindexChunkRow,
+            "src/sql/db/documents/list_chunk_payloads_for_reindex_page.sql",
+            last_document_id,
+            last_chunk_index,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(reindex_payload_from_row).collect())
     }
 
     pub async fn get_document(
@@ -442,25 +627,9 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(Some(DocumentResponse {
-            document_id: document.id,
-            group_key: document.group_key,
-            group_path: document.group_path,
-            visibility: document.visibility.parse().unwrap_or(Visibility::Private),
-            source_key: document.source_key,
-            external_id: document.external_id,
-            title: document.title,
-            summary: document.summary.filter(|value| is_meaningful_text(value)),
-            source_uri: document.source_uri,
-            published_at: document.published_at,
-            updated_at: document.updated_at_source,
-            record_hash: document.record_hash,
-            library_file_id: library_file_id(&document.metadata_json),
-            library_section_label: library_section_label(&document.metadata_json),
-            library_path: library_path(&document.metadata_json),
-            is_library_file: is_library_file(&document.metadata_json),
-            metadata_json: document.metadata_json,
-            chunks: chunks
+        Ok(Some(document_response_from_parts(
+            document,
+            chunks
                 .into_iter()
                 .filter(|chunk| is_meaningful_text(&chunk.chunk_text))
                 .map(|chunk| DocumentChunkResponse {
@@ -469,27 +638,96 @@ impl Database {
                     text: chunk.chunk_text,
                 })
                 .collect(),
-            requested_locale: None,
-            content_locale: None,
-            translation_status: None,
-            is_fallback: false,
-        }))
+            None,
+            None,
+            false,
+        )))
     }
 }
 
-async fn insert_document_chunk(
+fn document_response_from_parts(
+    document: DocumentRow,
+    chunks: Vec<DocumentChunkResponse>,
+    requested_locale: Option<String>,
+    content_locale: Option<String>,
+    is_fallback: bool,
+) -> DocumentResponse {
+    DocumentResponse {
+        document_id: document.id,
+        group_key: document.group_key,
+        group_path: document.group_path,
+        visibility: document.visibility.parse().unwrap_or(Visibility::Private),
+        source_key: document.source_key,
+        external_id: document.external_id,
+        title: document.title,
+        summary: document.summary.filter(|value| is_meaningful_text(value)),
+        source_uri: document.source_uri,
+        published_at: document.published_at,
+        updated_at: document.updated_at_source,
+        record_hash: document.record_hash,
+        library_file_id: library_file_id(&document.metadata_json),
+        library_section_label: library_section_label(&document.metadata_json),
+        library_path: library_path(&document.metadata_json),
+        is_library_file: is_library_file(&document.metadata_json),
+        metadata_json: document.metadata_json,
+        chunks,
+        requested_locale,
+        content_locale,
+        translation_status: None,
+        is_fallback,
+    }
+}
+
+fn reindex_payload_from_row(row: ReindexChunkRow) -> ChunkPayload {
+    ChunkPayload {
+        chunk_id: row.chunk_id,
+        document_id: row.document_id,
+        group_id: row.group_id,
+        group_key: row.group_key,
+        group_path: row.group_path,
+        visibility: row.visibility.parse().unwrap_or(Visibility::Private),
+        source_key: row.source_key,
+        external_id: row.external_id,
+        title: row.title,
+        summary: row.summary,
+        source_uri: row.source_uri,
+        published_at: row.published_at,
+        updated_at_source: row.updated_at_source,
+        record_hash: row.record_hash,
+        chunk_index: row.chunk_index,
+        chunk_text: row.chunk_text,
+        metadata_json: row.metadata_json,
+        content_locale: "original".to_string(),
+        source_locale: None,
+        translation_provider: None,
+    }
+}
+
+async fn insert_document_chunks_in_transaction(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     document_id: i64,
     record_hash: &str,
-    chunk: &DocumentChunk,
+    chunks: &[DocumentChunk],
 ) -> Result<()> {
+    if chunks.is_empty() {
+        return Ok(());
+    }
+    let chunk_ids = chunks.iter().map(|chunk| chunk.id).collect::<Vec<_>>();
+    let chunk_indexes = chunks
+        .iter()
+        .map(|chunk| chunk.chunk_index)
+        .collect::<Vec<_>>();
+    let chunk_texts = chunks
+        .iter()
+        .map(|chunk| chunk.text.clone())
+        .collect::<Vec<_>>();
     sqlx::query_file!(
-        "src/sql/db/documents/insert_document_chunk.sql",
-        chunk.id,
+        "src/sql/db/documents/insert_document_chunks_bulk.sql",
         document_id,
-        chunk.chunk_index,
-        chunk.text,
-        record_hash
+        record_hash,
+        &chunk_ids,
+        &chunk_indexes,
+        &chunk_texts
     )
     .execute(&mut **tx)
     .await?;

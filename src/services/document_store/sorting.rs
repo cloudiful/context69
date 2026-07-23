@@ -1,14 +1,10 @@
+#[cfg(test)]
 use std::cmp::Ordering;
 
-use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
-use context69_contracts::{DocumentResponse, DocumentSort, DocumentSortField, SortOrder};
+#[cfg(test)]
+use context69_contracts::{DocumentSort, DocumentSortField, SortOrder};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use crate::db::StoredMetadataIndex;
-
-use super::metadata;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -21,61 +17,7 @@ pub(super) enum SortValue {
     Datetime(DateTime<Utc>),
 }
 
-pub(super) fn values_for_document(
-    document: &DocumentResponse,
-    sort: &[DocumentSort],
-    definitions: &[StoredMetadataIndex],
-) -> Result<Vec<SortValue>> {
-    sort.iter()
-        .map(|item| match &item.field {
-            DocumentSortField::PublishedAt => Ok(document
-                .published_at
-                .map(SortValue::Datetime)
-                .unwrap_or(SortValue::Null)),
-            DocumentSortField::UpdatedAt => Ok(SortValue::Datetime(document.updated_at)),
-            DocumentSortField::Metadata(path) => {
-                let definition = definitions
-                    .iter()
-                    .find(|definition| definition.field_path == *path)
-                    .ok_or_else(|| anyhow!("metadata field '{path}' is not declared"))?;
-                parse_metadata_value(
-                    metadata::resolve_path(&document.metadata_json, path),
-                    &definition.data_type,
-                    path,
-                )
-            }
-        })
-        .collect()
-}
-
-fn parse_metadata_value(value: Option<&Value>, data_type: &str, path: &str) -> Result<SortValue> {
-    let Some(value) = value.filter(|value| !value.is_null()) else {
-        return Ok(SortValue::Null);
-    };
-    let invalid = || {
-        anyhow!("metadata field '{path}' contains a value inconsistent with its {data_type} index")
-    };
-    match data_type {
-        "keyword" => value
-            .as_str()
-            .map(|value| SortValue::Keyword(value.to_owned()))
-            .ok_or_else(invalid),
-        "integer" => value.as_i64().map(SortValue::Integer).ok_or_else(invalid),
-        "float" => value
-            .as_f64()
-            .filter(|value| value.is_finite())
-            .map(SortValue::Float)
-            .ok_or_else(invalid),
-        "boolean" => value.as_bool().map(SortValue::Boolean).ok_or_else(invalid),
-        "datetime" => value
-            .as_str()
-            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-            .map(|value| SortValue::Datetime(value.with_timezone(&Utc)))
-            .ok_or_else(invalid),
-        _ => Err(anyhow!("unsupported metadata data type '{data_type}'")),
-    }
-}
-
+#[cfg(test)]
 pub(super) fn compare_rows(
     left_values: &[SortValue],
     left_id: i64,
@@ -92,6 +34,7 @@ pub(super) fn compare_rows(
     left_id.cmp(&right_id)
 }
 
+#[cfg(test)]
 fn compare_value(left: &SortValue, right: &SortValue, direction: SortOrder) -> Ordering {
     match (left, right) {
         (SortValue::Null, SortValue::Null) => Ordering::Equal,

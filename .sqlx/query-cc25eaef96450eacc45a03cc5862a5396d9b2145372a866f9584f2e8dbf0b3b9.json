@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT document_id, id, chunk_index, chunk_text\nFROM context69.document_chunks\nWHERE document_id = ANY($1)\nORDER BY document_id, chunk_index\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "chunk_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "chunk_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cc25eaef96450eacc45a03cc5862a5396d9b2145372a866f9584f2e8dbf0b3b9"
+}

@@ -1,8 +1,11 @@
 use super::{FILE_LIBRARY_SOURCE_KEY, IngestFailure, IngestResult, LibraryRuntime, LibraryService};
+use std::time::Instant;
+
 use crate::{
     contracts::LibraryIngestFailureStage,
     domain::{ChunkPayload, DocumentChunk, LibraryFileRecord, NormalizedDocument},
 };
+use tracing::info;
 
 const MAX_BATCH_CHUNKS: usize = 32;
 const MAX_BATCH_CHARS: usize = 64_000;
@@ -56,6 +59,7 @@ impl LibraryService {
                 .iter()
                 .map(|chunk| chunk.text.clone())
                 .collect::<Vec<_>>();
+            let batch_started = Instant::now();
             let embeddings = runtime
                 .embedding
                 .embed_texts(&texts)
@@ -98,6 +102,13 @@ impl LibraryService {
                 .upsert_document_chunks(&payloads, &embeddings)
                 .await
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+            info!(
+                document_id,
+                batch_size = batch.len(),
+                embedding_batch = embedding_batch_count + 1,
+                elapsed_ms = batch_started.elapsed().as_millis() as u64,
+                "library ingest chunk batch persisted"
+            );
 
             chunk_count += batch.len();
             embedding_batch_count += 1;

@@ -14,8 +14,10 @@ use crate::config::QdrantConfig;
 impl QdrantIndex {
     pub async fn ensure_metadata_field_index(&self, path: &str, data_type: &str) -> Result<()> {
         let field_type = match data_type {
-            "keyword" | "datetime" => FieldType::Keyword,
-            "integer" | "boolean" => FieldType::Integer,
+            "keyword" => FieldType::Keyword,
+            "datetime" => FieldType::Datetime,
+            "integer" => FieldType::Integer,
+            "boolean" => FieldType::Bool,
             "float" => FieldType::Float,
             value => return Err(anyhow!("unsupported qdrant metadata type {value}")),
         };

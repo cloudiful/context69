@@ -23,6 +23,7 @@ mod translations;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
+pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
@@ -43,11 +44,6 @@ pub struct RunHandle {
 pub struct UpsertedDocument {
     pub document_id: i64,
     pub changed: bool,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct DocumentCandidate {
-    pub id: i64,
 }
 
 #[derive(Debug, Clone)]

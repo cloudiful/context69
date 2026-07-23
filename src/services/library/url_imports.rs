@@ -1,8 +1,10 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
+use chrono::Utc;
 use sha2::{Digest, Sha256};
 use tokio::task::JoinHandle;
+use tracing::info;
 use uuid::Uuid;
 
 use super::url_import_runtime::{
@@ -126,6 +128,17 @@ impl LibraryService {
                     continue;
                 }
             };
+
+            let queue_wait_ms = Utc::now()
+                .signed_duration_since(job.created_at)
+                .num_milliseconds()
+                .max(0);
+            info!(
+                worker_id,
+                job_id = %job.id,
+                queue_wait_ms,
+                "URL import job claimed"
+            );
 
             let heartbeat = self.spawn_url_import_heartbeat(job.id, lease_token);
             if let Err(error) = self.run_url_import(&job, lease_token).await {

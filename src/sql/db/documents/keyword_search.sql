@@ -1,5 +1,13 @@
 WITH query_terms AS (
     SELECT unnest($3::text[]) AS term
+), metadata_filter_input AS (
+    SELECT
+        filter->>'path' AS path,
+        filter->>'operator' AS operator,
+        filter->'value' AS value,
+        filter->'min' AS min_value,
+        filter->'max' AS max_value
+    FROM jsonb_array_elements($11::jsonb) AS filter
 ), searchable AS (
     SELECT c.id AS chunk_id, d.id AS document_id, d.group_id, g.group_key,
            g.full_path AS group_path, d.visibility, d.source_key, d.external_id,
@@ -35,6 +43,38 @@ WITH query_terms AS (
       AND ($7::timestamptz IS NULL OR published_at <= $7)
       AND (visibility = 'public' OR group_id = ANY($8))
       AND (content_locale = 'original' OR content_locale = $10)
+      AND NOT EXISTS (
+          SELECT 1
+          FROM metadata_filter_input filter
+          CROSS JOIN LATERAL (
+              SELECT metadata_json #> string_to_array(filter.path, '.') AS found
+          ) value
+          WHERE NOT CASE filter.operator
+              WHEN 'exists' THEN
+                  (value.found IS NOT NULL AND value.found <> 'null'::jsonb)
+                  = CASE
+                        WHEN jsonb_typeof(filter.value) = 'boolean'
+                        THEN (filter.value #>> '{}')::boolean
+                        ELSE TRUE
+                    END
+              WHEN 'eq' THEN value.found = filter.value
+              WHEN 'in' THEN filter.value @> jsonb_build_array(value.found)
+              WHEN 'contains' THEN value.found @> jsonb_build_array(filter.value)
+              WHEN 'range' THEN
+                  CASE
+                      WHEN jsonb_typeof(value.found) = 'number'
+                           AND (filter.min_value IS NULL OR jsonb_typeof(filter.min_value) = 'number')
+                           AND (filter.max_value IS NULL OR jsonb_typeof(filter.max_value) = 'number') THEN
+                          (filter.min_value IS NULL OR value.found::numeric >= filter.min_value::numeric)
+                          AND (filter.max_value IS NULL OR value.found::numeric <= filter.max_value::numeric)
+                      WHEN jsonb_typeof(value.found) = 'string' THEN
+                          (filter.min_value IS NULL OR value.found #>> '{}' >= filter.min_value #>> '{}')
+                          AND (filter.max_value IS NULL OR value.found #>> '{}' <= filter.max_value #>> '{}')
+                      ELSE FALSE
+                  END
+              ELSE FALSE
+          END
+      )
       AND (
         lower(title) LIKE $2 OR lower(chunk_text) LIKE $2
         OR (cardinality($3::text[]) > 0 AND NOT EXISTS (

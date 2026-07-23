@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Instant;
 
 impl SyncService {
     pub async fn sync_all(&self, trigger: &str) -> Result<()> {
@@ -35,6 +36,7 @@ impl SyncService {
     }
 
     pub async fn sync_source(&self, source_key: &str, trigger: &str) -> Result<SyncOutcome> {
+        let started = Instant::now();
         let _guard = self.acquire_lock(source_key).await?;
         let (source, connector) = self
             .source_runtime(source_key)
@@ -59,6 +61,7 @@ impl SyncService {
                     records_seen = outcome.records_seen,
                     records_changed = outcome.records_changed,
                     chunks_upserted = outcome.chunks_upserted,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
                     "source sync completed"
                 );
                 Ok(outcome)
@@ -72,7 +75,12 @@ impl SyncService {
                 self.db
                     .finish_run(&run, "failed", &empty_outcome, Some(&error.to_string()))
                     .await?;
-                error!(source_key, error = %error, "source sync failed");
+                error!(
+                    source_key,
+                    error = %error,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "source sync failed"
+                );
                 Err(error)
             }
         }
@@ -216,15 +224,28 @@ impl SyncService {
 
     pub async fn rebuild_index_from_db(&self) -> Result<usize> {
         let runtime = self.runtime()?.clone();
-        let payloads = self.db.list_chunk_payloads_for_reindex().await?;
-        self.set_vector_rebuild_progress(0, payloads.len()).await;
-        if payloads.is_empty() {
+        let total_chunks = self.db.count_chunk_payloads_for_reindex().await?;
+        self.set_vector_rebuild_progress(0, total_chunks).await;
+        if total_chunks == 0 {
             return Ok(0);
         }
 
         let mut rebuilt = 0usize;
+        let mut last_document_id = None;
+        let mut last_chunk_index = None;
 
-        for batch in payloads.chunks(Self::REINDEX_BATCH_SIZE) {
+        loop {
+            let batch = self
+                .db
+                .list_chunk_payloads_for_reindex_page(
+                    last_document_id,
+                    last_chunk_index,
+                    Self::REINDEX_BATCH_SIZE as i64,
+                )
+                .await?;
+            if batch.is_empty() {
+                break;
+            }
             let texts = batch
                 .iter()
                 .map(|payload| payload.chunk_text.clone())
@@ -232,11 +253,18 @@ impl SyncService {
             let embeddings = runtime.embedding.embed_texts(&texts).await?;
             runtime
                 .index
-                .replace_document_chunks(&[], batch, &embeddings)
+                .replace_document_chunks(&[], &batch, &embeddings)
                 .await?;
             rebuilt += batch.len();
-            self.set_vector_rebuild_progress(rebuilt, payloads.len())
+            let last = batch.last().expect("non-empty reindex batch");
+            last_document_id = Some(last.document_id);
+            last_chunk_index = Some(last.chunk_index);
+            self.set_vector_rebuild_progress(rebuilt, total_chunks)
                 .await;
+            info!(
+                batch_size = batch.len(),
+                rebuilt, total_chunks, "vector rebuild batch completed"
+            );
         }
 
         info!(

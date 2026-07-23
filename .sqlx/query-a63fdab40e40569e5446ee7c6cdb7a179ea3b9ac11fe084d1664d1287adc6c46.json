@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.document_metadata_values\n    (index_id, document_id, ordinal, keyword_value, integer_value, float_value, boolean_value, datetime_value)\nSELECT index_id, document_id, ordinal, NULL, NULL, NULL, value, NULL\nFROM unnest($1::uuid[], $2::bigint[], $3::integer[], $4::boolean[])\n    AS values_row(index_id, document_id, ordinal, value)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int8Array",
+        "Int4Array",
+        "BoolArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a63fdab40e40569e5446ee7c6cdb7a179ea3b9ac11fe084d1664d1287adc6c46"
+}

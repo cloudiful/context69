@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use context69_translation::{
     TranslationChunkPublication, TranslationPublication, TranslationPublisher,
 };
+use tracing::info;
 
 use crate::{
     chunking::{ChunkingConfig, chunk_document},
@@ -50,6 +51,7 @@ impl TranslationPublisher for TranslationPublisherAdapter {
         old_chunk_ids: &[uuid::Uuid],
         translation: TranslationPublication<'_>,
     ) -> Result<Vec<TranslationChunkPublication>> {
+        let started = Instant::now();
         let (embedding, index) = self.runtime()?;
         let visibility = translation
             .visibility
@@ -108,6 +110,13 @@ impl TranslationPublisher for TranslationPublisherAdapter {
         index
             .replace_document_chunks(old_chunk_ids, &payloads, &embeddings)
             .await?;
+        info!(
+            document_id = translation.document_id,
+            target_locale = translation.target_locale,
+            batch_size = payloads.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "translation chunks published"
+        );
         Ok(payloads
             .into_iter()
             .map(|payload| TranslationChunkPublication {

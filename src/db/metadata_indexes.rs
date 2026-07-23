@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use sqlx::Postgres;
 use uuid::Uuid;
 
 use super::Database;
@@ -37,6 +38,147 @@ pub struct NewMetadataIndex<'a> {
     pub data_type: &'a str,
     pub value_kind: &'a str,
     pub sortable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MetadataValueRow {
+    pub index_id: Uuid,
+    pub document_id: i64,
+    pub ordinal: i32,
+    pub keyword_value: Option<String>,
+    pub integer_value: Option<i64>,
+    pub float_value: Option<f64>,
+    pub boolean_value: Option<bool>,
+    pub datetime_value: Option<DateTime<Utc>>,
+}
+
+pub(crate) fn metadata_value_rows(
+    index_id: Uuid,
+    document_id: i64,
+    values: &[crate::services::document_store::metadata::TypedMetadataValue],
+) -> Vec<MetadataValueRow> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(ordinal, value)| MetadataValueRow {
+            index_id,
+            document_id,
+            ordinal: ordinal as i32,
+            keyword_value: value.keyword_value.clone(),
+            integer_value: value.integer_value,
+            float_value: value.float_value,
+            boolean_value: value.boolean_value,
+            datetime_value: value.datetime_value,
+        })
+        .collect()
+}
+
+pub(crate) async fn replace_metadata_values_in_transaction(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    keys: &[(Uuid, i64)],
+    entries: &[MetadataValueRow],
+) -> Result<()> {
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let index_ids = keys
+        .iter()
+        .map(|(index_id, _)| *index_id)
+        .collect::<Vec<_>>();
+    let document_ids = keys
+        .iter()
+        .map(|(_, document_id)| *document_id)
+        .collect::<Vec<_>>();
+    sqlx::query_file!(
+        "src/sql/db/metadata_indexes/delete_values_bulk.sql",
+        &index_ids,
+        &document_ids
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let keyword_entries = entries
+        .iter()
+        .filter_map(|entry| entry.keyword_value.as_ref().map(|value| (entry, value)))
+        .collect::<Vec<_>>();
+    if !keyword_entries.is_empty() {
+        let index_ids = keyword_entries
+            .iter()
+            .map(|(entry, _)| entry.index_id)
+            .collect::<Vec<_>>();
+        let document_ids = keyword_entries
+            .iter()
+            .map(|(entry, _)| entry.document_id)
+            .collect::<Vec<_>>();
+        let ordinals = keyword_entries
+            .iter()
+            .map(|(entry, _)| entry.ordinal)
+            .collect::<Vec<_>>();
+        let values = keyword_entries
+            .iter()
+            .map(|(_, value)| (*value).clone())
+            .collect::<Vec<_>>();
+        sqlx::query_file!(
+            "src/sql/db/metadata_indexes/insert_keyword_values_bulk.sql",
+            &index_ids,
+            &document_ids,
+            &ordinals,
+            &values
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    macro_rules! insert_typed_values {
+        ($field:ident, $query_file:literal, $value_type:ty) => {{
+            let typed_entries = entries
+                .iter()
+                .filter_map(|entry| entry.$field.map(|value| (entry, value)))
+                .collect::<Vec<_>>();
+            if !typed_entries.is_empty() {
+                let index_ids = typed_entries
+                    .iter()
+                    .map(|(entry, _)| entry.index_id)
+                    .collect::<Vec<_>>();
+                let document_ids = typed_entries
+                    .iter()
+                    .map(|(entry, _)| entry.document_id)
+                    .collect::<Vec<_>>();
+                let ordinals = typed_entries
+                    .iter()
+                    .map(|(entry, _)| entry.ordinal)
+                    .collect::<Vec<_>>();
+                let values = typed_entries
+                    .iter()
+                    .map(|(_, value)| *value)
+                    .collect::<Vec<$value_type>>();
+                sqlx::query_file!($query_file, &index_ids, &document_ids, &ordinals, &values)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+        }};
+    }
+    insert_typed_values!(
+        integer_value,
+        "src/sql/db/metadata_indexes/insert_integer_values_bulk.sql",
+        i64
+    );
+    insert_typed_values!(
+        float_value,
+        "src/sql/db/metadata_indexes/insert_float_values_bulk.sql",
+        f64
+    );
+    insert_typed_values!(
+        boolean_value,
+        "src/sql/db/metadata_indexes/insert_boolean_values_bulk.sql",
+        bool
+    );
+    insert_typed_values!(
+        datetime_value,
+        "src/sql/db/metadata_indexes/insert_datetime_values_bulk.sql",
+        DateTime<Utc>
+    );
+    Ok(())
 }
 
 impl Database {
@@ -151,29 +293,21 @@ impl Database {
         document_id: i64,
         values: &[crate::services::document_store::metadata::TypedMetadataValue],
     ) -> Result<()> {
-        let mut tx = self.pool().begin().await?;
-        sqlx::query_file!(
-            "src/sql/db/metadata_indexes/delete_document_values.sql",
-            index_id,
-            document_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        for (ordinal, value) in values.iter().enumerate() {
-            sqlx::query_file!(
-                "src/sql/db/metadata_indexes/insert_value.sql",
-                index_id,
-                document_id,
-                ordinal as i32,
-                value.keyword_value.as_deref(),
-                value.integer_value,
-                value.float_value,
-                value.boolean_value,
-                value.datetime_value
-            )
-            .execute(&mut *tx)
-            .await?;
+        let entries = metadata_value_rows(index_id, document_id, values);
+        self.replace_metadata_values_bulk(&[(index_id, document_id)], &entries)
+            .await
+    }
+
+    pub async fn replace_metadata_values_bulk(
+        &self,
+        keys: &[(Uuid, i64)],
+        entries: &[MetadataValueRow],
+    ) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
         }
+        let mut tx = self.pool.begin().await?;
+        replace_metadata_values_in_transaction(&mut tx, keys, entries).await?;
         tx.commit().await?;
         Ok(())
     }

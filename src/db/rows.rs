@@ -41,6 +41,44 @@ pub(super) struct ChunkRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+pub(super) struct DocumentChunkRow {
+    pub(super) document_id: i64,
+    pub(super) id: Uuid,
+    pub(super) chunk_index: i32,
+    pub(super) chunk_text: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub(super) struct TranslationVersionBatchRow {
+    pub(super) document_id: i64,
+    pub(super) id: Uuid,
+    pub(super) target_locale: String,
+    pub(super) translated_title: String,
+    pub(super) translated_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub(super) struct TranslationChunkBatchRow {
+    pub(super) translation_id: Uuid,
+    pub(super) id: Uuid,
+    pub(super) chunk_index: i32,
+    pub(super) chunk_text: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub(super) struct TranslationStatusBatchRow {
+    pub(super) document_id: i64,
+    pub(super) status: String,
+    pub(super) source_locale: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub(super) struct DocumentKeyLookupRow {
+    pub(super) ordinal: i64,
+    pub(super) document_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, FromRow)]
 pub(super) struct SearchHitRow {
     pub(super) chunk_id: Uuid,
     pub(super) document_id: i64,

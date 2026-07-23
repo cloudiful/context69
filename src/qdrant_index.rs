@@ -3,16 +3,19 @@ use chrono::{DateTime, Utc};
 use qdrant_client::{
     Payload, Qdrant,
     qdrant::{
-        Condition, CountPointsBuilder, DeletePointsBuilder, Filter, PointId, PointStruct,
-        PointsIdsList, Range, SearchPointsBuilder, SetPayloadPointsBuilder, UpsertPointsBuilder,
-        vectors_config,
+        Condition, CountPointsBuilder, DatetimeRange, DeletePointsBuilder, Filter, PointId,
+        PointStruct, PointsIdsList, PointsSelector, PointsUpdateOperation, Range,
+        SearchPointsBuilder, Timestamp, UpdateBatchPointsBuilder, UpsertPointsBuilder,
+        points_selector::PointsSelectorOneOf, points_update_operation, vectors_config,
     },
 };
 use serde_json::json;
+use std::time::Instant;
+use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    contracts::SearchRequest,
+    contracts::{MetadataFilter, MetadataFilterOperator, SearchRequest},
     domain::{AccessScope, ChunkPayload},
 };
 
@@ -66,6 +69,7 @@ impl QdrantIndex {
             }
         }
 
+        let started = Instant::now();
         let points = payloads
             .iter()
             .zip(embeddings.iter())
@@ -81,22 +85,54 @@ impl QdrantIndex {
         self.client
             .upsert_points(UpsertPointsBuilder::new(&self.collection_name, points).wait(true))
             .await?;
+        info!(
+            batch_size = payloads.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant points upserted"
+        );
         Ok(())
     }
 
     pub async fn update_chunk_payloads(&self, payloads: &[ChunkPayload]) -> Result<()> {
-        for payload in payloads {
-            let payload_json = Payload::try_from(chunk_payload_json(payload))?;
-            self.client
-                .set_payload(
-                    SetPayloadPointsBuilder::new(&self.collection_name, payload_json)
-                        .points_selector(PointsIdsList {
-                            ids: vec![PointId::from(payload.chunk_id.to_string())],
-                        })
-                        .wait(true),
-                )
-                .await?;
+        if payloads.is_empty() {
+            return Ok(());
         }
+        let started = Instant::now();
+
+        let operations = payloads
+            .iter()
+            .map(|payload| {
+                let point_id = PointId::from(payload.chunk_id.to_string());
+                let payload_json = chunk_payload_json(payload);
+                let payload = Payload::try_from(payload_json)?;
+                Ok(PointsUpdateOperation {
+                    operation: Some(points_update_operation::Operation::SetPayload(
+                        points_update_operation::SetPayload {
+                            payload: payload.into(),
+                            points_selector: Some(PointsSelector {
+                                points_selector_one_of: Some(PointsSelectorOneOf::Points(
+                                    PointsIdsList {
+                                        ids: vec![point_id],
+                                    },
+                                )),
+                            }),
+                            ..Default::default()
+                        },
+                    )),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        self.client
+            .update_points_batch(
+                UpdateBatchPointsBuilder::new(&self.collection_name, operations).wait(true),
+            )
+            .await?;
+        info!(
+            batch_size = payloads.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant payload batch updated"
+        );
         Ok(())
     }
 
@@ -154,6 +190,13 @@ impl QdrantIndex {
             conditions.push(Condition::range("published_ts", range));
         }
 
+        conditions.extend(
+            request
+                .metadata_filters
+                .iter()
+                .filter_map(metadata_filter_condition),
+        );
+
         if let Some(group_path) = &scope.group_path {
             conditions.push(Condition::matches("group_path", group_path.clone()));
         }
@@ -175,8 +218,9 @@ impl QdrantIndex {
                 .filter(Filter::must(conditions))
         };
 
+        let started = Instant::now();
         let result = self.client.search_points(builder).await?;
-        result
+        let hits = result
             .result
             .into_iter()
             .map(|point| {
@@ -187,7 +231,14 @@ impl QdrantIndex {
                     score: point.score,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        info!(
+            candidate_count = hits.len(),
+            metadata_filter_count = request.metadata_filters.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant search completed"
+        );
+        Ok(hits)
     }
 
     pub async fn count_points(&self) -> Result<u64> {
@@ -197,6 +248,113 @@ impl QdrantIndex {
             .await?;
         Ok(result.result.map(|count| count.count).unwrap_or_default())
     }
+}
+
+fn metadata_filter_condition(filter: &MetadataFilter) -> Option<Condition> {
+    let key = format!("metadata_index.{}", filter.path);
+    match filter.operator {
+        MetadataFilterOperator::Exists => {
+            let exists = filter
+                .value
+                .as_ref()
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true);
+            if exists {
+                Some(Condition::from(Filter::must_not([Condition::is_empty(
+                    key,
+                )])))
+            } else {
+                Some(Condition::is_empty(key))
+            }
+        }
+        MetadataFilterOperator::Eq | MetadataFilterOperator::Contains => filter
+            .value
+            .as_ref()
+            .and_then(|value| qdrant_match_condition(&key, value)),
+        MetadataFilterOperator::In => {
+            let values = filter.value.as_ref()?.as_array()?;
+            let conditions = values
+                .iter()
+                .filter_map(|value| qdrant_match_condition(&key, value))
+                .collect::<Vec<_>>();
+            (!conditions.is_empty()).then(|| Condition::from(Filter::should(conditions)))
+        }
+        MetadataFilterOperator::Range => {
+            let min = filter.min.as_ref().and_then(serde_json::Value::as_f64);
+            let max = filter.max.as_ref().and_then(serde_json::Value::as_f64);
+            if (min.is_some() || max.is_some())
+                && filter
+                    .min
+                    .as_ref()
+                    .is_none_or(|value| value.as_f64().is_some())
+                && filter
+                    .max
+                    .as_ref()
+                    .is_none_or(|value| value.as_f64().is_some())
+            {
+                return Some(Condition::range(
+                    key,
+                    Range {
+                        gte: min,
+                        lte: max,
+                        ..Default::default()
+                    },
+                ));
+            }
+
+            let min = filter.min.as_ref().and_then(qdrant_datetime);
+            let max = filter.max.as_ref().and_then(qdrant_datetime);
+            (filter.min.as_ref().is_none_or(|_| min.is_some())
+                && filter.max.as_ref().is_none_or(|_| max.is_some())
+                && (min.is_some() || max.is_some()))
+            .then(|| {
+                Condition::datetime_range(
+                    key,
+                    DatetimeRange {
+                        gte: min,
+                        lte: max,
+                        ..Default::default()
+                    },
+                )
+            })
+        }
+    }
+}
+
+fn qdrant_datetime(value: &serde_json::Value) -> Option<Timestamp> {
+    let value = value.as_str()?;
+    let value = DateTime::parse_from_rfc3339(value)
+        .ok()?
+        .with_timezone(&Utc);
+    Some(Timestamp {
+        seconds: value.timestamp(),
+        nanos: value.timestamp_subsec_nanos() as i32,
+    })
+}
+
+fn qdrant_match_condition(key: &str, value: &serde_json::Value) -> Option<Condition> {
+    if let Some(value) = value.as_str() {
+        return Some(Condition::matches(key, value.to_string()));
+    }
+    if let Some(value) = value.as_i64() {
+        return Some(Condition::matches(key, value));
+    }
+    if let Some(value) = value.as_bool() {
+        return Some(Condition::matches(key, value));
+    }
+    value
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .map(|value| {
+            Condition::range(
+                key,
+                Range {
+                    gte: Some(value),
+                    lte: Some(value),
+                    ..Default::default()
+                },
+            )
+        })
 }
 
 fn point_id_to_uuid(point_id: PointId) -> Result<Uuid> {

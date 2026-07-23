@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use context69_contracts::{DocumentResponse, SearchMode, SearchRequest, SearchResponse};
 use serde_json::Value;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::ranking::{
     apply_rerank, compare_hits, merge_cached_item_scores, merge_candidates, rerank_document_text,
@@ -51,6 +51,7 @@ impl SearchService {
         user_id: Option<i64>,
         request: SearchRequest,
     ) -> Result<SearchResponse> {
+        let search_started = Instant::now();
         let requested_limit = request.limit;
         let scope = self
             .scope_resolver
@@ -73,7 +74,15 @@ impl SearchService {
         }
 
         let query_hash = SearchCache::query_hash(&request.query);
-        let vector_limit = requested_limit.max(80);
+        let vector_multiplier = if request.metadata_filters.is_empty() {
+            1
+        } else {
+            8
+        };
+        let vector_limit = requested_limit
+            .max(80)
+            .saturating_mul(vector_multiplier)
+            .min(2_000);
 
         let vector = if let Some(vector) = self
             .cache
@@ -91,6 +100,7 @@ impl SearchService {
         let mut vector_request = request.clone();
         vector_request.limit = vector_limit;
         let hits = self.index.search(vector, &vector_request, &scope).await?;
+        let vector_candidate_count = hits.len();
         let chunk_ids = hits.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>();
         let hydrated = self
             .repository
@@ -116,13 +126,28 @@ impl SearchService {
             .collect::<Vec<_>>();
 
         let mut results = if settings.mode == SearchMode::Hybrid {
-            let keyword_results = self
+            let keyword_hits = self
                 .repository
-                .keyword_search(&request, &scope, 80)
-                .await?
+                .keyword_search(
+                    &request,
+                    &scope,
+                    requested_limit
+                        .max(80)
+                        .saturating_mul(vector_multiplier)
+                        .min(2_000),
+                )
+                .await?;
+            let keyword_candidate_count = keyword_hits.len();
+            let keyword_results = keyword_hits
                 .into_iter()
                 .filter(|hit| metadata_filters_match(&hit.metadata_json, &request))
                 .collect();
+            info!(
+                vector_candidate_count,
+                keyword_candidate_count,
+                metadata_filter_count = request.metadata_filters.len(),
+                "search candidates collected"
+            );
             let mut candidates = merge_candidates(vector_results, keyword_results, &request.query);
             candidates.sort_by(compare_hits);
             let rerank_limit = settings.candidate_limit.min(candidates.len());
@@ -265,6 +290,12 @@ impl SearchService {
         self.cache
             .set_search_response(generation, &request_hash, &settings_hash, &response)
             .await;
+        info!(
+            vector_candidate_count,
+            result_count = response.hits.len(),
+            elapsed_ms = search_started.elapsed().as_millis() as u64,
+            "search completed"
+        );
         Ok(response)
     }
 
@@ -312,12 +343,20 @@ fn metadata_filters_match(metadata: &Value, request: &SearchRequest) -> bool {
                 })
             }
             context69_contracts::MetadataFilterOperator::Range => found.is_some_and(|value| {
-                let number = value.as_f64();
-                let lower = filter.min.as_ref().and_then(Value::as_f64);
-                let upper = filter.max.as_ref().and_then(Value::as_f64);
-                number.is_some_and(|value| {
-                    lower.is_none_or(|min| value >= min) && upper.is_none_or(|max| value <= max)
-                })
+                let compare = |left: &Value, right: &Value| match (left.as_f64(), right.as_f64()) {
+                    (Some(left), Some(right)) => left.partial_cmp(&right),
+                    _ => left
+                        .as_str()
+                        .zip(right.as_str())
+                        .map(|(left, right)| left.cmp(right)),
+                };
+                filter
+                    .min
+                    .as_ref()
+                    .is_none_or(|bound| compare(value, bound).is_some_and(|order| order.is_ge()))
+                    && filter.max.as_ref().is_none_or(|bound| {
+                        compare(value, bound).is_some_and(|order| order.is_le())
+                    })
             }),
         }
     })
