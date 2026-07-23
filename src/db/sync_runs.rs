@@ -1,11 +1,6 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 
-use super::{
-    CheckpointRow, CheckpointWithKeyRow, Database, RunHandle, SourceOriginStatusKind, SourceStatus,
-    SyncCheckpoint, SyncOutcome,
-};
+use super::{CheckpointRow, Database, RunHandle, SyncCheckpoint, SyncOutcome};
 use crate::contracts::Visibility;
 
 impl Database {
@@ -172,60 +167,5 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    pub async fn list_source_statuses(
-        &self,
-        connection_names: &HashMap<String, String>,
-        sync_strategies: &HashMap<String, String>,
-    ) -> Result<Vec<SourceStatus>> {
-        let rows = sqlx::query_file_as!(
-            CheckpointWithKeyRow,
-            "src/sql/db/sync_runs/list_source_status_checkpoints.sql"
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        let checkpoint_map = rows
-            .into_iter()
-            .map(|row| (row.source_key.clone(), row))
-            .collect::<HashMap<_, _>>();
-
-        let mut keys = connection_names.keys().cloned().collect::<Vec<_>>();
-        keys.sort();
-
-        Ok(keys
-            .into_iter()
-            .map(|source_key| {
-                let checkpoint = checkpoint_map.get(&source_key);
-                SourceStatus {
-                    group_key: "public".to_string(),
-                    group_path: "public".to_string(),
-                    visibility: crate::contracts::Visibility::Public,
-                    source_key: source_key.clone(),
-                    display_name: source_key.clone(),
-                    description: None,
-                    example_queries: Vec::new(),
-                    connection: connection_names
-                        .get(&source_key)
-                        .cloned()
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    has_database_url: false,
-                    origin_status: SourceOriginStatusKind::Unknown,
-                    origin_message: None,
-                    sync_strategy: sync_strategies
-                        .get(&source_key)
-                        .cloned()
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    connector_type: "postgres_sql".to_string(),
-                    base_query: String::new(),
-                    batch_size: 0,
-                    last_cursor_updated_at: checkpoint.and_then(|row| row.cursor_updated_at),
-                    last_cursor_external_id: checkpoint
-                        .and_then(|row| row.cursor_external_id.clone()),
-                    last_success_at: checkpoint.and_then(|row| row.last_success_at),
-                }
-            })
-            .collect())
     }
 }

@@ -34,24 +34,6 @@ impl Database {
         .await?)
     }
 
-    pub async fn list_document_candidate_ids(
-        &self,
-        group_id: i64,
-        source_key: Option<&str>,
-        published_after: Option<chrono::DateTime<chrono::Utc>>,
-        published_before: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> Result<Vec<i64>> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/db/documents/list_candidate_ids.sql",
-            group_id,
-            source_key,
-            published_after,
-            published_before
-        )
-        .fetch_all(&self.pool)
-        .await?)
-    }
-
     pub async fn list_document_ids_by_keys(
         &self,
         group_id: i64,
@@ -561,17 +543,6 @@ impl Database {
             .into_iter()
             .map(|row| search_hit_from_keyword_row(row, request.locale.as_deref()))
             .collect())
-    }
-
-    pub async fn list_chunk_payloads_for_reindex(&self) -> Result<Vec<ChunkPayload>> {
-        let rows = sqlx::query_file_as!(
-            ReindexChunkRow,
-            "src/sql/db/documents/list_chunk_payloads_for_reindex.sql"
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows.into_iter().map(reindex_payload_from_row).collect())
     }
 
     pub async fn count_chunk_payloads_for_reindex(&self) -> Result<usize> {

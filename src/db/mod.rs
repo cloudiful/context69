@@ -3,7 +3,7 @@ use db_init::{DbInitOptions, connect_pool, run_migrations};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::contracts::{SearchMode, SourceOriginStatusKind, SourceStatus, SyncOutcome};
+use crate::contracts::{SearchMode, SyncOutcome};
 use crate::domain::SyncCheckpoint;
 
 mod auth;

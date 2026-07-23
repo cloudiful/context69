@@ -246,14 +246,6 @@ pub(super) struct ExistingDocumentRow {
     pub(super) record_hash: String,
 }
 
-#[derive(Debug, Clone, FromRow)]
-pub(super) struct CheckpointWithKeyRow {
-    pub(super) source_key: String,
-    pub(super) cursor_updated_at: Option<DateTime<Utc>>,
-    pub(super) cursor_external_id: Option<String>,
-    pub(super) last_success_at: Option<DateTime<Utc>>,
-}
-
 pub(super) fn search_settings_from_row(row: SearchSettingsRow) -> Result<StoredSearchSettings> {
     let mode = match row.mode.as_str() {
         "vector" => SearchMode::Vector,

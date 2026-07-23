@@ -287,17 +287,6 @@ impl Database {
         .await?)
     }
 
-    pub async fn replace_metadata_values(
-        &self,
-        index_id: Uuid,
-        document_id: i64,
-        values: &[crate::services::document_store::metadata::TypedMetadataValue],
-    ) -> Result<()> {
-        let entries = metadata_value_rows(index_id, document_id, values);
-        self.replace_metadata_values_bulk(&[(index_id, document_id)], &entries)
-            .await
-    }
-
     pub async fn replace_metadata_values_bulk(
         &self,
         keys: &[(Uuid, i64)],
