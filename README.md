@@ -115,6 +115,14 @@ Valkey initialization errors leave URL jobs queued and are not silently downgrad
 throttling. Stop old instances before applying the URL import queue migration.
 Runtime settings changes take effect after the service restarts.
 
+The v0.8 task center is the public write workflow for SDK callers. Use
+`POST /v1/scopes/ensure` to provision a scope and its declared metadata
+indexes, then submit text, URL, or file arrays as a batch. The returned task
+reference can be queried for aggregate progress and per-item results. The
+server owns queueing, leases, heartbeats, retries, URL/file completion polling,
+and metadata-index initialization; callers do not need to reproduce those
+loops.
+
 By default this starts:
 
 - HTTP API

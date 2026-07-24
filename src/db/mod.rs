@@ -19,6 +19,7 @@ mod search_cache;
 mod search_settings;
 mod source_connections;
 mod sync_runs;
+mod tasks;
 mod translations;
 mod vector_index_state;
 
@@ -27,6 +28,7 @@ pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
+pub use tasks::{StoredTask, StoredTaskItem, StoredTaskPayload};
 pub use vector_index_state::VectorIndexState;
 
 #[derive(Clone)]

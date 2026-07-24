@@ -9,7 +9,25 @@
 - `DELETE /v1/auth/personal-access-tokens/{token_id}`
 - `POST /v1/search`
 - `GET /v1/documents/{document_id}`
+- `POST /v1/scopes/ensure`
+- `POST /v1/groups/by-path/{group_path}/batch/text`
+- `POST /v1/groups/by-path/{group_path}/batch/url`
+- `POST /v1/groups/by-path/{group_path}/batch/file`
+- `POST|GET /v1/tasks`
+- `GET /v1/tasks/{task_id}`
+- `GET /v1/tasks/{task_id}/items`
+- `POST /v1/tasks/{task_id}/retry`
+- `POST /v1/tasks/{task_id}/cancel`
 - source and settings management endpoints under `/v1/*`
+
+## Advanced SDK workflow
+
+`context69-sdk` exposes only high-level operations. Use `ensure_scope` once for
+group provisioning and declared metadata indexes, then submit text, URL, or
+file arrays through the batch methods. A one-item array is the single-item
+form. Every submission returns a task reference; use task status and item
+endpoints for progress and independent failures. Queue, lease, heartbeat,
+retry-attempt, URL polling, and metadata-index workers remain server-side.
 
 ## Authentication
 

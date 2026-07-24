@@ -10,5 +10,6 @@ pub mod settings;
 pub mod source_folders;
 pub mod source_registry;
 pub mod sync;
+pub mod tasks;
 pub mod token_utils;
 pub mod translation;

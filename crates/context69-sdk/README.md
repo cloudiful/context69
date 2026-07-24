@@ -1,278 +1,108 @@
 # context69-sdk
 
-Async Rust SDK for the Context69 HTTP API.
-
-Deduplicated uploads can carry typed business metadata:
-
-```rust,no_run
-use context69_contracts::LibraryFileUploadMetadata;
-use serde_json::json;
-
-# async fn example(client: &context69_sdk::Context69Client) -> Result<(), Box<dyn std::error::Error>> {
-client.group("research/news").library().files()
-    .upload_bytes_deduplicated_with_metadata(
-        None,
-        "announcement.pdf",
-        "application/pdf",
-        std::fs::read("announcement.pdf")?,
-        Some(LibraryFileUploadMetadata {
-            external_id: Some("announcement-42".into()),
-            source_uri: Some("https://example.test/announcements/42".into()),
-            published_at: Some("2026-07-12T09:30:00Z".parse()?),
-            metadata_json: json!({"ticker": "ACME", "score": 10}),
-        }),
-    ).await?;
-# Ok(())
-# }
-```
-
-To request translation in the same deduplicated upload, use the options method:
-
-```rust,no_run
-use context69_sdk::contracts::{
-    LibraryFileIngestOptions, LibraryFileUploadMetadata, TranslationDirective,
-};
-
-# async fn example(client: &context69_sdk::Context69Client) -> Result<(), Box<dyn std::error::Error>> {
-client.group("research/news").library().files()
-    .upload_bytes_deduplicated_with_options(
-        None,
-        "english-news.pdf",
-        "application/pdf",
-        std::fs::read("english-news.pdf")?,
-        Some(LibraryFileIngestOptions {
-            metadata: LibraryFileUploadMetadata::default(),
-            translation: Some(TranslationDirective {
-                source_locale: Some("en-US".into()),
-                target_locales: vec!["zh-CN".into()],
-            }),
-        }),
-    ).await?;
-# Ok(())
-# }
-```
-
-The existing `upload_bytes_deduplicated` method sends no metadata, preserving stored business fields on a deduplication hit.
-
-For public HTTPS file URLs, let Context69 download and ingest asynchronously:
-
-```rust,no_run
-use context69_sdk::contracts::{
-    ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata, LibraryUrlImportStatus,
-};
-use serde_json::json;
-
-# async fn example(client: &context69_sdk::Context69Client) -> Result<(), Box<dyn std::error::Error>> {
-let library = client.group("research/news").library();
-let job = library.files().import_url(&ImportLibraryFileFromUrlRequest {
-    url: "https://files.example.com/announcement.pdf".into(),
-    folder_id: None,
-    filename: None,
-    media_type: None,
-    metadata: Some(LibraryFileUploadMetadata {
-        external_id: Some("announcement-42".into()),
-        source_uri: None,
-        published_at: Some("2026-07-12T09:30:00Z".parse()?),
-        metadata_json: json!({"ticker": "ACME"}),
-    }),
-    translation: None,
-}).await?;
-
-let current = library.url_import_job(job.import_job_id).get().await?;
-if current.status == LibraryUrlImportStatus::Failed {
-    library.url_import_job(job.import_job_id).retry().await?;
-}
-# Ok(())
-# }
-```
-
-Only direct public HTTPS files are accepted. Private-network targets, authenticated downloads, and HTML attachment discovery are intentionally rejected.
-
-`context69-sdk` is a PAT-only client. Initialize it with a personal access token that starts with `ctx_pat_`, then navigate the resource tree to call an API.
+The SDK exposes the high-level Context69 workflow. Callers provision a scope,
+submit batch writes, and observe one unified task lifecycle. HTTP transport,
+resource handles, metadata-index workers, queues, leases, and polling of file
+or URL jobs are intentionally internal to Context69.
 
 ## Initialization
 
-```rust
+```rust,no_run
 use context69_sdk::Context69Client;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Context69Client::builder()
-        .base_url("http://127.0.0.1:8096")?
-        .with_personal_access_token("ctx_pat_example_token")?
-        .build()?;
-
-    let me = client.me().await?;
-    println!("hello {}", me.user.login_name);
-    Ok(())
-}
-```
-
-The builder rejects empty tokens and non-PAT tokens. Protected APIs return `Error::AuthenticationRequired` if no PAT is configured.
-
-## Groups and nested resources
-
-```rust
-use context69_sdk::{
-    Context69Client,
-    contracts::{CreateGroupRequest, GroupKind, Visibility},
-};
-
-# async fn example(client: Context69Client) -> Result<(), context69_sdk::Error> {
-client.groups().create(&CreateGroupRequest {
-    parent_group_path: None,
-    group_key: "ops".to_string(),
-    name: "Operations".to_string(),
-    visibility: Visibility::Private,
-    kind: Some(GroupKind::Shared),
-}).await?;
-
-let group = client.group("ops").get().await?;
-let members = client.group("ops").members().list().await?;
-let tree = client.group("ops").library().tree().await?;
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+let client = Context69Client::builder()
+    .base_url("http://127.0.0.1:8096")?
+    .with_personal_access_token("ctx_pat_example")?
+    .build()?;
+let me = client.me().await?;
+println!("hello {}", me.user.login_name);
 # Ok(())
 # }
 ```
 
-Group handles own the group path, so nested calls do not repeat it:
+## Provision and ingest
 
-```rust
-# use context69_sdk::Context69Client;
-# async fn example(client: Context69Client, folder_id: uuid::Uuid, file_id: uuid::Uuid) -> Result<(), context69_sdk::Error> {
-let group = client.group("ops/runbooks");
-group.source_folder(folder_id).sync().await?;
-let file = group.library().file(file_id).get().await?;
-# Ok(())
-# }
-```
-
-## Sources
-
-```rust
-# use context69_sdk::{Context69Client, contracts::SourceConfigInput};
-# async fn example(client: Context69Client, request: SourceConfigInput) -> Result<(), context69_sdk::Error> {
-client.sources().create(&request).await?;
-client.source(&request.source_key).sync().await?;
-
-let connections = client.source_connections().list().await?;
-client.source_connection("warehouse").delete().await?;
-# Ok(())
-# }
-```
-
-## Library
-
-```rust
-use context69_sdk::{
-    Context69Client,
-    contracts::{CreateTextRequest, LibraryTextContentFormat},
-};
-
-# async fn example(client: Context69Client) -> Result<(), context69_sdk::Error> {
-let upload = client.library().texts().create(&CreateTextRequest {
-    folder_id: None,
-    title: "Runbook".to_string(),
-    content: "# Step 1".to_string(),
-    content_format: LibraryTextContentFormat::Markdown,
-    source_uri: None,
-    summary: None,
-    translation: None,
-}).await?;
-
-let tree = client.group("ops/runbooks").library().tree().await?;
-# Ok(())
-# }
-```
-
-Multipart uploads use `reqwest::multipart::Part`:
-
-```rust
-# use context69_sdk::Context69Client;
-use reqwest::multipart::Part;
-
-# async fn example(client: Context69Client) -> Result<(), context69_sdk::Error> {
-client.library().files().upload(
-    None,
-    vec![Part::text("# Notes").file_name("notes.md")],
-).await?;
-# Ok(())
-# }
-```
-
-## Settings and search
-
-```rust
-# use context69_sdk::{Context69Client, contracts::SearchRequest};
-# async fn example(client: Context69Client, request: SearchRequest) -> Result<(), context69_sdk::Error> {
-let runtime = client.settings().runtime().get().await?;
-let docling = client.settings().docling().get().await?;
-let result = client.search().execute(&request).await?;
-let document = client.document(result.hits[0].document_id).get().await?;
-# Ok(())
-# }
-```
-
-Group defaults and translation jobs are typed SDK resources:
+`ensure_scope` is idempotent. It creates the group when needed, validates an
+existing definition, creates declared metadata indexes, and waits until those
+indexes are ready.
 
 ```rust,no_run
-use context69_sdk::contracts::{
-    RebuildDocumentTranslationsRequest, UpdateGroupTranslationSettingsRequest,
+use context69_sdk::{
+    Context69Client, FileBatchRequest, ScopeSpec, TextBatchRequest,
 };
 
-# async fn example(client: &context69_sdk::Context69Client) -> Result<(), context69_sdk::Error> {
-let translations = client.group("research/news").translations();
-translations.update_settings(&UpdateGroupTranslationSettingsRequest {
-    enabled: true,
-    default_target_locales: vec!["zh-CN".into()],
-    source_locale: None,
-    glossary: vec![],
-}).await?;
-let jobs = translations.rebuild(42, &RebuildDocumentTranslationsRequest {
-    target_locales: vec!["zh-CN".into()],
-}).await?;
-if let Some(job) = jobs.jobs.first() {
-    client.group("research/news").translation_job(job.job_id).get().await?;
-}
+# async fn example(client: &Context69Client, spec: ScopeSpec, texts: TextBatchRequest,
+#     files: FileBatchRequest) -> Result<(), Box<dyn std::error::Error>> {
+client.ensure_scope(&spec).await?;
+let text_task = client.text_batch(&spec.group_path, &texts).await?;
+let file_task = client.file_batch(&spec.group_path, &files).await?;
+let text_result = client.wait(text_task.task_id, std::time::Duration::from_secs(600)).await?;
+println!("{} text items succeeded", text_result.progress.succeeded);
+let file_result = client.wait(file_task.task_id, std::time::Duration::from_secs(1800)).await?;
+println!("{} file items failed", file_result.progress.failed);
 # Ok(())
 # }
 ```
 
-## Resource tree
+Use `url_batch` for remote files. A one-item batch is the single-item form;
+there is no second single-write API to learn.
 
-- `client.user_directory()`: user search
-- `client.groups()` / `client.group(path)`: groups, children, members
-- `client.sources()` / `client.source(key)`: source collection and item operations
-- `client.source_connections()` / `client.source_connection(name)`: connection operations
-- `client.library()`: personal library folders, texts, files, and jobs
-- `client.group(path).library()`: group-scoped library resources
-- `client.group(path).source_folders()` / `source_folder(id)`: group source folders
-- `client.settings()`: runtime, Docling, search, and translation provider settings
-- `client.group(path).translations()` / `translation_job(id)`: group defaults and jobs
-- `client.search()` / `client.document(id)`: search and document lookup
-- root client: `me()` and `healthz()`
+Each batch receives a stable SDK-generated `Idempotency-Key` derived from its
+endpoint and request body. Repeating the same request returns the original
+task. The server also applies each resource's natural identity when a request
+is retried.
 
-## PAT scopes
+## Task center
 
-- `workspace`: user directory, groups, memberships
-- `sources`: source connections, sources, group source folders, sync
-- `library`: personal and group library resources
-- `settings`: runtime, Docling, search settings
-- `search`: search and document APIs
-
-## Migrating from 0.4
-
-Version 0.5 removes the old grouped service methods. Common replacements:
-
-```text
-client.workspace().list_groups()                         -> client.groups().list()
-client.workspace().get_group(path)                      -> client.group(path).get()
-client.sources().sync_source(key)                       -> client.source(key).sync()
-client.sources().sync_group_source_folder(path, id)     -> client.group(path).source_folder(id).sync()
-client.library().get_library_tree()                     -> client.library().tree()
-client.library().get_group_library_file(path, id)       -> client.group(path).library().file(id).get()
-client.settings().get_docling_settings()                -> client.settings().docling().get()
-client.search().search(request)                         -> client.search().execute(&request)
-client.search().get_document(id)                        -> client.document(id).get()
+```rust,no_run
+# use context69_sdk::Context69Client;
+# use std::time::Duration;
+# use uuid::Uuid;
+# async fn example(client: &Context69Client, task_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+let task = client.task(task_id).await?;
+let items = client.task_items(task.task_id, None).await?;
+if task.progress.failed > 0 {
+    let retry = client.retry_task(task.task_id).await?;
+    client.wait(retry.task.task_id, Duration::from_secs(600)).await?;
+}
+client.cancel_task(task.task_id).await?;
+# let _ = items;
+# Ok(())
+# }
 ```
 
-Browser login, session logout, PAT management, and admin-user APIs remain intentionally excluded. HTTP `401 Unauthorized` responses are returned directly; the SDK does not use browser session cookies.
+`task` reports lifecycle state, aggregate progress, failure summary, timestamps,
+and an estimated remaining time when enough progress exists. `task_items`
+returns independent status, resource id, failure stage, error message, attempt
+count, and retryability for every item. `wait` uses bounded exponential backoff
+and retries transient transport/server failures until its timeout.
+
+## Retrieval
+
+```rust,no_run
+use context69_sdk::{BatchGetDocumentsRequest, Context69Client, SearchRequest};
+
+# async fn example(client: &Context69Client, request: SearchRequest)
+#     -> Result<(), Box<dyn std::error::Error>> {
+let result = client.search_compact(&request).await?;
+let document = client.get_document(result.hits[0].document_id, None).await?;
+let documents = client.get_documents("research/news", &BatchGetDocumentsRequest {
+    keys: vec![],
+    locale: None,
+}).await?;
+# let _ = (document, documents);
+# Ok(())
+# }
+```
+
+Search intentionally returns compact hits. Request document detail only when
+the caller needs metadata or chunks; `get_documents` preserves one result per
+requested key.
+
+## Public surface
+
+The public client surface is limited to scope provisioning, text/URL/file
+batches, task submit/get/list/items/wait/retry/cancel, compact search, document
+detail/batch detail, health, and authentication identity. Low-level REST
+handles and `authorized_request` are not part of this SDK.

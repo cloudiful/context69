@@ -1,0 +1,446 @@
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use serde_json::Value;
+use sqlx::FromRow;
+use uuid::Uuid;
+
+use super::Database;
+
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredTask {
+    pub id: Uuid,
+    pub user_id: i64,
+    pub group_id: Option<i64>,
+    pub kind: String,
+    pub status: String,
+    pub group_path: Option<String>,
+    pub source_key: Option<String>,
+    pub total_count: i64,
+    pub queued_count: i64,
+    pub running_count: i64,
+    pub succeeded_count: i64,
+    pub failed_count: i64,
+    pub cancelled_count: i64,
+    pub failure_stage: Option<String>,
+    pub error_summary: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredTaskItem {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub ordinal: i32,
+    pub status: String,
+    pub resource_id: Option<String>,
+    pub failure_stage: Option<String>,
+    pub error_message: Option<String>,
+    pub attempt_count: i32,
+    pub retryable: bool,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct ClaimedTaskItem {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub attempt_count: i32,
+    pub lease_token: Uuid,
+    pub attempt_id: i64,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredTaskPayload {
+    pub id: Uuid,
+    pub ordinal: i32,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredIdempotencyKey {
+    pub task_id: Uuid,
+    pub request_hash: String,
+}
+
+impl Database {
+    pub async fn create_task_submission(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        group_id: Option<i64>,
+        kind: &str,
+        group_path: Option<&str>,
+        source_key: Option<&str>,
+        payloads: &[Value],
+        idempotency_key: Option<&str>,
+        request_hash: &str,
+    ) -> Result<(Uuid, bool)> {
+        let mut tx = self.pool().begin().await?;
+        if let Some(key) = idempotency_key {
+            if let Some(existing) = sqlx::query_file_as!(
+                StoredIdempotencyKey,
+                "src/sql/db/tasks/idempotency_get.sql",
+                user_id,
+                key
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            {
+                if existing.request_hash != request_hash {
+                    anyhow::bail!("idempotency key was already used with a different request");
+                }
+                tx.commit().await?;
+                return Ok((existing.task_id, true));
+            }
+        }
+
+        sqlx::query_file!(
+            "src/sql/db/tasks/create.sql",
+            task_id,
+            user_id,
+            group_id,
+            kind,
+            group_path,
+            source_key,
+            payloads.len() as i64
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        for (ordinal, payload) in payloads.iter().enumerate() {
+            sqlx::query_file!(
+                "src/sql/db/tasks/insert_item.sql",
+                Uuid::new_v4(),
+                task_id,
+                ordinal as i32,
+                payload
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if let Some(key) = idempotency_key {
+            sqlx::query_file!(
+                "src/sql/db/tasks/idempotency_put.sql",
+                user_id,
+                key,
+                request_hash,
+                task_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            let existing = sqlx::query_file_as!(
+                StoredIdempotencyKey,
+                "src/sql/db/tasks/idempotency_get.sql",
+                user_id,
+                key
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if existing.task_id != task_id {
+                if existing.request_hash != request_hash {
+                    anyhow::bail!("idempotency key was already used with a different request");
+                }
+                tx.rollback().await?;
+                return Ok((existing.task_id, true));
+            }
+        }
+        tx.commit().await?;
+        Ok((task_id, false))
+    }
+
+    pub async fn create_task(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        group_id: Option<i64>,
+        kind: &str,
+        group_path: Option<&str>,
+        source_key: Option<&str>,
+        item_count: i64,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/tasks/create.sql",
+            task_id,
+            user_id,
+            group_id,
+            kind,
+            group_path,
+            source_key,
+            item_count
+        )
+        .fetch_one(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn insert_task_item(
+        &self,
+        item_id: Uuid,
+        task_id: Uuid,
+        ordinal: i32,
+        payload: &Value,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/tasks/insert_item.sql",
+            item_id,
+            task_id,
+            ordinal,
+            payload
+        )
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_task(&self, task_id: Uuid, user_id: i64) -> Result<Option<StoredTask>> {
+        Ok(
+            sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get.sql", task_id, user_id)
+                .fetch_optional(self.pool())
+                .await?,
+        )
+    }
+
+    pub async fn get_task_internal(&self, task_id: Uuid) -> Result<Option<StoredTask>> {
+        Ok(
+            sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
+                .fetch_optional(self.pool())
+                .await?,
+        )
+    }
+
+    pub async fn list_tasks(
+        &self,
+        user_id: i64,
+        kind: Option<&str>,
+        status: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoredTask>> {
+        Ok(sqlx::query_file_as!(
+            StoredTask,
+            "src/sql/db/tasks/list.sql",
+            user_id,
+            kind,
+            status,
+            limit,
+            offset
+        )
+        .fetch_all(self.pool())
+        .await?)
+    }
+
+    pub async fn count_tasks(
+        &self,
+        user_id: i64,
+        kind: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/count.sql", user_id, kind, status)
+                .fetch_one(self.pool())
+                .await?
+                .unwrap_or(0),
+        )
+    }
+
+    pub async fn list_task_items(
+        &self,
+        task_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoredTaskItem>> {
+        Ok(sqlx::query_file_as!(
+            StoredTaskItem,
+            "src/sql/db/tasks/items.sql",
+            task_id,
+            limit,
+            offset
+        )
+        .fetch_all(self.pool())
+        .await?)
+    }
+
+    pub async fn list_task_payloads(&self, task_id: Uuid) -> Result<Vec<StoredTaskPayload>> {
+        Ok(sqlx::query_file_as!(
+            StoredTaskPayload,
+            "src/sql/db/tasks/item_payloads.sql",
+            task_id
+        )
+        .fetch_all(self.pool())
+        .await?)
+    }
+
+    pub async fn claim_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/claim.sql", task_id, lease_token)
+                .fetch_optional(self.pool())
+                .await?
+                .is_some(),
+        )
+    }
+
+    pub async fn pending_task_ids(&self) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_file_scalar!("src/sql/db/tasks/pending.sql")
+            .fetch_all(self.pool())
+            .await?)
+    }
+
+    pub async fn claim_task_item(&self, item_id: Uuid) -> Result<bool> {
+        Ok(self
+            .claim_task_item_with_lease(item_id, Uuid::new_v4())
+            .await?
+            .is_some())
+    }
+
+    pub async fn claim_task_item_with_lease(
+        &self,
+        item_id: Uuid,
+        lease_token: Uuid,
+    ) -> Result<Option<ClaimedTaskItem>> {
+        Ok(sqlx::query_file_as!(
+            ClaimedTaskItem,
+            "src/sql/db/tasks/claim_item.sql",
+            item_id,
+            lease_token
+        )
+        .fetch_optional(self.pool())
+        .await?)
+    }
+
+    pub async fn finish_task_item(
+        &self,
+        task_id: Uuid,
+        item_id: Uuid,
+        status: &str,
+        resource_id: Option<&str>,
+        failure_stage: Option<&str>,
+        error_message: Option<&str>,
+        retryable: bool,
+        lease_token: Uuid,
+        attempt_id: i64,
+    ) -> Result<()> {
+        let updated = sqlx::query_file!(
+            "src/sql/db/tasks/finish_item.sql",
+            item_id,
+            status,
+            resource_id,
+            failure_stage,
+            error_message,
+            retryable,
+            lease_token,
+            attempt_id
+        )
+        .execute(self.pool())
+        .await?;
+        if updated.rows_affected() > 0 {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(self.pool())
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn recompute_task(&self, task_id: Uuid) -> Result<()> {
+        sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn cancel_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
+        let updated = sqlx::query_file!("src/sql/db/tasks/cancel.sql", task_id, user_id)
+            .fetch_optional(self.pool())
+            .await?
+            .is_some();
+        sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
+            .execute(self.pool())
+            .await?;
+        if updated {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(self.pool())
+                .await?;
+        }
+        Ok(updated)
+    }
+
+    pub async fn heartbeat_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
+        Ok(
+            sqlx::query_file!("src/sql/db/tasks/heartbeat_task.sql", task_id, lease_token)
+                .execute(self.pool())
+                .await?
+                .rows_affected()
+                > 0,
+        )
+    }
+
+    pub async fn heartbeat_task_item(&self, item_id: Uuid, lease_token: Uuid) -> Result<bool> {
+        Ok(
+            sqlx::query_file!("src/sql/db/tasks/heartbeat_item.sql", item_id, lease_token)
+                .execute(self.pool())
+                .await?
+                .rows_affected()
+                > 0,
+        )
+    }
+
+    pub async fn fail_task(
+        &self,
+        task_id: Uuid,
+        lease_token: Uuid,
+        failure_stage: &str,
+        error_message: &str,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/tasks/fail_task.sql",
+            task_id,
+            lease_token,
+            failure_stage,
+            error_message
+        )
+        .execute(self.pool())
+        .await?;
+        sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_task_idempotency_key(
+        &self,
+        user_id: i64,
+        key: &str,
+    ) -> Result<Option<StoredIdempotencyKey>> {
+        Ok(sqlx::query_file_as!(
+            StoredIdempotencyKey,
+            "src/sql/db/tasks/idempotency_get.sql",
+            user_id,
+            key
+        )
+        .fetch_optional(self.pool())
+        .await?)
+    }
+
+    pub async fn put_task_idempotency_key(
+        &self,
+        user_id: i64,
+        key: &str,
+        request_hash: &str,
+        task_id: Uuid,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/tasks/idempotency_put.sql",
+            user_id,
+            key,
+            request_hash,
+            task_id
+        )
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+}

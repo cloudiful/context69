@@ -13,12 +13,13 @@ categories = ["api-bindings", "web-programming::http-client"]
 publish = ["crates-io"]
 
 [dependencies]
+chrono.workspace = true
 context69-contracts.workspace = true
-reqwest = { workspace = true, features = [ "charset", "gzip", "http2", "json", "multipart", "query", "rustls", "system-proxy" ] }
+reqwest = { workspace = true, features = [ "charset", "gzip", "http2", "json", "query", "rustls", "system-proxy" ] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "time"] }
 url.workspace = true
 uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
 

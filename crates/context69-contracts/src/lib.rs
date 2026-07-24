@@ -7,6 +7,7 @@ pub mod namespace;
 pub mod search;
 pub mod settings;
 pub mod sources;
+pub mod tasks;
 pub mod translation;
 
 pub use auth::{
@@ -37,7 +38,11 @@ pub use library::{
     PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, SortDirection,
     UpsertLibraryTextRequest,
 };
-pub use mcp::McpDocumentArgs;
+pub use mcp::{
+    McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpDocumentArgs,
+    McpDocumentDetailResponse, McpDocumentQueryResponse, McpDocumentSummary, McpSearchHit,
+    McpSearchResponse, McpSourceListResponse,
+};
 pub use namespace::{
     CreateGroupRequest, GroupKind, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
     GroupResponse, GroupSearchQuery, MembershipRole, MoveGroupRequest, NamespacePageQuery,
@@ -60,5 +65,11 @@ pub use sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,
     SourceFolderResponse, SourceOriginStatusKind, SourceStatus, SyncOutcome,
     UpsertSourceConnectionRequest,
+};
+pub use tasks::{
+    DeleteBatchRequest, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GenericTaskRequest,
+    ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress, TaskRef,
+    TaskResponse, TaskRetryResponse, TaskStatus, TextBatchRequest, UrlBatchRequest,
 };
 pub use translation::*;

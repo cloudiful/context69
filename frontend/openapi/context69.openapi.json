@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.7.2"
+    "version": "0.8.0"
   },
   "paths": {
     "/healthz": {
@@ -842,6 +842,198 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/batch/delete": {
+      "post": {
+        "tags": [],
+        "operationId": "submit_delete_batch",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/batch/file": {
+      "post": {
+        "tags": [],
+        "operationId": "submit_file_batch",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/batch/text": {
+      "post": {
+        "tags": [],
+        "operationId": "submit_text_batch",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/batch/url": {
+      "post": {
+        "tags": [],
+        "operationId": "submit_url_batch",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UrlBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -3402,6 +3594,44 @@
         }
       }
     },
+    "/v1/scopes/ensure": {
+      "post": {
+        "tags": [],
+        "operationId": "ensure_scope",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopeSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnsureScopeResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/search": {
       "post": {
         "tags": [],
@@ -4292,6 +4522,255 @@
         }
       }
     },
+    "/v1/tasks": {
+      "get": {
+        "tags": [],
+        "operationId": "list_tasks",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskKind"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskPageResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "submit_task",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": [],
+        "operationId": "cancel_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/items": {
+      "get": {
+        "tags": [],
+        "operationId": "list_task_items",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskItemsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/retry": {
+      "post": {
+        "tags": [],
+        "operationId": "retry_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRetryResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/user-directory": {
       "get": {
         "tags": [],
@@ -4797,6 +5276,20 @@
           "pro"
         ]
       },
+      "DeleteBatchRequest": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentKey"
+            }
+          }
+        }
+      },
       "DoclingConnectionSettingsResponse": {
         "type": "object",
         "required": [
@@ -5184,6 +5677,111 @@
             }
           }
         ]
+      },
+      "EnsureScopeResponse": {
+        "type": "object",
+        "required": [
+          "group",
+          "metadata_indexes"
+        ],
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/GroupResponse"
+          },
+          "metadata_indexes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetadataIndexResponse"
+            }
+          }
+        }
+      },
+      "FileBatchItem": {
+        "type": "object",
+        "required": [
+          "filename",
+          "media_type",
+          "content_base64"
+        ],
+        "properties": {
+          "content_base64": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryFileUploadMetadata"
+              }
+            ]
+          },
+          "translation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationDirective"
+              }
+            ]
+          }
+        }
+      },
+      "FileBatchRequest": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileBatchItem"
+            }
+          }
+        }
+      },
+      "GenericTaskRequest": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "group_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {}
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TaskKind"
+          },
+          "source_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "GroupKind": {
         "type": "string",
@@ -7095,6 +7693,59 @@
           }
         }
       },
+      "ScopeMetadataIndex": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreateMetadataIndexRequest"
+          },
+          {
+            "type": "object",
+            "required": [
+              "source_key"
+            ],
+            "properties": {
+              "source_key": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "ScopeSpec": {
+        "type": "object",
+        "required": [
+          "group_path",
+          "name",
+          "visibility"
+        ],
+        "properties": {
+          "group_path": {
+            "type": "string"
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GroupKind"
+              }
+            ]
+          },
+          "metadata_indexes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeMetadataIndex"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility"
+          }
+        }
+      },
       "SearchHit": {
         "type": "object",
         "required": [
@@ -7616,6 +8267,358 @@
           }
         }
       },
+      "TaskItemResponse": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "ordinal",
+          "status",
+          "attempt_count",
+          "retryable",
+          "created_at"
+        ],
+        "properties": {
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure_stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskItemStatus"
+          }
+        }
+      },
+      "TaskItemStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "TaskItemsQuery": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TaskItemsResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskItemResponse"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TaskKind": {
+        "type": "string",
+        "enum": [
+          "source_sync",
+          "text_batch",
+          "file_batch",
+          "url_batch",
+          "delete_batch",
+          "translation",
+          "vector_rebuild"
+        ]
+      },
+      "TaskListQuery": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskKind"
+              }
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskStatus"
+              }
+            ]
+          }
+        }
+      },
+      "TaskPageResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_pages": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TaskProgress": {
+        "type": "object",
+        "required": [
+          "total",
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ],
+        "properties": {
+          "cancelled": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "running": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "succeeded": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TaskRef": {
+        "type": "object",
+        "required": [
+          "task_id"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TaskResponse": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "kind",
+          "status",
+          "progress",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error_summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eta_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "failure_stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "group_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TaskKind"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/TaskProgress"
+          },
+          "source_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TaskRetryResponse": {
+        "type": "object",
+        "required": [
+          "task",
+          "retried_items"
+        ],
+        "properties": {
+          "retried_items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskRef"
+          }
+        }
+      },
+      "TaskStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ]
+      },
       "TestRuntimeValkeyRequest": {
         "type": "object",
         "required": [
@@ -7624,6 +8627,20 @@
         "properties": {
           "valkey_url": {
             "type": "string"
+          }
+        }
+      },
+      "TextBatchRequest": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpsertLibraryTextRequest"
+            }
           }
         }
       },
@@ -8388,6 +9405,20 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "UrlBatchRequest": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportLibraryFileFromUrlRequest"
+            }
           }
         }
       },

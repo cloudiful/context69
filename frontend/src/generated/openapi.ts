@@ -228,6 +228,70 @@ export interface paths {
         patch: operations["update_group"];
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/batch/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit_delete_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/batch/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit_file_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/batch/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit_text_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/batch/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit_url_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/children": {
         parameters: {
             query?: never;
@@ -980,6 +1044,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scopes/ensure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ensure_scope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/search": {
         parameters: {
             query?: never;
@@ -1188,6 +1268,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_tasks"];
+        put?: never;
+        post: operations["submit_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_task"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_task_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/user-directory": {
         parameters: {
             query?: never;
@@ -1323,6 +1483,9 @@ export interface components {
         };
         /** @enum {string} */
         DeeplPlan: "free" | "pro";
+        DeleteBatchRequest: {
+            items: components["schemas"]["DocumentKey"][];
+        };
         DoclingConnectionSettingsResponse: {
             base_url?: string | null;
             /** Format: int64 */
@@ -1413,6 +1576,28 @@ export interface components {
         };
         DocumentSortField: "published_at" | "updated_at" | {
             metadata: string;
+        };
+        EnsureScopeResponse: {
+            group: components["schemas"]["GroupResponse"];
+            metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
+        };
+        FileBatchItem: {
+            content_base64: string;
+            filename: string;
+            /** Format: uuid */
+            folder_id?: string | null;
+            media_type: string;
+            metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
+            translation?: null | components["schemas"]["TranslationDirective"];
+        };
+        FileBatchRequest: {
+            items: components["schemas"]["FileBatchItem"][];
+        };
+        GenericTaskRequest: {
+            group_path?: string | null;
+            items?: unknown[];
+            kind: components["schemas"]["TaskKind"];
+            source_key?: string | null;
         };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
@@ -1911,6 +2096,16 @@ export interface components {
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
         };
+        ScopeMetadataIndex: components["schemas"]["CreateMetadataIndexRequest"] & {
+            source_key: string;
+        };
+        ScopeSpec: {
+            group_path: string;
+            kind?: null | components["schemas"]["GroupKind"];
+            metadata_indexes?: components["schemas"]["ScopeMetadataIndex"][];
+            name: string;
+            visibility: components["schemas"]["Visibility"];
+        };
         SearchHit: {
             /** Format: uuid */
             chunk_id: string;
@@ -2040,8 +2235,108 @@ export interface components {
             records_changed: number;
             records_seen: number;
         };
+        TaskItemResponse: {
+            /** Format: int32 */
+            attempt_count: number;
+            /** Format: date-time */
+            created_at: string;
+            error_message?: string | null;
+            failure_stage?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            item_id: string;
+            /** Format: int32 */
+            ordinal: number;
+            resource_id?: string | null;
+            retryable: boolean;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["TaskItemStatus"];
+        };
+        /** @enum {string} */
+        TaskItemStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+        TaskItemsQuery: {
+            cursor?: string | null;
+            /** Format: int32 */
+            limit?: number;
+        };
+        TaskItemsResponse: {
+            items: components["schemas"]["TaskItemResponse"][];
+            next_cursor?: string | null;
+        };
+        /** @enum {string} */
+        TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild";
+        TaskListQuery: {
+            kind?: null | components["schemas"]["TaskKind"];
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+            status?: null | components["schemas"]["TaskStatus"];
+        };
+        TaskPageResponse: {
+            items: components["schemas"]["TaskResponse"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
+        };
+        TaskProgress: {
+            /** Format: int64 */
+            cancelled: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            running: number;
+            /** Format: int64 */
+            succeeded: number;
+            /** Format: int64 */
+            total: number;
+        };
+        TaskRef: {
+            /** Format: uuid */
+            task_id: string;
+        };
+        TaskResponse: {
+            /** Format: date-time */
+            created_at: string;
+            error_summary?: string | null;
+            /** Format: int64 */
+            eta_seconds?: number | null;
+            failure_stage?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            group_path?: string | null;
+            kind: components["schemas"]["TaskKind"];
+            progress: components["schemas"]["TaskProgress"];
+            source_key?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["TaskStatus"];
+            /** Format: uuid */
+            task_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TaskRetryResponse: {
+            /** Format: int64 */
+            retried_items: number;
+            task: components["schemas"]["TaskRef"];
+        };
+        /** @enum {string} */
+        TaskStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         TestRuntimeValkeyRequest: {
             valkey_url: string;
+        };
+        TextBatchRequest: {
+            items: components["schemas"]["UpsertLibraryTextRequest"][];
         };
         TranslationDirective: {
             source_locale?: string | null;
@@ -2225,6 +2520,9 @@ export interface components {
         UpsertSourceConnectionRequest: {
             database_url?: string | null;
             name: string;
+        };
+        UrlBatchRequest: {
+            items: components["schemas"]["ImportLibraryFileFromUrlRequest"][];
         };
         UserDirectoryEntryResponse: {
             display_name: string;
@@ -2945,6 +3243,138 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    submit_delete_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteBatchRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    submit_file_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileBatchRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    submit_text_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TextBatchRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    submit_url_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UrlBatchRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4827,6 +5257,37 @@ export interface operations {
             };
         };
     };
+    ensure_scope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScopeSpec"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnsureScopeResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     search: {
         parameters: {
             query?: never;
@@ -5616,6 +6077,170 @@ export interface operations {
             };
             /** @description Internal error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_tasks: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                kind?: components["schemas"]["TaskKind"];
+                status?: components["schemas"]["TaskStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskPageResponse"];
+                };
+            };
+        };
+    };
+    submit_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenericTaskRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_task_items: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskItemsResponse"];
+                };
+            };
+        };
+    };
+    retry_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRetryResponse"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

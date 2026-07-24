@@ -27,6 +27,7 @@ mod library_upload;
 mod personal_access_tokens;
 mod router;
 mod sources;
+mod tasks;
 mod translations;
 
 #[derive(Clone)]
@@ -128,5 +129,9 @@ pub(crate) use personal_access_tokens::{
 pub(crate) use sources::{
     create_source, create_source_connection, delete_source, delete_source_connection,
     list_source_connections, list_sources, sync_source, update_source, update_source_connection,
+};
+pub(crate) use tasks::{
+    cancel_task, ensure_scope, get_task, list_task_items, list_tasks, retry_task,
+    submit_delete_batch, submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
 };
 pub(crate) use translations::*;

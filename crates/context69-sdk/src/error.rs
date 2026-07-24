@@ -20,6 +20,10 @@ pub enum Error {
         source: url::ParseError,
     },
     InvalidTimeout(Duration),
+    TaskWaitTimeout {
+        task_id: uuid::Uuid,
+        timeout: Duration,
+    },
 }
 
 impl fmt::Display for Error {
@@ -53,6 +57,9 @@ impl fmt::Display for Error {
             Self::InvalidTimeout(timeout) => {
                 write!(f, "invalid timeout: {:?}", timeout)
             }
+            Self::TaskWaitTimeout { task_id, timeout } => {
+                write!(f, "timed out waiting for task {task_id} after {timeout:?}")
+            }
         }
     }
 }
@@ -77,5 +84,17 @@ impl From<reqwest::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(value: serde_json::Error) -> Self {
         Self::Serialization(value)
+    }
+}
+
+impl Error {
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Http(_) => true,
+            Self::HttpStatus { status, .. } => {
+                matches!(status.as_u16(), 408 | 425 | 429 | 500..=599)
+            }
+            _ => false,
+        }
     }
 }

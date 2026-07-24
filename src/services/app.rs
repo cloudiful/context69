@@ -20,7 +20,7 @@ use crate::{
         auth::AuthService, document_store::DocumentStoreService, library::LibraryService,
         namespace::NamespaceService, personal_access_tokens::PersonalAccessTokenService,
         query::QueryService, settings::SettingsService, source_folders::SourceFoldersService,
-        sync::SyncService, translation::TranslationPublisherAdapter,
+        sync::SyncService, tasks::TaskService, translation::TranslationPublisherAdapter,
     },
     source_store::SourceStore,
 };
@@ -45,6 +45,7 @@ pub struct Context69App {
     pub source_folders: SourceFoldersService,
     pub document_store: DocumentStoreService,
     pub translation: TranslationService,
+    pub tasks: TaskService,
     pub browser_sessions: BrowserSessionConfig,
 }
 
@@ -183,6 +184,15 @@ impl Context69App {
         library.resume_url_imports().await?;
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
         document_store.resume_pending();
+        let tasks = TaskService::new(
+            db.clone(),
+            namespace.clone(),
+            document_store.clone(),
+            library.clone(),
+            sync.clone(),
+            translation.clone(),
+        );
+        tasks.resume_pending();
         translation.resume().await?;
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
             warn!(error = %error, "failed to prune expired rerank item scores during startup");
@@ -214,6 +224,7 @@ impl Context69App {
             source_folders,
             document_store,
             translation,
+            tasks,
             browser_sessions,
         })
     }

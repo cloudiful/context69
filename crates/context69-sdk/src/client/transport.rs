@@ -1,10 +1,5 @@
 use context69_contracts::ApiErrorResponse;
-use reqwest::{
-    Method, RequestBuilder, Response, Url,
-    header::AUTHORIZATION,
-    multipart::{Form, Part},
-};
-use uuid::Uuid;
+use reqwest::{Method, RequestBuilder, Response, Url, header::AUTHORIZATION};
 
 use super::{Context69Client, PERSONAL_ACCESS_TOKEN_PREFIX};
 use crate::Error;
@@ -25,24 +20,6 @@ impl Context69Client {
         Ok(self
             .client
             .request(method, self.url(path)?)
-            .header(AUTHORIZATION, format!("Bearer {token}")))
-    }
-
-    pub(crate) async fn authorized_url_request(
-        &self,
-        method: Method,
-        url: Url,
-    ) -> Result<RequestBuilder, Error> {
-        let token = self
-            .session
-            .read()
-            .await
-            .personal_access_token
-            .clone()
-            .ok_or(Error::AuthenticationRequired)?;
-        Ok(self
-            .client
-            .request(method, url)
             .header(AUTHORIZATION, format!("Bearer {token}")))
     }
 
@@ -101,37 +78,6 @@ pub(crate) fn group_path(group_path: &str, suffix: &str) -> String {
         encode_path_component(group_path),
         suffix
     )
-}
-
-pub(crate) fn file_upload_form(folder_id: Option<Uuid>, files: Vec<Part>) -> Form {
-    let mut form = Form::new();
-    if let Some(folder_id) = folder_id {
-        form = form.text("folder_id", folder_id.to_string());
-    }
-    for file in files {
-        form = form.part("files", file);
-    }
-    form
-}
-
-pub(crate) fn file_upload_form_with_options(
-    folder_id: Option<Uuid>,
-    sha256: String,
-    options: Option<&context69_contracts::LibraryFileIngestOptions>,
-    file: Part,
-) -> Result<Form, Error> {
-    let mut form = Form::new();
-    if let Some(folder_id) = folder_id {
-        form = form.text("folder_id", folder_id.to_string());
-    }
-    form = form.text("sha256", sha256);
-    if let Some(options) = options {
-        form = form.part(
-            "metadata",
-            Part::text(serde_json::to_string(options)?).mime_str("application/json")?,
-        );
-    }
-    Ok(form.part("files", file))
 }
 
 pub(crate) fn validate_personal_access_token(token: String) -> Result<String, Error> {

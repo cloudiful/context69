@@ -1,34 +1,24 @@
-mod groups;
-mod library;
-mod search;
-mod settings;
-mod sources;
+mod facade;
 mod transport;
-mod user_directory;
 
 use std::{sync::Arc, time::Duration};
 
-use context69_contracts::{AuthMeResponse, HealthResponse};
-use reqwest::{Method, Url, header::USER_AGENT};
+use reqwest::{Url, header::USER_AGENT};
 use tokio::sync::RwLock;
 
 use crate::Error;
 
-pub use groups::{
-    GroupApi, GroupChildrenApi, GroupDocumentsApi, GroupMemberApi, GroupMembersApi,
-    GroupMetadataIndexesApi, GroupSourceFolderApi, GroupSourceFoldersApi, GroupTranslationApi,
-    GroupsApi, TranslationJobApi,
+pub use facade::{
+    AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CompactSearchHit,
+    CompactSearchResponse, CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse,
+    DocumentKey, DocumentResponse, EnsureScopeResponse, FileBatchItem, FileBatchRequest,
+    FileMetadata, GenericTaskRequest, GroupKind, GroupResponse, HealthResponse, MetadataDataType,
+    MetadataFilter, MetadataFilterOperator, MetadataValueKind, ScopeMetadataIndex, ScopeSpec,
+    SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
+    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
+    TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective, TranslationStatus,
+    UrlBatchItem, UrlBatchRequest, Visibility, WaitOptions,
 };
-pub use library::{
-    GroupLibraryApi, GroupLibraryTextsApi, LibraryApi, LibraryFileApi, LibraryFilesApi,
-    LibraryFolderApi, LibraryFoldersApi, LibraryJobApi, LibraryTextsApi,
-};
-pub use search::{DocumentApi, SearchApi};
-pub use settings::{
-    DoclingSettingsApi, RuntimeSettingsApi, SearchSettingsApi, SettingsApi, TranslationSettingsApi,
-};
-pub use sources::{SourceApi, SourceConnectionApi, SourceConnectionsApi, SourcesApi};
-pub use user_directory::UserDirectoryApi;
 
 pub(crate) const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";
 
@@ -75,60 +65,6 @@ impl Context69Client {
                 )?),
             })),
         })
-    }
-
-    pub fn user_directory(&self) -> UserDirectoryApi<'_> {
-        UserDirectoryApi::new(self)
-    }
-
-    pub fn groups(&self) -> GroupsApi<'_> {
-        GroupsApi::new(self)
-    }
-
-    pub fn group(&self, group_path: impl Into<String>) -> GroupApi<'_> {
-        GroupApi::new(self, group_path.into())
-    }
-
-    pub fn sources(&self) -> SourcesApi<'_> {
-        SourcesApi::new(self)
-    }
-
-    pub fn source(&self, source_key: impl Into<String>) -> SourceApi<'_> {
-        SourceApi::new(self, source_key.into())
-    }
-
-    pub fn source_connections(&self) -> SourceConnectionsApi<'_> {
-        SourceConnectionsApi::new(self)
-    }
-
-    pub fn source_connection(&self, name: impl Into<String>) -> SourceConnectionApi<'_> {
-        SourceConnectionApi::new(self, name.into())
-    }
-
-    pub fn library(&self) -> LibraryApi<'_> {
-        LibraryApi::new(self)
-    }
-
-    pub fn settings(&self) -> SettingsApi<'_> {
-        SettingsApi::new(self)
-    }
-
-    pub fn search(&self) -> SearchApi<'_> {
-        SearchApi::new(self)
-    }
-
-    pub fn document(&self, document_id: i64) -> DocumentApi<'_> {
-        DocumentApi::new(self, document_id)
-    }
-
-    pub async fn me(&self) -> Result<AuthMeResponse, Error> {
-        self.execute_json(self.authorized_request(Method::GET, "/v1/auth/me").await?)
-            .await
-    }
-
-    pub async fn healthz(&self) -> Result<HealthResponse, Error> {
-        let response = self.client.get(self.url("/healthz")?).send().await?;
-        self.read_json_response(response).await
     }
 }
 
@@ -190,6 +126,3 @@ impl Context69ClientBuilder {
         })
     }
 }
-
-#[cfg(test)]
-mod tests;

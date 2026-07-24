@@ -15,7 +15,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.7.5"
+version = "0.8.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -29,15 +29,15 @@ bytes = "1.12.1"
 base64 = "0.22.1"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.2" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.7.5" }
-context69-db-schema = { path = "crates/context69-db-schema", version = "0.7.5" }
-context69-http-support = { path = "crates/context69-http-support", version = "0.7.5" }
-context69-namespace = { path = "crates/context69-namespace", version = "0.7.5" }
-context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.7.5" }
-context69-search = { path = "crates/context69-search", version = "0.7.5" }
-context69-search-http = { path = "crates/context69-search-http", version = "0.7.5" }
-context69-settings-http = { path = "crates/context69-settings-http", version = "0.7.5" }
-context69-translation = { path = "crates/context69-translation", version = "0.7.5" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.8.0" }
+context69-db-schema = { path = "crates/context69-db-schema", version = "0.8.0" }
+context69-http-support = { path = "crates/context69-http-support", version = "0.8.0" }
+context69-namespace = { path = "crates/context69-namespace", version = "0.8.0" }
+context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.8.0" }
+context69-search = { path = "crates/context69-search", version = "0.8.0" }
+context69-search-http = { path = "crates/context69-search-http", version = "0.8.0" }
+context69-settings-http = { path = "crates/context69-settings-http", version = "0.8.0" }
+context69-translation = { path = "crates/context69-translation", version = "0.8.0" }
 docling-convert = { package = "cloudiful-docling-convert", version = "0.2.5" }
 futures = "0.3.33"
 getrandom = "0.4.3"
