@@ -52,7 +52,18 @@ impl SearchService {
         request: SearchRequest,
     ) -> Result<SearchResponse> {
         let search_started = Instant::now();
-        let requested_limit = request.limit;
+        if request.page == 0 || !(1..=100).contains(&request.limit) {
+            return Err(anyhow::anyhow!(
+                "page must be >= 1 and limit must be between 1 and 100"
+            ));
+        }
+        let page_size = request.limit;
+        let offset = (request.page - 1)
+            .checked_mul(page_size)
+            .ok_or_else(|| anyhow::anyhow!("search page offset is too large"))?;
+        let requested_limit = offset
+            .checked_add(page_size)
+            .ok_or_else(|| anyhow::anyhow!("search result limit is too large"))?;
         let scope = self
             .scope_resolver
             .access_scope(user_id, request.group_path.clone())
@@ -283,9 +294,23 @@ impl SearchService {
 
         results.retain(|hit| is_meaningful_text(&hit.chunk_text));
 
+        let total = results.len();
+        let hits = results
+            .into_iter()
+            .skip(offset)
+            .take(page_size)
+            .collect::<Vec<_>>();
         let response = SearchResponse {
             query: request.query,
-            hits: results,
+            hits,
+            page: request.page,
+            page_size,
+            total,
+            total_pages: if total == 0 {
+                0
+            } else {
+                total.div_ceil(page_size)
+            },
         };
         self.cache
             .set_search_response(generation, &request_hash, &settings_hash, &response)

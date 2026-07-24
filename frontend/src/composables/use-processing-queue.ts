@@ -5,7 +5,7 @@ import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
 import { useToast } from "@nuxt/ui/composables";
 
-const PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 25;
 const EMPTY_SUMMARY: LibraryProcessingJobSummaryResponse = {
   can_manage: false,
   cleanupable_stuck_count: 0,
@@ -28,6 +28,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const page = ref(1);
+  const pageSize = ref(DEFAULT_PAGE_SIZE);
   const total = ref(0);
   const totalPages = ref(0);
   const summary = ref<LibraryProcessingJobSummaryResponse>(EMPTY_SUMMARY);
@@ -54,7 +55,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     try {
       const response = await apiClient.getLibraryProcessingJobs({
         page: page.value,
-        pageSize: PAGE_SIZE,
+        pageSize: pageSize.value,
         query: query.value,
         status: statusFilter.value,
         failureStage: failureStageFilter.value,
@@ -62,6 +63,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       if (currentRequest !== requestId) return;
       items.value = response.items;
       page.value = response.page;
+      pageSize.value = response.page_size;
       total.value = response.total;
       totalPages.value = response.total_pages;
       summary.value = response.summary ?? EMPTY_SUMMARY;
@@ -94,6 +96,13 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   function changePage(value: number) {
     if (page.value === value) return;
     page.value = value;
+    void load();
+  }
+
+  function changePageSize(value: number) {
+    if (pageSize.value === value) return;
+    pageSize.value = value;
+    page.value = 1;
     void load();
   }
 
@@ -224,7 +233,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     loading,
     error,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
     total,
     totalPages,
     summary,
@@ -240,6 +249,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     setStatusFilter,
     setFailureStageFilter,
     changePage,
+    changePageSize,
     retryJob,
     isRetrying,
     retryAllFailed,

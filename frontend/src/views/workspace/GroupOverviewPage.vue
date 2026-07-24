@@ -18,6 +18,7 @@ const state = useGroupWorkspaceContext();
     @move-child-group="state.openMoveChildGroupDialog"
     @open-child-group="state.openGroup"
     @child-group-page="state.changeChildrenPage"
+    @child-group-page-size="state.changePageSize"
     @update:child-group-search="state.childrenSearch = $event"
   />
 </template>

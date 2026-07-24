@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -15,8 +15,8 @@ use super::{
 use crate::contracts::{
     ApiErrorResponse, GroupTranslationSettingsResponse, MembershipRole,
     RebuildDocumentTranslationsRequest, TranslationJobResponse, TranslationJobsResponse,
-    TranslationSettingsResponse, UpdateGroupTranslationSettingsRequest,
-    UpdateTranslationSettingsRequest,
+    TranslationProviderPageQuery, TranslationProviderPageResponse, TranslationSettingsResponse,
+    UpdateGroupTranslationSettingsRequest, UpdateTranslationSettingsRequest,
 };
 
 #[utoipa::path(get, path = "/v1/settings/translation", responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
@@ -28,6 +28,26 @@ pub(crate) async fn get_translation_settings(
         return admin_required();
     }
     match state.app.translation.settings().await {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(get, path = "/v1/settings/translation/providers", params(TranslationProviderPageQuery), responses((status = 200, body = TranslationProviderPageResponse), (status = 403, body = ApiErrorResponse)))]
+pub(crate) async fn list_translation_providers(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Query(query): Query<TranslationProviderPageQuery>,
+) -> impl IntoResponse {
+    if !session.user.is_admin {
+        return admin_required();
+    }
+    match state
+        .app
+        .translation
+        .provider_page(query.page, query.page_size)
+        .await
+    {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(error) => library_management_error_response(error),
     }

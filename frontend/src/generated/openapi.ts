@@ -452,6 +452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_library_file_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/{file_id}/move": {
         parameters: {
             query?: never;
@@ -868,6 +884,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/library/files/{file_id}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_library_file_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/library/files/{file_id}/move": {
         parameters: {
             query?: never;
@@ -1181,6 +1213,22 @@ export interface paths {
         };
         get: operations["get_translation_settings"];
         put: operations["update_translation_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/translation/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_translation_providers"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1722,6 +1770,23 @@ export interface components {
         LibraryFileIngestOptions: components["schemas"]["LibraryFileUploadMetadata"] & {
             translation?: null | components["schemas"]["TranslationDirective"];
         };
+        LibraryFileJobPageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+        };
+        LibraryFileJobPageResponse: {
+            items: components["schemas"]["LibraryIngestJobResponse"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
+        };
         LibraryFileSummary: {
             /** Format: date-time */
             created_at: string;
@@ -1959,6 +2024,24 @@ export interface components {
         };
         /** @enum {string} */
         MetadataFilterOperator: "eq" | "in" | "range" | "exists" | "contains";
+        MetadataIndexPageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+            source_key: string;
+        };
+        MetadataIndexPageResponse: {
+            items: components["schemas"]["MetadataIndexResponse"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
+        };
         MetadataIndexResponse: {
             /** Format: date-time */
             created_at: string;
@@ -2000,6 +2083,23 @@ export interface components {
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
+        };
+        PersonalAccessTokenPageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+        };
+        PersonalAccessTokenPageResponse: {
+            items: components["schemas"]["PersonalAccessTokenResponse"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
         };
         PersonalAccessTokenResponse: {
             /** Format: date-time */
@@ -2151,6 +2251,7 @@ export interface components {
             limit?: number;
             locale?: string | null;
             metadata_filters?: components["schemas"]["MetadataFilter"][];
+            page?: number;
             /** Format: date-time */
             published_after?: string | null;
             /** Format: date-time */
@@ -2160,7 +2261,11 @@ export interface components {
         };
         SearchResponse: {
             hits: components["schemas"]["SearchHit"][];
+            page: number;
+            page_size: number;
             query: string;
+            total: number;
+            total_pages: number;
         };
         SearchSettingsResponse: {
             candidate_limit: number;
@@ -2207,6 +2312,24 @@ export interface components {
         };
         /** @enum {string} */
         SourceOriginStatusKind: "unknown" | "connected" | "unreachable" | "misconfigured";
+        SourcePageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+            query?: string | null;
+        };
+        SourcePageResponse: {
+            items: components["schemas"]["SourceStatus"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
+        };
         SourceStatus: {
             base_query: string;
             /** Format: int64 */
@@ -2389,6 +2512,23 @@ export interface components {
         };
         /** @enum {string} */
         TranslationProviderKind: "deepl" | "llm" | "libretranslate";
+        TranslationProviderPageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+        };
+        TranslationProviderPageResponse: {
+            items: components["schemas"]["TranslationProviderResponse"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            total_pages: number;
+        };
         TranslationProviderResponse: {
             /** Format: int64 */
             current_month_characters: number;
@@ -2945,20 +3085,23 @@ export interface operations {
     };
     list_personal_access_tokens: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description List personal access tokens for current user */
+            /** @description Paginated personal access tokens for current user */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PersonalAccessTokenResponse"][];
+                    "application/json": components["schemas"]["PersonalAccessTokenPageResponse"];
                 };
             };
             /** @description Missing or invalid bearer token */
@@ -3765,6 +3908,48 @@ export interface operations {
             };
         };
     };
+    get_group_library_file_jobs: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description File id */
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated library file ingest jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryFileJobPageResponse"];
+                };
+            };
+            /** @description Invalid pagination parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     move_group_library_file: {
         parameters: {
             query?: never;
@@ -4298,6 +4483,8 @@ export interface operations {
         parameters: {
             query: {
                 source_key: string;
+                page?: number;
+                page_size?: number;
             };
             header?: never;
             path: {
@@ -4312,7 +4499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MetadataIndexResponse"][];
+                    "application/json": components["schemas"]["MetadataIndexPageResponse"];
                 };
             };
         };
@@ -4773,6 +4960,59 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description File not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_library_file_jobs: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                /** @description File id */
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated library file ingest jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryFileJobPageResponse"];
+                };
+            };
+            /** @description Invalid pagination parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
             /** @description File not found */
             404: {
@@ -5711,6 +5951,36 @@ export interface operations {
             };
         };
     };
+    list_translation_providers: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationProviderPageResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     list_source_connections: {
         parameters: {
             query?: never;
@@ -5865,20 +6135,33 @@ export interface operations {
     };
     list_sources: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: number;
+                page_size?: number;
+                query?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description List configured sources */
+            /** @description Paginated configured sources */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SourceStatus"][];
+                    "application/json": components["schemas"]["SourcePageResponse"];
+                };
+            };
+            /** @description Invalid pagination parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
             /** @description Internal error */

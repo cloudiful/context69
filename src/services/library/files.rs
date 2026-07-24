@@ -1,6 +1,72 @@
 use super::*;
 
 impl LibraryService {
+    pub async fn get_file_jobs(
+        &self,
+        file_id: Uuid,
+        page: u32,
+        page_size: u32,
+    ) -> Result<crate::contracts::LibraryFileJobPageResponse> {
+        self.get_file_jobs_for_group(None, file_id, page, page_size)
+            .await
+    }
+
+    pub async fn get_file_jobs_in_project(
+        &self,
+        project: &crate::domain::GroupRecord,
+        file_id: Uuid,
+        page: u32,
+        page_size: u32,
+    ) -> Result<crate::contracts::LibraryFileJobPageResponse> {
+        self.get_file_jobs_for_group(Some(project.id), file_id, page, page_size)
+            .await
+    }
+
+    async fn get_file_jobs_for_group(
+        &self,
+        project_id: Option<i64>,
+        file_id: Uuid,
+        page: u32,
+        page_size: u32,
+    ) -> Result<crate::contracts::LibraryFileJobPageResponse> {
+        if page == 0 {
+            return Err(anyhow!("page must be greater than 0"));
+        }
+        if !(1..=100).contains(&page_size) {
+            return Err(anyhow!("page_size must be between 1 and 100"));
+        }
+        let file = match project_id {
+            Some(project_id) => self.store.get_file_in_project(project_id, file_id).await?,
+            None => self.store.get_file(file_id).await?,
+        }
+        .with_context(|| format!("unknown file {file_id}"))?;
+        let total = u64::try_from(self.store.count_jobs_for_file(file.id).await?)?;
+        let offset = i64::from(page - 1)
+            .checked_mul(i64::from(page_size))
+            .ok_or_else(|| anyhow!("page offset is too large"))?;
+        let total_pages = if total == 0 {
+            0
+        } else {
+            total.div_ceil(u64::from(page_size))
+        };
+        let items = self
+            .store
+            .list_jobs_for_file_page(file.id, i64::from(page_size), offset)
+            .await?
+            .into_iter()
+            .map(crate::library_store::job_to_response)
+            .collect();
+        Ok(crate::contracts::LibraryFileJobPageResponse {
+            items,
+            page,
+            page_size,
+            total,
+            total_pages: u32::try_from(total_pages)?,
+        })
+    }
+}
+
+impl LibraryService {
     pub(crate) async fn list_file_records_in_project(
         &self,
         project: &crate::domain::GroupRecord,

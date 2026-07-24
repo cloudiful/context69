@@ -5,15 +5,21 @@ import type { TableColumn } from "@nuxt/ui";
 
 import type { SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
+import TablePagination from "./TablePagination.vue";
 
-defineProps<{
+const props = defineProps<{
   hits: SearchHit[];
+  page: number;
+  pageSize: number;
+  total: number;
   selectedHit?: SearchHit | null;
 }>();
 
 const emit = defineEmits<{
   open: [SearchHit];
   select: [SearchHit];
+  page: [number];
+  "page-size": [number];
 }>();
 
 const { t } = useI18n();
@@ -78,6 +84,14 @@ function selectRow(_event: Event, row: { original: SearchHit }) {
           </UButton>
       </template>
     </UTable>
+
+    <TablePagination
+      :page="page"
+      :page-size="pageSize"
+      :total="total"
+      @update:page="emit('page', $event)"
+      @update:page-size="emit('page-size', $event)"
+    />
 
   </div>
 </template>

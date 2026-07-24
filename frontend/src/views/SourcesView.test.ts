@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
-import { apiClient, type SourceStatus } from "../services/api";
+import { apiClient, type SourcePageResponse, type SourceStatus } from "../services/api";
 import * as nuxtUiComposables from "@nuxt/ui/composables";
 import SourcesView from "./SourcesView.vue";
 
@@ -63,6 +63,17 @@ const baseSource: SourceStatus = {
   last_success_at: null,
 };
 
+function sourcePage(items: SourceStatus[], page = 1, pageSize = 50): SourcePageResponse {
+  const total = items.length;
+  return {
+    items,
+    page,
+    page_size: pageSize,
+    total,
+    total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+  };
+}
+
 describe("SourcesView", () => {
   beforeEach(() => {
     useOverlay.mockReset();
@@ -79,15 +90,15 @@ describe("SourcesView", () => {
 
   it("loads sources and syncs one row independently", async () => {
     listSources
-      .mockResolvedValueOnce([baseSource])
-      .mockResolvedValueOnce([
+      .mockResolvedValueOnce(sourcePage([baseSource]))
+      .mockResolvedValueOnce(sourcePage([
         {
           ...baseSource,
           last_cursor_updated_at: "2025-01-01T00:00:00Z",
           last_cursor_external_id: "a1",
           last_success_at: "2025-01-01T00:00:00Z",
         },
-      ]);
+      ]));
     listSourceConnections.mockResolvedValue([{ name: "gov-info", has_database_url: true, origin_status: "connected", origin_message: null }]);
     syncSource.mockResolvedValue({
       records_seen: 10,
@@ -117,10 +128,10 @@ describe("SourcesView", () => {
 
   it("creates, updates, and deletes a source", async () => {
     listSources
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([baseSource])
-      .mockResolvedValueOnce([{ ...baseSource, batch_size: 500 }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce(sourcePage([]))
+      .mockResolvedValueOnce(sourcePage([baseSource]))
+      .mockResolvedValueOnce(sourcePage([{ ...baseSource, batch_size: 500 }]))
+      .mockResolvedValueOnce(sourcePage([]));
     listSourceConnections.mockResolvedValue([{ name: "gov-info", has_database_url: true, origin_status: "connected", origin_message: null }]);
     createSource.mockResolvedValue(baseSource);
     updateSource.mockResolvedValue({ ...baseSource, batch_size: 500 });

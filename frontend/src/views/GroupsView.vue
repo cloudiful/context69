@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import EntityDialog from "../components/EntityDialog.vue";
+import TablePagination from "../components/TablePagination.vue";
 import { apiClient, type GroupResponse, type Visibility } from "../services/api";
 import { useErrorToast } from "../composables/use-error-toast";
 
@@ -64,6 +65,18 @@ function handleGroupSelect(_event: Event, row: { original: GroupResponse }) {
   openGroup(row.original);
 }
 
+function changePageSize(value: number) {
+  if (pageSize.value === value) return;
+  pageSize.value = value;
+  page.value = 1;
+  void loadGroups();
+}
+
+function changePage(value: number) {
+  page.value = value;
+  void loadGroups();
+}
+
 function roleSeverity(role?: string | null) {
   if (role === "owner") return "success";
   if (role === "maintainer") return "info";
@@ -118,13 +131,12 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
       <template #current_role-cell="{ row }"><UBadge :label="row.original.current_role || '--'" :color="roleSeverity(row.original.current_role)" variant="subtle" /></template>
     </UTable>
 
-    <UPagination
-      v-if="total > pageSize"
-      v-model:page="page"
-      :items-per-page="pageSize"
+    <TablePagination
+      :page="page"
+      :page-size="pageSize"
       :total="total"
-      class="justify-end"
-      @update:page="loadGroups"
+      @update:page="changePage"
+      @update:page-size="changePageSize"
     />
 
     <EntityDialog

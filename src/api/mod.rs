@@ -107,11 +107,11 @@ pub(crate) use documents::{
 };
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
-    delete_group_library_folder, get_group_library_file, get_group_library_job,
-    get_group_library_resources, get_group_library_tree, get_group_library_url_import_job,
-    import_group_library_file_url, move_group_library_file, move_group_library_folder,
-    prepare_group_library_upload, retry_group_library_file, retry_group_library_url_import_job,
-    upload_group_library_files, upsert_group_library_text,
+    delete_group_library_folder, get_group_library_file, get_group_library_file_jobs,
+    get_group_library_job, get_group_library_resources, get_group_library_tree,
+    get_group_library_url_import_job, import_group_library_file_url, move_group_library_file,
+    move_group_library_folder, prepare_group_library_upload, retry_group_library_file,
+    retry_group_library_url_import_job, upload_group_library_files, upsert_group_library_text,
 };
 pub(crate) use group_source_folders::{
     create_group_source_folder, sync_group_source_folder, update_group_source_folder_config,
@@ -119,9 +119,10 @@ pub(crate) use group_source_folders::{
 pub(crate) use health::healthz;
 pub(crate) use library::{
     cleanup_stuck_library_processing_jobs, create_library_folder, create_library_text,
-    delete_library_file, delete_library_folder, get_library_file, get_library_job,
-    get_library_processing_jobs, get_library_resources, get_library_tree, move_library_file,
-    move_library_folder, retry_failed_library_processing_jobs, upload_library_files,
+    delete_library_file, delete_library_folder, get_library_file, get_library_file_jobs,
+    get_library_job, get_library_processing_jobs, get_library_resources, get_library_tree,
+    move_library_file, move_library_folder, retry_failed_library_processing_jobs,
+    upload_library_files,
 };
 pub(crate) use personal_access_tokens::{
     create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,

@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import { useAppConfirm } from "../../composables/use-app-confirm";
 
 import AppSettingsBlock from "../AppSettingsBlock.vue";
+import TablePagination from "../TablePagination.vue";
 
 import type { AdminUserResponse } from "../../services/api";
 
@@ -26,6 +27,7 @@ const emit = defineEmits<{
   enable: [string];
   "update:query": [string];
   page: [number];
+  "page-size": [number];
 }>();
 
 const { t } = useI18n();
@@ -126,7 +128,7 @@ function confirmEnable(loginNameValue: string) {
 </script>
 
 <template>
-  <AppSettingsBlock id="settings-admin-users" compact :title="t('adminUsers.title')">
+  <AppSettingsBlock id="settings-admin-users" class="content-start" compact :title="t('adminUsers.title')">
     <template #actions>
       <UInput :model-value="query" class="w-56" icon="i-lucide-search" :placeholder="t('adminUsers.loginName')" @update:model-value="emit('update:query', $event)" />
       <UButton size="sm" :disabled="createBusy" @click="openCreate">{{ t("adminUsers.create") }}</UButton>
@@ -180,13 +182,12 @@ function confirmEnable(loginNameValue: string) {
       </template>
     </UTable>
 
-    <UPagination
-      v-if="total > pageSize"
+    <TablePagination
       :page="page"
-      :items-per-page="pageSize"
+      :page-size="pageSize"
       :total="total"
-      class="justify-end"
       @update:page="emit('page', $event)"
+      @update:page-size="emit('page-size', $event)"
     />
 
     <UModal

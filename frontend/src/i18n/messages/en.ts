@@ -18,6 +18,7 @@ export const en = {
     confirm: "Confirm",
     yes: "Yes",
     no: "No",
+    itemsPerPage: "Items per page",
   },
   app: {
     title: "Content Search",
@@ -30,7 +31,6 @@ export const en = {
   },
   processingQueue: {
     title: "Processing Queue",
-    description: "Review file download, parsing, and indexing tasks.",
     refresh: "Refresh queue",
     searchPlaceholder: "Search files, groups, or errors",
     searchHint: "Press Enter to search",

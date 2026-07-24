@@ -55,6 +55,7 @@ declare module 'vue' {
     SettingsSearchSection: typeof import('./src/components/settings-sections/SettingsSearchSection.vue')['default']
     SourceEditorForm: typeof import('./src/components/SourceEditorForm.vue')['default']
     SourceTable: typeof import('./src/components/SourceTable.vue')['default']
+    TablePagination: typeof import('./src/components/TablePagination.vue')['default']
     UAlert: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Alert.vue')['default']
     UApp: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/App.vue')['default']
     UBadge: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Badge.vue')['default']

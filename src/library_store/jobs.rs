@@ -76,6 +76,33 @@ impl LibraryStore {
         rows.into_iter().map(job_from_row).collect()
     }
 
+    pub async fn count_jobs_for_file(&self, file_id: Uuid) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/library_store/jobs/count_for_file.sql", file_id)
+                .fetch_one(self.db.pool())
+                .await?,
+        )
+    }
+
+    pub async fn list_jobs_for_file_page(
+        &self,
+        file_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<LibraryIngestJobRecord>> {
+        let rows = sqlx::query_file_as!(
+            JobRow,
+            "src/sql/library_store/jobs/list_for_file_page.sql",
+            file_id,
+            limit,
+            offset
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        rows.into_iter().map(job_from_row).collect()
+    }
+
     pub(crate) async fn update_job_status(
         &self,
         job_id: Uuid,

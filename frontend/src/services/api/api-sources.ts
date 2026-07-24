@@ -1,6 +1,7 @@
 import type {
   RequestOptions,
   SourceConfigInput,
+  SourcePageResponse,
   UpsertSourceConnectionRequest,
 } from "./api-types";
 
@@ -11,12 +12,19 @@ type Deps = {
 
 export function createSourcesApi({ openapiClient, unwrapResponse }: Deps) {
   return {
-    listSources(options?: RequestOptions) {
+    listSources(params: { page: number; pageSize: number; query: string } = { page: 1, pageSize: 50, query: "" }, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.GET("/v1/sources", {
+          params: {
+            query: {
+              page: params.page,
+              page_size: params.pageSize,
+              query: params.query || undefined,
+            },
+          },
           signal: options?.signal,
         }),
-      );
+      ) as Promise<SourcePageResponse>;
     },
     listSourceConnections(options?: RequestOptions) {
       return unwrapResponse(

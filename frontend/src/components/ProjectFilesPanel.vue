@@ -37,6 +37,7 @@ const emit = defineEmits<{
   "move-child-group": [GroupResponse];
   "open-child-group": [GroupResponse];
   "child-group-page": [number];
+  "child-group-page-size": [number];
   "update:child-group-search": [string];
 }>();
 
@@ -320,6 +321,7 @@ onBeforeUnmount(() => {
           @delete-entry="actionsState.deleteExplorerEntry"
           @open-group="emit('open-child-group', $event.group)"
           @group-page="emit('child-group-page', $event)"
+          @group-page-size="emit('child-group-page-size', $event)"
           @edit-group="emit('edit-child-group', $event.group)"
           @move-group="emit('move-child-group', $event.group)"
           @delete-group="emit('delete-child-group', $event.group)"
@@ -385,6 +387,7 @@ onBeforeUnmount(() => {
           :active-section-key="detailState.activeSectionKey"
           :detail="detailState.detail"
           :detail-loading="detailState.detailLoading"
+          :group-path="groupPath"
           :selected-file-id="treeState.selectedFileId"
           :selected-folder-summary="treeState.selectedFolderSummary"
           :retrying="!!treeState.selectedFileId && actionsState.retryingFileIds.includes(treeState.selectedFileId)"

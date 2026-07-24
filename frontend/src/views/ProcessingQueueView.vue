@@ -4,6 +4,7 @@ import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
+import TablePagination from "../components/TablePagination.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
 import type { LibraryIngestFailureStage, LibraryIngestStatus, LibraryProcessingJobResponse } from "../services/api";
 import { formatTimestamp } from "../utils/format";
@@ -40,7 +41,7 @@ const columns = computed<TableColumn<LibraryProcessingJobResponse>[]>(() => [
   { id: "group", header: t("processingQueue.group") },
   { id: "type", header: t("processingQueue.type") },
   { id: "status", header: t("processingQueue.status") },
-  { id: "stage", header: t("processingQueue.stage") },
+  { id: "stage", header: t("processingQueue.stage"), meta: { class: { th: "whitespace-nowrap", td: "whitespace-nowrap" } } },
   { id: "error", header: t("processingQueue.error") },
   { accessorKey: "updated_at", header: t("processingQueue.updatedAt") },
   { id: "actions", header: t("processingQueue.actions") },
@@ -71,14 +72,13 @@ function itemLabel(item: LibraryProcessingJobResponse) {
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
-        <p class="text-sm text-muted-color">{{ t("processingQueue.description") }}</p>
       </div>
       <div class="flex flex-wrap items-center justify-end gap-2">
         <UButton
           v-if="queue.summary.can_manage && queue.summary.retryable_failed_count > 0"
           color="neutral"
           variant="outline"
-          icon="i-lucide-refresh-cw"
+          icon="i-lucide-rotate-ccw"
           :loading="queue.bulkAction === 'retry'"
           :disabled="!!queue.bulkAction"
           :label="t('processingQueue.retryAll') + ' (' + queue.summary.retryable_failed_count + ')'"
@@ -94,7 +94,7 @@ function itemLabel(item: LibraryProcessingJobResponse) {
           :label="t('processingQueue.cleanupStuck') + ' (' + queue.summary.cleanupable_stuck_count + ')'"
           @click="queue.confirmCleanupStuck"
         />
-        <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :label="t('processingQueue.refresh')" @click="queue.refresh" />
+        <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
       </div>
     </div>
 
@@ -118,7 +118,7 @@ function itemLabel(item: LibraryProcessingJobResponse) {
         <template #error>
           <div class="grid justify-items-center gap-3 py-12 text-center">
             <UAlert color="error" variant="subtle" :title="t('processingQueue.loadFailed')" :description="queue.error || undefined" />
-            <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('common.retry')" @click="queue.refresh" />
+            <UButton color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :label="t('common.retry')" @click="queue.refresh" />
           </div>
         </template>
 
@@ -140,7 +140,7 @@ function itemLabel(item: LibraryProcessingJobResponse) {
               color="neutral"
               variant="ghost"
               size="sm"
-              icon="i-lucide-refresh-cw"
+              icon="i-lucide-rotate-ccw"
               :loading="queue.isRetrying(row.original)"
               :label="t('processingQueue.retry')"
               @click="queue.retryJob(row.original)"
@@ -151,13 +151,12 @@ function itemLabel(item: LibraryProcessingJobResponse) {
       </AsyncStateBlock>
     </div>
 
-    <UPagination
-      v-if="queue.total > queue.pageSize"
+    <TablePagination
       :page="queue.page"
-      :items-per-page="queue.pageSize"
+      :page-size="queue.pageSize"
       :total="queue.total"
-      class="justify-end"
-      @update:page="queue.changePage"
+      @update:page="queue.changePage($event)"
+      @update:page-size="queue.changePageSize($event)"
     />
   </section>
 </template>

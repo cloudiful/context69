@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import type { GroupMemberResponse } from "../../services/api";
 
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
+import TablePagination from "../../components/TablePagination.vue";
 
 const state = useGroupWorkspaceContext();
 const { t } = useI18n();
@@ -46,13 +47,12 @@ const columns = computed<TableColumn<GroupMemberResponse>[]>(() => [
       </template>
     </UTable>
 
-    <UPagination
-      v-if="state.membersPage.total > state.membersPage.page_size"
+    <TablePagination
       :page="state.membersPageNumber"
-      :items-per-page="state.membersPage.page_size"
+      :page-size="state.membersPage.page_size"
       :total="state.membersPage.total"
-      class="justify-end"
       @update:page="state.changeMembersPage"
+      @update:page-size="state.changePageSize"
     />
   </section>
 </template>

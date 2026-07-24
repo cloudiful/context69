@@ -33,19 +33,20 @@ use super::{
     delete_group_library_folder, delete_library_file, delete_library_folder, delete_metadata_index,
     delete_source, delete_source_connection, disable_admin_user, enable_admin_user, ensure_scope,
     forbid_personal_access_token_middleware, get_group_document_by_key, get_group_library_file,
-    get_group_library_job, get_group_library_resources, get_group_library_tree,
-    get_group_library_url_import_job, get_group_translation_settings, get_library_file,
-    get_library_job, get_library_processing_jobs, get_library_resources, get_library_tree,
-    get_task, get_translation_job, get_translation_settings, healthz,
-    import_group_library_file_url, list_admin_users, list_document_translation_jobs,
-    list_metadata_indexes, list_personal_access_tokens, list_source_connections, list_sources,
-    list_task_items, list_tasks, login, logout, me, move_group_library_file,
-    move_group_library_folder, move_library_file, move_library_folder, openapi_json,
-    prepare_group_library_upload, query_group_documents, rebuild_document_translations,
-    require_admin_scope_middleware, require_library_scope_middleware,
-    require_search_scope_middleware, require_settings_scope_middleware,
-    require_sources_scope_middleware, require_workspace_scope_middleware,
-    reset_admin_user_password, retry_failed_library_processing_jobs, retry_group_library_file,
+    get_group_library_file_jobs, get_group_library_job, get_group_library_resources,
+    get_group_library_tree, get_group_library_url_import_job, get_group_translation_settings,
+    get_library_file, get_library_file_jobs, get_library_job, get_library_processing_jobs,
+    get_library_resources, get_library_tree, get_task, get_translation_job,
+    get_translation_settings, healthz, import_group_library_file_url, list_admin_users,
+    list_document_translation_jobs, list_metadata_indexes, list_personal_access_tokens,
+    list_source_connections, list_sources, list_task_items, list_tasks, list_translation_providers,
+    login, logout, me, move_group_library_file, move_group_library_folder, move_library_file,
+    move_library_folder, openapi_json, prepare_group_library_upload, query_group_documents,
+    rebuild_document_translations, require_admin_scope_middleware,
+    require_library_scope_middleware, require_search_scope_middleware,
+    require_settings_scope_middleware, require_sources_scope_middleware,
+    require_workspace_scope_middleware, reset_admin_user_password,
+    retry_failed_library_processing_jobs, retry_group_library_file,
     retry_group_library_url_import_job, retry_metadata_index, retry_task, retry_translation_job,
     revoke_personal_access_token, submit_delete_batch, submit_file_batch, submit_task,
     submit_text_batch, submit_url_batch, sync_group_source_folder, sync_source,
@@ -339,6 +340,10 @@ fn settings_routes(api_state: ApiState) -> Router<ApiState> {
             "/v1/settings/translation",
             get(get_translation_settings).put(update_translation_settings),
         )
+        .route(
+            "/v1/settings/translation/providers",
+            get(list_translation_providers),
+        )
         .layer(from_fn_with_state(
             api_state,
             require_settings_scope_middleware,
@@ -381,6 +386,10 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         .route(
             "/v1/library/files/{file_id}",
             get(get_library_file).delete(delete_library_file),
+        )
+        .route(
+            "/v1/library/files/{file_id}/jobs",
+            get(get_library_file_jobs),
         )
         .route("/v1/library/files/{file_id}/move", post(move_library_file))
         .route("/v1/library/jobs/{job_id}", get(get_library_job))
@@ -433,6 +442,10 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         .route(
             "/v1/groups/by-path/{group_path}/library/files/{file_id}",
             get(get_group_library_file).delete(delete_group_library_file),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/library/files/{file_id}/jobs",
+            get(get_group_library_file_jobs),
         )
         .route(
             "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",

@@ -21,6 +21,9 @@ export function useSettingsPersonalAccessTokens() {
   const showErrorToast = useErrorToast();
 
   const personalAccessTokens = ref<PersonalAccessTokenResponse[]>([]);
+  const personalAccessTokensPage = ref(1);
+  const personalAccessTokensPageSize = ref(50);
+  const personalAccessTokensTotal = ref(0);
   const personalAccessTokensLoading = ref(false);
   const personalAccessTokensCreating = ref(false);
   const personalAccessTokensReveal = ref<CreatePersonalAccessTokenResponse | null>(null);
@@ -80,12 +83,29 @@ export function useSettingsPersonalAccessTokens() {
   async function loadPersonalAccessTokens() {
     personalAccessTokensLoading.value = true;
     try {
-      personalAccessTokens.value = await apiClient.listPersonalAccessTokens();
+      const response = await apiClient.listPersonalAccessTokens({
+        page: personalAccessTokensPage.value,
+        pageSize: personalAccessTokensPageSize.value,
+      });
+      personalAccessTokens.value = response.items;
+      personalAccessTokensTotal.value = response.total;
     } catch (error) {
       showErrorToast(error, t("settings.personalAccessTokens.loadFailed"));
     } finally {
       personalAccessTokensLoading.value = false;
     }
+  }
+
+  function changePersonalAccessTokensPage(page: number) {
+    personalAccessTokensPage.value = page;
+    void loadPersonalAccessTokens();
+  }
+
+  function changePersonalAccessTokensPageSize(value: number) {
+    if (personalAccessTokensPageSize.value === value) return;
+    personalAccessTokensPageSize.value = value;
+    personalAccessTokensPage.value = 1;
+    void loadPersonalAccessTokens();
   }
 
   async function createPersonalAccessToken() {
@@ -101,7 +121,7 @@ export function useSettingsPersonalAccessTokens() {
         scopes: personalAccessTokenDraft.scopes,
         expires_in_days: personalAccessTokenDraft.expires_in_days,
       });
-      personalAccessTokens.value = await apiClient.listPersonalAccessTokens();
+      await loadPersonalAccessTokens();
       resetPersonalAccessTokenDraft();
       toast.add({
         color: "success",
@@ -130,7 +150,7 @@ export function useSettingsPersonalAccessTokens() {
   async function revokePersonalAccessToken(tokenId: string) {
     try {
       await apiClient.revokePersonalAccessToken(tokenId);
-      personalAccessTokens.value = await apiClient.listPersonalAccessTokens();
+      await loadPersonalAccessTokens();
       toast.add({
         color: "success",
         title: t("settings.personalAccessTokens.revokeSuccess"),
@@ -184,6 +204,11 @@ export function useSettingsPersonalAccessTokens() {
     personalAccessTokenCanCreate,
     personalAccessTokenValidationError,
     personalAccessTokens,
+    personalAccessTokensPage,
+    personalAccessTokensPageSize,
+    personalAccessTokensTotal,
+    changePersonalAccessTokensPage,
+    changePersonalAccessTokensPageSize,
     personalAccessTokensCreating,
     personalAccessTokensLoading,
     personalAccessTokensReveal,

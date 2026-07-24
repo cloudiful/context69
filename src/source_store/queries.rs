@@ -57,6 +57,33 @@ impl SourceStore {
         Ok(rows.into_iter().map(row_to_source_status).collect())
     }
 
+    pub async fn count_sources(&self, query: Option<&str>) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/source_store/count_sources.sql", query)
+                .fetch_one(self.db.pool())
+                .await?,
+        )
+    }
+
+    pub async fn list_sources_page(
+        &self,
+        query: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SourceStatus>> {
+        let rows = sqlx::query_file_as!(
+            SourceStatusRow,
+            "src/sql/source_store/list_sources_page.sql",
+            query,
+            limit,
+            offset
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        Ok(rows.into_iter().map(row_to_source_status).collect())
+    }
+
     pub async fn list_sources_for_group(&self, group_id: i64) -> Result<Vec<SourceStatus>> {
         let rows = sqlx::query_file_as!(
             SourceStatusRow,

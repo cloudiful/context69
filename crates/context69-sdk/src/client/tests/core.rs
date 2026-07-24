@@ -79,6 +79,7 @@ fn search_request(query: &str) -> SearchRequest {
         query: query.to_string(),
         locale: None,
         limit: 8,
+        page: 1,
         source_key: None,
         group_path: None,
         published_after: None,

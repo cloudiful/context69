@@ -13,7 +13,8 @@ pub mod translation;
 pub use auth::{
     AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AuthLoginRequest, AuthMeResponse,
     AuthUserResponse, CreateAdminUserRequest, CreatePersonalAccessTokenRequest,
-    CreatePersonalAccessTokenResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
+    CreatePersonalAccessTokenResponse, PersonalAccessTokenPageQuery,
+    PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
     ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
 };
 pub use common::{ApiErrorResponse, HealthResponse, HealthStatus};
@@ -21,15 +22,17 @@ pub use documents::{
     BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
     CreateMetadataIndexRequest, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,
     DocumentQueryResponse, DocumentSort, DocumentSortField, MetadataDataType, MetadataFilter,
-    MetadataFilterOperator, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
-    SortOrder, UpdateMetadataIndexRequest,
+    MetadataFilterOperator, MetadataIndexPageQuery, MetadataIndexPageResponse,
+    MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
+    UpdateMetadataIndexRequest,
 };
 pub use library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
     LibraryDocumentSectionPreview, LibraryFileDetailResponse, LibraryFileIngestOptions,
-    LibraryFileSummary, LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse,
-    LibraryIngestFailureStage, LibraryIngestJobResponse, LibraryIngestStatus,
-    LibraryPreviewContentFormat, LibraryProcessingJobBulkActionResponse, LibraryProcessingJobKind,
+    LibraryFileJobPageQuery, LibraryFileJobPageResponse, LibraryFileSummary,
+    LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse, LibraryIngestFailureStage,
+    LibraryIngestJobResponse, LibraryIngestStatus, LibraryPreviewContentFormat,
+    LibraryProcessingJobBulkActionResponse, LibraryProcessingJobKind,
     LibraryProcessingJobPageQuery, LibraryProcessingJobPageResponse, LibraryProcessingJobResponse,
     LibraryProcessingJobSummaryResponse, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryResourceSortBy,
@@ -63,8 +66,8 @@ pub use settings::{
 };
 pub use sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,
-    SourceFolderResponse, SourceOriginStatusKind, SourceStatus, SyncOutcome,
-    UpsertSourceConnectionRequest,
+    SourceFolderResponse, SourceOriginStatusKind, SourcePageQuery, SourcePageResponse,
+    SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
 };
 pub use tasks::{
     DeleteBatchRequest, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GenericTaskRequest,

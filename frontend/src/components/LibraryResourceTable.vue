@@ -4,6 +4,7 @@ import type { DropdownMenuItem, TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import AsyncStateBlock from "./AsyncStateBlock.vue";
+import TablePagination from "./TablePagination.vue";
 import { useLibraryResourceTable } from "../composables/library/use-library-resource-table";
 import type { GroupPageResponse, LibraryIngestStatus } from "../services/api";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
@@ -45,7 +46,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   "create-folder": []; "create-source-folder": []; "delete-group": [GroupExplorerEntry];
   "edit-group": [GroupExplorerEntry]; "group-contextmenu": [{ originalEvent: Event; data: GroupExplorerEntry }];
-  "move-group": [GroupExplorerEntry]; page: [{ first: number; rows: number }]; "open-group": [GroupExplorerEntry]; "group-page": [number];
+  "move-group": [GroupExplorerEntry]; page: [{ first: number; rows: number }]; "open-group": [GroupExplorerEntry]; "group-page": [number]; "group-page-size": [number];
   "open-entry": [ExplorerEntry]; refresh: []; retry: []; "retry-entry": [ExplorerEntry];
   sort: [{ sortField: "name" | "type" | "status" | "size" | "updated_at"; sortOrder: number }];
   "status-filter": [LibraryIngestStatus | null]; "row-click": [{ data: ExplorerEntry }];
@@ -178,7 +179,21 @@ function handleSurfaceContextMenu(event: MouseEvent) {
       </AsyncStateBlock>
     </div>
 
-    <UPagination v-if="props.paginated && props.totalRecords > props.pageSize" :page="currentPage" :items-per-page="props.pageSize" :total="props.totalRecords" class="justify-end" @update:page="emit('page', { first: ($event - 1) * props.pageSize, rows: props.pageSize })" />
-    <UPagination v-if="props.groupPage && props.groupPage.total > props.groupPage.page_size" :page="props.groupPage.page" :items-per-page="props.groupPage.page_size" :total="props.groupPage.total" class="justify-end" @update:page="emit('group-page', $event)" />
+    <TablePagination
+      v-if="props.paginated"
+      :page="currentPage"
+      :page-size="props.pageSize"
+      :total="props.totalRecords"
+      @update:page="emit('page', { first: ($event - 1) * props.pageSize, rows: props.pageSize })"
+      @update:page-size="emit('page', { first: 0, rows: $event })"
+    />
+    <TablePagination
+      v-if="props.groupPage"
+      :page="props.groupPage.page"
+      :page-size="props.groupPage.page_size"
+      :total="props.groupPage.total"
+      @update:page="emit('group-page', $event)"
+      @update:page-size="emit('group-page-size', $event)"
+    />
   </div>
 </template>

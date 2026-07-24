@@ -3,7 +3,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AutoComplete from "@nuxt/ui/components/InputMenu.vue";
 
-import { apiClient } from "../services/api";
+import { apiClient, type SearchHit, type SearchResponse, type SourcePageResponse, type SourceStatus } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import { installMockStorage } from "../test-utils/storage";
@@ -14,6 +14,29 @@ import SearchView from "./SearchView.vue";
 const mocks = vi.hoisted(() => ({ addToast: vi.fn() }));
 vi.mock("@nuxt/ui/composables", () => ({ useToast: () => ({ add: mocks.addToast }) }));
 
+function sourcePage(items: SourceStatus[], page = 1, pageSize = 50): SourcePageResponse {
+  const total = items.length;
+  return {
+    items,
+    page,
+    page_size: pageSize,
+    total,
+    total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+  };
+}
+
+function searchPage(query: string, hits: SearchHit[], pageSize = 8): SearchResponse {
+  const total = hits.length;
+  return {
+    query,
+    hits,
+    page: 1,
+    page_size: pageSize,
+    total,
+    total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+  };
+}
+
 describe("SearchView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -22,8 +45,8 @@ describe("SearchView", () => {
   });
 
   it("keeps the page empty before any search has been submitted", async () => {
-    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
-    const search = vi.spyOn(apiClient, "search").mockResolvedValue({ query: "", hits: [] });
+    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("", []));
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -51,7 +74,7 @@ describe("SearchView", () => {
   });
 
   it("loads route filters and renders search results", async () => {
-    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue([
+    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([
       {
         source_key: "gov_documents",
         group_key: "personal-admin",
@@ -72,10 +95,9 @@ describe("SearchView", () => {
         last_cursor_external_id: null,
         last_success_at: null,
       },
-    ]);
+    ]));
     const search = vi.spyOn(apiClient, "search").mockResolvedValue({
-      query: "policy",
-      hits: [
+      ...searchPage("policy", [
         {
           chunk_id: "chunk-1",
           document_id: 7,
@@ -93,7 +115,7 @@ describe("SearchView", () => {
           score: 0.87,
           metadata_json: {},
         },
-      ],
+      ]),
     });
 
     const router = createRouter({
@@ -131,11 +153,8 @@ describe("SearchView", () => {
   });
 
   it("suggests recent searches from the query input and reruns the selected entry", async () => {
-    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
-    const search = vi.spyOn(apiClient, "search").mockResolvedValue({
-      query: "policy",
-      hits: [],
-    });
+    const listSources = vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("policy", []));
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -165,10 +184,7 @@ describe("SearchView", () => {
     expect(wrapper.text()).not.toContain("Recent Searches");
     expect(window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY)).toContain("policy");
 
-    search.mockResolvedValueOnce({
-      query: "policy",
-      hits: [],
-    });
+    search.mockResolvedValueOnce(searchPage("policy", []));
 
     const autocomplete = wrapper.getComponent({ name: "InputMenu" });
     const suggestions = autocomplete.props("items") as SearchHistoryEntry[];
@@ -183,7 +199,7 @@ describe("SearchView", () => {
   });
 
   it("localizes the runtime-not-configured search error", async () => {
-    vi.spyOn(apiClient, "listSources").mockResolvedValue([]);
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
     vi.spyOn(apiClient, "search").mockRejectedValue(new Error(
       "search runtime is not configured; save runtime settings and restart the service",
     ));

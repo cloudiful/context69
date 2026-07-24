@@ -3,11 +3,15 @@ import { computed, ref } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 import { apiClient, type CreateMetadataIndexRequest, type MetadataIndexResponse } from "../services/api";
+import TablePagination from "./TablePagination.vue";
 
 const props = defineProps<{ groupPath: string; canManage: boolean }>();
 const { t } = useI18n();
 const sourceKey = ref("");
 const rows = ref<MetadataIndexResponse[]>([]);
+const page = ref(1);
+const pageSize = ref(50);
+const total = ref(0);
 const loading = ref(false);
 const dialogVisible = ref(false);
 const path = ref("");
@@ -28,8 +32,27 @@ const columns = computed<TableColumn<MetadataIndexResponse>[]>(() => [
 async function load() {
   if (!sourceKey.value.trim()) return;
   loading.value = true;
-  try { rows.value = await apiClient.listMetadataIndexes(props.groupPath, sourceKey.value.trim()); }
+  try {
+    const response = await apiClient.listMetadataIndexes(props.groupPath, sourceKey.value.trim(), {
+      page: page.value,
+      pageSize: pageSize.value,
+    });
+    rows.value = response.items;
+    total.value = response.total;
+  }
   finally { loading.value = false; }
+}
+
+function changePage(value: number) {
+  page.value = value;
+  void load();
+}
+
+function changePageSize(value: number) {
+  if (pageSize.value === value) return;
+  pageSize.value = value;
+  page.value = 1;
+  void load();
 }
 
 async function create() {
@@ -65,6 +88,13 @@ async function remove(row: MetadataIndexResponse) { await apiClient.deleteMetada
           </div>
       </template>
     </UTable>
+    <TablePagination
+      :page="page"
+      :page-size="pageSize"
+      :total="total"
+      @update:page="changePage"
+      @update:page-size="changePageSize"
+    />
     <UModal v-model:open="dialogVisible"  :title="t('metadataIndexes.add')" class="w-[28rem] max-w-[96vw]">
     <template #body>
 <form class="grid gap-3" @submit.prevent="create">

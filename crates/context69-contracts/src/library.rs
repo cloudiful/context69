@@ -479,6 +479,24 @@ pub struct LibraryFileDetailResponse {
     pub jobs: Vec<LibraryIngestJobResponse>,
 }
 
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct LibraryFileJobPageQuery {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryFileJobPageResponse {
+    pub items: Vec<LibraryIngestJobResponse>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryUploadResponse {
     pub files: Vec<LibraryFileSummary>,

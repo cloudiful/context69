@@ -38,7 +38,7 @@ export function useGroupWorkspace() {
   const loading = ref(false);
   const pagination = useGroupWorkspacePagination({ groupPath, t });
   const {
-    changeChildrenPage, changeMembersPage, childGroups, childrenPage, childrenPageNumber,
+    changeChildrenPage, changeMembersPage, changePageSize, childGroups, childrenPage, childrenPageNumber,
     childrenSearch, loadChildrenPage, loadMembersPage, members, membersPage, membersPageNumber,
     membersSearch, pageSize, reset: resetPagination,
   } = pagination;
@@ -311,6 +311,7 @@ export function useGroupWorkspace() {
     canOwnGroup,
     changeChildrenPage,
     changeMembersPage,
+    changePageSize,
     childGroupDialogBusy,
     childGroupDialogVisible,
     childGroups,

@@ -67,6 +67,33 @@ pub struct MetadataIndexResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct MetadataIndexPageQuery {
+    pub source_key: String,
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MetadataIndexPageResponse {
+    pub items: Vec<MetadataIndexResponse>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
+const fn default_page() -> u32 {
+    1
+}
+
+const fn default_page_size() -> u32 {
+    50
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MetadataFilterOperator {

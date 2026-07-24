@@ -27,6 +27,10 @@ describe("apiClient", () => {
       data: {
         query: "policy",
         hits: [],
+        page: 1,
+        page_size: 5,
+        total: 0,
+        total_pages: 0,
       },
       response: {
         ok: true,
@@ -203,8 +207,9 @@ describe("apiClient", () => {
 
   it("lists, creates, and revokes personal access tokens", async () => {
     GET.mockResolvedValueOnce({
-      data: [
-        {
+      data: {
+        items: [
+          {
           token_id: "00000000-0000-0000-0000-000000000001",
           name: "CLI",
           display_prefix: "ctx_pat_abcd",
@@ -214,8 +219,13 @@ describe("apiClient", () => {
           revoked_at: null,
           created_at: "2026-06-01T00:00:00Z",
           updated_at: "2026-06-01T00:00:00Z",
-        },
-      ],
+          },
+        ],
+        page: 1,
+        page_size: 50,
+        total: 1,
+        total_pages: 1,
+      },
       response: {
         ok: true,
         status: 200,
@@ -249,7 +259,10 @@ describe("apiClient", () => {
       },
     });
 
-    await expect(apiClient.listPersonalAccessTokens()).resolves.toHaveLength(1);
+    await expect(apiClient.listPersonalAccessTokens()).resolves.toEqual(expect.objectContaining({
+      items: expect.arrayContaining([expect.objectContaining({ name: "CLI" })]),
+      total: 1,
+    }));
     await expect(apiClient.createPersonalAccessToken({
       name: "CLI",
       scopes: ["search"],
@@ -260,6 +273,12 @@ describe("apiClient", () => {
     await expect(apiClient.revokePersonalAccessToken("00000000-0000-0000-0000-000000000001")).resolves.toBeUndefined();
 
     expect(GET).toHaveBeenCalledWith("/v1/auth/personal-access-tokens", {
+      params: {
+        query: {
+          page: 1,
+          page_size: 50,
+        },
+      },
       signal: undefined,
     });
     expect(POST).toHaveBeenCalledWith("/v1/auth/personal-access-tokens", {

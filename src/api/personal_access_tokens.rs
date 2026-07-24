@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     contracts::{
         ApiErrorResponse, CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
-        PersonalAccessTokenResponse,
+        PersonalAccessTokenPageQuery, PersonalAccessTokenPageResponse, PersonalAccessTokenResponse,
     },
     services::personal_access_tokens::{CreatedPersonalAccessToken, PersonalAccessTokenView},
 };
@@ -19,8 +19,9 @@ use super::{ApiState, auth::CurrentUser, errors::internal_error_response};
 #[utoipa::path(
     get,
     path = "/v1/auth/personal-access-tokens",
+    params(PersonalAccessTokenPageQuery),
     responses(
-        (status = 200, description = "List personal access tokens for current user", body = [PersonalAccessTokenResponse]),
+        (status = 200, description = "Paginated personal access tokens for current user", body = PersonalAccessTokenPageResponse),
         (status = 401, description = "Missing or invalid bearer token", body = ApiErrorResponse),
         (status = 403, description = "Personal access tokens cannot manage personal access tokens", body = ApiErrorResponse)
     )
@@ -28,21 +29,23 @@ use super::{ApiState, auth::CurrentUser, errors::internal_error_response};
 pub(crate) async fn list_personal_access_tokens(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
+    Query(query): Query<PersonalAccessTokenPageQuery>,
 ) -> impl IntoResponse {
     match state
         .app
         .personal_access_tokens
-        .list_for_user(session.user.id)
+        .list_page_for_user(session.user.id, query.page, query.page_size)
         .await
     {
-        Ok(tokens) => (
+        Ok(page) => (
             StatusCode::OK,
-            Json(
-                tokens
-                    .into_iter()
-                    .map(response_from_view)
-                    .collect::<Vec<_>>(),
-            ),
+            Json(PersonalAccessTokenPageResponse {
+                items: page.items.into_iter().map(response_from_view).collect(),
+                page: page.page,
+                page_size: page.page_size,
+                total: page.total,
+                total_pages: page.total_pages,
+            }),
         )
             .into_response(),
         Err(error) => internal_error_response(error),

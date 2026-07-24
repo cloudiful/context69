@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import type { SourceStatus } from "../services/api";
+import TablePagination from "./TablePagination.vue";
 import { formatTimestamp } from "../utils/format";
 
 const props = withDefaults(defineProps<{
   sources: SourceStatus[];
+  page: number;
+  pageSize: number;
+  total: number;
+  query: string;
+  loading?: boolean;
   syncingMap: Record<string, boolean>;
   deletingMap: Record<string, boolean>;
   canManage?: boolean;
@@ -18,6 +24,9 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   create: [];
   refresh: [];
+  page: [number];
+  "page-size": [number];
+  "update:query": [string];
   sync: [string];
   edit: [SourceStatus];
   delete: [string];
@@ -25,35 +34,6 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const searchQuery = ref("");
-
-const filteredSources = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase();
-  if (!query) {
-    return props.sources;
-  }
-
-  return props.sources.filter((source) => sourceQueryFields(source).some((value) => value.toLowerCase().includes(query)));
-});
-
-function sourceQueryFields(source: SourceStatus) {
-  const exampleQueries = source.example_queries ?? [];
-  return [
-    source.source_key,
-    source.display_name,
-    source.description ?? "",
-    ...exampleQueries,
-    source.connection,
-    source.origin_status,
-    source.origin_message ?? "",
-    source.connector_type,
-    source.sync_strategy,
-    String(source.batch_size),
-    source.last_cursor_external_id ?? "",
-    source.last_success_at ?? "",
-  ];
-}
-
 function originSeverity(source: SourceStatus) {
   if (source.origin_status === "connected") {
     return "success";
@@ -100,14 +80,15 @@ function selectRow(_event: Event, row: { original: SourceStatus }) {
   <div class="grid gap-2">
     <UDashboardToolbar class="flex-wrap justify-between gap-2">
       <div class="flex min-w-0 flex-wrap items-center gap-2">
-        <UBadge :label="t('sources.summary.total', { count: filteredSources.length })" color="neutral" variant="subtle" />
+        <UBadge :label="t('sources.summary.total', { count: total })" color="neutral" variant="subtle" />
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <UInput
-          v-model="searchQuery"
+          :model-value="query"
           class="w-full min-w-0 md:w-72"
           icon="i-lucide-search"
           :placeholder="t('sources.table.filterPlaceholder')"
+          @update:model-value="emit('update:query', $event)"
         />
         <UButton color="neutral" variant="outline" @click="emit('refresh')">
           {{ t("sources.refresh") }}
@@ -120,8 +101,9 @@ function selectRow(_event: Event, row: { original: SourceStatus }) {
 
     <UTable
         class="min-w-0 max-w-full"
-        :data="filteredSources"
+        :data="sources"
         :columns="columns"
+        :loading="loading"
         @select="selectRow"
       >
         <template #empty>
@@ -237,5 +219,13 @@ function selectRow(_event: Event, row: { original: SourceStatus }) {
             </div>
         </template>
     </UTable>
+
+    <TablePagination
+      :page="page"
+      :page-size="pageSize"
+      :total="total"
+      @update:page="emit('page', $event)"
+      @update:page-size="emit('page-size', $event)"
+    />
   </div>
 </template>

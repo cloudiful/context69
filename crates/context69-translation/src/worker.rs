@@ -6,8 +6,9 @@ use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use context69_contracts::{
     GroupTranslationSettingsResponse, RebuildDocumentTranslationsRequest, TranslationDirective,
-    TranslationJobResponse, TranslationJobsResponse, TranslationSettingsResponse,
-    UpdateGroupTranslationSettingsRequest, UpdateTranslationSettingsRequest,
+    TranslationJobResponse, TranslationJobsResponse, TranslationProviderPageResponse,
+    TranslationSettingsResponse, UpdateGroupTranslationSettingsRequest,
+    UpdateTranslationSettingsRequest,
 };
 use tokio::sync::{Mutex, Semaphore};
 use tracing::error;
@@ -46,6 +47,14 @@ impl TranslationService {
 
     pub async fn settings(&self) -> Result<TranslationSettingsResponse> {
         self.store.settings().await
+    }
+
+    pub async fn provider_page(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<TranslationProviderPageResponse> {
+        self.store.provider_page(page, page_size).await
     }
 
     pub async fn update_settings(

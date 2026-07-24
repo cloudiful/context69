@@ -2,6 +2,7 @@ import type {
   CreatePersonalAccessTokenRequest,
   CreatePersonalAccessTokenResponse,
   PersonalAccessTokenResponse,
+  PersonalAccessTokenPageResponse,
   RequestOptions,
 } from "./api-types";
 
@@ -12,12 +13,13 @@ type Deps = {
 
 export function createPersonalAccessTokensApi({ openapiClient, unwrapResponse }: Deps) {
   return {
-    listPersonalAccessTokens(options?: RequestOptions) {
+    listPersonalAccessTokens(params: { page: number; pageSize: number } = { page: 1, pageSize: 50 }, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.GET("/v1/auth/personal-access-tokens", {
+          params: { query: { page: params.page, page_size: params.pageSize } },
           signal: options?.signal,
         }),
-      ) as Promise<PersonalAccessTokenResponse[]>;
+      ) as Promise<PersonalAccessTokenPageResponse>;
     },
     createPersonalAccessToken(payload: CreatePersonalAccessTokenRequest, options?: RequestOptions) {
       return unwrapResponse(

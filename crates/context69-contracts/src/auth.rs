@@ -62,6 +62,24 @@ pub struct PersonalAccessTokenResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct PersonalAccessTokenPageQuery {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PersonalAccessTokenPageResponse {
+    pub items: Vec<PersonalAccessTokenResponse>,
+    pub page: u32,
+    pub page_size: u32,
+    pub total: u64,
+    pub total_pages: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreatePersonalAccessTokenResponse {
     pub access_token: String,

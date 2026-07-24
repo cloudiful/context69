@@ -15,7 +15,8 @@ use super::{
 use crate::contracts::{
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, CreateMetadataIndexRequest, DocumentKey,
     DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentResponse,
-    MembershipRole, MetadataIndexResponse, UpdateMetadataIndexRequest,
+    MembershipRole, MetadataIndexPageQuery, MetadataIndexPageResponse, MetadataIndexResponse,
+    UpdateMetadataIndexRequest,
 };
 
 async fn group_and_scope(
@@ -129,17 +130,12 @@ pub(crate) async fn delete_group_document_by_key(
     }
 }
 
-#[derive(serde::Deserialize, utoipa::IntoParams)]
-pub(crate) struct SourceKeyQuery {
-    source_key: String,
-}
-
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), SourceKeyQuery), responses((status = 200, body = [MetadataIndexResponse])))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), MetadataIndexPageQuery), responses((status = 200, body = MetadataIndexPageResponse)))]
 pub(crate) async fn list_metadata_indexes(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
     Path(group_path): Path<String>,
-    Query(query): Query<SourceKeyQuery>,
+    Query(query): Query<MetadataIndexPageQuery>,
 ) -> impl IntoResponse {
     let group = match group_for_user(&state, session.user.id, &group_path).await {
         Ok(value) => value,
@@ -148,12 +144,17 @@ pub(crate) async fn list_metadata_indexes(
     match state
         .app
         .document_store
-        .list_indexes(group.id, &query.source_key)
+        .list_indexes_page(group.id, &query.source_key, query.page, query.page_size)
         .await
     {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(error) => library_management_error_response(error),
     }
+}
+
+#[derive(serde::Deserialize, utoipa::IntoParams)]
+pub(crate) struct SourceKeyQuery {
+    source_key: String,
 }
 
 #[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), SourceKeyQuery), request_body = CreateMetadataIndexRequest, responses((status = 201, body = MetadataIndexResponse)))]

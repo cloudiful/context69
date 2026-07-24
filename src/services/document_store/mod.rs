@@ -11,7 +11,8 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use context69_contracts::{
     BatchDocumentItem, BatchGetDocumentsResponse, CreateMetadataIndexRequest, DocumentKey,
     DocumentQueryRequest, DocumentQueryResponse, DocumentResponse, DocumentSortField,
-    MetadataFilterOperator, MetadataIndexResponse, UpdateMetadataIndexRequest,
+    MetadataFilterOperator, MetadataIndexPageResponse, MetadataIndexResponse,
+    UpdateMetadataIndexRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -60,6 +61,43 @@ impl DocumentStoreService {
             .into_iter()
             .map(map_index)
             .collect::<Result<Vec<_>>>()
+    }
+
+    pub async fn list_indexes_page(
+        &self,
+        group_id: i64,
+        source_key: &str,
+        page: u32,
+        page_size: u32,
+    ) -> Result<MetadataIndexPageResponse> {
+        if page == 0 {
+            return Err(anyhow!("page must be greater than 0"));
+        }
+        if !(1..=100).contains(&page_size) {
+            return Err(anyhow!("page_size must be between 1 and 100"));
+        }
+        let total = u64::try_from(self.db.count_metadata_indexes(group_id, source_key).await?)?;
+        let offset = i64::from(page - 1)
+            .checked_mul(i64::from(page_size))
+            .ok_or_else(|| anyhow!("page offset is too large"))?;
+        let total_pages = if total == 0 {
+            0
+        } else {
+            total.div_ceil(u64::from(page_size))
+        };
+        Ok(MetadataIndexPageResponse {
+            items: self
+                .db
+                .list_metadata_indexes_page(group_id, source_key, i64::from(page_size), offset)
+                .await?
+                .into_iter()
+                .map(map_index)
+                .collect::<Result<Vec<_>>>()?,
+            page,
+            page_size,
+            total,
+            total_pages: u32::try_from(total_pages)?,
+        })
     }
 
     pub async fn get_by_key(

@@ -18,6 +18,7 @@ export const zhCN = {
     confirm: "确定",
     yes: "是",
     no: "否",
+    itemsPerPage: "每页",
   },
   app: {
     title: "内容搜索",
@@ -30,7 +31,6 @@ export const zhCN = {
   },
   processingQueue: {
     title: "处理队列",
-    description: "查看文件下载、解析和索引任务。",
     refresh: "刷新队列",
     searchPlaceholder: "搜索文件、群组或错误信息",
     searchHint: "按 Enter 搜索",

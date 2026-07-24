@@ -14,6 +14,8 @@ pub struct SearchRequest {
     pub locale: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    #[serde(default = "default_page")]
+    pub page: usize,
     #[serde(default)]
     pub source_key: Option<String>,
     #[serde(default)]
@@ -28,6 +30,10 @@ pub struct SearchRequest {
 
 fn default_limit() -> usize {
     8
+}
+
+fn default_page() -> usize {
+    1
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -95,6 +101,10 @@ pub struct SearchHit {
 pub struct SearchResponse {
     pub query: String,
     pub hits: Vec<SearchHit>,
+    pub page: usize,
+    pub page_size: usize,
+    pub total: usize,
+    pub total_pages: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

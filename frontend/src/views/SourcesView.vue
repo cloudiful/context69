@@ -21,6 +21,10 @@ const toast = useToast();
 const showErrorToast = useErrorToast();
 
 const sources = ref<SourceStatus[]>([]);
+const sourcePage = ref(1);
+const sourcePageSize = ref(50);
+const sourceQuery = ref("");
+const sourceTotal = ref(0);
 const connections = ref<SourceConnectionResponse[]>([]);
 const loading = ref(false);
 const formBusy = ref(false);
@@ -35,8 +39,14 @@ async function loadSources() {
 
   try {
     await loadConnections();
-    sources.value = await apiClient.listSources();
-    if (sources.value.length === 0) {
+    const response = await apiClient.listSources({
+      page: sourcePage.value,
+      pageSize: sourcePageSize.value,
+      query: sourceQuery.value,
+    });
+    sources.value = response.items;
+    sourceTotal.value = response.total;
+    if (response.total === 0) {
       editorOpen.value = true;
     }
   } catch (error) {
@@ -44,6 +54,24 @@ async function loadSources() {
   } finally {
     loading.value = false;
   }
+}
+
+function changeSourcePage(page: number) {
+  sourcePage.value = page;
+  void loadSources();
+}
+
+function changeSourcePageSize(value: number) {
+  if (sourcePageSize.value === value) return;
+  sourcePageSize.value = value;
+  sourcePage.value = 1;
+  void loadSources();
+}
+
+function updateSourceQuery(value: string) {
+  sourceQuery.value = value;
+  sourcePage.value = 1;
+  void loadSources();
 }
 
 async function loadConnections() {
@@ -116,7 +144,7 @@ function startEdit(source: SourceStatus) {
 
 function resetEditor() {
   editingSource.value = null;
-  editorOpen.value = sources.value.length === 0;
+  editorOpen.value = sourceTotal.value === 0;
   editorRevision.value += 1;
 }
 
@@ -176,6 +204,11 @@ onMounted(async () => {
         <section class="grid min-w-0 gap-2">
           <SourceTable
             :sources="sources"
+            :page="sourcePage"
+            :page-size="sourcePageSize"
+            :total="sourceTotal"
+            :query="sourceQuery"
+            :loading="loading"
             :syncing-map="syncingMap"
             :deleting-map="deletingMap"
             @create="startCreate"
@@ -183,6 +216,9 @@ onMounted(async () => {
             @edit="startEdit"
             @select="startEdit"
             @refresh="loadSources"
+            @page="changeSourcePage"
+            @page-size="changeSourcePageSize"
+            @update:query="updateSourceQuery"
             @sync="syncSource"
           />
         </section>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, unref } from "vue";
+import { computed, onMounted, ref, unref } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
@@ -7,8 +7,10 @@ import AppNumberField from "../../components/AppNumberField.vue";
 import AppSelectField from "../../components/AppSelectField.vue";
 import AppSettingsSection from "../../components/AppSettingsSection.vue";
 import AppTextField from "../../components/AppTextField.vue";
+import TablePagination from "../../components/TablePagination.vue";
 import { useSettingsPageContext } from "../../composables/settings-page-context";
 import type { TranslationProviderInput } from "../../services/api";
+import { apiClient, type TranslationProviderPageResponse } from "../../services/api";
 
 type ProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
   enabled: boolean;
@@ -19,6 +21,10 @@ type ProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
 const { t } = useI18n();
 const state = useSettingsPageContext();
 const providers = computed(() => unref(state.translationProviders));
+const providerPage = ref<TranslationProviderPageResponse | null>(null);
+const providerPageNumber = ref(1);
+const providerPageSize = ref(50);
+const providerLoading = ref(false);
 const dialogVisible = ref(false);
 const editingIndex = ref(-1);
 const editing = ref<ProviderDraft | null>(null);
@@ -39,7 +45,46 @@ const columns = computed<TableColumn<ProviderDraft>[]>(() => [
   { id: "actions", header: t("common.actions") },
 ]);
 
-function openEdit(provider: ProviderDraft, index: number) {
+const visibleProviders = computed(() => {
+  const pageProviders = providerPage.value?.items ?? [];
+  return pageProviders
+    .map((provider) => providers.value.find((item) => item.provider === provider.provider))
+    .filter((provider): provider is ProviderDraft => !!provider);
+});
+
+async function loadProviderPage() {
+  providerLoading.value = true;
+  try {
+    providerPage.value = await apiClient.listTranslationProviders({
+      page: providerPageNumber.value,
+      pageSize: providerPageSize.value,
+    });
+  } finally {
+    providerLoading.value = false;
+  }
+}
+
+function changeProviderPage(page: number) {
+  providerPageNumber.value = page;
+  void loadProviderPage();
+}
+
+function changeProviderPageSize(value: number) {
+  if (providerPageSize.value === value) return;
+  providerPageSize.value = value;
+  providerPageNumber.value = 1;
+  void loadProviderPage();
+}
+
+onMounted(() => { void loadProviderPage(); });
+
+function providerIndex(provider: ProviderDraft) {
+  return providers.value.indexOf(provider);
+}
+
+function openEdit(provider: ProviderDraft) {
+  const index = providerIndex(provider);
+  if (index < 0) return;
   editingIndex.value = index;
   editing.value = { ...provider };
   dialogVisible.value = true;
@@ -51,11 +96,12 @@ function applyEdit() {
   dialogVisible.value = false;
 }
 
-function move(index: number, direction: -1 | 1) {
+function move(provider: ProviderDraft, direction: -1 | 1) {
+  const index = providerIndex(provider);
   const target = index + direction;
   if (target < 0 || target >= providers.value.length) return;
-  const [provider] = providers.value.splice(index, 1);
-  providers.value.splice(target, 0, provider);
+  const [movedProvider] = providers.value.splice(index, 1);
+  providers.value.splice(target, 0, movedProvider);
   providers.value.forEach((item, priority) => { item.priority = priority; });
 }
 
@@ -73,7 +119,7 @@ function usageLabel(provider: ProviderDraft) {
 
 <template>
   <AppSettingsSection :legend="t('settings.translation.title')">
-    <UTable class="min-w-0 max-w-full" :data="providers" :columns="columns">
+    <UTable class="min-w-0 max-w-full" :data="visibleProviders" :columns="columns" :loading="providerLoading">
       <template #provider-cell="{ row }"><strong>{{ providerLabels[row.original.provider as keyof typeof providerLabels] }}</strong></template>
       <template #enabled-cell="{ row }"><USwitch :id="`translation-${row.original.provider}-enabled`" v-model="row.original.enabled" /></template>
       <template #quota-cell="{ row }"><span class="whitespace-nowrap">{{ quotaLabel(row.original) }}</span></template>
@@ -81,12 +127,20 @@ function usageLabel(provider: ProviderDraft) {
       <template #configuration-cell="{ row }"><UBadge :label="row.original.endpoint ? t('settings.translation.configured') : t('settings.translation.notConfigured')" :color="row.original.endpoint ? 'success' : 'neutral'" variant="subtle" /></template>
       <template #actions-cell="{ row }">
           <div class="flex items-center gap-1">
-            <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" :aria-label="t('common.edit')" @click="openEdit(row.original, row.index)" />
-            <UButton icon="i-lucide-arrow-up" color="neutral" variant="ghost" :disabled="row.index === 0" :aria-label="t('common.move')" @click="move(row.index, -1)" />
-            <UButton icon="i-lucide-arrow-down" color="neutral" variant="ghost" :disabled="row.index === providers.length - 1" :aria-label="t('common.move')" @click="move(row.index, 1)" />
+            <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" :aria-label="t('common.edit')" @click="openEdit(row.original)" />
+            <UButton icon="i-lucide-arrow-up" color="neutral" variant="ghost" :disabled="providerIndex(row.original) === 0" :aria-label="t('common.move')" @click="move(row.original, -1)" />
+            <UButton icon="i-lucide-arrow-down" color="neutral" variant="ghost" :disabled="providerIndex(row.original) === providers.length - 1" :aria-label="t('common.move')" @click="move(row.original, 1)" />
           </div>
       </template>
     </UTable>
+
+    <TablePagination
+      :page="providerPageNumber"
+      :page-size="providerPageSize"
+      :total="providerPage?.total ?? 0"
+      @update:page="changeProviderPage"
+      @update:page-size="changeProviderPageSize"
+    />
 
     <UModal v-model:open="dialogVisible"  :title="editing ? providerLabels[editing.provider] : ''" class="w-[38rem] max-w-[96vw]">
     <template #body>

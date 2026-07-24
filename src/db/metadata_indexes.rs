@@ -197,6 +197,35 @@ impl Database {
         .await?)
     }
 
+    pub async fn count_metadata_indexes(&self, group_id: i64, source_key: &str) -> Result<i64> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/metadata_indexes/count.sql",
+            group_id,
+            source_key
+        )
+        .fetch_one(self.pool())
+        .await?)
+    }
+
+    pub async fn list_metadata_indexes_page(
+        &self,
+        group_id: i64,
+        source_key: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoredMetadataIndex>> {
+        Ok(sqlx::query_file_as!(
+            StoredMetadataIndex,
+            "src/sql/db/metadata_indexes/list_page.sql",
+            group_id,
+            source_key,
+            limit,
+            offset
+        )
+        .fetch_all(self.pool())
+        .await?)
+    }
+
     pub async fn get_metadata_index(&self, index_id: Uuid) -> Result<Option<StoredMetadataIndex>> {
         Ok(sqlx::query_file_as!(
             StoredMetadataIndex,

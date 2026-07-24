@@ -44,10 +44,11 @@ export function filtersToQuery(filters: SearchFilters): LocationQueryRaw {
   };
 }
 
-export function buildSearchPayload(filters: SearchFilters): SearchRequest {
+export function buildSearchPayload(filters: SearchFilters, page = 1): SearchRequest {
   return {
     query: filters.query.trim(),
     limit: Math.min(Math.max(filters.limit, 1), 50),
+    page,
     source_key: filters.sourceKey || undefined,
     published_after: filters.publishedAfter || undefined,
     published_before: filters.publishedBefore || undefined,

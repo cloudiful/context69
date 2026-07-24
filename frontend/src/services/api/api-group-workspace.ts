@@ -2,6 +2,7 @@ import type {
   CreateFolderRequest,
   CreateSourceFolderRequest,
   LibraryUploadResponse,
+  LibraryFileJobPageResponse,
   MoveFileRequest,
   MoveFolderRequest,
   RequestOptions,
@@ -47,9 +48,12 @@ export function createGroupWorkspaceApi({
         body: payload,
       }));
     },
-    listMetadataIndexes(groupPath: string, sourceKey: string, options?: RequestOptions) {
+    listMetadataIndexes(groupPath: string, sourceKey: string, params: { page: number; pageSize: number }, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/metadata-indexes", {
-        params: { path: { group_path: groupPath }, query: { source_key: sourceKey } }, signal: options?.signal,
+        params: {
+          path: { group_path: groupPath },
+          query: { source_key: sourceKey, page: params.page, page_size: params.pageSize },
+        }, signal: options?.signal,
       }));
     },
     createMetadataIndex(groupPath: string, sourceKey: string, payload: CreateMetadataIndexRequest) {
@@ -201,6 +205,15 @@ export function createGroupWorkspaceApi({
         params: { path: { group_path: groupPath, file_id: fileId } },
         signal: options?.signal,
       }));
+    },
+    getGroupLibraryFileJobs(groupPath: string, fileId: string, params: { page: number; pageSize: number }, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/files/{file_id}/jobs", {
+        params: {
+          path: { group_path: groupPath, file_id: fileId },
+          query: { page: params.page, page_size: params.pageSize },
+        },
+        signal: options?.signal,
+      })) as Promise<LibraryFileJobPageResponse>;
     },
     retryGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/{file_id}/retry", {

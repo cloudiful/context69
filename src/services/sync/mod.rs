@@ -11,8 +11,8 @@ use crate::{
     chunking::{ChunkingConfig, chunk_document},
     config::{SourceConfig, SyncStrategy},
     contracts::{
-        SourceConfigInput, SourceConnectionResponse, SourceOriginStatusKind, SourceStatus,
-        SyncOutcome, UpsertSourceConnectionRequest, VectorIndexRebuildState,
+        SourceConfigInput, SourceConnectionResponse, SourceOriginStatusKind, SourcePageResponse,
+        SourceStatus, SyncOutcome, UpsertSourceConnectionRequest, VectorIndexRebuildState,
         VectorIndexRebuildStatus,
     },
     db::{Database, StoredSourceConnection},

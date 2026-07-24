@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { TableColumn } from "@nuxt/ui";
 
-import type { LibraryFileDetailResponse } from "../services/api";
+import { apiClient, type LibraryFileDetailResponse, type LibraryIngestJobResponse } from "../services/api";
 import type { FolderSummary } from "../types/library";
 import { formatBytes, formatTimestamp } from "../utils/format";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import LibraryPreviewContent from "./LibraryPreviewContent.vue";
 import EmptyState from "./EmptyState.vue";
+import TablePagination from "./TablePagination.vue";
+import { useErrorToast } from "../composables/use-error-toast";
 
 const props = defineProps<{
   activeSectionKey: string;
   detail: LibraryFileDetailResponse | null;
   detailLoading: boolean;
+  groupPath?: string;
   selectedFileId: string | null;
   selectedFolderSummary: FolderSummary | null;
   retrying?: boolean;
@@ -43,6 +46,58 @@ const jobColumns = computed<TableColumn<LibraryJob>[]>(() => [
   { accessorKey: "updated_at", header: t("library.updatedColumn") },
   { accessorKey: "status", header: t("library.statusLabel") },
 ]);
+const showErrorToast = useErrorToast();
+const jobRows = ref<LibraryIngestJobResponse[]>([]);
+const jobPage = ref(1);
+const jobPageSize = ref(50);
+const jobTotal = ref(0);
+const jobsLoading = ref(false);
+let jobsController: AbortController | null = null;
+let jobsRequestId = 0;
+
+async function loadJobs(page = jobPage.value) {
+  if (!props.selectedFileId) {
+    jobRows.value = [];
+    jobTotal.value = 0;
+    return;
+  }
+  jobsController?.abort();
+  const requestId = ++jobsRequestId;
+  jobsController = new AbortController();
+  jobsLoading.value = true;
+  try {
+    const response = props.groupPath
+      ? await apiClient.getGroupLibraryFileJobs(props.groupPath, props.selectedFileId, { page, pageSize: jobPageSize.value }, { signal: jobsController.signal })
+      : await apiClient.getLibraryFileJobs(props.selectedFileId, { page, pageSize: jobPageSize.value }, { signal: jobsController.signal });
+    if (requestId !== jobsRequestId) return;
+    jobPage.value = response.page;
+    jobRows.value = response.items;
+    jobTotal.value = response.total;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") return;
+    if (requestId === jobsRequestId) showErrorToast(error, t("library.detailLoadFailed"));
+  } finally {
+    if (requestId === jobsRequestId) jobsLoading.value = false;
+  }
+}
+
+function changeJobPage(page: number) {
+  void loadJobs(page);
+}
+
+function changeJobPageSize(value: number) {
+  if (jobPageSize.value === value) return;
+  jobPageSize.value = value;
+  jobPage.value = 1;
+  void loadJobs(1);
+}
+
+watch(() => props.selectedFileId, () => {
+  jobPage.value = 1;
+  void loadJobs(1);
+}, { immediate: true });
+
+onBeforeUnmount(() => jobsController?.abort());
 </script>
 
 <template>
@@ -176,13 +231,20 @@ const jobColumns = computed<TableColumn<LibraryJob>[]>(() => [
           />
         </section>
 
-        <section v-if="detail.jobs.length > 0" class="grid gap-2">
+        <section v-if="jobTotal > 0 || jobsLoading" class="grid gap-2">
           <h2 class="text-sm font-semibold text-color">{{ t("library.jobsTitle") }}</h2>
-          <UTable class="min-w-0 max-w-full" :data="detail.jobs" :columns="jobColumns">
+          <UTable class="min-w-0 max-w-full" :data="jobRows" :columns="jobColumns" :loading="jobsLoading">
             <template #job_id-cell="{ row }"><span class="block max-w-96 truncate font-mono text-xs" :title="row.original.job_id">{{ row.original.job_id }}</span></template>
             <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-xs text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
             <template #status-cell="{ row }"><UBadge :label="statusLabel(row.original.status)" :color="statusSeverity(row.original.status)" variant="subtle" /></template>
           </UTable>
+          <TablePagination
+            :page="jobPage"
+            :page-size="jobPageSize"
+            :total="jobTotal"
+            @update:page="changeJobPage"
+            @update:page-size="changeJobPageSize"
+          />
         </section>
       </div>
     </AsyncStateBlock>

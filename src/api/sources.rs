@@ -1,14 +1,14 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
 
 use crate::{
     contracts::{
-        ApiErrorResponse, SourceConfigInput, SourceConnectionResponse, SourceStatus, SyncOutcome,
-        UpsertSourceConnectionRequest,
+        ApiErrorResponse, SourceConfigInput, SourceConnectionResponse, SourcePageQuery,
+        SourcePageResponse, SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
     },
     services::scheduler::{ManualRunResult, run_manual_sync_guarded},
 };
@@ -18,16 +18,26 @@ use super::{ApiState, errors::source_management_error_response};
 #[utoipa::path(
     get,
     path = "/v1/sources",
+    params(SourcePageQuery),
     responses(
-        (status = 200, description = "List configured sources", body = [SourceStatus]),
+        (status = 200, description = "Paginated configured sources", body = SourcePageResponse),
+        (status = 400, description = "Invalid pagination parameters", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
-pub(crate) async fn list_sources(State(state): State<ApiState>) -> impl IntoResponse {
+pub(crate) async fn list_sources(
+    State(state): State<ApiState>,
+    Query(query): Query<SourcePageQuery>,
+) -> impl IntoResponse {
     if let Err(error) = state.app.sync.reload_sources().await {
         return super::errors::internal_error_response(error);
     }
-    match state.app.sync.list_sources().await {
+    match state
+        .app
+        .sync
+        .list_sources_page(query.page, query.page_size, query.query.as_deref())
+        .await
+    {
         Ok(sources) => (StatusCode::OK, Json(sources)).into_response(),
         Err(error) => super::errors::internal_error_response(error),
     }

@@ -23,6 +23,7 @@ const filters = ref(createDefaultFilters());
 const results = ref<SearchResponse | null>(null);
 const sources = ref<SourceStatus[]>([]);
 const loading = ref(false);
+const searchPage = ref(1);
 const searched = ref(false);
 const selectedHit = ref<SearchHit | null>(null);
 const historyEntries = ref<SearchHistoryEntry[]>([]);
@@ -37,14 +38,16 @@ function loadHistory() {
 
 async function loadSources() {
   try {
-    sources.value = await apiClient.listSources();
+    const response = await apiClient.listSources({ page: 1, pageSize: 100, query: "" });
+    sources.value = response.items;
   } catch (error) {
     showErrorToast(error, t("search.sourceLoadFailed"));
   }
 }
 
-async function runSearch(options: { persistHistory?: boolean } = {}) {
-  const payload = buildSearchPayload(filters.value);
+async function runSearch(options: { persistHistory?: boolean; page?: number } = {}) {
+  searchPage.value = options.page ?? 1;
+  const payload = buildSearchPayload(filters.value, searchPage.value);
 
   if (!payload.query) {
     showErrorToast(null, t("search.emptyQuery"));
@@ -156,8 +159,13 @@ onBeforeUnmount(() => {
           <SearchResultList
             class="min-w-0"
             :hits="results.hits"
+            :page="results.page"
+            :page-size="results.page_size"
+            :total="results.total"
             :selected-hit="selectedHit"
             @open="openHit"
+            @page="runSearch({ page: $event })"
+            @page-size="filters.limit = $event; runSearch({ page: 1 })"
             @select="selectedHit = $event"
           />
 

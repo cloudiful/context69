@@ -8,6 +8,7 @@ import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
+import TablePagination from "../TablePagination.vue";
 import type {
   CreatePersonalAccessTokenResponse,
   PersonalAccessTokenResponse,
@@ -28,6 +29,9 @@ const props = defineProps<{
   personalAccessTokenScopeOptions: Array<{ key: string; label: string; helper: string }>;
   personalAccessTokenScopeToggleModel: Record<string, boolean>;
   personalAccessTokens: PersonalAccessTokenResponse[];
+  personalAccessTokensPage: number;
+  personalAccessTokensPageSize: number;
+  personalAccessTokensTotal: number;
   personalAccessTokensCreating: boolean;
   personalAccessTokensLoading: boolean;
   personalAccessTokensReveal: CreatePersonalAccessTokenResponse | null;
@@ -35,6 +39,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:personalAccessTokenScopeToggleModel": [value: Record<string, boolean>];
+  page: [number];
+  "page-size": [number];
 }>();
 
 const { t, locale } = useI18n();
@@ -47,7 +53,6 @@ const tokenRows = computed(() => props.personalAccessTokens.map((token) => ({
   lastUsedLabel: token.last_used_at ? formatDate(token.last_used_at) : t("settings.personalAccessTokens.neverUsed"),
   status: resolveStatus(token),
 })));
-
 function formatDate(value: string) {
   return new Date(value).toLocaleString(locale.value);
 }
@@ -182,6 +187,13 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
               </UButton>
           </template>
         </UTable>
+        <TablePagination
+          :page="personalAccessTokensPage"
+          :page-size="personalAccessTokensPageSize"
+          :total="personalAccessTokensTotal"
+          @update:page="emit('page', $event)"
+          @update:page-size="emit('page-size', $event)"
+        />
       </AppSettingsBlock>
     </div>
   </AppSettingsSection>

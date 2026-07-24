@@ -168,6 +168,13 @@ export function useSettingsPage() {
     void loadAdminUsers();
   }
 
+  function changeAdminUsersPageSize(value: number) {
+    if (adminUsersPageSize.value === value) return;
+    adminUsersPageSize.value = value;
+    adminUsersPageNumber.value = 1;
+    void loadAdminUsers();
+  }
+
   async function loadPage() {
     loading.value = true;
 
@@ -462,6 +469,7 @@ export function useSettingsPage() {
     adminUsersPageSize,
     adminUsersQuery,
     changeAdminUsersPage,
+    changeAdminUsersPageSize,
     createAdminUser,
     doclingDraft,
     disableAdminUser,

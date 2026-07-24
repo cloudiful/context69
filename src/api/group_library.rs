@@ -8,10 +8,11 @@ use uuid::Uuid;
 
 use crate::contracts::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
-    LibraryFileDetailResponse, LibraryIngestJobResponse, LibraryResourcePageQuery,
-    LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse,
-    LibraryUrlImportJobResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
+    LibraryFileDetailResponse, LibraryFileJobPageQuery, LibraryFileJobPageResponse,
+    LibraryIngestJobResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
+    LibraryTreeResponse, LibraryUploadResponse, LibraryUrlImportJobResponse, MembershipRole,
+    MoveFileRequest, MoveFolderRequest, PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
+    UpsertLibraryTextRequest,
 };
 
 #[utoipa::path(
@@ -450,6 +451,41 @@ pub(crate) async fn get_group_library_file(
     };
     match state.app.library.get_file_in_project(&group, file_id).await {
         Ok(file) => (StatusCode::OK, Json(file)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/groups/by-path/{group_path}/library/files/{file_id}/jobs",
+    params(
+        ("group_path" = String, Path, description = "URL-encoded group path"),
+        ("file_id" = Uuid, Path, description = "File id"),
+        LibraryFileJobPageQuery
+    ),
+    responses(
+        (status = 200, description = "Paginated library file ingest jobs", body = LibraryFileJobPageResponse),
+        (status = 400, description = "Invalid pagination parameters"),
+        (status = 404, description = "Group or file not found")
+    )
+)]
+pub(crate) async fn get_group_library_file_jobs(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path((group_path, file_id)): Path<(String, Uuid)>,
+    Query(query): Query<LibraryFileJobPageQuery>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    match state
+        .app
+        .library
+        .get_file_jobs_in_project(&group, file_id, query.page, query.page_size)
+        .await
+    {
+        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }

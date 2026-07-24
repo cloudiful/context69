@@ -83,6 +83,36 @@ impl Database {
             .collect())
     }
 
+    pub async fn count_personal_access_tokens(&self, user_id: i64) -> Result<i64> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/personal_access_tokens/count_personal_access_tokens.sql",
+            user_id
+        )
+        .fetch_one(self.pool())
+        .await?)
+    }
+
+    pub async fn list_personal_access_tokens_page(
+        &self,
+        user_id: i64,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<PersonalAccessTokenRecord>> {
+        let rows = sqlx::query_file_as!(
+            PersonalAccessTokenRow,
+            "src/sql/db/personal_access_tokens/list_personal_access_tokens_page.sql",
+            user_id,
+            limit,
+            offset
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(personal_access_token_from_row)
+            .collect())
+    }
+
     pub async fn get_personal_access_token_by_hash(
         &self,
         token_hash: &str,

@@ -78,6 +78,14 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
     void loadMembersPage().catch((error) => showErrorToast(error, t("groups.membersFailed")));
   }
 
+  function changePageSize(value: number) {
+    if (pageSize.value === value) return;
+    pageSize.value = value;
+    childrenPageNumber.value = 1;
+    membersPageNumber.value = 1;
+    void Promise.all([loadChildrenPage(), loadMembersPage()]).catch((error) => showErrorToast(error, t("groups.loadFailed")));
+  }
+
   watch(childrenSearch, () => {
     childrenPageNumber.value = 1;
     void loadChildrenPage().catch((error) => showErrorToast(error, t("groups.loadFailed")));
@@ -91,6 +99,7 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
   return {
     changeChildrenPage,
     changeMembersPage,
+    changePageSize,
     childGroups,
     childrenPage,
     childrenPageNumber,

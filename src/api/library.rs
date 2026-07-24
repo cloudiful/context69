@@ -8,7 +8,8 @@ use uuid::Uuid;
 
 use crate::contracts::{
     ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-    LibraryFolderResponse, LibraryIngestJobResponse, LibraryProcessingJobBulkActionResponse,
+    LibraryFileJobPageQuery, LibraryFileJobPageResponse, LibraryFolderResponse,
+    LibraryIngestJobResponse, LibraryProcessingJobBulkActionResponse,
     LibraryProcessingJobPageQuery, LibraryProcessingJobPageResponse, LibraryResourcePageQuery,
     LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
     MoveFolderRequest,
@@ -268,6 +269,33 @@ pub(crate) async fn get_library_file(
 ) -> impl IntoResponse {
     match state.app.library.get_file(file_id).await {
         Ok(file) => (StatusCode::OK, Json(file)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/library/files/{file_id}/jobs",
+    params(("file_id" = Uuid, Path, description = "File id"), LibraryFileJobPageQuery),
+    responses(
+        (status = 200, description = "Paginated library file ingest jobs", body = LibraryFileJobPageResponse),
+        (status = 400, description = "Invalid pagination parameters", body = ApiErrorResponse),
+        (status = 404, description = "File not found", body = ApiErrorResponse),
+        (status = 500, description = "Internal error", body = ApiErrorResponse)
+    )
+)]
+pub(crate) async fn get_library_file_jobs(
+    State(state): State<ApiState>,
+    Path(file_id): Path<Uuid>,
+    Query(query): Query<LibraryFileJobPageQuery>,
+) -> impl IntoResponse {
+    match state
+        .app
+        .library
+        .get_file_jobs(file_id, query.page, query.page_size)
+        .await
+    {
+        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }
