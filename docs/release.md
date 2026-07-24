@@ -16,6 +16,19 @@ Behavior:
 - pushing `v1.2.3` publishes both crates
 - both crate versions must match `1.2.3`, or the workflow fails before publish
 
+## CI build cache
+
+The Docker and crates.io workflows use `sccache` with the Cloudflare R2 S3-compatible backend.
+Configure these repository secrets before running either workflow:
+
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+
+The workflows use the R2 endpoint from the reference deployment, bucket `sccache`, and the
+shared `rust/` key prefix. Create the R2 API token with Object Read and Object Write access
+limited to that bucket. The credentials are injected only into Rust build and cache-stat steps;
+they are not passed to Docker image assembly or published as artifacts.
+
 ## GHCR
 
 This repository includes `.github/workflows/publish-docker-ghcr.yml`.

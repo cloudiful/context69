@@ -12,6 +12,11 @@ on:
       expected_version:
         required: true
         type: string
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -23,6 +28,9 @@ jobs:
     environment:
       name: crates-io
       url: ${{ inputs.crate_url }}
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -30,12 +38,36 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: v0.16.0
 
       - name: Authenticate with crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Publish crate
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RUSTC_WRAPPER: sccache
+          SCCACHE_BASEDIRS: ${{ github.workspace }}
+          SCCACHE_BUCKET: sccache
+          SCCACHE_ENDPOINT: https://12412d5b061683494ea3e5c217d6a961.r2.cloudflarestorage.com
+          SCCACHE_REGION: auto
+          SCCACHE_S3_KEY_PREFIX: rust/
         run: cargo publish -p "${{ inputs.package }}" --registry crates-io --token "${{ steps.auth.outputs.token }}"
+
+      - name: Show sccache stats
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RUSTC_WRAPPER: sccache
+          SCCACHE_BASEDIRS: ${{ github.workspace }}
+          SCCACHE_BUCKET: sccache
+          SCCACHE_ENDPOINT: https://12412d5b061683494ea3e5c217d6a961.r2.cloudflarestorage.com
+          SCCACHE_REGION: auto
+          SCCACHE_S3_KEY_PREFIX: rust/
+        run: sccache --show-stats

@@ -39,6 +39,9 @@ jobs:
       package: context69-contracts
       crate_url: https://crates.io/crates/context69-contracts
       expected_version: ${{ needs.prepare.outputs.version }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
   publish-sdk:
     needs:
@@ -49,3 +52,6 @@ jobs:
       package: context69-sdk
       crate_url: https://crates.io/crates/context69-sdk
       expected_version: ${{ needs.prepare.outputs.version }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
