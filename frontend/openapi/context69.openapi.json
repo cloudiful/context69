@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.8.0"
+    "version": "0.8.1"
   },
   "paths": {
     "/healthz": {
@@ -5119,10 +5119,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -5131,25 +5128,8 @@
               "$ref": "#/components/schemas/AdminUserResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -6062,10 +6042,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -6074,25 +6051,8 @@
               "$ref": "#/components/schemas/GroupMemberResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -6124,10 +6084,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -6136,25 +6093,8 @@
               "$ref": "#/components/schemas/GroupResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -6543,10 +6483,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -6555,25 +6492,8 @@
               "$ref": "#/components/schemas/LibraryIngestJobResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -6944,10 +6864,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages",
+          "pagination",
           "summary"
         ],
         "properties": {
@@ -6957,28 +6874,11 @@
               "$ref": "#/components/schemas/LibraryProcessingJobResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           },
           "summary": {
             "$ref": "#/components/schemas/LibraryProcessingJobSummaryResponse"
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -7239,10 +7139,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -7251,25 +7148,8 @@
               "$ref": "#/components/schemas/LibraryResourceItem"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -7513,10 +7393,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -7525,25 +7402,8 @@
               "$ref": "#/components/schemas/MetadataIndexResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -7685,37 +7545,15 @@
           }
         }
       },
-      "PersonalAccessTokenPageQuery": {
-        "type": "object",
-        "properties": {
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "PersonalAccessTokenPageResponse": {
+      "Pagination": {
         "type": "object",
         "required": [
-          "items",
           "page",
           "page_size",
           "total",
           "total_pages"
         ],
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PersonalAccessTokenResponse"
-            }
-          },
           "page": {
             "type": "integer",
             "format": "int32",
@@ -7735,6 +7573,39 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "PersonalAccessTokenPageQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PersonalAccessTokenPageResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonalAccessTokenResponse"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -8396,37 +8267,21 @@
         "type": "object",
         "required": [
           "query",
-          "hits",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "items",
+          "pagination"
         ],
         "properties": {
-          "hits": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SearchHit"
             }
           },
-          "page": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           },
           "query": {
             "type": "string"
-          },
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "minimum": 0
           }
         }
       },
@@ -8633,10 +8488,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -8645,25 +8497,8 @@
               "$ref": "#/components/schemas/SourceStatus"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -8947,10 +8782,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -8959,25 +8791,8 @@
               "$ref": "#/components/schemas/TaskResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
@@ -9386,10 +9201,7 @@
         "type": "object",
         "required": [
           "items",
-          "page",
-          "page_size",
-          "total",
-          "total_pages"
+          "pagination"
         ],
         "properties": {
           "items": {
@@ -9398,25 +9210,8 @@
               "$ref": "#/components/schemas/TranslationProviderResponse"
             }
           },
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total_pages": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },

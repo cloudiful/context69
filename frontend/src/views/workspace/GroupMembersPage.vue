@@ -48,9 +48,7 @@ const columns = computed<TableColumn<GroupMemberResponse>[]>(() => [
     </UTable>
 
     <TablePagination
-      :page="state.membersPageNumber"
-      :page-size="state.membersPage.page_size"
-      :total="state.membersPage.total"
+      :pagination="state.membersPage.pagination"
       @update:page="state.changeMembersPage"
       @update:page-size="state.changePageSize"
     />

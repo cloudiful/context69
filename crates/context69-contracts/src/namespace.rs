@@ -3,6 +3,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
+use crate::Pagination;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Visibility {
@@ -182,19 +184,13 @@ pub struct NamespacePageQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GroupPageResponse {
     pub items: Vec<GroupResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GroupMemberPageResponse {
     pub items: Vec<GroupMemberResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]

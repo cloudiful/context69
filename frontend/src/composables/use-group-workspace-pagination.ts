@@ -11,11 +11,11 @@ import {
 } from "../services/api";
 
 function emptyGroupPage(): GroupPageResponse {
-  return { items: [], page: 1, page_size: 50, total: 0, total_pages: 0 };
+  return { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } };
 }
 
 function emptyMemberPage(): GroupMemberPageResponse {
-  return { items: [], page: 1, page_size: 50, total: 0, total_pages: 0 };
+  return { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } };
 }
 
 type Options = {

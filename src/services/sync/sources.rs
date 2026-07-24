@@ -1,4 +1,5 @@
 use super::*;
+use crate::pagination::PageBounds;
 
 impl SyncService {
     pub async fn list_sources_page(
@@ -7,34 +8,18 @@ impl SyncService {
         page_size: u32,
         query: Option<&str>,
     ) -> Result<SourcePageResponse> {
-        if page == 0 {
-            return Err(anyhow!("page must be greater than 0"));
-        }
-        if !(1..=100).contains(&page_size) {
-            return Err(anyhow!("page_size must be between 1 and 100"));
-        }
+        let bounds = PageBounds::new(page, page_size)?;
         let query = query.map(str::trim).filter(|value| !value.is_empty());
-        let total = u64::try_from(self.source_store.count_sources(query).await?)?;
-        let offset = i64::from(page - 1)
-            .checked_mul(i64::from(page_size))
-            .ok_or_else(|| anyhow!("page offset is too large"))?;
-        let total_pages = if total == 0 {
-            0
-        } else {
-            total.div_ceil(u64::from(page_size))
-        };
+        let total = self.source_store.count_sources(query).await?;
         Ok(SourcePageResponse {
             items: self
                 .decorate_sources(
                     self.source_store
-                        .list_sources_page(query, i64::from(page_size), offset)
+                        .list_sources_page(query, i64::from(bounds.page_size), bounds.offset)
                         .await?,
                 )
                 .await?,
-            page,
-            page_size,
-            total,
-            total_pages: u32::try_from(total_pages)?,
+            pagination: bounds.pagination(total)?,
         })
     }
 

@@ -7,6 +7,7 @@ import {
   type LibraryIngestStatus,
   type LibraryResourceItem,
   type LibraryResourceSortBy,
+  type Pagination,
   type SortDirection,
 } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
@@ -25,6 +26,7 @@ export function useLibraryPage({ folder, t }: Options) {
   const page = ref(1);
   const pageSize = ref(50);
   const total = ref(0);
+  const pagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
   const sortBy = ref<LibraryResourceSortBy>("updated_at");
   const sortDirection = ref<SortDirection>("desc");
   const query = ref("");
@@ -120,7 +122,8 @@ export function useLibraryPage({ folder, t }: Options) {
       });
       if (currentRequest !== requestId) return;
       entries.value = response.items.map((item) => toEntry(item, parent));
-      total.value = response.total;
+      pagination.value = response.pagination;
+      total.value = response.pagination.total;
     } catch (cause) {
       if (currentRequest !== requestId) return;
       error.value = t("library.loadFailed");
@@ -155,7 +158,8 @@ export function useLibraryPage({ folder, t }: Options) {
     error.value = null;
     page.value = 1;
     total.value = 0;
+    pagination.value = { page: 1, page_size: pageSize.value, total: 0, total_pages: 0 };
   }
 
-  return { changePage, changeSort, changeStatusFilter, entries, error, first, loadPage, loading, page, pageSize, query, reset, sortBy, sortOrder, statusFilter, total };
+  return { changePage, changeSort, changeStatusFilter, entries, error, first, loadPage, loading, page, pageSize, pagination, query, reset, sortBy, sortOrder, statusFilter, total };
 }

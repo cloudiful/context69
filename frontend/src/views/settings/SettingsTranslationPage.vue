@@ -135,9 +135,7 @@ function usageLabel(provider: ProviderDraft) {
     </UTable>
 
     <TablePagination
-      :page="providerPageNumber"
-      :page-size="providerPageSize"
-      :total="providerPage?.total ?? 0"
+      :pagination="providerPage?.pagination ?? { page: 1, page_size: providerPageSize, total: 0, total_pages: 0 }"
       @update:page="changeProviderPage"
       @update:page-size="changeProviderPageSize"
     />

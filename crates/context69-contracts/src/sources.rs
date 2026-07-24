@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::Pagination;
 use crate::Visibility;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -59,10 +60,7 @@ pub struct SourcePageQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SourcePageResponse {
     pub items: Vec<SourceStatus>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: Pagination,
 }
 
 const fn default_page() -> u32 {

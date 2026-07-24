@@ -6,6 +6,7 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::DocumentResponse;
+use crate::Pagination;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -80,10 +81,7 @@ pub struct MetadataIndexPageQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetadataIndexPageResponse {
     pub items: Vec<MetadataIndexResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: Pagination,
 }
 
 const fn default_page() -> u32 {

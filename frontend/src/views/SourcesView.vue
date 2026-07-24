@@ -10,6 +10,7 @@ import {
   apiClient,
   type SourceConfigInput,
   type SourceConnectionResponse,
+  type Pagination,
   type SourceStatus,
 } from "../services/api";
 import { useErrorToast } from "../composables/use-error-toast";
@@ -24,7 +25,7 @@ const sources = ref<SourceStatus[]>([]);
 const sourcePage = ref(1);
 const sourcePageSize = ref(50);
 const sourceQuery = ref("");
-const sourceTotal = ref(0);
+const sourcePagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
 const connections = ref<SourceConnectionResponse[]>([]);
 const loading = ref(false);
 const formBusy = ref(false);
@@ -45,8 +46,8 @@ async function loadSources() {
       query: sourceQuery.value,
     });
     sources.value = response.items;
-    sourceTotal.value = response.total;
-    if (response.total === 0) {
+    sourcePagination.value = response.pagination;
+    if (response.pagination.total === 0) {
       editorOpen.value = true;
     }
   } catch (error) {
@@ -144,7 +145,7 @@ function startEdit(source: SourceStatus) {
 
 function resetEditor() {
   editingSource.value = null;
-  editorOpen.value = sourceTotal.value === 0;
+  editorOpen.value = sourcePagination.value.total === 0;
   editorRevision.value += 1;
 }
 
@@ -204,9 +205,7 @@ onMounted(async () => {
         <section class="grid min-w-0 gap-2">
           <SourceTable
             :sources="sources"
-            :page="sourcePage"
-            :page-size="sourcePageSize"
-            :total="sourceTotal"
+            :pagination="sourcePagination"
             :query="sourceQuery"
             :loading="loading"
             :syncing-map="syncingMap"

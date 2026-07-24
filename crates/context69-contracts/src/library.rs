@@ -323,10 +323,7 @@ pub struct LibraryResourceItem {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryResourcePageResponse {
     pub items: Vec<LibraryResourceItem>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: crate::Pagination,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -403,10 +400,7 @@ pub struct LibraryProcessingJobPageQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryProcessingJobPageResponse {
     pub items: Vec<LibraryProcessingJobResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: crate::Pagination,
     pub summary: LibraryProcessingJobSummaryResponse,
 }
 
@@ -491,10 +485,7 @@ pub struct LibraryFileJobPageQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryFileJobPageResponse {
     pub items: Vec<LibraryIngestJobResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: crate::Pagination,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

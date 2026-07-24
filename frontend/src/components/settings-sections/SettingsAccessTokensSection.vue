@@ -12,6 +12,7 @@ import TablePagination from "../TablePagination.vue";
 import type {
   CreatePersonalAccessTokenResponse,
   PersonalAccessTokenResponse,
+  Pagination,
 } from "../../services/api";
 
 const props = defineProps<{
@@ -29,9 +30,7 @@ const props = defineProps<{
   personalAccessTokenScopeOptions: Array<{ key: string; label: string; helper: string }>;
   personalAccessTokenScopeToggleModel: Record<string, boolean>;
   personalAccessTokens: PersonalAccessTokenResponse[];
-  personalAccessTokensPage: number;
-  personalAccessTokensPageSize: number;
-  personalAccessTokensTotal: number;
+  personalAccessTokensPagination: Pagination;
   personalAccessTokensCreating: boolean;
   personalAccessTokensLoading: boolean;
   personalAccessTokensReveal: CreatePersonalAccessTokenResponse | null;
@@ -188,9 +187,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
           </template>
         </UTable>
         <TablePagination
-          :page="personalAccessTokensPage"
-          :page-size="personalAccessTokensPageSize"
-          :total="personalAccessTokensTotal"
+          :pagination="personalAccessTokensPagination"
           @update:page="emit('page', $event)"
           @update:page-size="emit('page-size', $event)"
         />

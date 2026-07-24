@@ -7,15 +7,13 @@ import { useAppConfirm } from "../../composables/use-app-confirm";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
 import TablePagination from "../TablePagination.vue";
 
-import type { AdminUserResponse } from "../../services/api";
+import type { AdminUserResponse, Pagination } from "../../services/api";
 
 const props = defineProps<{
   busy?: boolean;
   createBusy?: boolean;
-  page: number;
-  pageSize: number;
+  pagination: Pagination;
   query: string;
-  total: number;
   users: AdminUserResponse[];
 }>();
 
@@ -183,9 +181,7 @@ function confirmEnable(loginNameValue: string) {
     </UTable>
 
     <TablePagination
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
+      :pagination="pagination"
       @update:page="emit('page', $event)"
       @update:page-size="emit('page-size', $event)"
     />

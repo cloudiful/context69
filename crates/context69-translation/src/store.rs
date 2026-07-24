@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use context69_contracts::{
-    GroupTranslationSettingsResponse, TranslationProviderPageResponse, TranslationSettingsResponse,
-    UpdateGroupTranslationSettingsRequest, UpdateTranslationSettingsRequest,
+    GroupTranslationSettingsResponse, Pagination, TranslationProviderPageResponse,
+    TranslationSettingsResponse, UpdateGroupTranslationSettingsRequest,
+    UpdateTranslationSettingsRequest,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -146,20 +147,12 @@ impl TranslationStore {
         page: u32,
         page_size: u32,
     ) -> Result<TranslationProviderPageResponse> {
-        if page == 0 {
-            return Err(anyhow!("page must be greater than 0"));
-        }
-        if !(1..=100).contains(&page_size) {
-            return Err(anyhow!("page_size must be between 1 and 100"));
-        }
+        let offset = Pagination::offset(page, page_size)?;
         let total = u64::try_from(
             sqlx::query_file_scalar!("sql/providers/count.sql")
                 .fetch_one(&self.pool)
                 .await?,
         )?;
-        let offset = i64::from(page - 1)
-            .checked_mul(i64::from(page_size))
-            .ok_or_else(|| anyhow!("page offset is too large"))?;
         let providers = sqlx::query_file_as!(
             StoredTranslationProvider,
             "sql/providers/list_page.sql",
@@ -175,14 +168,7 @@ impl TranslationStore {
         }
         Ok(TranslationProviderPageResponse {
             items,
-            page,
-            page_size,
-            total,
-            total_pages: if total == 0 {
-                0
-            } else {
-                u32::try_from(total.div_ceil(u64::from(page_size)))?
-            },
+            pagination: Pagination::try_new(page, page_size, total)?,
         })
     }
 

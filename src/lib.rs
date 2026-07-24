@@ -10,6 +10,7 @@ pub mod library_store;
 pub mod mcp;
 pub mod models;
 pub mod normalize;
+pub(crate) mod pagination;
 pub mod qdrant_index;
 pub(crate) mod retry;
 pub mod serde_helpers;

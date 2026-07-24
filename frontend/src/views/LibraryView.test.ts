@@ -76,10 +76,7 @@ const fileResource: LibraryResourceItem = {
 function resourcePage(items: LibraryResourceItem[]): LibraryResourcePageResponse {
   return {
     items,
-    page: 1,
-    page_size: 50,
-    total: items.length,
-    total_pages: items.length > 0 ? 1 : 0,
+    pagination: { page: 1, page_size: 50, total: items.length, total_pages: items.length > 0 ? 1 : 0 },
   };
 }
 

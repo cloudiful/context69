@@ -6,7 +6,7 @@ use super::support::{client, spawn_json};
 
 #[tokio::test]
 async fn search_executes_borrowed_request() {
-    let response = json!({"query": "rust", "hits": [], "page": 1, "page_size": 5, "total": 0, "total_pages": 0});
+    let response = json!({"query": "rust", "items": [], "pagination": {"page": 1, "page_size": 5, "total": 0, "total_pages": 0}});
     let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
     let request_body = SearchRequest {
         query: "rust".to_string(),

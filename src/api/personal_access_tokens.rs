@@ -41,10 +41,7 @@ pub(crate) async fn list_personal_access_tokens(
             StatusCode::OK,
             Json(PersonalAccessTokenPageResponse {
                 items: page.items.into_iter().map(response_from_view).collect(),
-                page: page.page,
-                page_size: page.page_size,
-                total: page.total,
-                total_pages: page.total_pages,
+                pagination: page.pagination,
             }),
         )
             .into_response(),

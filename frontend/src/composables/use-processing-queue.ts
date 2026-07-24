@@ -1,6 +1,6 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
-import { apiClient, type LibraryIngestFailureStage, type LibraryIngestStatus, type LibraryProcessingJobResponse, type LibraryProcessingJobSummaryResponse } from "../services/api";
+import { apiClient, type LibraryIngestFailureStage, type LibraryIngestStatus, type LibraryProcessingJobPageResponse, type LibraryProcessingJobResponse, type LibraryProcessingJobSummaryResponse } from "../services/api";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
 import { useToast } from "@nuxt/ui/composables";
@@ -25,6 +25,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const toast = useToast();
   const confirm = useAppConfirm();
   const items = ref<LibraryProcessingJobResponse[]>([]);
+  const pagination = ref<LibraryProcessingJobPageResponse["pagination"]>({ page: 1, page_size: DEFAULT_PAGE_SIZE, total: 0, total_pages: 0 });
   const loading = ref(false);
   const error = ref<string | null>(null);
   const page = ref(1);
@@ -62,10 +63,11 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       }, { signal: requestController.signal });
       if (currentRequest !== requestId) return;
       items.value = response.items;
-      page.value = response.page;
-      pageSize.value = response.page_size;
-      total.value = response.total;
-      totalPages.value = response.total_pages;
+      pagination.value = response.pagination;
+      page.value = response.pagination.page;
+      pageSize.value = response.pagination.page_size;
+      total.value = response.pagination.total;
+      totalPages.value = response.pagination.total_pages;
       summary.value = response.summary ?? EMPTY_SUMMARY;
     } catch (loadError) {
       if (loadError instanceof Error && loadError.name === "AbortError") return;
@@ -231,6 +233,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   return {
     items,
     loading,
+    pagination,
     error,
     page,
     pageSize,

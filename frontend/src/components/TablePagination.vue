@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
+import type { Pagination } from "../services/api";
 
 const props = withDefaults(defineProps<{
-  page: number;
-  pageSize: number;
+  pagination: Pagination;
   pageSizeOptions?: number[];
-  total: number;
 }>(), {
   pageSizeOptions: () => [10, 25, 50, 100],
 });
@@ -20,17 +19,17 @@ const { t } = useI18n();
 const pageSizeItems = computed(() => props.pageSizeOptions.map((value) => ({ label: String(value), value })));
 
 function updatePageSize(value: number) {
-  if (value === props.pageSize) return;
+  if (value === props.pagination.page_size) return;
   emit("update:page-size", value);
 }
 </script>
 
 <template>
-  <div v-if="props.total > 0" class="flex flex-wrap items-center justify-between gap-2">
+  <div v-if="props.pagination.total > 0" class="flex flex-wrap items-center justify-between gap-2">
     <div class="flex items-center gap-2">
       <span class="text-sm text-muted-color">{{ t("common.itemsPerPage") }}</span>
       <USelect
-        :model-value="props.pageSize"
+        :model-value="props.pagination.page_size"
         :items="pageSizeItems"
         value-key="value"
         class="w-20"
@@ -40,10 +39,10 @@ function updatePageSize(value: number) {
     </div>
 
     <UPagination
-      v-if="props.total > props.pageSize"
-      :page="props.page"
-      :items-per-page="props.pageSize"
-      :total="props.total"
+      v-if="props.pagination.total > props.pagination.page_size"
+      :page="props.pagination.page"
+      :items-per-page="props.pagination.page_size"
+      :total="props.pagination.total"
       @update:page="emit('update:page', $event)"
     />
   </div>

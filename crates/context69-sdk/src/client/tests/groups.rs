@@ -23,10 +23,7 @@ fn group_json() -> serde_json::Value {
 fn group_page_json() -> serde_json::Value {
     json!({
         "items": [group_json()],
-        "page": 1,
-        "page_size": 50,
-        "total": 1,
-        "total_pages": 1
+        "pagination": {"page": 1, "page_size": 50, "total": 1, "total_pages": 1}
     })
 }
 

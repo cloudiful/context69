@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::{
     contracts::PersonalAccessTokenScope,
     db::{Database, PersonalAccessTokenRecord},
+    pagination::PageBounds,
     services::{auth::AuthService, token_utils::hash_token},
 };
 
@@ -29,10 +30,7 @@ pub struct PersonalAccessTokenView {
 #[derive(Debug, Clone)]
 pub struct PersonalAccessTokenPage {
     pub items: Vec<PersonalAccessTokenView>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: context69_contracts::Pagination,
 }
 
 #[derive(Debug, Clone)]
@@ -125,34 +123,18 @@ impl PersonalAccessTokenService {
         page: u32,
         page_size: u32,
     ) -> Result<PersonalAccessTokenPage> {
-        if page == 0 {
-            return Err(anyhow!("page must be greater than 0"));
-        }
-        if !(1..=100).contains(&page_size) {
-            return Err(anyhow!("page_size must be between 1 and 100"));
-        }
-        let total = u64::try_from(self.db.count_personal_access_tokens(user_id).await?)?;
-        let offset = i64::from(page - 1)
-            .checked_mul(i64::from(page_size))
-            .ok_or_else(|| anyhow!("page offset is too large"))?;
-        let total_pages = if total == 0 {
-            0
-        } else {
-            total.div_ceil(u64::from(page_size))
-        };
+        let bounds = PageBounds::new(page, page_size)?;
+        let total = self.db.count_personal_access_tokens(user_id).await?;
         let items = self
             .db
-            .list_personal_access_tokens_page(user_id, i64::from(page_size), offset)
+            .list_personal_access_tokens_page(user_id, i64::from(bounds.page_size), bounds.offset)
             .await?
             .into_iter()
             .map(token_view_from_record)
             .collect::<Result<Vec<_>>>()?;
         Ok(PersonalAccessTokenPage {
             items,
-            page,
-            page_size,
-            total,
-            total_pages: u32::try_from(total_pages)?,
+            pagination: bounds.pagination(total)?,
         })
     }
 

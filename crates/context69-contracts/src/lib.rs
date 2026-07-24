@@ -17,7 +17,7 @@ pub use auth::{
     PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
     ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
 };
-pub use common::{ApiErrorResponse, HealthResponse, HealthStatus};
+pub use common::{ApiErrorResponse, HealthResponse, HealthStatus, Pagination};
 pub use documents::{
     BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
     CreateMetadataIndexRequest, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,

@@ -240,10 +240,7 @@ fn page_request(query: &NamespacePageQuery) -> PageRequest {
 fn group_page_response(page: context69_namespace::Page<GroupRecord>) -> GroupPageResponse {
     GroupPageResponse {
         items: page.items.into_iter().map(group_response).collect(),
-        page: page.page,
-        page_size: page.page_size,
-        total: page.total,
-        total_pages: page.total_pages,
+        pagination: page.pagination,
     }
 }
 
@@ -252,9 +249,6 @@ fn group_member_page_response(
 ) -> GroupMemberPageResponse {
     GroupMemberPageResponse {
         items: page.items.into_iter().map(group_member_response).collect(),
-        page: page.page,
-        page_size: page.page_size,
-        total: page.total,
-        total_pages: page.total_pages,
+        pagination: page.pagination,
     }
 }

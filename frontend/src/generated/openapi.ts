@@ -1425,14 +1425,7 @@ export interface components {
         };
         AdminUserPageResponse: {
             items: components["schemas"]["AdminUserResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         AdminUserResponse: {
             /** Format: date-time */
@@ -1651,14 +1644,7 @@ export interface components {
         GroupKind: "personal" | "shared";
         GroupMemberPageResponse: {
             items: components["schemas"]["GroupMemberResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         GroupMemberResponse: {
             display_name: string;
@@ -1669,14 +1655,7 @@ export interface components {
         };
         GroupPageResponse: {
             items: components["schemas"]["GroupResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         GroupResponse: {
             /** Format: date-time */
@@ -1778,14 +1757,7 @@ export interface components {
         };
         LibraryFileJobPageResponse: {
             items: components["schemas"]["LibraryIngestJobResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         LibraryFileSummary: {
             /** Format: date-time */
@@ -1886,15 +1858,8 @@ export interface components {
         LibraryProcessingJobKind: "ingest" | "url_import";
         LibraryProcessingJobPageResponse: {
             items: components["schemas"]["LibraryProcessingJobResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
+            pagination: components["schemas"]["Pagination"];
             summary: components["schemas"]["LibraryProcessingJobSummaryResponse"];
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
         };
         LibraryProcessingJobResponse: {
             can_retry: boolean;
@@ -1967,14 +1932,7 @@ export interface components {
         LibraryResourceKind: "folder" | "file";
         LibraryResourcePageResponse: {
             items: components["schemas"]["LibraryResourceItem"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         /** @enum {string} */
         LibraryResourceSortBy: "name" | "type" | "status" | "size" | "updated_at";
@@ -2033,14 +1991,7 @@ export interface components {
         };
         MetadataIndexPageResponse: {
             items: components["schemas"]["MetadataIndexResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         MetadataIndexResponse: {
             /** Format: date-time */
@@ -2084,14 +2035,7 @@ export interface components {
             page_size?: number;
             query?: string | null;
         };
-        PersonalAccessTokenPageQuery: {
-            /** Format: int32 */
-            page?: number;
-            /** Format: int32 */
-            page_size?: number;
-        };
-        PersonalAccessTokenPageResponse: {
-            items: components["schemas"]["PersonalAccessTokenResponse"][];
+        Pagination: {
             /** Format: int32 */
             page: number;
             /** Format: int32 */
@@ -2100,6 +2044,16 @@ export interface components {
             total: number;
             /** Format: int32 */
             total_pages: number;
+        };
+        PersonalAccessTokenPageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+        };
+        PersonalAccessTokenPageResponse: {
+            items: components["schemas"]["PersonalAccessTokenResponse"][];
+            pagination: components["schemas"]["Pagination"];
         };
         PersonalAccessTokenResponse: {
             /** Format: date-time */
@@ -2260,12 +2214,9 @@ export interface components {
             source_key?: string | null;
         };
         SearchResponse: {
-            hits: components["schemas"]["SearchHit"][];
-            page: number;
-            page_size: number;
+            items: components["schemas"]["SearchHit"][];
+            pagination: components["schemas"]["Pagination"];
             query: string;
-            total: number;
-            total_pages: number;
         };
         SearchSettingsResponse: {
             candidate_limit: number;
@@ -2321,14 +2272,7 @@ export interface components {
         };
         SourcePageResponse: {
             items: components["schemas"]["SourceStatus"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         SourceStatus: {
             base_query: string;
@@ -2400,14 +2344,7 @@ export interface components {
         };
         TaskPageResponse: {
             items: components["schemas"]["TaskResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         TaskProgress: {
             /** Format: int64 */
@@ -2520,14 +2457,7 @@ export interface components {
         };
         TranslationProviderPageResponse: {
             items: components["schemas"]["TranslationProviderResponse"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int32 */
-            total_pages: number;
+            pagination: components["schemas"]["Pagination"];
         };
         TranslationProviderResponse: {
             /** Format: int64 */

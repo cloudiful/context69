@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
-import { apiClient, type CreateMetadataIndexRequest, type MetadataIndexResponse } from "../services/api";
+import { apiClient, type CreateMetadataIndexRequest, type MetadataIndexResponse, type Pagination } from "../services/api";
 import TablePagination from "./TablePagination.vue";
 
 const props = defineProps<{ groupPath: string; canManage: boolean }>();
@@ -11,7 +11,7 @@ const sourceKey = ref("");
 const rows = ref<MetadataIndexResponse[]>([]);
 const page = ref(1);
 const pageSize = ref(50);
-const total = ref(0);
+const pagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
 const loading = ref(false);
 const dialogVisible = ref(false);
 const path = ref("");
@@ -38,7 +38,7 @@ async function load() {
       pageSize: pageSize.value,
     });
     rows.value = response.items;
-    total.value = response.total;
+    pagination.value = response.pagination;
   }
   finally { loading.value = false; }
 }
@@ -89,9 +89,7 @@ async function remove(row: MetadataIndexResponse) { await apiClient.deleteMetada
       </template>
     </UTable>
     <TablePagination
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
+      :pagination="pagination"
       @update:page="changePage"
       @update:page-size="changePageSize"
     />

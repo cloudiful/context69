@@ -7,6 +7,7 @@ import {
   type LibraryIngestStatus,
   type LibraryResourceItem,
   type LibraryResourceSortBy,
+  type Pagination,
   type SortDirection,
 } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
@@ -26,6 +27,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
   const page = ref(1);
   const pageSize = ref(50);
   const total = ref(0);
+  const pagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
   const sortBy = ref<LibraryResourceSortBy>("updated_at");
   const sortDirection = ref<SortDirection>("desc");
   const query = ref("");
@@ -122,7 +124,8 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
       entries.value = response.items.map((item) => item.kind === "folder"
         ? folderEntry(item, parent)
         : fileEntry(item, parent));
-      total.value = response.total;
+      pagination.value = response.pagination;
+      total.value = response.pagination.total;
     } catch (cause) {
       if (currentRequest !== requestId) return;
       error.value = t("library.loadFailed");
@@ -157,6 +160,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
     error.value = null;
     page.value = 1;
     total.value = 0;
+    pagination.value = { page: 1, page_size: pageSize.value, total: 0, total_pages: 0 };
   }
 
   return {
@@ -171,6 +175,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
     pageSize,
     page,
     query,
+    pagination,
     reset,
     sortBy,
     sortOrder,

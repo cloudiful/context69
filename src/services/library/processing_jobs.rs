@@ -2,6 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{Duration, Utc};
 
 use super::*;
+use crate::pagination::PageBounds;
 
 pub(crate) const STUCK_PROCESSING_JOB_MINUTES: i64 = 10;
 const STUCK_PROCESSING_JOB_ERROR: &str =
@@ -13,12 +14,7 @@ impl LibraryService {
         scope: &crate::domain::AccessScope,
         query: &LibraryProcessingJobPageQuery,
     ) -> Result<LibraryProcessingJobPageResponse> {
-        if query.page == 0 {
-            return Err(anyhow!("page must be greater than 0"));
-        }
-        if !(1..=100).contains(&query.page_size) {
-            return Err(anyhow!("page_size must be between 1 and 100"));
-        }
+        let bounds = PageBounds::new(query.page, query.page_size)?;
         let user_id = scope.user_id.context("authenticated user is required")?;
         let mut summary = self
             .store
@@ -44,10 +40,6 @@ impl LibraryService {
                 query.failure_stage,
             )
             .await?;
-        let page_size = i64::from(query.page_size);
-        let offset = i64::from(query.page - 1)
-            .checked_mul(page_size)
-            .ok_or_else(|| anyhow!("page offset is too large"))?;
         let items = self
             .store
             .list_processing_jobs(
@@ -57,25 +49,15 @@ impl LibraryService {
                 query.status,
                 query.failure_stage,
                 ProcessingJobPage {
-                    limit: page_size,
-                    offset,
+                    limit: i64::from(bounds.page_size),
+                    offset: bounds.offset,
                 },
             )
             .await?;
-        let total = u64::try_from(total).map_err(|_| anyhow!("negative processing job count"))?;
-        let total_pages = if total == 0 {
-            0
-        } else {
-            total.div_ceil(u64::from(query.page_size))
-        };
 
         Ok(LibraryProcessingJobPageResponse {
             items,
-            page: query.page,
-            page_size: query.page_size,
-            total,
-            total_pages: u32::try_from(total_pages)
-                .map_err(|_| anyhow!("processing job page count is too large"))?,
+            pagination: bounds.pagination(total)?,
             summary,
         })
     }

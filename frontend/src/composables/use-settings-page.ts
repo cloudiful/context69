@@ -60,7 +60,7 @@ export function useSettingsPage() {
   const translationSettings = ref<TranslationSettingsResponse | null>(null);
   const translationProviders = ref<TranslationProviderDraft[]>([]);
   const adminUsers = ref<AdminUserResponse[]>([]);
-  const adminUsersPage = ref<AdminUserPageResponse>({ items: [], page: 1, page_size: 50, total: 0, total_pages: 0 });
+  const adminUsersPage = ref<AdminUserPageResponse>({ items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } });
   const adminUsersPageNumber = ref(1);
   const adminUsersPageSize = ref(50);
   const adminUsersQuery = ref("");
@@ -156,6 +156,8 @@ export function useSettingsPage() {
       });
       adminUsersPage.value = response;
       adminUsers.value = response.items;
+      adminUsersPageNumber.value = response.pagination.page;
+      adminUsersPageSize.value = response.pagination.page_size;
     } catch (error) {
       showErrorToast(error, t("adminUsers.loadFailed"));
     } finally {

@@ -18,10 +18,7 @@ function sourcePage(items: SourceStatus[], page = 1, pageSize = 50): SourcePageR
   const total = items.length;
   return {
     items,
-    page,
-    page_size: pageSize,
-    total,
-    total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    pagination: { page, page_size: pageSize, total, total_pages: total === 0 ? 0 : Math.ceil(total / pageSize) },
   };
 }
 
@@ -29,11 +26,8 @@ function searchPage(query: string, hits: SearchHit[], pageSize = 8): SearchRespo
   const total = hits.length;
   return {
     query,
-    hits,
-    page: 1,
-    page_size: pageSize,
-    total,
-    total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    items: hits,
+    pagination: { page: 1, page_size: pageSize, total, total_pages: total === 0 ? 0 : Math.ceil(total / pageSize) },
   };
 }
 

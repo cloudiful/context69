@@ -67,10 +67,7 @@ function sourcePage(items: SourceStatus[], page = 1, pageSize = 50): SourcePageR
   const total = items.length;
   return {
     items,
-    page,
-    page_size: pageSize,
-    total,
-    total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    pagination: { page, page_size: pageSize, total, total_pages: total === 0 ? 0 : Math.ceil(total / pageSize) },
   };
 }
 

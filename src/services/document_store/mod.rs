@@ -24,6 +24,7 @@ use uuid::Uuid;
 use crate::{
     db::{Database, StoredMetadataIndex},
     domain::AccessScope,
+    pagination::PageBounds,
     qdrant_index::QdrantIndex,
     services::library::LibraryService,
 };
@@ -70,33 +71,22 @@ impl DocumentStoreService {
         page: u32,
         page_size: u32,
     ) -> Result<MetadataIndexPageResponse> {
-        if page == 0 {
-            return Err(anyhow!("page must be greater than 0"));
-        }
-        if !(1..=100).contains(&page_size) {
-            return Err(anyhow!("page_size must be between 1 and 100"));
-        }
-        let total = u64::try_from(self.db.count_metadata_indexes(group_id, source_key).await?)?;
-        let offset = i64::from(page - 1)
-            .checked_mul(i64::from(page_size))
-            .ok_or_else(|| anyhow!("page offset is too large"))?;
-        let total_pages = if total == 0 {
-            0
-        } else {
-            total.div_ceil(u64::from(page_size))
-        };
+        let bounds = PageBounds::new(page, page_size)?;
+        let total = self.db.count_metadata_indexes(group_id, source_key).await?;
         Ok(MetadataIndexPageResponse {
             items: self
                 .db
-                .list_metadata_indexes_page(group_id, source_key, i64::from(page_size), offset)
+                .list_metadata_indexes_page(
+                    group_id,
+                    source_key,
+                    i64::from(bounds.page_size),
+                    bounds.offset,
+                )
                 .await?
                 .into_iter()
                 .map(map_index)
                 .collect::<Result<Vec<_>>>()?,
-            page,
-            page_size,
-            total,
-            total_pages: u32::try_from(total_pages)?,
+            pagination: bounds.pagination(total)?,
         })
     }
 

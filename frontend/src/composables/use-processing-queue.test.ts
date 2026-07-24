@@ -35,10 +35,7 @@ const failedIngest: LibraryProcessingJobResponse = {
 function page(items: LibraryProcessingJobResponse[] = [failedIngest], summary = {}) {
   return {
     items,
-    page: 1,
-    page_size: 25,
-    total: items.length,
-    total_pages: items.length ? 1 : 0,
+    pagination: { page: 1, page_size: 25, total: items.length, total_pages: items.length ? 1 : 0 },
     summary: {
       can_manage: false,
       cleanupable_stuck_count: 0,

@@ -6,7 +6,7 @@ import { useI18n } from "vue-i18n";
 import AsyncStateBlock from "./AsyncStateBlock.vue";
 import TablePagination from "./TablePagination.vue";
 import { useLibraryResourceTable } from "../composables/library/use-library-resource-table";
-import type { GroupPageResponse, LibraryIngestStatus } from "../services/api";
+import type { GroupPageResponse, LibraryIngestStatus, Pagination } from "../services/api";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
 import { formatTimestamp } from "../utils/format";
 import { createLibraryStatusHelpers } from "../utils/library-status";
@@ -24,6 +24,7 @@ const props = withDefaults(defineProps<{
   hideGroupPaths?: boolean;
   expandedKeys: Record<string, boolean>;
   loading: boolean;
+  pagination?: Pagination;
   pageSize?: number;
   paginated?: boolean;
   resourceSearchQuery: string;
@@ -39,7 +40,7 @@ const props = withDefaults(defineProps<{
   totalRecords?: number;
 }>(), {
   groupEntries: () => [], groupPage: undefined, hideActions: false, hideGroupPaths: false, compact: false,
-  first: 0, pageSize: 50, paginated: false, sortField: "updated_at", sortOrder: -1,
+  first: 0, pageSize: 50, paginated: false, pagination: undefined, sortField: "updated_at", sortOrder: -1,
   statusFilter: null, totalRecords: 0, retryingFileIds: () => [], unavailableFileIds: () => [],
 });
 
@@ -63,6 +64,12 @@ const table = useLibraryResourceTable(props, t, statusLabel);
 const uploadFiles = ref<File[] | null>(null);
 const sorting = ref([{ id: props.sortField, desc: props.sortOrder !== 1 }]);
 const currentPage = computed(() => Math.floor(props.first / props.pageSize) + 1);
+const resourcePagination = computed<Pagination>(() => props.pagination ?? {
+  page: currentPage.value,
+  page_size: props.pageSize,
+  total: props.totalRecords,
+  total_pages: props.totalRecords === 0 ? 0 : Math.ceil(props.totalRecords / props.pageSize),
+});
 const columns = computed<TableColumn<LibraryBrowserEntry>[]>(() => [
   { accessorKey: "name", header: t("library.filename") },
   { id: "type", header: t("library.typeLabel") },
@@ -181,17 +188,13 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 
     <TablePagination
       v-if="props.paginated"
-      :page="currentPage"
-      :page-size="props.pageSize"
-      :total="props.totalRecords"
+      :pagination="resourcePagination"
       @update:page="emit('page', { first: ($event - 1) * props.pageSize, rows: props.pageSize })"
       @update:page-size="emit('page', { first: 0, rows: $event })"
     />
     <TablePagination
       v-if="props.groupPage"
-      :page="props.groupPage.page"
-      :page-size="props.groupPage.page_size"
-      :total="props.groupPage.total"
+      :pagination="props.groupPage.pagination"
       @update:page="emit('group-page', $event)"
       @update:page-size="emit('group-page-size', $event)"
     />

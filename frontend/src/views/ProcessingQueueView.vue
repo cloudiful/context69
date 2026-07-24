@@ -152,9 +152,7 @@ function itemLabel(item: LibraryProcessingJobResponse) {
     </div>
 
     <TablePagination
-      :page="queue.page"
-      :page-size="queue.pageSize"
-      :total="queue.total"
+      :pagination="queue.pagination"
       @update:page="queue.changePage($event)"
       @update:page-size="queue.changePageSize($event)"
     />

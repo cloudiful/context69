@@ -26,11 +26,8 @@ describe("apiClient", () => {
     POST.mockResolvedValue({
       data: {
         query: "policy",
-        hits: [],
-        page: 1,
-        page_size: 5,
-        total: 0,
-        total_pages: 0,
+        items: [],
+        pagination: { page: 1, page_size: 5, total: 0, total_pages: 0 },
       },
       response: {
         ok: true,
@@ -221,10 +218,7 @@ describe("apiClient", () => {
           updated_at: "2026-06-01T00:00:00Z",
           },
         ],
-        page: 1,
-        page_size: 50,
-        total: 1,
-        total_pages: 1,
+        pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
       },
       response: {
         ok: true,
@@ -261,7 +255,7 @@ describe("apiClient", () => {
 
     await expect(apiClient.listPersonalAccessTokens()).resolves.toEqual(expect.objectContaining({
       items: expect.arrayContaining([expect.objectContaining({ name: "CLI" })]),
-      total: 1,
+      pagination: expect.objectContaining({ total: 1 }),
     }));
     await expect(apiClient.createPersonalAccessToken({
       name: "CLI",

@@ -5,6 +5,7 @@ use crate::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
     NamespaceMemberRecord, UpdateGroupInput, UpsertMembershipInput,
 };
+use context69_contracts::Pagination;
 
 #[derive(Debug, Clone)]
 pub struct PageRequest {
@@ -16,10 +17,7 @@ pub struct PageRequest {
 #[derive(Debug, Clone)]
 pub struct Page<T> {
     pub items: Vec<T>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: Pagination,
 }
 
 #[async_trait]

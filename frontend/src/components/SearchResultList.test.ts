@@ -9,6 +9,7 @@ describe("SearchResultList", () => {
   it("emits open for document hits", async () => {
     const wrapper = mount(SearchResultList, {
       props: {
+        pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
         hits: [
           {
             chunk_id: "chunk-1",
@@ -46,6 +47,7 @@ describe("SearchResultList", () => {
   it("renders library-backed hits and emits open", async () => {
     const wrapper = mount(SearchResultList, {
       props: {
+        pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
         hits: [
           {
             chunk_id: "chunk-2",

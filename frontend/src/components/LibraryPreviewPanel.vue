@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { TableColumn } from "@nuxt/ui";
 
-import { apiClient, type LibraryFileDetailResponse, type LibraryIngestJobResponse } from "../services/api";
+import { apiClient, type LibraryFileDetailResponse, type LibraryIngestJobResponse, type Pagination } from "../services/api";
 import type { FolderSummary } from "../types/library";
 import { formatBytes, formatTimestamp } from "../utils/format";
 import { createLibraryStatusHelpers } from "../utils/library-status";
@@ -50,7 +50,7 @@ const showErrorToast = useErrorToast();
 const jobRows = ref<LibraryIngestJobResponse[]>([]);
 const jobPage = ref(1);
 const jobPageSize = ref(50);
-const jobTotal = ref(0);
+const jobPagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
 const jobsLoading = ref(false);
 let jobsController: AbortController | null = null;
 let jobsRequestId = 0;
@@ -58,7 +58,7 @@ let jobsRequestId = 0;
 async function loadJobs(page = jobPage.value) {
   if (!props.selectedFileId) {
     jobRows.value = [];
-    jobTotal.value = 0;
+    jobPagination.value = { page: 1, page_size: jobPageSize.value, total: 0, total_pages: 0 };
     return;
   }
   jobsController?.abort();
@@ -70,9 +70,10 @@ async function loadJobs(page = jobPage.value) {
       ? await apiClient.getGroupLibraryFileJobs(props.groupPath, props.selectedFileId, { page, pageSize: jobPageSize.value }, { signal: jobsController.signal })
       : await apiClient.getLibraryFileJobs(props.selectedFileId, { page, pageSize: jobPageSize.value }, { signal: jobsController.signal });
     if (requestId !== jobsRequestId) return;
-    jobPage.value = response.page;
+    jobPage.value = response.pagination.page;
+    jobPageSize.value = response.pagination.page_size;
     jobRows.value = response.items;
-    jobTotal.value = response.total;
+    jobPagination.value = response.pagination;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") return;
     if (requestId === jobsRequestId) showErrorToast(error, t("library.detailLoadFailed"));
@@ -231,7 +232,7 @@ onBeforeUnmount(() => jobsController?.abort());
           />
         </section>
 
-        <section v-if="jobTotal > 0 || jobsLoading" class="grid gap-2">
+        <section v-if="jobPagination.total > 0 || jobsLoading" class="grid gap-2">
           <h2 class="text-sm font-semibold text-color">{{ t("library.jobsTitle") }}</h2>
           <UTable class="min-w-0 max-w-full" :data="jobRows" :columns="jobColumns" :loading="jobsLoading">
             <template #job_id-cell="{ row }"><span class="block max-w-96 truncate font-mono text-xs" :title="row.original.job_id">{{ row.original.job_id }}</span></template>
@@ -239,9 +240,7 @@ onBeforeUnmount(() => jobsController?.abort());
             <template #status-cell="{ row }"><UBadge :label="statusLabel(row.original.status)" :color="statusSeverity(row.original.status)" variant="subtle" /></template>
           </UTable>
           <TablePagination
-            :page="jobPage"
-            :page-size="jobPageSize"
-            :total="jobTotal"
+            :pagination="jobPagination"
             @update:page="changeJobPage"
             @update:page-size="changeJobPageSize"
           />

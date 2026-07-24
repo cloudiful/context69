@@ -110,7 +110,7 @@ impl Context69McpServer {
         Ok(Json(McpSearchResponse {
             query: response.query,
             hits: response
-                .hits
+                .items
                 .into_iter()
                 .map(|hit| McpSearchHit {
                     document_id: hit.document_id,

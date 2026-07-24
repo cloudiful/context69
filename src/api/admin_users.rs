@@ -44,10 +44,7 @@ pub(crate) async fn list_admin_users(
             StatusCode::OK,
             Json(AdminUserPageResponse {
                 items: page.users.into_iter().map(admin_user_response).collect(),
-                page: page.page,
-                page_size: page.page_size,
-                total: page.total,
-                total_pages: page.total_pages,
+                pagination: page.pagination,
             }),
         )
             .into_response(),

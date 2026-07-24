@@ -100,11 +100,8 @@ pub struct SearchHit {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct SearchResponse {
     pub query: String,
-    pub hits: Vec<SearchHit>,
-    pub page: usize,
-    pub page_size: usize,
-    pub total: usize,
-    pub total_pages: usize,
+    pub items: Vec<SearchHit>,
+    pub pagination: crate::Pagination,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

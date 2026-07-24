@@ -73,7 +73,7 @@ async function runSearch(options: { persistHistory?: boolean; page?: number } = 
   try {
     const nextResults = await apiClient.search(payload, { signal: controller.signal });
     results.value = nextResults;
-    selectedHit.value = nextResults.hits[0] ?? null;
+    selectedHit.value = nextResults.items[0] ?? null;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return;
@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
         :loading-title="t('search.scanningTitle')"
         :loading-message="t('search.scanningMessage')"
         loading-test-id="search-loading"
-        :empty="searched && !!results && results.hits.length === 0"
+        :empty="searched && !!results && results.items.length === 0"
       >
         <template #empty>
           <UAlert
@@ -158,10 +158,8 @@ onBeforeUnmount(() => {
         <div v-if="results" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start">
           <SearchResultList
             class="min-w-0"
-            :hits="results.hits"
-            :page="results.page"
-            :page-size="results.page_size"
-            :total="results.total"
+            :hits="results.items"
+            :pagination="results.pagination"
             :selected-hit="selectedHit"
             @open="openHit"
             @page="runSearch({ page: $event })"

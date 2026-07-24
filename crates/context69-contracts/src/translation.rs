@@ -103,10 +103,7 @@ pub struct TranslationProviderPageQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TranslationProviderPageResponse {
     pub items: Vec<TranslationProviderResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: crate::Pagination,
 }
 
 const fn default_page() -> u32 {

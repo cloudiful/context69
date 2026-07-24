@@ -9,10 +9,13 @@ const personalAccessTokenCanCreate = computed(() => unref(state.personalAccessTo
 const personalAccessTokenExpiryOptions = computed(() => unref(state.personalAccessTokenExpiryOptions));
 const personalAccessTokenScopeOptions = computed(() => unref(state.personalAccessTokenScopeOptions));
 const personalAccessTokenScopeToggleModel = computed(() => unref(state.personalAccessTokenScopeToggleModel));
-const personalAccessTokens = computed(() => unref(state.personalAccessTokens));
-const personalAccessTokensPage = computed(() => unref(state.personalAccessTokensPage));
-const personalAccessTokensPageSize = computed(() => unref(state.personalAccessTokensPageSize));
-const personalAccessTokensTotal = computed(() => unref(state.personalAccessTokensTotal));
+const personalAccessTokens = computed(() => unref(state.personalAccessTokens) ?? []);
+const personalAccessTokensPagination = computed(() => unref(state.personalAccessTokensPagination) ?? {
+  page: 1,
+  page_size: 50,
+  total: 0,
+  total_pages: 0,
+});
 const personalAccessTokensCreating = computed(() => unref(state.personalAccessTokensCreating));
 const personalAccessTokensLoading = computed(() => unref(state.personalAccessTokensLoading));
 const personalAccessTokensReveal = computed(() => unref(state.personalAccessTokensReveal));
@@ -30,9 +33,7 @@ const personalAccessTokensReveal = computed(() => unref(state.personalAccessToke
     :personal-access-token-scope-options="personalAccessTokenScopeOptions"
     :personal-access-token-scope-toggle-model="personalAccessTokenScopeToggleModel"
     :personal-access-tokens="personalAccessTokens"
-    :personal-access-tokens-page="personalAccessTokensPage"
-    :personal-access-tokens-page-size="personalAccessTokensPageSize"
-    :personal-access-tokens-total="personalAccessTokensTotal"
+    :personal-access-tokens-pagination="personalAccessTokensPagination"
     :personal-access-tokens-creating="personalAccessTokensCreating"
     :personal-access-tokens-loading="personalAccessTokensLoading"
     :personal-access-tokens-reveal="personalAccessTokensReveal"

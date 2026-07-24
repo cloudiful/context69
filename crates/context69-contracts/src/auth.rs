@@ -4,6 +4,7 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::MembershipRole;
+use crate::Pagination;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuthLoginRequest {
@@ -74,10 +75,7 @@ pub struct PersonalAccessTokenPageQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PersonalAccessTokenPageResponse {
     pub items: Vec<PersonalAccessTokenResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -101,10 +99,7 @@ pub struct AdminUserResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AdminUserPageResponse {
     pub items: Vec<AdminUserResponse>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]

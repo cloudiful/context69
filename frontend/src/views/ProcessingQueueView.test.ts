@@ -41,10 +41,7 @@ describe("ProcessingQueueView", () => {
   beforeEach(() => {
     getLibraryProcessingJobs.mockReset().mockResolvedValue({
       items: [row],
-      page: 1,
-      page_size: 25,
-      total: 1,
-      total_pages: 1,
+      pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
       summary: {
         can_manage: false,
         cleanupable_stuck_count: 0,
@@ -96,10 +93,7 @@ describe("ProcessingQueueView", () => {
     confirmResult = false;
     getLibraryProcessingJobs.mockResolvedValue({
       items: [row],
-      page: 1,
-      page_size: 25,
-      total: 1,
-      total_pages: 1,
+      pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
       summary: {
         can_manage: true,
         cleanupable_stuck_count: 1,
@@ -135,10 +129,7 @@ describe("ProcessingQueueView", () => {
     getLibraryProcessingJobs
       .mockResolvedValueOnce({
         items: [row],
-        page: 1,
-        page_size: 25,
-        total: 1,
-        total_pages: 1,
+        pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
         summary: {
           can_manage: true,
           cleanupable_stuck_count: 0,
@@ -151,10 +142,7 @@ describe("ProcessingQueueView", () => {
       } as never)
       .mockResolvedValueOnce({
         items: [],
-        page: 1,
-        page_size: 25,
-        total: 0,
-        total_pages: 0,
+        pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 },
         summary: {
           can_manage: true,
           cleanupable_stuck_count: 0,

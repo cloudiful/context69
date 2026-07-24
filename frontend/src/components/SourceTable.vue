@@ -3,15 +3,13 @@ import { computed } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
-import type { SourceStatus } from "../services/api";
+import type { Pagination, SourceStatus } from "../services/api";
 import TablePagination from "./TablePagination.vue";
 import { formatTimestamp } from "../utils/format";
 
 const props = withDefaults(defineProps<{
   sources: SourceStatus[];
-  page: number;
-  pageSize: number;
-  total: number;
+  pagination: Pagination;
   query: string;
   loading?: boolean;
   syncingMap: Record<string, boolean>;
@@ -80,7 +78,7 @@ function selectRow(_event: Event, row: { original: SourceStatus }) {
   <div class="grid gap-2">
     <UDashboardToolbar class="flex-wrap justify-between gap-2">
       <div class="flex min-w-0 flex-wrap items-center gap-2">
-        <UBadge :label="t('sources.summary.total', { count: total })" color="neutral" variant="subtle" />
+        <UBadge :label="t('sources.summary.total', { count: pagination.total })" color="neutral" variant="subtle" />
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <UInput
@@ -221,9 +219,7 @@ function selectRow(_event: Event, row: { original: SourceStatus }) {
     </UTable>
 
     <TablePagination
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
+      :pagination="pagination"
       @update:page="emit('page', $event)"
       @update:page-size="emit('page-size', $event)"
     />

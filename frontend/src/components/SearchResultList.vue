@@ -3,15 +3,13 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type { TableColumn } from "@nuxt/ui";
 
-import type { SearchHit } from "../services/api";
+import type { Pagination, SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
 import TablePagination from "./TablePagination.vue";
 
 const props = defineProps<{
   hits: SearchHit[];
-  page: number;
-  pageSize: number;
-  total: number;
+  pagination: Pagination;
   selectedHit?: SearchHit | null;
 }>();
 
@@ -86,9 +84,7 @@ function selectRow(_event: Event, row: { original: SearchHit }) {
     </UTable>
 
     <TablePagination
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
+      :pagination="pagination"
       @update:page="emit('page', $event)"
       @update:page-size="emit('page-size', $event)"
     />

@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::{
     db::{Database, StoredTask, StoredTaskItem},
     domain::GroupRecord,
+    pagination::PageBounds,
     services::{
         document_store::DocumentStoreService, library::LibraryService, namespace::NamespaceService,
         sync::SyncService,
@@ -119,35 +120,26 @@ impl TaskService {
     }
 
     pub async fn list(&self, user_id: i64, query: &TaskListQuery) -> Result<TaskPageResponse> {
-        if query.page == 0 || !(1..=100).contains(&query.page_size) {
-            return Err(anyhow!(
-                "page must be >= 1 and page_size must be between 1 and 100"
-            ));
-        }
+        let bounds = PageBounds::new(query.page, query.page_size)?;
         let kind = query.kind.map(TaskKind::as_str);
         let status = query.status.map(TaskStatus::as_str);
-        let total = u64::try_from(self.db.count_tasks(user_id, kind, status).await?)?;
-        let page_size = i64::from(query.page_size);
-        let offset = i64::from(query.page - 1)
-            .checked_mul(page_size)
-            .context("task page offset is too large")?;
+        let total = self.db.count_tasks(user_id, kind, status).await?;
         let items = self
             .db
-            .list_tasks(user_id, kind, status, page_size, offset)
+            .list_tasks(
+                user_id,
+                kind,
+                status,
+                i64::from(bounds.page_size),
+                bounds.offset,
+            )
             .await?
             .into_iter()
             .map(task_response)
             .collect();
         Ok(TaskPageResponse {
             items,
-            page: query.page,
-            page_size: query.page_size,
-            total,
-            total_pages: if total == 0 {
-                0
-            } else {
-                total.div_ceil(u64::from(query.page_size)) as u32
-            },
+            pagination: bounds.pagination(total)?,
         })
     }
 

@@ -30,10 +30,7 @@ describe("ProjectFilesPanel", () => {
     });
     vi.spyOn(apiClient, "getGroupLibraryResources").mockResolvedValue({
       items: [],
-      page: 1,
-      page_size: 50,
-      total: 0,
-      total_pages: 0,
+      pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 },
     });
 
     const router = createRouter({
@@ -47,7 +44,7 @@ describe("ProjectFilesPanel", () => {
       attachTo: document.body,
       props: {
         childGroups: [],
-        childGroupPage: { items: [], page: 1, page_size: 50, total: 0, total_pages: 0 },
+        childGroupPage: { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } },
         childGroupSearch: "",
         groupPath: "stock",
       },

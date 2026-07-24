@@ -8,35 +8,27 @@ import EntityDialog from "../components/EntityDialog.vue";
 import TablePagination from "../components/TablePagination.vue";
 import { apiClient, type GroupResponse, type Visibility } from "../services/api";
 import { useErrorToast } from "../composables/use-error-toast";
+import { useServerPagination } from "../composables/use-server-pagination";
 
 const router = useRouter();
 const { t } = useI18n();
 const showErrorToast = useErrorToast();
-const groups = ref<GroupResponse[]>([]);
-const loading = ref(false);
-const page = ref(1);
-const pageSize = ref(50);
-const total = ref(0);
 const query = ref("");
 const createDialogVisible = ref(false);
 const createBusy = ref(false);
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
+const pageState = useServerPagination<GroupResponse>((params, options) => apiClient.listGroups({
+  ...params,
+  query: query.value.trim() || undefined,
+}, options));
+const error = pageState.error;
+const groups = pageState.items;
+const loading = pageState.loading;
+const pagination = pageState.pagination;
+
 async function loadGroups() {
-  loading.value = true;
-  try {
-    const response = await apiClient.listGroups({
-      page: page.value,
-      page_size: pageSize.value,
-      query: query.value.trim() || undefined,
-    });
-    groups.value = response.items;
-    total.value = response.total;
-  } catch (error) {
-    showErrorToast(error, t("groups.loadFailed"));
-  } finally {
-    loading.value = false;
-  }
+  await pageState.load();
 }
 
 async function createGroup(payload: { key?: string; name: string; visibility: Visibility }) {
@@ -65,16 +57,12 @@ function handleGroupSelect(_event: Event, row: { original: GroupResponse }) {
   openGroup(row.original);
 }
 
-function changePageSize(value: number) {
-  if (pageSize.value === value) return;
-  pageSize.value = value;
-  page.value = 1;
-  void loadGroups();
+function changePage(value: number) {
+  pageState.changePage(value);
 }
 
-function changePage(value: number) {
-  page.value = value;
-  void loadGroups();
+function changePageSize(value: number) {
+  pageState.changePageSize(value);
 }
 
 function roleSeverity(role?: string | null) {
@@ -95,11 +83,14 @@ onMounted(() => {
   void loadGroups();
 });
 
+watch(error, (cause) => {
+  if (cause) showErrorToast(cause, t("groups.loadFailed"));
+});
+
 watch(query, () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
-    page.value = 1;
-    void loadGroups();
+    void pageState.load(1);
   }, 250);
 });
 
@@ -132,9 +123,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     </UTable>
 
     <TablePagination
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
+      :pagination="pagination"
       @update:page="changePage"
       @update:page-size="changePageSize"
     />

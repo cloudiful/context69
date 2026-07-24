@@ -43,10 +43,7 @@ function response(): LibraryResourcePageResponse {
       updated_at: "2026-07-11T12:00:00Z",
       visibility: "private",
     }],
-    page: 2,
-    page_size: 25,
-    total: 80,
-    total_pages: 4,
+    pagination: { page: 2, page_size: 25, total: 80, total_pages: 4 },
   };
 }
 

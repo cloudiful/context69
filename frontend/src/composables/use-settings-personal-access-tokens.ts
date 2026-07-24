@@ -8,6 +8,7 @@ import {
   type CreatePersonalAccessTokenResponse,
   type PersonalAccessTokenResponse,
   type PersonalAccessTokenScope,
+  type Pagination,
 } from "../services/api";
 import { useErrorToast } from "./use-error-toast";
 
@@ -24,6 +25,7 @@ export function useSettingsPersonalAccessTokens() {
   const personalAccessTokensPage = ref(1);
   const personalAccessTokensPageSize = ref(50);
   const personalAccessTokensTotal = ref(0);
+  const personalAccessTokensPagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
   const personalAccessTokensLoading = ref(false);
   const personalAccessTokensCreating = ref(false);
   const personalAccessTokensReveal = ref<CreatePersonalAccessTokenResponse | null>(null);
@@ -88,7 +90,10 @@ export function useSettingsPersonalAccessTokens() {
         pageSize: personalAccessTokensPageSize.value,
       });
       personalAccessTokens.value = response.items;
-      personalAccessTokensTotal.value = response.total;
+      personalAccessTokensPagination.value = response.pagination;
+      personalAccessTokensPage.value = response.pagination.page;
+      personalAccessTokensPageSize.value = response.pagination.page_size;
+      personalAccessTokensTotal.value = response.pagination.total;
     } catch (error) {
       showErrorToast(error, t("settings.personalAccessTokens.loadFailed"));
     } finally {
@@ -206,6 +211,7 @@ export function useSettingsPersonalAccessTokens() {
     personalAccessTokens,
     personalAccessTokensPage,
     personalAccessTokensPageSize,
+    personalAccessTokensPagination,
     personalAccessTokensTotal,
     changePersonalAccessTokensPage,
     changePersonalAccessTokensPageSize,

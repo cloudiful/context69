@@ -6,6 +6,7 @@ export type ApiErrorResponse = Schemas["ApiErrorResponse"];
 export type AdminUserResponse = Schemas["AdminUserResponse"];
 export type AdminUserPageQuery = Schemas["AdminUserPageQuery"];
 export type AdminUserPageResponse = Schemas["AdminUserPageResponse"];
+export type Pagination = Schemas["Pagination"];
 export type AuthLoginRequest = Schemas["AuthLoginRequest"];
 export type AuthMeResponse = Schemas["AuthMeResponse"];
 export type AuthUserResponse = Schemas["AuthUserResponse"];
@@ -106,4 +107,14 @@ export type ApiResult<TData> = {
   data?: TData;
   error?: unknown;
   response: Response;
+};
+
+export type PageRequest = {
+  page: number;
+  page_size: number;
+};
+
+export type PaginatedResponse<T> = {
+  items: T[];
+  pagination: Pagination;
 };

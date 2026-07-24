@@ -9,8 +9,6 @@ const adminUsers = computed(() => unref(state.adminUsers));
 const adminUsersBusy = computed(() => unref(state.adminUsersBusy));
 const adminUsersCreateBusy = computed(() => unref(state.adminUsersCreateBusy));
 const adminUsersPage = computed(() => unref(state.adminUsersPage));
-const adminUsersPageNumber = computed(() => unref(state.adminUsersPageNumber));
-const adminUsersPageSize = computed(() => unref(state.adminUsersPageSize));
 const adminUsersQuery = computed(() => unref(state.adminUsersQuery));
 </script>
 
@@ -18,10 +16,8 @@ const adminUsersQuery = computed(() => unref(state.adminUsersQuery));
   <SettingsAdminUsersSection
     :busy="adminUsersBusy"
     :create-busy="adminUsersCreateBusy"
-    :page="adminUsersPageNumber"
-    :page-size="adminUsersPageSize"
+    :pagination="adminUsersPage.pagination"
     :query="adminUsersQuery"
-    :total="adminUsersPage.total"
     :users="adminUsers"
     @create="state.createAdminUser"
     @disable="state.disableAdminUser"

@@ -258,6 +258,7 @@ defineExpose({
             :expanded-keys="treeState.expandedTreeKeys"
             :loading="treeState.treeLoading || pageState.loading"
             paginated
+            :pagination="pageState.pagination"
             :page-size="pageState.pageSize"
             :resource-search-query="pageState.query"
             :selected-folder-ready="!!treeState.selectedFolder"
@@ -313,6 +314,7 @@ defineExpose({
         :expanded-keys="treeState.expandedTreeKeys"
         :loading="treeState.treeLoading || pageState.loading"
         paginated
+        :pagination="pageState.pagination"
         :page-size="pageState.pageSize"
         :resource-search-query="pageState.query"
         :selected-folder-ready="!!treeState.selectedFolder"

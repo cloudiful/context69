@@ -247,7 +247,7 @@ impl SearchCache {
     ) {
         let key =
             format!("{SEARCH_KEY_PREFIX}response:g{generation}:{request_hash}:{settings_hash}");
-        let ttl = if response.hits.is_empty() {
+        let ttl = if response.items.is_empty() {
             Duration::from_secs(EMPTY_RESPONSE_TTL_SECS)
         } else {
             Duration::from_secs(RESPONSE_TTL_SECS)

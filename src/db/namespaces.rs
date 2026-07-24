@@ -9,7 +9,7 @@ use sqlx::FromRow;
 
 use super::Database;
 use crate::{
-    contracts::{GroupKind, MembershipRole, Visibility},
+    contracts::{GroupKind, MembershipRole, Pagination, Visibility},
     domain::UserRecord,
 };
 
@@ -571,30 +571,14 @@ fn member_from_row(row: MemberRow) -> Result<NamespaceMemberRecord> {
 }
 
 fn page_offset(request: &PageRequest) -> Result<i64> {
-    if request.page == 0 {
-        return Err(anyhow!("page must be greater than 0"));
-    }
-    if !(1..=100).contains(&request.page_size) {
-        return Err(anyhow!("page_size must be between 1 and 100"));
-    }
-    i64::from(request.page - 1)
-        .checked_mul(i64::from(request.page_size))
-        .ok_or_else(|| anyhow!("page offset is too large"))
+    Pagination::offset(request.page, request.page_size)
 }
 
 fn page_result<T>(items: Vec<T>, total: i64, request: &PageRequest) -> Result<Page<T>> {
     let total = u64::try_from(total).context("negative page count")?;
-    let total_pages = if total == 0 {
-        0
-    } else {
-        total.div_ceil(u64::from(request.page_size))
-    };
     Ok(Page {
         items,
-        page: request.page,
-        page_size: request.page_size,
-        total,
-        total_pages: u32::try_from(total_pages).context("page count is too large")?,
+        pagination: Pagination::try_new(request.page, request.page_size, total)?,
     })
 }
 

@@ -227,7 +227,7 @@ impl Context69Client {
         Ok(CompactSearchResponse {
             query: response.query,
             hits: response
-                .hits
+                .items
                 .into_iter()
                 .map(|hit| CompactSearchHit {
                     document_id: hit.document_id,

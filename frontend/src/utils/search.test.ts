@@ -33,6 +33,7 @@ describe("search utilities", () => {
     expect(buildSearchPayload(filters)).toEqual({
       query: "policy",
       limit: 50,
+      page: 1,
       source_key: "gov_documents",
       published_after: undefined,
       published_before: "2025-01-31",

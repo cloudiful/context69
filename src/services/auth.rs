@@ -12,15 +12,13 @@ use crate::{
     contracts::{AuthUserResponse, MembershipRole},
     db::Database,
     domain::{AccessScope, PersonalGroupRecord, UserRecord},
+    pagination::PageBounds,
 };
 
 #[derive(Debug, Clone)]
 pub struct AdminUserPage {
     pub users: Vec<UserRecord>,
-    pub page: u32,
-    pub page_size: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub pagination: context69_contracts::Pagination,
 }
 
 pub const SESSION_COOKIE_NAME: &str = "context69_session_v2";
@@ -132,30 +130,14 @@ impl AuthService {
         query: &str,
     ) -> Result<AdminUserPage> {
         require_admin(actor)?;
-        if page == 0 {
-            return Err(anyhow!("page must be greater than 0"));
-        }
-        if !(1..=100).contains(&page_size) {
-            return Err(anyhow!("page_size must be between 1 and 100"));
-        }
-        let total = u64::try_from(self.db.count_users(query).await?)?;
-        let offset = i64::from(page - 1)
-            .checked_mul(i64::from(page_size))
-            .ok_or_else(|| anyhow!("page offset is too large"))?;
-        let total_pages = if total == 0 {
-            0
-        } else {
-            total.div_ceil(u64::from(page_size))
-        };
+        let bounds = PageBounds::new(page, page_size)?;
+        let total = self.db.count_users(query).await?;
         Ok(AdminUserPage {
             users: self
                 .db
-                .list_users(query, i64::from(page_size), offset)
+                .list_users(query, i64::from(bounds.page_size), bounds.offset)
                 .await?,
-            page,
-            page_size,
-            total,
-            total_pages: u32::try_from(total_pages)?,
+            pagination: bounds.pagination(total)?,
         })
     }
 
