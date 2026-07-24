@@ -9,9 +9,6 @@ on:
       crate_url:
         required: true
         type: string
-      expected_version:
-        required: true
-        type: string
     secrets:
       R2_ACCESS_KEY_ID:
         required: true
@@ -33,7 +30,7 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

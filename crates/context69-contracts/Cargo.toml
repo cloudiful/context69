@@ -20,6 +20,3 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 utoipa = { workspace = true, features = [ "chrono", "uuid" ] }
 uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
-
-[dev-dependencies]
-serde_json.workspace = true

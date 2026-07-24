@@ -299,10 +299,7 @@ describe("SettingsView", () => {
     const { wrapper } = await mountSettingsView("/settings/access-tokens");
 
     await wrapper.get("#personal-access-token-name").setValue("CLI");
-    const libraryToggle = wrapper.findComponent('[data-testid="pat-scope-library"]') as unknown as {
-      vm: { $emit: (event: string, value: boolean) => void };
-    };
-    libraryToggle.vm.$emit("update:modelValue", true);
+    await wrapper.get('[data-testid="pat-scope-library"]').trigger("click");
     await flushPromises();
     await wrapper.get('[data-testid="personal-access-token-create"]').trigger("click");
     await flushPromises();

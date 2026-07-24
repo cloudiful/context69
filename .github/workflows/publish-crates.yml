@@ -17,11 +17,8 @@ concurrency:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.value }}
     steps:
       - name: Extract release version from tag
-        id: version
         shell: bash
         run: |
           ref="${GITHUB_REF_NAME}"
@@ -38,7 +35,6 @@ jobs:
     with:
       package: context69-contracts
       crate_url: https://crates.io/crates/context69-contracts
-      expected_version: ${{ needs.prepare.outputs.version }}
     secrets:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -51,7 +47,18 @@ jobs:
     with:
       package: context69-sdk
       crate_url: https://crates.io/crates/context69-sdk
-      expected_version: ${{ needs.prepare.outputs.version }}
     secrets:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+  release:
+    needs: publish-sdk
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

@@ -14,7 +14,8 @@ Tag convention:
 Behavior:
 
 - pushing `v1.2.3` publishes both crates
-- both crate versions must match `1.2.3`, or the workflow fails before publish
+- the workflow validates the `v*` tag format and publishes the versions declared in the workspace manifests
+- after both crates publish successfully, the workflow creates a GitHub Release with generated release notes
 
 ## CI build cache
 
