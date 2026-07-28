@@ -56,6 +56,31 @@ pub enum LibraryIngestFailureStage {
     Other,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryDependencyGateResponse {
+    pub dependency_key: String,
+    pub state: String,
+    pub failure_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_probe_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    pub last_transition_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryProcessingQueueHealth {
+    pub pending_count: u64,
+    pub queued_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_pending_age_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_queued_age_seconds: Option<u64>,
+    pub recent_failure_count: u64,
+}
+
 impl LibraryIngestFailureStage {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -266,6 +291,18 @@ fn default_page_size() -> u32 {
     50
 }
 
+fn default_retry_limit() -> u32 {
+    100
+}
+
+fn default_retry_batch_size() -> u32 {
+    10
+}
+
+fn default_retry_rate_limit_ms() -> u64 {
+    250
+}
+
 fn default_resource_sort_by() -> LibraryResourceSortBy {
     LibraryResourceSortBy::UpdatedAt
 }
@@ -398,6 +435,22 @@ pub struct LibraryProcessingJobPageQuery {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryProcessingJobRetryRequest {
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default)]
+    pub failure_stage: Option<LibraryIngestFailureStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_filter: Option<String>,
+    #[serde(default = "default_retry_limit")]
+    pub limit: u32,
+    #[serde(default = "default_retry_batch_size")]
+    pub batch_size: u32,
+    #[serde(default = "default_retry_rate_limit_ms")]
+    pub rate_limit_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryProcessingJobPageResponse {
     pub items: Vec<LibraryProcessingJobResponse>,
     pub pagination: crate::Pagination,
@@ -417,8 +470,10 @@ pub struct LibraryProcessingJobSummaryResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryProcessingJobBulkActionResponse {
+    pub candidate_count: u64,
     pub accepted: u64,
     pub skipped: u64,
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]

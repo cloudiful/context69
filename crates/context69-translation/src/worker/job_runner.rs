@@ -1,6 +1,6 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use context69_contracts::TranslationGlossaryEntry;
 use tracing::warn;
 use uuid::Uuid;
@@ -26,32 +26,54 @@ struct PublishedText<'a> {
     body: &'a str,
 }
 
+const READINESS_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
 impl TranslationService {
     pub(super) async fn run_pending(&self) -> Result<()> {
         let Ok(_guard) = self.worker_lock.try_lock() else {
             return Ok(());
         };
-        let ids = self.store.pending_ids().await?;
-        let mut tasks = Vec::with_capacity(ids.len());
-        for id in ids {
-            let service = self.clone();
-            tasks.push(tokio::spawn(async move {
-                let _permit = service.semaphore.acquire().await?;
-                service.run_job(id).await
-            }));
-        }
-        for task in tasks {
-            if let Err(error) = task.await? {
-                warn!(%error, "translation job failed");
+        loop {
+            let ids = self.store.pending_ids().await?;
+            if ids.is_empty() {
+                return Ok(());
+            }
+            if !self.library_processing_ready().await {
+                tokio::time::sleep(READINESS_POLL_INTERVAL).await;
+                continue;
+            }
+
+            let mut tasks = Vec::with_capacity(ids.len());
+            for id in ids {
+                let service = self.clone();
+                tasks.push(tokio::spawn(async move {
+                    let _permit = service.semaphore.acquire().await?;
+                    service.run_job(id).await
+                }));
+            }
+            for task in tasks {
+                if let Err(error) = task.await? {
+                    warn!(%error, "translation job failed");
+                }
             }
         }
-        Ok(())
+    }
+
+    async fn library_processing_ready(&self) -> bool {
+        self.readiness.is_ready().await.unwrap_or(false)
     }
 
     async fn run_job(&self, id: Uuid) -> Result<()> {
+        if !self.library_processing_ready().await {
+            return Ok(());
+        }
         let Some(job) = self.store.claim_job(id).await? else {
             return Ok(());
         };
+        if !self.library_processing_ready().await {
+            self.store.release_claimed_job(id).await?;
+            return Ok(());
+        }
         let document = self.store.document(job.document_id).await?;
         if document.record_hash != job.source_record_hash {
             self.store
@@ -154,20 +176,53 @@ impl TranslationService {
                         .await?;
                     let (title, summary, body) =
                         translated_document(&segmented, &result.translations)?;
-                    self.publish_translation(
-                        &job,
-                        &document,
-                        PublishedText {
-                            source_locale: detected.as_deref(),
-                            provider_key: &provider.provider_key,
-                            config_hash: &config_hash,
-                            model_name: result.model_name.as_deref(),
-                            title: &title,
-                            summary: summary.as_deref(),
-                            body: &body,
-                        },
-                    )
-                    .await?;
+                    let publish_result = self
+                        .publish_translation(
+                            &job,
+                            &document,
+                            PublishedText {
+                                source_locale: detected.as_deref(),
+                                provider_key: &provider.provider_key,
+                                config_hash: &config_hash,
+                                model_name: result.model_name.as_deref(),
+                                title: &title,
+                                summary: summary.as_deref(),
+                                body: &body,
+                            },
+                        )
+                        .await;
+                    if let Err(error) = publish_result {
+                        let message = format!("{error:#}");
+                        match self.readiness.report_processing_error(&message).await {
+                            Ok(true) => {
+                                self.store.release_claimed_job(id).await?;
+                                return Ok(());
+                            }
+                            Ok(false) => {
+                                self.store
+                                    .finish_job(FinishJob {
+                                        id,
+                                        status: "failed",
+                                        source_locale: detected.as_deref(),
+                                        provider_key: Some(&provider.provider_key),
+                                        provider_config_hash: Some(&config_hash),
+                                        character_count,
+                                        error_message: Some(&message),
+                                    })
+                                    .await?;
+                                return Ok(());
+                            }
+                            Err(report_error) => {
+                                warn!(
+                                    job_id = %id,
+                                    error = %report_error,
+                                    "failed to report translation processing dependency error; releasing job"
+                                );
+                                self.store.release_claimed_job(id).await?;
+                                return Ok(());
+                            }
+                        }
+                    }
                     self.store
                         .finish_job(FinishJob {
                             id,
@@ -235,7 +290,7 @@ impl TranslationService {
             .await?;
         let published = self
             .publisher
-            .publish(
+            .publish_with_rollback(
                 &old_ids,
                 TranslationPublication {
                     document_id: job.document_id,
@@ -260,6 +315,7 @@ impl TranslationService {
             )
             .await?;
         let chunks = published
+            .chunks
             .iter()
             .map(|chunk| (chunk.chunk_id, chunk.chunk_text.clone()))
             .collect::<Vec<_>>();
@@ -277,12 +333,12 @@ impl TranslationService {
             body_text: text.body,
         };
         if let Err(error) = self.store.publish_version(&input, &chunks).await {
-            let new_ids = published
-                .iter()
-                .map(|chunk| chunk.chunk_id)
-                .collect::<Vec<_>>();
-            self.publisher.delete(&new_ids).await?;
-            return Err(error);
+            return match published.rollback().await {
+                Ok(()) => Err(error),
+                Err(rollback_error) => Err(anyhow!(
+                    "{error:#}; failed to roll back published translation points: {rollback_error:#}"
+                )),
+            };
         }
         Ok(())
     }

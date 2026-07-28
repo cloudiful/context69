@@ -1,69 +1,36 @@
-use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
-use serde::Deserialize;
+use anyhow::{Context, Result, anyhow};
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
+use tokio::time::timeout;
+use tracing::{info, warn};
+use uuid::Uuid;
 
+use super::dependency_runtime::{
+    dependency_is_transient, ingest_heartbeat_interval, ingest_lease_ttl_secs,
+    is_configuration_error, is_s3_error, probe_lease_ttl_secs,
+};
 use super::*;
 
-#[derive(Debug, Deserialize)]
-struct SourceConfigPreview {
-    #[serde(rename = "source_key")]
-    _source_key: String,
-    #[serde(rename = "connection")]
-    _connection: String,
-    #[serde(rename = "sync_strategy")]
-    _sync_strategy: String,
-    #[serde(rename = "connector_type")]
-    _connector_type: String,
-    #[serde(rename = "base_query")]
-    _base_query: String,
-    #[serde(rename = "batch_size")]
-    _batch_size: i64,
-}
-
-#[derive(Debug, Deserialize)]
-struct SourceRecordJson {
-    external_id: String,
-    title: String,
-    body_text: String,
-    source_uri: String,
-    #[serde(default)]
-    summary: Option<String>,
-    #[serde(default)]
-    published_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default)]
-    metadata_json: Value,
-}
-
 impl LibraryService {
-    pub(super) async fn run_ingest(
+    pub(super) async fn run_ingest_claim(
         &self,
-        file_id: Uuid,
-        job_id: Uuid,
-        kind: LibraryFileKind,
-    ) -> Result<()> {
+        claim: crate::library_store::IngestClaim,
+        probe_dependencies: Vec<LibraryDependency>,
+    ) -> Result<IngestClaimOutcome> {
+        let file_id = claim.file_id;
+        let job_id = claim.job_id;
         let _permit = self.ingest_semaphore.acquire().await?;
-        let Some(_) = self
+        let file_status = self
             .store
-            .update_job_status(
-                job_id,
-                LibraryIngestStatus::Running,
-                None,
-                None,
-                None,
-                JobStatusFlags {
-                    mark_started_now: true,
-                    mark_finished_now: false,
-                },
-            )
-            .await?
-        else {
-            return Ok(());
-        };
-        self.store
             .update_file_status(file_id, LibraryIngestStatus::Running, None, false)
             .await?;
-        let heartbeat = self.spawn_ingest_heartbeat(job_id);
+        if file_status.is_none() {
+            self.store
+                .release_ingest_job(job_id, claim.lease_token)
+                .await?;
+            return Ok(IngestClaimOutcome::Requeued);
+        }
+        let heartbeat = self.spawn_ingest_heartbeat(job_id, claim.lease_token, probe_dependencies);
+        let mut ingest_artifacts_may_exist = false;
 
         let result: IngestResult<()> = async {
             let file = self
@@ -78,8 +45,7 @@ impl LibraryService {
                     )
                 })?;
             let bytes = self
-                .storage
-                .read(&file.storage_rel_path)
+                .read_active_storage_for_lease(&file.storage_rel_path, claim.lease_token)
                 .await
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?
                 .with_context(|| format!("stored file not found for file {file_id}"))
@@ -90,450 +56,249 @@ impl LibraryService {
                 "library ingest input loaded"
             );
 
-            self.runtime()
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
-            let sections = match kind {
-                LibraryFileKind::Pdf => self.ingest_pdf(&file, &bytes, job_id).await?,
-                LibraryFileKind::Docx => self.ingest_docx(&file, &bytes).await?,
-                LibraryFileKind::Xlsx => self.ingest_xlsx(&file, &bytes).await?,
-                LibraryFileKind::PlainText => self.ingest_text(&file, &bytes).await?,
+            let kind = storage::detect_file_kind(&file.filename, &file.media_type)
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
+            self.runtime().map_err(|error| {
+                IngestFailure::new(LibraryIngestFailureStage::Other, error)
+                    .with_dependency(LibraryDependency::EmbeddingVector)
+            })?;
+            let sections = if let Some(payload) = claim.section_payload.clone() {
+                serde_json::from_value::<Vec<IngestSection>>(payload).map_err(|error| {
+                    IngestFailure::new(
+                        LibraryIngestFailureStage::Parsing,
+                        anyhow!("invalid persisted ingest section payload: {error}"),
+                    )
+                })?
+            } else {
+                match kind {
+                    LibraryFileKind::Pdf => {
+                        let task_timeout = self.docling_task_timeout().await.map_err(|error| {
+                            IngestFailure::new(LibraryIngestFailureStage::Docling, error)
+                        })?;
+                        timeout(task_timeout, self.ingest_pdf(&file, &bytes))
+                            .await
+                            .map_err(|error| {
+                                IngestFailure::new(
+                                    LibraryIngestFailureStage::Docling,
+                                    anyhow!("docling conversion timed out: {error}"),
+                                )
+                            })??
+                    }
+                    LibraryFileKind::Docx => {
+                        let task_timeout = self.docling_task_timeout().await.map_err(|error| {
+                            IngestFailure::new(LibraryIngestFailureStage::Docling, error)
+                        })?;
+                        timeout(task_timeout, self.ingest_docx(&file, &bytes))
+                            .await
+                            .map_err(|error| {
+                                IngestFailure::new(
+                                    LibraryIngestFailureStage::Docling,
+                                    anyhow!("docling conversion timed out: {error}"),
+                                )
+                            })??
+                    }
+                    LibraryFileKind::Xlsx => {
+                        let task_timeout = self.docling_task_timeout().await.map_err(|error| {
+                            IngestFailure::new(LibraryIngestFailureStage::Docling, error)
+                        })?;
+                        timeout(task_timeout, self.ingest_xlsx(&file, &bytes))
+                            .await
+                            .map_err(|error| {
+                                IngestFailure::new(
+                                    LibraryIngestFailureStage::Docling,
+                                    anyhow!("docling conversion timed out: {error}"),
+                                )
+                            })??
+                    }
+                    LibraryFileKind::PlainText => self.ingest_text(&file, &bytes).await?,
+                }
             };
             drop(bytes);
-            self.persist_sections(&file, sections).await
+            let prepared_sections = self.prepare_sections(&file, sections).await?;
+            ingest_artifacts_may_exist = true;
+            self.persist_sections(&file, prepared_sections).await
+        }
+        .await;
+
+        let final_result: Result<IngestClaimOutcome> = async {
+            match result {
+                Ok(()) => {
+                    let Some(_) = self
+                        .store
+                        .finish_ingest_job(
+                            job_id,
+                            claim.lease_token,
+                            LibraryIngestStatus::Succeeded,
+                            None,
+                            None,
+                        )
+                        .await?
+                    else {
+                        return Ok(IngestClaimOutcome::Requeued);
+                    };
+                    for dependency in claim_dependencies(&claim) {
+                        self.note_dependency_success(dependency, claim.lease_token)
+                            .await;
+                    }
+                    if let Err(error) = self.enqueue_file_translations(file_id).await {
+                        warn!(
+                            file_id = %file_id,
+                            job_id = %job_id,
+                            %error,
+                            "library ingest succeeded but translation jobs could not be queued"
+                        );
+                    }
+                    info!(file_id = %file_id, job_id = %job_id, "library ingest succeeded");
+                    Ok(IngestClaimOutcome::Succeeded)
+                }
+                Err(mut error) => {
+                    let inferred_dependency =
+                        infer_dependency(&error, &claim, self.runtime.is_some());
+                    if error.dependency.is_none() {
+                        error.dependency = inferred_dependency;
+                    }
+                    if let Some(dependency) = error.dependency {
+                        error.retryable |= dependency_is_transient(dependency, &error.error)
+                            || is_configuration_error(&error.error);
+                    }
+
+                    if (error.retryable || ingest_artifacts_may_exist)
+                        && let Err(cleanup_error) = self.cleanup_ingest_artifacts(file_id).await
+                    {
+                        warn!(file_id = %file_id, error = %cleanup_error, "failed to clean library ingest artifacts; keeping job pending");
+                        if cleanup_error
+                            .to_string()
+                            .to_ascii_lowercase()
+                            .contains("qdrant")
+                        {
+                            self.note_dependency_failure_with_lease(
+                                LibraryDependency::EmbeddingVector,
+                                claim.lease_token,
+                                &cleanup_error,
+                            )
+                            .await;
+                        }
+                        self.store
+                            .release_ingest_job(job_id, claim.lease_token)
+                            .await?;
+                        return Ok(IngestClaimOutcome::Requeued);
+                    }
+
+                    let message = error.to_string();
+                    if error.retryable {
+                        if let Some(dependency) = error.dependency {
+                            self.note_dependency_failure_with_lease(
+                                dependency,
+                                claim.lease_token,
+                                &error.error,
+                            )
+                            .await;
+                        }
+                        self.store
+                            .release_ingest_job(job_id, claim.lease_token)
+                            .await?;
+                        return Ok(IngestClaimOutcome::Requeued);
+                    }
+
+                    self.store
+                        .finish_ingest_job(
+                            job_id,
+                            claim.lease_token,
+                            LibraryIngestStatus::Failed,
+                            Some(error.stage),
+                            Some(&message),
+                        )
+                        .await?;
+                    Err(anyhow::Error::new(error))
+                }
+            }
         }
         .await;
         heartbeat.abort();
-
-        match result {
-            Ok(()) => {
-                let Some(_) = self
-                    .store
-                    .update_job_status(
-                        job_id,
-                        LibraryIngestStatus::Succeeded,
-                        None,
-                        None,
-                        None,
-                        JobStatusFlags {
-                            mark_started_now: true,
-                            mark_finished_now: true,
-                        },
-                    )
-                    .await?
-                else {
-                    return Ok(());
-                };
-                self.store
-                    .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)
-                    .await?;
-                info!(file_id = %file_id, job_id = %job_id, "library ingest succeeded");
-                Ok(())
-            }
-            Err(error) => {
-                let message = error.to_string();
-                if let Err(cleanup_error) = self.cleanup_ingest_artifacts(file_id).await {
-                    warn!(file_id = %file_id, error = %cleanup_error, "failed to clean ingest artifacts after failure");
-                }
-                let job_updated = self
-                    .store
-                    .update_job_status(
-                        job_id,
-                        LibraryIngestStatus::Failed,
-                        None,
-                        Some(error.stage),
-                        Some(&message),
-                        JobStatusFlags {
-                            mark_started_now: true,
-                            mark_finished_now: true,
-                        },
-                    )
-                    .await?;
-                if job_updated.is_some() {
-                    self.store
-                        .update_file_status(
-                            file_id,
-                            LibraryIngestStatus::Failed,
-                            Some(&message),
-                            false,
-                        )
-                        .await?;
-                }
-                Err(anyhow::Error::new(error))
-            }
-        }
+        let _ = heartbeat.await;
+        final_result
     }
 
-    fn spawn_ingest_heartbeat(&self, job_id: Uuid) -> JoinHandle<()> {
+    fn spawn_ingest_heartbeat(
+        &self,
+        job_id: Uuid,
+        lease_token: Uuid,
+        probe_dependencies: Vec<LibraryDependency>,
+    ) -> JoinHandle<()> {
         let service = self.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            let mut interval = tokio::time::interval(ingest_heartbeat_interval());
             loop {
                 interval.tick().await;
-                match service.store.touch_ingest_job(job_id).await {
+                match service
+                    .store
+                    .heartbeat_ingest_job(job_id, lease_token, ingest_lease_ttl_secs())
+                    .await
+                {
                     Ok(true) => {}
                     Ok(false) => break,
                     Err(error) => {
                         warn!(%job_id, %error, "failed to heartbeat library ingest job");
                     }
                 }
+                for dependency in &probe_dependencies {
+                    if let Err(error) = service
+                        .store
+                        .renew_dependency_probe(
+                            dependency.as_str(),
+                            lease_token,
+                            probe_lease_ttl_secs(),
+                        )
+                        .await
+                    {
+                        warn!(
+                            %job_id,
+                            dependency = dependency.as_str(),
+                            %error,
+                            "failed to heartbeat library dependency probe"
+                        );
+                    }
+                }
             }
         })
     }
+}
 
-    pub(super) async fn load_docling_pdf_converter(&self) -> Result<PdfConvert> {
-        let config = self
-            .settings
-            .resolve_docling_config()
-            .await?
-            .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
-        let runtime = crate::docling::build_runtime_config(&config)?;
-        PdfConvert::builder(runtime)
-            .behavior(ConversionBehavior {
-                pages_per_file: self.pdf_pages_per_task(),
-                ..ConversionBehavior::default()
-            })
-            .output_formats(vec![
-                OutputFormat::Md,
-                OutputFormat::Text,
-                OutputFormat::Json,
-            ])
-            .build()
-            .map_err(anyhow::Error::from)
+fn claim_dependencies(claim: &crate::library_store::IngestClaim) -> Vec<LibraryDependency> {
+    let mut dependencies = vec![LibraryDependency::EmbeddingVector];
+    if claim.requires_docling {
+        dependencies.push(LibraryDependency::Docling);
     }
-
-    pub(super) async fn load_docling_xlsx_client(&self) -> Result<DoclingXlsxClient> {
-        let config = self
-            .settings
-            .resolve_docling_config()
-            .await?
-            .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
-        DoclingXlsxClient::new(config)
+    if claim.storage_backend == "s3" {
+        dependencies.push(LibraryDependency::S3);
     }
+    dependencies
+}
 
-    async fn ingest_pdf(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: &Bytes,
-        job_id: Uuid,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let converter = self
-            .load_docling_pdf_converter()
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        let input = InputDocument::new(&file.filename, &file.media_type, bytes.clone());
-        let (total, body_text) = {
-            let converted = converter
-                .convert_input(input)
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-
-            let total = converted.chunks.len().max(1);
-            let body_text = converted
-                .markdown
-                .or(converted.text)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_default();
-            (total, body_text)
-        };
-
-        for index in 0..total {
-            let status_id = format!("{}/{}", index + 1, total);
-            let Some(_) = self
-                .store
-                .update_job_status(
-                    job_id,
-                    LibraryIngestStatus::Running,
-                    Some(&status_id),
-                    None,
-                    None,
-                    JobStatusFlags {
-                        mark_started_now: true,
-                        mark_finished_now: false,
-                    },
-                )
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?
-            else {
-                return Err(IngestFailure::new(
-                    LibraryIngestFailureStage::Other,
-                    anyhow!("ingest job {job_id} is no longer active"),
-                ));
-            };
+fn infer_dependency(
+    failure: &IngestFailure,
+    claim: &crate::library_store::IngestClaim,
+    runtime_available: bool,
+) -> Option<LibraryDependency> {
+    if is_s3_error(&failure.error) {
+        return Some(LibraryDependency::S3);
+    }
+    if failure.stage == LibraryIngestFailureStage::Docling || claim.requires_docling {
+        let message = failure.error.to_string().to_ascii_lowercase();
+        if failure.stage == LibraryIngestFailureStage::Docling
+            || message.contains("docling")
+            || message.contains("conversion")
+        {
+            return Some(LibraryDependency::Docling);
         }
-
-        Ok(vec![IngestSection {
-            section_key: "document".to_string(),
-            section_label: file.filename.clone(),
-            title: file.filename.clone(),
-            summary: None,
-            body_text: normalize_body(&body_text),
-            source_uri: None,
-            external_id: None,
-            published_at: None,
-            metadata_json: json!({}),
-        }])
     }
-
-    async fn ingest_docx(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: &Bytes,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let converter = self
-            .load_docling_pdf_converter()
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        let input = InputDocument::new(&file.filename, &file.media_type, bytes.clone());
-        let text = {
-            let converted = converter
-                .convert_input(input)
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-            converted
-                .markdown
-                .or(converted.text)
-                .or_else(|| converted.json.as_ref().and_then(xlsx::extract_json_text))
-                .unwrap_or_default()
-        };
-        Ok(vec![IngestSection {
-            section_key: "document".to_string(),
-            section_label: file.filename.clone(),
-            title: file.filename.clone(),
-            summary: None,
-            body_text: normalize_body(&text),
-            source_uri: None,
-            external_id: None,
-            published_at: None,
-            metadata_json: json!({}),
-        }])
+    let message = failure.error.to_string().to_ascii_lowercase();
+    if failure.stage == LibraryIngestFailureStage::Embedding
+        || (failure.stage == LibraryIngestFailureStage::Indexing
+            && (message.contains("qdrant") || message.contains("embedding")))
+        || (!runtime_available && failure.stage == LibraryIngestFailureStage::Other)
+    {
+        return Some(LibraryDependency::EmbeddingVector);
     }
-
-    async fn ingest_xlsx(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: &Bytes,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let docling = self
-            .load_docling_xlsx_client()
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        let json = docling
-            .convert_xlsx(&file.filename, &file.media_type, bytes.clone())
-            .await
-            .context("docling did not return json_content for xlsx")
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        let sections = xlsx::extract_xlsx_sections(&file.filename, &json)
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-        if sections.is_empty() {
-            let fallback = xlsx::extract_json_text(&json).unwrap_or_default();
-            drop(json);
-            return Ok(vec![IngestSection {
-                section_key: "workbook".to_string(),
-                section_label: file.filename.clone(),
-                title: file.filename.clone(),
-                summary: None,
-                body_text: normalize_body(&fallback),
-                source_uri: None,
-                external_id: None,
-                published_at: None,
-                metadata_json: json!({}),
-            }]);
-        }
-        drop(json);
-        Ok(sections)
-    }
-
-    pub(super) async fn ingest_text(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: &Bytes,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let text = std::str::from_utf8(bytes)
-            .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-        if file.filename.eq_ignore_ascii_case("source.json") {
-            let _: SourceConfigPreview = serde_json::from_str(text)
-                .with_context(|| format!("failed to parse source config json {}", file.filename))
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-            return Ok(vec![IngestSection {
-                section_key: "source-config".to_string(),
-                section_label: file.filename.clone(),
-                title: file.filename.clone(),
-                summary: None,
-                body_text: text.to_string(),
-                source_uri: None,
-                external_id: file.external_id.clone(),
-                published_at: None,
-                metadata_json: json!({
-                    "source_folder_file_kind": "config",
-                }),
-            }]);
-        }
-        if file.filename.to_ascii_lowercase().ends_with(".json") {
-            let parsed: SourceRecordJson = serde_json::from_str(text)
-                .with_context(|| format!("failed to parse source record json {}", file.filename))
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-            return Ok(vec![IngestSection {
-                section_key: "record".to_string(),
-                section_label: parsed.title.clone(),
-                title: parsed.title.clone(),
-                summary: parsed.summary,
-                body_text: normalize_body(&parsed.body_text),
-                source_uri: Some(parsed.source_uri),
-                external_id: Some(parsed.external_id),
-                published_at: parsed.published_at,
-                metadata_json: parsed.metadata_json,
-            }]);
-        }
-        Ok(vec![IngestSection {
-            section_key: "document".to_string(),
-            section_label: file.filename.clone(),
-            title: file.filename.clone(),
-            summary: None,
-            body_text: normalize_body(text),
-            source_uri: None,
-            external_id: None,
-            published_at: None,
-            metadata_json: json!({}),
-        }])
-    }
-
-    pub(super) async fn persist_sections(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        sections: Vec<IngestSection>,
-    ) -> IngestResult<()> {
-        let runtime = self
-            .runtime()
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?
-            .clone();
-        self.cleanup_ingest_artifacts(file.id)
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
-        let translation_directive = self
-            .store
-            .file_translation_directive(file.id)
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
-
-        let folder_path = self
-            .folder_path_by_id(file.folder_id)
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
-        let mut mappings = Vec::new();
-
-        for (index, section) in sections.into_iter().enumerate() {
-            let metadata_json = compose_library_metadata(
-                &section.metadata_json,
-                &file.metadata_json,
-                library_system_metadata(
-                    file,
-                    &folder_path,
-                    &section.section_key,
-                    &section.section_label,
-                ),
-            )
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-            let external_id = file
-                .external_id
-                .as_ref()
-                .map(|base| {
-                    if index == 0 {
-                        base.clone()
-                    } else {
-                        format!("{base}:{}", section.section_key)
-                    }
-                })
-                .or_else(|| section.external_id.clone())
-                .unwrap_or_else(|| format!("{}:{}", file.id, section.section_key));
-            let normalized = normalize_record(SourceRecord {
-                external_id,
-                title: section.title.clone(),
-                body_text: section.body_text.clone(),
-                source_uri: file
-                    .source_uri
-                    .clone()
-                    .or_else(|| section.source_uri.clone())
-                    .unwrap_or_else(|| format!("context69://library/files/{}", file.id)),
-                summary: section.summary.clone(),
-                published_at: file.published_at.or(section.published_at),
-                updated_at: Utc::now(),
-                metadata_json,
-            });
-
-            let seed_payload = ChunkPayload {
-                chunk_id: Uuid::nil(),
-                document_id: 0,
-                group_id: file.group_id,
-                group_key: file.group_key.clone(),
-                group_path: file.group_path.clone(),
-                visibility: file.visibility,
-                source_key: FILE_LIBRARY_SOURCE_KEY.to_string(),
-                external_id: normalized.external_id.clone(),
-                title: normalized.title.clone(),
-                summary: normalized.summary.clone(),
-                source_uri: normalized.source_uri.clone(),
-                published_at: normalized.published_at,
-                updated_at_source: normalized.updated_at,
-                record_hash: normalized.record_hash.clone(),
-                chunk_index: 0,
-                chunk_text: normalized.body_text.clone(),
-                metadata_json: normalized.metadata_json.clone(),
-                content_locale: "original".to_string(),
-                source_locale: None,
-                translation_provider: None,
-            };
-            let upserted = self
-                .db
-                .upsert_document(&seed_payload)
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
-            drop(seed_payload);
-            let (chunk_count, embedding_batch_count) = self
-                .persist_document_chunks(file, &normalized, upserted.document_id, &runtime)
-                .await?;
-            info!(
-                file_id = %file.id,
-                document_id = upserted.document_id,
-                file_bytes = file.size_bytes,
-                converted_body_bytes = normalized.body_text.len(),
-                chunk_count,
-                embedding_batch_count,
-                "library ingest document batches persisted"
-            );
-            self.translation
-                .enqueue(context69_translation::EnqueueTranslation {
-                    document_id: upserted.document_id,
-                    directive: translation_directive.clone(),
-                })
-                .await
-                .map_err(|error| {
-                    IngestFailure::new(LibraryIngestFailureStage::Translation, error)
-                })?;
-            drop(normalized);
-
-            mappings.push(LibraryFileDocumentRecord {
-                file_id: file.id,
-                document_id: upserted.document_id,
-                group_id: file.group_id,
-                visibility: file.visibility,
-                section_key: section.section_key,
-                section_label: section.section_label,
-                section_external_id: section.external_id,
-                section_source_uri: section.source_uri,
-                section_published_at: section.published_at,
-                section_metadata_json: section.metadata_json,
-                sort_order: index as i32,
-            });
-        }
-
-        self.store
-            .replace_file_documents(file.id, &mappings)
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
-        self.bump_search_generation("library ingest")
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
-        Ok(())
-    }
+    None
 }

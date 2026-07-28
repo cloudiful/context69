@@ -14,10 +14,27 @@ INSERT INTO context69.library_ingest_jobs (
     group_id,
     visibility,
     file_id,
-    status
+    status,
+    requires_docling
 )
-SELECT $3, group_id, visibility, id, 'pending'
+SELECT
+    $3,
+    group_id,
+    visibility,
+    id,
+    'pending',
+    (
+        lower(file.filename) LIKE '%.pdf'
+        OR lower(file.filename) LIKE '%.docx'
+        OR lower(file.filename) LIKE '%.xlsx'
+        OR file.media_type IN (
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    )
 FROM claimed
+JOIN context69.library_files file ON file.id = claimed.id
 RETURNING
     group_id,
     (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",

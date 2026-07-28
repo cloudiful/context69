@@ -83,6 +83,7 @@ export function createLibraryApi({
     retryFailedLibraryProcessingJobs(options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.POST("/v1/library/processing-jobs/retry-failed", {
+          body: {},
           signal: options?.signal,
         }),
       ) as Promise<LibraryProcessingJobBulkActionResponse>;

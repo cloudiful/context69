@@ -5,7 +5,8 @@ use std::{
 };
 
 use anyhow::Result;
-use context69_translation::{TranslationDependencies, TranslationService};
+use async_trait::async_trait;
+use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
 use tracing::warn;
 
 use crate::{
@@ -15,12 +16,20 @@ use crate::{
     },
     db::{Database, StoredDoclingSettings, StoredRuntimeSettings, StoredSourceConnection},
     embedding::{EmbeddingProvider, OpenAiCompatibleEmbeddingProvider},
+    library_store::LibraryStore,
     qdrant_index::QdrantIndex,
     services::{
-        auth::AuthService, document_store::DocumentStoreService, library::LibraryService,
-        namespace::NamespaceService, personal_access_tokens::PersonalAccessTokenService,
-        query::QueryService, settings::SettingsService, source_folders::SourceFoldersService,
-        sync::SyncService, tasks::TaskService, translation::TranslationPublisherAdapter,
+        auth::AuthService,
+        document_store::DocumentStoreService,
+        library::{LibraryService, report_embedding_vector_processing_error},
+        namespace::NamespaceService,
+        personal_access_tokens::PersonalAccessTokenService,
+        query::QueryService,
+        settings::SettingsService,
+        source_folders::SourceFoldersService,
+        sync::SyncService,
+        tasks::TaskService,
+        translation::TranslationPublisherAdapter,
     },
     source_store::SourceStore,
 };
@@ -28,6 +37,33 @@ use crate::{
 mod browser_sessions;
 mod vector_identity;
 mod vector_rebuild;
+
+#[derive(Clone)]
+struct LibraryEmbeddingVectorReadiness {
+    pool: sqlx::PgPool,
+    store: LibraryStore,
+    configuration_fingerprint: String,
+}
+
+#[async_trait]
+impl TranslationReadiness for LibraryEmbeddingVectorReadiness {
+    async fn is_ready(&self) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/dependency_gates/embedding_vector_ready.sql"
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    async fn report_processing_error(&self, error: &str) -> Result<bool> {
+        report_embedding_vector_processing_error(
+            &self.store,
+            &self.configuration_fingerprint,
+            error,
+        )
+        .await
+    }
+}
 
 pub use browser_sessions::BrowserSessionConfig;
 
@@ -83,6 +119,7 @@ impl Context69App {
 
         let mut embedding: Option<Arc<dyn EmbeddingProvider>> = None;
         let mut index: Option<QdrantIndex> = None;
+        let mut embedding_vector_configured = false;
         let mut collection_needs_rebuild = false;
         let vector_fingerprint = vector_identity::fingerprint(&config);
         let stored_vector_fingerprint = db
@@ -94,6 +131,7 @@ impl Context69App {
         if runtime.is_some() {
             match OpenAiCompatibleEmbeddingProvider::new(config.embedding.clone()) {
                 Ok(provider) => {
+                    embedding_vector_configured = true;
                     let provider: Arc<dyn EmbeddingProvider> = Arc::new(provider);
                     let mut qdrant_config = config.qdrant.clone();
                     qdrant_config.recreate_on_dimension_mismatch |= vector_fingerprint_changed;
@@ -128,6 +166,11 @@ impl Context69App {
                 },
             )),
             concurrency: config.scheduler.max_concurrency,
+            readiness: Arc::new(LibraryEmbeddingVectorReadiness {
+                pool: db.pool().clone(),
+                store: LibraryStore::new(db.clone()),
+                configuration_fingerprint: vector_identity::configuration_fingerprint(&config),
+            }),
         });
         let sync = SyncService::new(
             db.clone(),
@@ -175,12 +218,16 @@ impl Context69App {
                 },
                 file_library: config.file_library.clone(),
                 valkey_url: config.scheduler.valkey_url.clone(),
+                embedding_vector_configured,
+                embedding_vector_configuration_fingerprint:
+                    vector_identity::configuration_fingerprint(&config),
             },
             settings.clone(),
             translation.clone(),
         )
         .await?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
+        library.resume_ingest_jobs().await?;
         library.resume_url_imports().await?;
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
         document_store.resume_pending();

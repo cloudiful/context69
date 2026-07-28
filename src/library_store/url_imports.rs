@@ -59,18 +59,23 @@ impl LibraryStore {
         &self,
         lease_token: Uuid,
         lease_ttl_secs: i64,
+        storage_backend: &str,
     ) -> Result<Option<UrlImportJobRecord>> {
         Ok(sqlx::query_file_as!(
             UrlImportJobRecord,
             "src/sql/library_store/url_imports/claim_next.sql",
             lease_token,
-            lease_ttl_secs
+            lease_ttl_secs,
+            storage_backend
         )
         .fetch_optional(self.db.pool())
         .await?)
     }
 
     pub async fn recover_expired_url_import_jobs(&self) -> Result<()> {
+        sqlx::query_file!("src/sql/library_store/url_imports/sync_completed.sql")
+            .execute(self.db.pool())
+            .await?;
         sqlx::query_file!("src/sql/library_store/url_imports/recover_expired.sql")
             .execute(self.db.pool())
             .await?;
@@ -88,6 +93,38 @@ impl LibraryStore {
             job_id,
             lease_token,
             lease_ttl_secs
+        )
+        .fetch_optional(self.db.pool())
+        .await?
+        .is_some())
+    }
+
+    pub async fn requeue_url_import_job(
+        &self,
+        job_id: Uuid,
+        lease_token: Uuid,
+        delay_secs: i64,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/url_imports/requeue.sql",
+            job_id,
+            lease_token,
+            delay_secs
+        )
+        .fetch_optional(self.db.pool())
+        .await?
+        .is_some())
+    }
+
+    pub async fn release_url_import_ingesting_lease(
+        &self,
+        job_id: Uuid,
+        lease_token: Uuid,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/url_imports/release_ingesting.sql",
+            job_id,
+            lease_token
         )
         .fetch_optional(self.db.pool())
         .await?

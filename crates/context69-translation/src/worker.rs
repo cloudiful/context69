@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     EnqueueTranslation, TranslationCoordinator, TranslationDependencies, TranslationPublisher,
+    TranslationReadiness,
     store::{TranslationStore, job_response, normalize_locale, normalize_locales},
 };
 
@@ -24,6 +25,7 @@ pub struct TranslationService {
     store: TranslationStore,
     http_client: reqwest::Client,
     publisher: Arc<dyn TranslationPublisher>,
+    readiness: Arc<dyn TranslationReadiness>,
     semaphore: Arc<Semaphore>,
     worker_lock: Arc<Mutex<()>>,
 }
@@ -34,6 +36,7 @@ impl TranslationService {
             store: TranslationStore::new(dependencies.pool),
             http_client: dependencies.http_client,
             publisher: dependencies.publisher,
+            readiness: dependencies.readiness,
             semaphore: Arc::new(Semaphore::new(dependencies.concurrency.max(1))),
             worker_lock: Arc::new(Mutex::new(())),
         }

@@ -6,6 +6,8 @@ use opendal::{Operator, services};
 
 use crate::config::FileLibraryConfig;
 
+use super::dependency_runtime::bounded_s3_operation;
+
 #[derive(Clone)]
 pub(crate) struct LibraryObjectStorage {
     operator: Operator,
@@ -60,10 +62,16 @@ impl LibraryObjectStorage {
     }
 
     pub(crate) async fn check(&self) -> Result<()> {
-        self.operator
-            .check()
-            .await
-            .context("S3 connection check failed")
+        if self.backend == "s3" {
+            bounded_s3_operation("check", || self.operator.check())
+                .await
+                .context("S3 connection check failed")
+        } else {
+            self.operator
+                .check()
+                .await
+                .context("storage connection check failed")
+        }
     }
 
     pub(super) fn backend(&self) -> &'static str {
@@ -71,33 +79,74 @@ impl LibraryObjectStorage {
     }
 
     pub(super) async fn write(&self, key: &str, bytes: Bytes) -> Result<()> {
-        self.operator
-            .write(key, bytes)
+        if self.backend == "s3" {
+            let key = key.to_string();
+            bounded_s3_operation("write", || {
+                let bytes = bytes.clone();
+                let key = key.clone();
+                async move { self.operator.write(&key, bytes).await }
+            })
             .await
             .with_context(|| format!("failed to write stored object {key}"))?;
+        } else {
+            self.operator
+                .write(key, bytes)
+                .await
+                .with_context(|| format!("failed to write stored object {key}"))?;
+        }
         Ok(())
     }
 
     pub(super) async fn read(&self, key: &str) -> Result<Option<Bytes>> {
-        match self.operator.read(key).await {
+        let result = if self.backend == "s3" {
+            let key = key.to_string();
+            bounded_s3_operation("read", || {
+                let key = key.clone();
+                async move { self.operator.read(&key).await }
+            })
+            .await
+        } else {
+            self.operator.read(key).await.map_err(anyhow::Error::from)
+        };
+        match result {
             Ok(buffer) => Ok(Some(Bytes::from(buffer.to_vec()))),
-            Err(error) if error.kind() == opendal::ErrorKind::NotFound => Ok(None),
+            Err(error) if is_not_found_error(&error) => Ok(None),
             Err(error) => Err(error).with_context(|| format!("failed to read stored object {key}")),
         }
     }
 
     pub(super) async fn exists(&self, key: &str) -> Result<bool> {
-        self.operator
-            .exists(key)
+        if self.backend == "s3" {
+            let key = key.to_string();
+            bounded_s3_operation("exists", || {
+                let key = key.clone();
+                async move { self.operator.exists(&key).await }
+            })
             .await
             .with_context(|| format!("failed to inspect stored object {key}"))
+        } else {
+            self.operator
+                .exists(key)
+                .await
+                .with_context(|| format!("failed to inspect stored object {key}"))
+        }
     }
 
     pub(super) async fn delete(&self, key: &str) -> Result<()> {
-        self.operator
-            .delete(key)
+        if self.backend == "s3" {
+            let key = key.to_string();
+            bounded_s3_operation("delete", || {
+                let key = key.clone();
+                async move { self.operator.delete(&key).await }
+            })
             .await
             .with_context(|| format!("failed to delete stored object {key}"))
+        } else {
+            self.operator
+                .delete(key)
+                .await
+                .with_context(|| format!("failed to delete stored object {key}"))
+        }
     }
 }
 
@@ -108,6 +157,11 @@ pub(super) fn content_object_key(group_id: i64, sha256: &str) -> String {
 fn path_text(path: &Path) -> Result<&str> {
     path.to_str()
         .with_context(|| format!("storage root is not valid UTF-8: {}", path.display()))
+}
+
+fn is_not_found_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("kind=notfound") || message.contains("kind=not_found")
 }
 
 #[cfg(test)]

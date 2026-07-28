@@ -10,6 +10,23 @@ impl LibraryService {
         self.store
             .set_file_translation_directive(file_id, Some(directive))
             .await?;
+        let should_enqueue = self
+            .store
+            .get_file(file_id)
+            .await?
+            .with_context(|| format!("unknown file {file_id}"))?
+            .ingest_status
+            == crate::contracts::LibraryIngestStatus::Succeeded;
+        if should_enqueue {
+            self.enqueue_file_translations(file_id).await?;
+        }
+        Ok(())
+    }
+
+    pub(super) async fn enqueue_file_translations(&self, file_id: Uuid) -> Result<()> {
+        let Some(directive) = self.store.file_translation_directive(file_id).await? else {
+            return Ok(());
+        };
         for mapping in self.store.list_file_documents(file_id).await? {
             self.translation
                 .enqueue(context69_translation::EnqueueTranslation {
@@ -90,13 +107,50 @@ impl LibraryService {
 
     pub(super) async fn cleanup_ingest_artifacts(&self, file_id: Uuid) -> Result<()> {
         let chunk_ids = self.store.list_chunk_ids_for_library_file(file_id).await?;
-        if let Some(runtime) = &self.runtime {
+        if !chunk_ids.is_empty() {
+            let runtime = self.runtime.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "embedding/vector dependency unavailable: cannot clean {} indexed chunks without vector runtime",
+                    chunk_ids.len()
+                )
+            })?;
+            // Keep SQL chunks and their deterministic IDs until the remote delete succeeds.
+            // A later retry needs those IDs to remove points left by a partial ingest.
             runtime.index.delete_points(&chunk_ids).await?;
         }
         self.store
             .delete_documents_for_library_file(file_id)
             .await?;
         Ok(())
+    }
+
+    pub(super) async fn cleanup_unclaimed_ingest_file(&self, file_id: Uuid, job_id: Uuid) {
+        let removed = match self
+            .store
+            .remove_unclaimed_ingest_file(file_id, job_id)
+            .await
+        {
+            Ok(removed) => removed,
+            Err(error) => {
+                warn!(%file_id, %job_id, %error, "failed to remove unclaimed URL ingest file");
+                return;
+            }
+        };
+
+        let Some(removed) = removed else {
+            return;
+        };
+        if let Some(storage_object_id) = removed.storage_object_id {
+            self.delete_unreferenced_storage_object(storage_object_id)
+                .await;
+        } else if let Err(error) = self.delete_active_storage(&removed.storage_rel_path).await {
+            warn!(
+                %file_id,
+                path = %removed.storage_rel_path,
+                %error,
+                "failed to remove unclaimed URL ingest storage"
+            );
+        }
     }
 
     pub(super) async fn refresh_metadata_for_folder_subtree(&self, folder_id: Uuid) -> Result<()> {
@@ -225,16 +279,15 @@ impl LibraryService {
         paths: Vec<crate::library_store::documents::StoragePathRow>,
     ) -> Result<()> {
         for path in paths {
-            let should_delete = if let Some(object_id) = path.storage_object_id {
-                self.store
-                    .delete_unreferenced_storage_object(object_id)
-                    .await?
-                    .is_some()
-            } else {
-                true
-            };
-            if should_delete && let Err(error) = self.storage.delete(&path.storage_rel_path).await {
-                warn!(file_id = %path.id, path = %path.storage_rel_path, error = %error, "failed to remove stored object");
+            if let Some(object_id) = path.storage_object_id {
+                self.delete_unreferenced_storage_object(object_id).await;
+            } else if let Err(error) = self.delete_active_storage(&path.storage_rel_path).await {
+                warn!(
+                    file_id = %path.id,
+                    path = %path.storage_rel_path,
+                    error = %error,
+                    "failed to remove stored object"
+                );
             }
         }
         Ok(())

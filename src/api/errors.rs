@@ -73,7 +73,6 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
         || message.contains("page_size must be")
         || message.contains("page offset is too large")
         || message.contains("duplicate key value")
-        || message.contains("docling")
         || message.contains("invalid_remote_url")
         || message.contains("remote_url_blocked")
         || message.contains("remote_filename_required")
@@ -122,20 +121,38 @@ pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response:
 }
 
 fn runtime_aware_status(message: &str) -> Option<StatusCode> {
-    if message.contains("runtime is not configured")
+    let normalized = message.to_ascii_lowercase();
+    if normalized.contains("s3 dependency unavailable")
+        || normalized.contains("docling dependency unavailable")
+        || normalized.contains("embedding/vector dependency unavailable")
+        || normalized.contains("library dependency unavailable")
+        || normalized.contains("runtime is not configured")
+        || normalized.contains("docling is not configured")
         || message.contains("save runtime settings and restart the service")
     {
         Some(StatusCode::SERVICE_UNAVAILABLE)
-    } else if message.contains("embedding upstream transport error") {
-        if message.contains("kind=timeout") {
+    } else if normalized.contains("embedding upstream transport error") {
+        if normalized.contains("kind=timeout") || normalized.contains("timed out") {
             Some(StatusCode::GATEWAY_TIMEOUT)
         } else {
             Some(StatusCode::BAD_GATEWAY)
         }
-    } else if message.contains("embedding request failed: status=429") {
+    } else if normalized.contains("embedding request failed: status=429") {
         Some(StatusCode::TOO_MANY_REQUESTS)
-    } else if message.contains("embedding request failed:")
-        || message.contains("failed to parse embedding response:")
+    } else if normalized.contains("qdrant")
+        && (normalized.contains("timeout") || normalized.contains("timed out"))
+    {
+        Some(StatusCode::GATEWAY_TIMEOUT)
+    } else if normalized.contains("qdrant") && normalized.contains("429") {
+        Some(StatusCode::TOO_MANY_REQUESTS)
+    } else if normalized.contains("qdrant")
+        && (normalized.contains("transport")
+            || normalized.contains("connect")
+            || normalized.contains("connection"))
+    {
+        Some(StatusCode::BAD_GATEWAY)
+    } else if normalized.contains("embedding request failed:")
+        || normalized.contains("failed to parse embedding response:")
     {
         Some(StatusCode::BAD_GATEWAY)
     } else {

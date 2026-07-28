@@ -82,8 +82,7 @@ impl LibraryService {
         file: &crate::domain::LibraryFileRecord,
     ) -> Result<String> {
         let bytes = self
-            .storage
-            .read(&file.storage_rel_path)
+            .read_active_storage(&file.storage_rel_path)
             .await?
             .with_context(|| format!("stored file not found for file {}", file.id))?;
         String::from_utf8(bytes.to_vec())
@@ -102,7 +101,7 @@ impl LibraryService {
             .get_file_detail(file_id, folder_path)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        detail.source_available = self.storage.exists(&file.storage_rel_path).await?;
+        detail.source_available = self.exists_active_storage(&file.storage_rel_path).await?;
         Ok(detail)
     }
 
@@ -122,7 +121,7 @@ impl LibraryService {
             .get_file_detail_in_project(project.id, file_id, folder_path)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        detail.source_available = self.storage.exists(&file.storage_rel_path).await?;
+        detail.source_available = self.exists_active_storage(&file.storage_rel_path).await?;
         Ok(detail)
     }
 
@@ -150,18 +149,8 @@ impl LibraryService {
             ));
         }
 
-        let kind = storage::detect_file_kind(&file.filename, &file.media_type)?;
-        self.runtime()?;
-        match kind {
-            LibraryFileKind::Pdf | LibraryFileKind::Docx => {
-                self.load_docling_pdf_converter().await?;
-            }
-            LibraryFileKind::Xlsx => {
-                self.load_docling_xlsx_client().await?;
-            }
-            LibraryFileKind::PlainText => {}
-        }
-        if !self.storage.exists(&file.storage_rel_path).await? {
+        storage::detect_file_kind(&file.filename, &file.media_type)?;
+        if !self.exists_active_storage(&file.storage_rel_path).await? {
             return Err(anyhow!("stored file not found for file {file_id}"));
         }
 
@@ -171,48 +160,9 @@ impl LibraryService {
             .claim_failed_file_retry_in_project(group_id, file_id, job_id)
             .await?
             .ok_or_else(|| anyhow!("file {file_id} is not failed and cannot be retried"))?;
-
-        let service = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = service.run_retry_ingest(file_id, job_id, kind).await {
-                warn!(file_id = %file_id, job_id = %job_id, error = %error, "library ingest retry failed");
-            }
-        });
+        self.notify_ingest_worker();
 
         Ok(job_to_response(job))
-    }
-
-    pub(super) async fn run_retry_ingest(
-        &self,
-        file_id: Uuid,
-        job_id: Uuid,
-        kind: LibraryFileKind,
-    ) -> Result<()> {
-        if let Err(error) = self.cleanup_ingest_artifacts(file_id).await {
-            let message = error.to_string();
-            let job_updated = self
-                .store
-                .update_job_status(
-                    job_id,
-                    LibraryIngestStatus::Failed,
-                    None,
-                    Some(LibraryIngestFailureStage::Storage),
-                    Some(&message),
-                    JobStatusFlags {
-                        mark_started_now: false,
-                        mark_finished_now: true,
-                    },
-                )
-                .await?;
-            if job_updated.is_some() {
-                self.store
-                    .update_file_status(file_id, LibraryIngestStatus::Failed, Some(&message), false)
-                    .await?;
-            }
-            return Err(error);
-        }
-
-        self.run_ingest(file_id, job_id, kind).await
     }
 
     pub async fn move_file(

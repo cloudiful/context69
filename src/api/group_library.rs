@@ -20,7 +20,12 @@ use crate::contracts::{
     path = "/v1/groups/by-path/{group_path}/library/files/import-url",
     params(("group_path" = String, Path)),
     request_body = ImportLibraryFileFromUrlRequest,
-    responses((status = 202, body = LibraryUrlImportJobResponse), (status = 403), (status = 404))
+    responses(
+        (status = 202, body = LibraryUrlImportJobResponse),
+        (status = 403),
+        (status = 404),
+        (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
+    )
 )]
 pub(crate) async fn import_group_library_file_url(
     State(state): State<ApiState>,
@@ -218,7 +223,8 @@ pub(crate) async fn create_group_library_folder(
     responses(
         (status = 201, description = "Created text library entry", body = LibraryUploadResponse),
         (status = 403, description = "Insufficient permissions"),
-        (status = 404, description = "Group not found")
+        (status = 404, description = "Group not found"),
+        (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
     )
 )]
 pub(crate) async fn create_group_library_text(
@@ -253,7 +259,8 @@ pub(crate) async fn create_group_library_text(
     responses(
         (status = 200, description = "Upserted text library entry", body = LibraryUploadResponse),
         (status = 403, description = "Insufficient permissions"),
-        (status = 404, description = "Group not found")
+        (status = 404, description = "Group not found"),
+        (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
     )
 )]
 pub(crate) async fn upsert_group_library_text(
@@ -362,7 +369,8 @@ pub(crate) async fn delete_group_library_folder(
     responses(
         (status = 201, description = "Accepted uploaded files", body = LibraryUploadResponse),
         (status = 403, description = "Insufficient permissions"),
-        (status = 404, description = "Group not found")
+        (status = 404, description = "Group not found"),
+        (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
     )
 )]
 pub(crate) async fn upload_group_library_files(
@@ -401,7 +409,8 @@ pub(crate) async fn upload_group_library_files(
     responses(
         (status = 200, description = "Upload requirement or reused file", body = PrepareLibraryUploadResponse),
         (status = 403, description = "Insufficient permissions"),
-        (status = 404, description = "Group or folder not found")
+        (status = 404, description = "Group or folder not found"),
+        (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
     )
 )]
 pub(crate) async fn prepare_group_library_upload(

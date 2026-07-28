@@ -18,8 +18,6 @@ impl LibraryService {
                 .with_context(|| format!("unknown folder {folder_id}"))?;
         }
         let kind = storage::detect_file_kind(&request.filename, &request.media_type)?;
-        self.runtime()?;
-
         if let Some(external_id) = request
             .metadata
             .as_ref()
@@ -73,14 +71,16 @@ impl LibraryService {
         };
         if object.storage_backend != self.storage.backend()
             || object.size_bytes != request.size_bytes
-            || !self.storage.exists(&object.object_key).await?
+            || !self.exists_active_storage(&object.object_key).await?
         {
             return Ok(upload_required());
         }
 
         let file_id = Uuid::new_v4();
         let job_id = Uuid::new_v4();
-        let mut created = self
+        let object_key = object.object_key.clone();
+        let object_id = object.id;
+        let create_result = self
             .store
             .create_file_in_project(
                 project.id,
@@ -92,20 +92,72 @@ impl LibraryService {
                     media_type: request.media_type.clone(),
                     size_bytes: request.size_bytes,
                     sha256: request.sha256.clone(),
-                    storage_rel_path: object.object_key,
-                    storage_object_id: Some(object.id),
+                    storage_rel_path: object_key.clone(),
+                    storage_object_id: Some(object_id),
                 },
             )
-            .await?;
+            .await;
+        let mut created = match create_result {
+            Ok(file) => file,
+            Err(error) => {
+                self.rollback_new_file_record(
+                    Some(project.id),
+                    file_id,
+                    Some(&object_key),
+                    Some(object_id),
+                )
+                .await;
+                return Err(error);
+            }
+        };
         if let Some(metadata) = request.metadata.as_ref() {
-            created = self.apply_file_business_metadata(file_id, metadata).await?;
+            created = match self.apply_file_business_metadata(file_id, metadata).await {
+                Ok(file) => file,
+                Err(error) => {
+                    self.rollback_new_file_record(
+                        Some(project.id),
+                        file_id,
+                        Some(&object_key),
+                        Some(object_id),
+                    )
+                    .await;
+                    return Err(error);
+                }
+            };
         }
         if let Some(directive) = request.translation.as_ref() {
-            self.apply_file_translation_directive(file_id, directive)
-                .await?;
+            if let Err(error) = self
+                .apply_file_translation_directive(file_id, directive)
+                .await
+            {
+                self.rollback_new_file_record(
+                    Some(project.id),
+                    file_id,
+                    Some(&object_key),
+                    Some(object_id),
+                )
+                .await;
+                return Err(error);
+            }
         }
-        let job = self.store.create_job(job_id, file_id).await?;
-        self.spawn_ingest(file_id, job_id, kind);
+        let job = match self
+            .store
+            .create_job_with_options(job_id, file_id, requires_docling(kind), None)
+            .await
+        {
+            Ok(job) => job,
+            Err(error) => {
+                self.rollback_new_file_record(
+                    Some(project.id),
+                    file_id,
+                    Some(&object_key),
+                    Some(object_id),
+                )
+                .await;
+                return Err(error);
+            }
+        };
+        self.notify_ingest_worker();
 
         Ok(PrepareLibraryUploadResponse {
             upload_required: false,
@@ -138,9 +190,53 @@ impl LibraryService {
         sha256: &str,
         bytes: Bytes,
     ) -> Result<crate::library_store::objects::StorageObjectRecord> {
+        self.store_project_content_with_lease_context(group_id, sha256, bytes, None)
+            .await
+    }
+
+    pub(super) async fn store_project_content_for_lease(
+        &self,
+        group_id: i64,
+        sha256: &str,
+        bytes: Bytes,
+        lease_token: Uuid,
+    ) -> Result<crate::library_store::objects::StorageObjectRecord> {
+        self.store_project_content_with_lease_context(group_id, sha256, bytes, Some(lease_token))
+            .await
+    }
+
+    pub(super) async fn store_project_content_with_optional_lease(
+        &self,
+        group_id: i64,
+        sha256: &str,
+        bytes: Bytes,
+        lease_token: Option<Uuid>,
+    ) -> Result<crate::library_store::objects::StorageObjectRecord> {
+        self.store_project_content_with_lease_context(group_id, sha256, bytes, lease_token)
+            .await
+    }
+
+    async fn store_project_content_with_lease_context(
+        &self,
+        group_id: i64,
+        sha256: &str,
+        bytes: Bytes,
+        lease_token: Option<Uuid>,
+    ) -> Result<crate::library_store::objects::StorageObjectRecord> {
         let key = object_storage::content_object_key(group_id, sha256);
-        self.storage.write(&key, bytes.clone()).await?;
-        self.store
+        let object_preexisted = self
+            .store
+            .get_storage_object(group_id, sha256)
+            .await?
+            .is_some();
+        if let Some(lease_token) = lease_token {
+            self.write_active_storage_for_lease(&key, bytes.clone(), lease_token)
+                .await?;
+        } else {
+            self.write_active_storage(&key, bytes.clone()).await?;
+        }
+        match self
+            .store
             .upsert_storage_object(
                 Uuid::new_v4(),
                 group_id,
@@ -150,16 +246,27 @@ impl LibraryService {
                 &key,
             )
             .await
-    }
-
-    pub(super) fn spawn_ingest(&self, file_id: Uuid, job_id: Uuid, kind: LibraryFileKind) {
-        let service = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = service.run_ingest(file_id, job_id, kind).await {
-                warn!(file_id = %file_id, job_id = %job_id, error = %error, "library ingest failed");
+        {
+            Ok(object) => Ok(object),
+            Err(error) => {
+                if !object_preexisted
+                    && let Err(cleanup_error) = self.delete_active_storage(&key).await
+                {
+                    warn!(
+                        group_id,
+                        sha256,
+                        %cleanup_error,
+                        "failed to remove storage object after object record creation failure"
+                    );
+                }
+                Err(error)
             }
-        });
+        }
     }
+}
+
+fn requires_docling(kind: LibraryFileKind) -> bool {
+    !matches!(kind, LibraryFileKind::PlainText)
 }
 
 fn upload_required() -> PrepareLibraryUploadResponse {

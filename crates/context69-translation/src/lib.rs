@@ -3,7 +3,7 @@ mod segmenter;
 mod store;
 mod worker;
 
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -23,6 +23,39 @@ pub struct TranslationChunkPublication {
     pub provider_key: String,
     pub chunk_index: i32,
     pub chunk_text: String,
+}
+
+pub type TranslationRollback = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+
+pub struct TranslationPublicationResult {
+    pub chunks: Vec<TranslationChunkPublication>,
+    rollback: Option<TranslationRollback>,
+}
+
+impl TranslationPublicationResult {
+    pub fn completed(chunks: Vec<TranslationChunkPublication>) -> Self {
+        Self {
+            chunks,
+            rollback: None,
+        }
+    }
+
+    pub fn with_rollback(
+        chunks: Vec<TranslationChunkPublication>,
+        rollback: TranslationRollback,
+    ) -> Self {
+        Self {
+            chunks,
+            rollback: Some(rollback),
+        }
+    }
+
+    pub async fn rollback(self) -> Result<()> {
+        match self.rollback {
+            Some(rollback) => rollback.await,
+            None => Ok(()),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +88,26 @@ pub trait TranslationPublisher: Send + Sync {
         translation: TranslationPublication<'_>,
     ) -> Result<Vec<TranslationChunkPublication>>;
 
+    async fn publish_with_rollback(
+        &self,
+        old_chunk_ids: &[Uuid],
+        translation: TranslationPublication<'_>,
+    ) -> Result<TranslationPublicationResult> {
+        Ok(TranslationPublicationResult::completed(
+            self.publish(old_chunk_ids, translation).await?,
+        ))
+    }
+
     async fn delete(&self, chunk_ids: &[Uuid]) -> Result<()>;
+}
+
+#[async_trait]
+pub trait TranslationReadiness: Send + Sync {
+    async fn is_ready(&self) -> Result<bool>;
+
+    async fn report_processing_error(&self, _error: &str) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 #[derive(Clone)]
@@ -64,6 +116,7 @@ pub struct TranslationDependencies {
     pub http_client: reqwest::Client,
     pub publisher: Arc<dyn TranslationPublisher>,
     pub concurrency: usize,
+    pub readiness: Arc<dyn TranslationReadiness>,
 }
 
 #[derive(Debug, Clone)]

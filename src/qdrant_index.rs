@@ -10,9 +10,12 @@ use qdrant_client::{
     },
 };
 use serde_json::json;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::time::timeout;
 use tracing::info;
 use uuid::Uuid;
+
+const QDRANT_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 use crate::{
     contracts::{MetadataFilter, MetadataFilterOperator, SearchRequest},
@@ -20,6 +23,7 @@ use crate::{
 };
 
 mod collection;
+mod replacement;
 
 #[derive(Debug, Clone)]
 pub struct SearchPointHit {
@@ -41,9 +45,9 @@ impl QdrantIndex {
         payloads: &[ChunkPayload],
         embeddings: &[Vec<f32>],
     ) -> Result<()> {
-        self.delete_points(existing_chunk_ids).await?;
-
-        self.upsert_document_chunks(payloads, embeddings).await
+        self.replace_document_chunks_with_rollback(existing_chunk_ids, payloads, embeddings)
+            .await?;
+        Ok(())
     }
 
     pub async fn upsert_document_chunks(
@@ -51,10 +55,18 @@ impl QdrantIndex {
         payloads: &[ChunkPayload],
         embeddings: &[Vec<f32>],
     ) -> Result<()> {
-        if payloads.is_empty() {
+        let points = self.build_document_points(payloads, embeddings)?;
+        if points.is_empty() {
             return Ok(());
         }
+        self.upsert_points(points, payloads.len()).await
+    }
 
+    fn build_document_points(
+        &self,
+        payloads: &[ChunkPayload],
+        embeddings: &[Vec<f32>],
+    ) -> Result<Vec<PointStruct>> {
         if payloads.len() != embeddings.len() {
             return Err(anyhow!("embedding count does not match chunk count"));
         }
@@ -69,8 +81,7 @@ impl QdrantIndex {
             }
         }
 
-        let started = Instant::now();
-        let points = payloads
+        payloads
             .iter()
             .zip(embeddings.iter())
             .map(|(payload, embedding)| {
@@ -80,13 +91,26 @@ impl QdrantIndex {
                     Payload::try_from(chunk_payload_json(payload))?,
                 ))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>>>()
+    }
 
-        self.client
-            .upsert_points(UpsertPointsBuilder::new(&self.collection_name, points).wait(true))
-            .await?;
+    async fn upsert_points(&self, points: Vec<PointStruct>, batch_size: usize) -> Result<()> {
+        let started = Instant::now();
+        timeout(
+            QDRANT_OPERATION_TIMEOUT,
+            self.client
+                .upsert_points(UpsertPointsBuilder::new(&self.collection_name, points).wait(true)),
+        )
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "qdrant points upsert request timed out after {}s",
+                QDRANT_OPERATION_TIMEOUT.as_secs()
+            )
+        })?
+        .context("qdrant points upsert request failed")?;
         info!(
-            batch_size = payloads.len(),
+            batch_size,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant points upserted"
         );
@@ -123,11 +147,20 @@ impl QdrantIndex {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        self.client
-            .update_points_batch(
+        timeout(
+            QDRANT_OPERATION_TIMEOUT,
+            self.client.update_points_batch(
                 UpdateBatchPointsBuilder::new(&self.collection_name, operations).wait(true),
+            ),
+        )
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "qdrant points update request timed out after {}s",
+                QDRANT_OPERATION_TIMEOUT.as_secs()
             )
-            .await?;
+        })?
+        .context("qdrant points update request failed")?;
         info!(
             batch_size = payloads.len(),
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -141,8 +174,9 @@ impl QdrantIndex {
             return Ok(());
         }
 
-        self.client
-            .delete_points(
+        timeout(
+            QDRANT_OPERATION_TIMEOUT,
+            self.client.delete_points(
                 DeletePointsBuilder::new(&self.collection_name)
                     .points(PointsIdsList {
                         ids: chunk_ids
@@ -151,8 +185,16 @@ impl QdrantIndex {
                             .collect(),
                     })
                     .wait(true),
+            ),
+        )
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "qdrant points delete request timed out after {}s",
+                QDRANT_OPERATION_TIMEOUT.as_secs()
             )
-            .await?;
+        })?
+        .context("qdrant points delete request failed")?;
         Ok(())
     }
 
@@ -219,7 +261,11 @@ impl QdrantIndex {
         };
 
         let started = Instant::now();
-        let result = self.client.search_points(builder).await?;
+        let result = self
+            .client
+            .search_points(builder)
+            .await
+            .context("qdrant search request failed")?;
         let hits = result
             .result
             .into_iter()
@@ -245,7 +291,8 @@ impl QdrantIndex {
         let result = self
             .client
             .count(CountPointsBuilder::new(&self.collection_name).exact(true))
-            .await?;
+            .await
+            .context("qdrant count request failed")?;
         Ok(result.result.map(|count| count.count).unwrap_or_default())
     }
 }

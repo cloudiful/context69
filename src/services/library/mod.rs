@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -10,7 +10,7 @@ use bytes::Bytes;
 use chrono::Utc;
 use context69_translation::{TranslationCoordinator, TranslationService};
 use serde_json::{Value, json};
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -22,17 +22,16 @@ use crate::{
         LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse,
         LibraryIngestFailureStage, LibraryIngestJobResponse, LibraryIngestStatus,
         LibraryProcessingJobBulkActionResponse, LibraryProcessingJobPageQuery,
-        LibraryProcessingJobPageResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
-        LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
-        UpsertLibraryTextRequest,
+        LibraryProcessingJobPageResponse, LibraryProcessingJobRetryRequest,
+        LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryTreeResponse,
+        LibraryUploadResponse, MoveFileRequest, MoveFolderRequest, UpsertLibraryTextRequest,
     },
     db::Database,
     docling::DoclingXlsxClient,
     domain::{ChunkPayload, LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
     embedding::EmbeddingProvider,
     library_store::{
-        JobStatusFlags, LibraryStore, NewLibraryFile, ProcessingJobPage, file_to_summary,
-        job_to_response,
+        LibraryStore, NewLibraryFile, ProcessingJobPage, file_to_summary, job_to_response,
     },
     normalize::{normalize_body, normalize_record, normalize_whitespace},
     qdrant_index::QdrantIndex,
@@ -40,12 +39,21 @@ use crate::{
 };
 
 mod content_objects;
+mod dependency_errors;
+mod dependency_runtime;
+pub(crate) use dependency_runtime::report_embedding_vector_processing_error;
+mod dependency_storage;
 mod filenames;
 mod files;
 mod folders;
 mod ingest;
 mod ingest_batches;
+mod ingest_documents;
+mod ingest_persistence;
+mod ingest_types;
+mod ingest_worker;
 mod metadata;
+mod metadata_helpers;
 mod migration;
 pub use migration::StorageMigrationSummary;
 pub(crate) mod object_storage;
@@ -57,10 +65,24 @@ mod storage;
 mod text_creation;
 mod texts;
 mod tree;
+mod upload_rollback;
+mod upload_simple;
+mod upload_types;
 mod uploads;
+mod url_import_helpers;
 mod url_import_runtime;
+mod url_import_worker;
 mod url_imports;
 mod xlsx;
+
+pub(crate) use ingest_types::LibraryDependency;
+pub(super) use ingest_types::{
+    IngestClaimOutcome, IngestFailure, IngestResult, IngestSection, LibraryFileKind,
+    PreparedIngestSection, SourceConfigPreview, SourceRecordJson,
+};
+pub(super) use metadata_helpers::{compose_library_metadata, library_system_metadata};
+pub use upload_types::UploadedLibraryFile;
+pub(super) use upload_types::{UploadedLibraryFileResult, UploadedLibraryFileRollback};
 
 const FILE_LIBRARY_SOURCE_KEY: &str = "file_library";
 
@@ -76,7 +98,13 @@ pub struct LibraryService {
     max_upload_size_bytes: usize,
     max_upload_request_size_bytes: usize,
     pdf_pages_per_task: u32,
+    s3_configuration_fingerprint: Option<String>,
+    embedding_vector_configured: bool,
+    embedding_vector_configuration_fingerprint: String,
     ingest_semaphore: Arc<Semaphore>,
+    ingest_wakeup: Arc<Notify>,
+    ingest_workers_started: Arc<AtomicBool>,
+    ingest_worker_count: usize,
     url_import_runtime: Arc<url_import_runtime::UrlImportRuntime>,
     translation: TranslationService,
 }
@@ -85,6 +113,8 @@ pub struct LibraryServiceConfig {
     pub chunking: ChunkingConfig,
     pub file_library: FileLibraryConfig,
     pub valkey_url: Option<String>,
+    pub embedding_vector_configured: bool,
+    pub embedding_vector_configuration_fingerprint: String,
 }
 
 #[derive(Clone)]
@@ -92,67 +122,6 @@ struct LibraryRuntime {
     embedding: Arc<dyn EmbeddingProvider>,
     index: QdrantIndex,
 }
-
-#[derive(Debug, Clone)]
-pub struct UploadedLibraryFile {
-    pub folder_id: Option<Uuid>,
-    pub filename: String,
-    pub media_type: String,
-    pub bytes: Bytes,
-    pub declared_sha256: Option<String>,
-    pub metadata: Option<LibraryFileUploadMetadata>,
-    pub translation: Option<crate::contracts::TranslationDirective>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LibraryFileKind {
-    Pdf,
-    Docx,
-    Xlsx,
-    PlainText,
-}
-
-#[derive(Debug, Clone)]
-struct IngestSection {
-    section_key: String,
-    section_label: String,
-    title: String,
-    summary: Option<String>,
-    body_text: String,
-    source_uri: Option<String>,
-    external_id: Option<String>,
-    published_at: Option<chrono::DateTime<chrono::Utc>>,
-    metadata_json: Value,
-}
-
-#[derive(Debug)]
-pub(super) struct IngestFailure {
-    pub stage: LibraryIngestFailureStage,
-    pub error: anyhow::Error,
-}
-
-impl IngestFailure {
-    pub fn new(stage: LibraryIngestFailureStage, error: impl Into<anyhow::Error>) -> Self {
-        Self {
-            stage,
-            error: error.into(),
-        }
-    }
-}
-
-impl std::fmt::Display for IngestFailure {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.error.fmt(formatter)
-    }
-}
-
-impl std::error::Error for IngestFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.error.source()
-    }
-}
-
-type IngestResult<T> = std::result::Result<T, IngestFailure>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct UpsertNamedTextFileRequest {
@@ -183,10 +152,16 @@ impl LibraryService {
             chunking,
             file_library,
             valkey_url,
+            embedding_vector_configured,
+            embedding_vector_configuration_fingerprint,
         } = service_config;
         let storage = Arc::new(object_storage::LibraryObjectStorage::from_config(
             &file_library,
         )?);
+        let s3_configuration_fingerprint = file_library
+            .s3
+            .as_ref()
+            .map(dependency_runtime::s3_configuration_fingerprint);
         let url_import_runtime = Arc::new(
             url_import_runtime::UrlImportRuntime::new(
                 file_library.url_import_concurrency,
@@ -209,7 +184,13 @@ impl LibraryService {
             max_upload_size_bytes: file_library.max_upload_size_mb * 1024 * 1024,
             max_upload_request_size_bytes: file_library.max_upload_request_size_mb * 1024 * 1024,
             pdf_pages_per_task: file_library.pdf_pages_per_task,
+            s3_configuration_fingerprint,
+            embedding_vector_configured,
+            embedding_vector_configuration_fingerprint,
             ingest_semaphore: Arc::new(Semaphore::new(file_library.ingest_concurrency)),
+            ingest_wakeup: Arc::new(Notify::new()),
+            ingest_workers_started: Arc::new(AtomicBool::new(false)),
+            ingest_worker_count: file_library.ingest_concurrency.max(1),
             url_import_runtime,
             translation,
         })
@@ -228,9 +209,13 @@ impl LibraryService {
     }
 
     fn runtime(&self) -> Result<&LibraryRuntime> {
-        self.runtime
-            .as_ref()
-            .ok_or_else(library_runtime_unavailable)
+        self.runtime.as_ref().ok_or_else(|| {
+            if self.embedding_vector_configured {
+                anyhow!("embedding/vector runtime is unavailable")
+            } else {
+                library_runtime_unavailable()
+            }
+        })
     }
 }
 
@@ -238,49 +223,6 @@ fn library_runtime_unavailable() -> anyhow::Error {
     anyhow!(
         "library ingest runtime is not configured; save runtime and docling settings and restart the service"
     )
-}
-
-fn library_system_metadata(
-    file: &crate::domain::LibraryFileRecord,
-    folder_path: &str,
-    section_key: &str,
-    section_label: &str,
-) -> Value {
-    json!({
-        "is_library_file": true,
-        "library_file_id": file.id,
-        "library_path": folder_path,
-        "library_section_key": section_key,
-        "library_section_label": section_label,
-        "library_filename": file.filename,
-        "library_media_type": file.media_type,
-    })
-}
-
-fn compose_library_metadata(
-    section_metadata: &Value,
-    file_metadata: &Value,
-    system_metadata: Value,
-) -> Result<Value> {
-    let Some(system_object) = system_metadata.as_object() else {
-        return Err(anyhow!("system library metadata must be an object"));
-    };
-    let mut merged = match section_metadata {
-        Value::Null => serde_json::Map::new(),
-        Value::Object(map) => map.clone(),
-        _ => return Err(anyhow!("metadata_json must be an object")),
-    };
-    let file_object = file_metadata
-        .as_object()
-        .ok_or_else(|| anyhow!("file metadata_json must be an object"))?;
-    for (key, value) in file_object {
-        merged.insert(key.clone(), value.clone());
-    }
-    merged.remove("record_hash");
-    for (key, value) in system_object {
-        merged.insert(key.clone(), value.clone());
-    }
-    Ok(Value::Object(merged))
 }
 
 #[cfg(test)]

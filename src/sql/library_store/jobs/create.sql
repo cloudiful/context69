@@ -3,14 +3,25 @@ INSERT INTO context69.library_ingest_jobs (
     group_id,
     visibility,
     file_id,
-    status
+    status,
+    requires_docling
 )
 SELECT
     $1,
     lf.group_id,
     lf.visibility,
     $2,
-    'pending'
+    'pending',
+    (
+        lower(lf.filename) LIKE '%.pdf'
+        OR lower(lf.filename) LIKE '%.docx'
+        OR lower(lf.filename) LIKE '%.xlsx'
+        OR lf.media_type IN (
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    )
 FROM context69.library_files lf
 WHERE lf.id = $2
 RETURNING

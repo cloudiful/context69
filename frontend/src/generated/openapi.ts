@@ -1695,6 +1695,9 @@ export interface components {
             db_ok?: boolean | null;
             /** Format: int64 */
             indexed_chunks?: number | null;
+            library_dependency_gates?: null | components["schemas"]["LibraryDependencyGateResponse"][];
+            library_processing_queue?: null | components["schemas"]["LibraryProcessingQueueHealth"];
+            library_processing_ready?: boolean | null;
             qdrant_ok?: boolean | null;
             status: components["schemas"]["HealthStatus"];
         };
@@ -1708,6 +1711,19 @@ export interface components {
             metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
             translation?: null | components["schemas"]["TranslationDirective"];
             url: string;
+        };
+        LibraryDependencyGateResponse: {
+            dependency_key: string;
+            /** Format: int32 */
+            failure_count: number;
+            last_error?: string | null;
+            /** Format: date-time */
+            last_success_at?: string | null;
+            /** Format: date-time */
+            last_transition_at: string;
+            /** Format: date-time */
+            next_probe_at?: string | null;
+            state: string;
         };
         LibraryDocumentSectionPreview: {
             content_format?: components["schemas"]["LibraryPreviewContentFormat"];
@@ -1852,6 +1868,9 @@ export interface components {
             /** Format: int64 */
             accepted: number;
             /** Format: int64 */
+            candidate_count: number;
+            dry_run: boolean;
+            /** Format: int64 */
             skipped: number;
         };
         /** @enum {string} */
@@ -1885,6 +1904,17 @@ export interface components {
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
         };
+        LibraryProcessingJobRetryRequest: {
+            /** Format: int32 */
+            batch_size?: number;
+            dry_run?: boolean;
+            error_filter?: string | null;
+            failure_stage?: null | components["schemas"]["LibraryIngestFailureStage"];
+            /** Format: int32 */
+            limit?: number;
+            /** Format: int64 */
+            rate_limit_ms?: number;
+        };
         LibraryProcessingJobSummaryResponse: {
             can_manage: boolean;
             /** Format: int64 */
@@ -1899,6 +1929,18 @@ export interface components {
             running_count: number;
             /** Format: int64 */
             stuck_count: number;
+        };
+        LibraryProcessingQueueHealth: {
+            /** Format: int64 */
+            oldest_pending_age_seconds?: number | null;
+            /** Format: int64 */
+            oldest_queued_age_seconds?: number | null;
+            /** Format: int64 */
+            pending_count: number;
+            /** Format: int64 */
+            queued_count: number;
+            /** Format: int64 */
+            recent_failure_count: number;
         };
         LibraryResourceItem: {
             /** Format: int64 */
@@ -5283,7 +5325,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryProcessingJobRetryRequest"];
+            };
+        };
         responses: {
             /** @description Accepted and skipped failed processing jobs */
             200: {

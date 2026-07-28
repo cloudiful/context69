@@ -60,6 +60,12 @@ pub struct HealthResponse {
     pub db_ok: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qdrant_ok: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_processing_ready: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_dependency_gates: Option<Vec<crate::LibraryDependencyGateResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_processing_queue: Option<crate::LibraryProcessingQueueHealth>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

@@ -3,7 +3,8 @@ use std::{sync::Arc, time::Instant};
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use context69_translation::{
-    TranslationChunkPublication, TranslationPublication, TranslationPublisher,
+    TranslationChunkPublication, TranslationPublication, TranslationPublicationResult,
+    TranslationPublisher,
 };
 use tracing::info;
 
@@ -51,6 +52,17 @@ impl TranslationPublisher for TranslationPublisherAdapter {
         old_chunk_ids: &[uuid::Uuid],
         translation: TranslationPublication<'_>,
     ) -> Result<Vec<TranslationChunkPublication>> {
+        Ok(self
+            .publish_with_rollback(old_chunk_ids, translation)
+            .await?
+            .chunks)
+    }
+
+    async fn publish_with_rollback(
+        &self,
+        old_chunk_ids: &[uuid::Uuid],
+        translation: TranslationPublication<'_>,
+    ) -> Result<TranslationPublicationResult> {
         let started = Instant::now();
         let (embedding, index) = self.runtime()?;
         let visibility = translation
@@ -107,8 +119,8 @@ impl TranslationPublisher for TranslationPublisherAdapter {
                 translation_provider: Some(translation.provider_key.to_string()),
             })
             .collect::<Vec<_>>();
-        index
-            .replace_document_chunks(old_chunk_ids, &payloads, &embeddings)
+        let replacement = index
+            .replace_document_chunks_with_rollback(old_chunk_ids, &payloads, &embeddings)
             .await?;
         info!(
             document_id = translation.document_id,
@@ -117,7 +129,7 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             elapsed_ms = started.elapsed().as_millis() as u64,
             "translation chunks published"
         );
-        Ok(payloads
+        let chunks = payloads
             .into_iter()
             .map(|payload| TranslationChunkPublication {
                 chunk_id: payload.chunk_id,
@@ -128,7 +140,11 @@ impl TranslationPublisher for TranslationPublisherAdapter {
                 chunk_index: payload.chunk_index,
                 chunk_text: payload.chunk_text,
             })
-            .collect())
+            .collect();
+        Ok(TranslationPublicationResult::with_rollback(
+            chunks,
+            Box::pin(async move { replacement.rollback().await }),
+        ))
     }
 
     async fn delete(&self, chunk_ids: &[uuid::Uuid]) -> Result<()> {

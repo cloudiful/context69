@@ -10,12 +10,33 @@ use crate::contracts::{
     Visibility,
 };
 
+#[derive(Debug, Clone)]
+pub(crate) struct ProcessingQueueHealth {
+    pub pending_count: i64,
+    pub queued_count: i64,
+    pub oldest_pending_at: Option<DateTime<Utc>>,
+    pub oldest_queued_at: Option<DateTime<Utc>>,
+    pub recent_failure_count: i64,
+    pub docling_required_count: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct ProcessingQueueHealthRow {
+    pending_count: i64,
+    queued_count: i64,
+    oldest_pending_at: Option<DateTime<Utc>>,
+    oldest_queued_at: Option<DateTime<Utc>>,
+    recent_failure_count: i64,
+    docling_required_count: i64,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct ProcessingRetryCandidate {
     pub group_id: i64,
     pub job_id: uuid::Uuid,
     pub kind: String,
     pub file_id: Option<uuid::Uuid>,
+    pub candidate_count: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -35,6 +56,23 @@ struct BulkActionRow {
 }
 
 impl LibraryStore {
+    pub(crate) async fn processing_queue_health(&self) -> Result<ProcessingQueueHealth> {
+        let row = sqlx::query_file_as!(
+            ProcessingQueueHealthRow,
+            "src/sql/library_store/jobs/processing_health.sql"
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(ProcessingQueueHealth {
+            pending_count: row.pending_count,
+            queued_count: row.queued_count,
+            oldest_pending_at: row.oldest_pending_at,
+            oldest_queued_at: row.oldest_queued_at,
+            recent_failure_count: row.recent_failure_count,
+            docling_required_count: row.docling_required_count,
+        })
+    }
+
     pub async fn user_can_manage_processing_jobs(&self, user_id: i64) -> Result<bool> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/library_store/jobs/has_processing_job_manager.sql",
@@ -76,12 +114,18 @@ impl LibraryStore {
         &self,
         user_id: i64,
         private_group_ids: &[i64],
+        failure_stage: Option<LibraryIngestFailureStage>,
+        error_filter: Option<&str>,
+        limit: i64,
     ) -> Result<Vec<ProcessingRetryCandidate>> {
         Ok(sqlx::query_file_as!(
             ProcessingRetryCandidate,
             "src/sql/library_store/jobs/list_retry_candidates.sql",
             user_id,
-            private_group_ids
+            private_group_ids,
+            failure_stage.map(LibraryIngestFailureStage::as_str),
+            error_filter,
+            limit
         )
         .fetch_all(self.db.pool())
         .await?)
@@ -92,21 +136,21 @@ impl LibraryStore {
         user_id: i64,
         private_group_ids: &[i64],
         stale_before: DateTime<Utc>,
-        error_message: &str,
     ) -> Result<LibraryProcessingJobBulkActionResponse> {
         let row = sqlx::query_file_as!(
             BulkActionRow,
             "src/sql/library_store/jobs/cleanup_stuck.sql",
             user_id,
             private_group_ids,
-            stale_before,
-            error_message
+            stale_before
         )
         .fetch_one(self.db.pool())
         .await?;
         Ok(LibraryProcessingJobBulkActionResponse {
+            candidate_count: row.accepted + row.skipped,
             accepted: non_negative_count(row.accepted)?,
             skipped: non_negative_count(row.skipped)?,
+            dry_run: false,
         })
     }
 

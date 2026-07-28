@@ -38,7 +38,6 @@ impl LibraryService {
         if content.is_empty() {
             return Err(anyhow!("text content must not be empty"));
         }
-        self.runtime()?;
         let summary = request
             .summary
             .as_deref()
@@ -84,7 +83,10 @@ impl LibraryService {
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
         let storage_rel_path = storage::build_storage_rel_path(file_id, &filename);
-        self.storage.write(&storage_rel_path, bytes.clone()).await?;
+        let storage_key = storage_rel_path.clone();
+        let project_id = project.map(|project| project.id);
+        self.write_active_storage(&storage_rel_path, bytes.clone())
+            .await?;
         let new_file = NewLibraryFile {
             id: file_id,
             folder_id: request.folder_id,
@@ -96,48 +98,69 @@ impl LibraryService {
             storage_rel_path,
             storage_object_id: None,
         };
-        let created = match project {
+        let create_result = match project {
             Some(project) => {
                 self.store
                     .create_file_in_project(project.id, &new_file)
-                    .await?
+                    .await
             }
-            None => self.store.create_file(&new_file).await?,
+            None => self.store.create_file(&new_file).await,
+        };
+        let _created = match create_result {
+            Ok(file) => file,
+            Err(error) => {
+                self.rollback_new_file_record(project_id, file_id, Some(&storage_key), None)
+                    .await;
+                return Err(error);
+            }
         };
         if let Some(directive) = request.translation.as_ref() {
-            self.apply_file_translation_directive(file_id, directive)
-                .await?;
+            if let Err(error) = self
+                .apply_file_translation_directive(file_id, directive)
+                .await
+            {
+                self.rollback_new_file_record(project_id, file_id, Some(&storage_key), None)
+                    .await;
+                return Err(error);
+            }
         }
-        let _created_job = self.store.create_job(job_id, file_id).await?;
-
-        self.ingest_text_sections(
-            &created,
-            job_id,
-            vec![IngestSection {
-                section_key: "document".to_string(),
-                section_label: title.clone(),
-                title: title.clone(),
-                summary,
-                body_text: normalize_body(content),
-                source_uri,
-                external_id: None,
-                published_at: None,
-                metadata_json: json!({}),
-            }],
-            "library text create",
-        )
-        .await?;
+        let section_payload = match serde_json::to_value(vec![IngestSection {
+            section_key: "document".to_string(),
+            section_label: title.clone(),
+            title: title.clone(),
+            summary,
+            body_text: normalize_body(content),
+            source_uri,
+            external_id: None,
+            published_at: None,
+            metadata_json: json!({}),
+        }]) {
+            Ok(payload) => payload,
+            Err(error) => {
+                self.rollback_new_file_record(project_id, file_id, Some(&storage_key), None)
+                    .await;
+                return Err(error.into());
+            }
+        };
+        let created_job = match self
+            .store
+            .create_job_with_options(job_id, file_id, false, Some(section_payload))
+            .await
+        {
+            Ok(job) => job,
+            Err(error) => {
+                self.rollback_new_file_record(project_id, file_id, Some(&storage_key), None)
+                    .await;
+                return Err(error);
+            }
+        };
+        self.notify_ingest_worker();
 
         let file = self
             .store
             .get_file(file_id)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        let job = self
-            .store
-            .get_job(job_id)
-            .await?
-            .with_context(|| format!("unknown job {job_id}"))?;
-        Ok((file_to_summary(&file), job_to_response(job)))
+        Ok((file_to_summary(&file), job_to_response(created_job)))
     }
 }

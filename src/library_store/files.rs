@@ -257,6 +257,34 @@ impl LibraryStore {
         row.map(file_from_row).transpose()
     }
 
+    pub async fn restore_file_snapshot_in_project(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+        storage_object_id: Option<Uuid>,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/restore_file_snapshot_in_project.sql",
+            file.group_id,
+            file.id,
+            file.folder_id,
+            file.external_id,
+            file.filename,
+            file.media_type,
+            file.size_bytes,
+            file.sha256,
+            file.storage_rel_path,
+            storage_object_id,
+            file.ingest_status.as_str(),
+            file.error_message,
+            file.ingested_at
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        row.map(file_from_row).transpose()
+    }
+
     pub async fn move_file(
         &self,
         file_id: Uuid,

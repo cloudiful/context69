@@ -21,8 +21,6 @@ impl LibraryService {
         if !request.metadata_json.is_object() {
             return Err(anyhow!("metadata_json must be an object"));
         }
-        self.runtime()?;
-
         let summary = request
             .summary
             .as_deref()
@@ -71,61 +69,107 @@ impl LibraryService {
         )
         .await?;
 
+        let previous_file = existing.clone();
+        let previous_translation = match existing.as_ref() {
+            Some(file) => self.store.file_translation_directive(file.id).await?,
+            None => None,
+        };
         let file_id = existing
             .as_ref()
             .map(|file| file.id)
             .unwrap_or_else(Uuid::new_v4);
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
-        let storage_rel_path = storage::build_storage_rel_path(file_id, &filename);
-        self.storage.write(&storage_rel_path, bytes.clone()).await?;
+        let storage_namespace = if existing.is_some() {
+            Uuid::new_v4()
+        } else {
+            file_id
+        };
+        let storage_rel_path = storage::build_storage_rel_path(storage_namespace, &filename);
+        let storage_key = storage_rel_path.clone();
+        self.write_active_storage(&storage_rel_path, bytes.clone())
+            .await?;
 
-        match existing {
-            Some(existing_file) => {
-                let updated = self
-                    .store
-                    .update_file_content_in_project(
+        if let Some(existing_file) = existing.as_ref() {
+            let update_result = self
+                .store
+                .update_file_content_in_project(
+                    project.id,
+                    existing_file.id,
+                    &crate::library_store::UpdateLibraryFileContent {
+                        folder_id: target_folder_id,
+                        external_id: Some(external_id.to_string()),
+                        filename: filename.clone(),
+                        media_type: storage::text_media_type(content_format).to_string(),
+                        size_bytes: bytes.len() as i64,
+                        sha256: sha256.clone(),
+                        storage_rel_path: storage_rel_path.clone(),
+                        storage_object_id: None,
+                    },
+                )
+                .await;
+            match update_result {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    self.rollback_project_file_change(
                         project.id,
-                        existing_file.id,
-                        &crate::library_store::UpdateLibraryFileContent {
-                            folder_id: target_folder_id,
-                            external_id: Some(external_id.to_string()),
-                            filename: filename.clone(),
-                            media_type: storage::text_media_type(content_format).to_string(),
-                            size_bytes: bytes.len() as i64,
-                            sha256,
-                            storage_rel_path,
-                            storage_object_id: None,
-                        },
+                        file_id,
+                        previous_file.as_ref(),
+                        None,
+                        previous_translation.as_ref(),
+                        &storage_key,
+                        None,
                     )
-                    .await?
-                    .with_context(|| format!("unknown file {}", existing_file.id))?;
-                if existing_file.storage_rel_path != updated.storage_rel_path
-                    && let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await
-                {
-                    warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
+                    .await;
+                    return Err(anyhow!("unknown file {}", existing_file.id));
+                }
+                Err(error) => {
+                    self.rollback_project_file_change(
+                        project.id,
+                        file_id,
+                        previous_file.as_ref(),
+                        None,
+                        previous_translation.as_ref(),
+                        &storage_key,
+                        None,
+                    )
+                    .await;
+                    return Err(error);
                 }
             }
-            None => {
-                self.store
-                    .create_file_in_project(
-                        project.id,
-                        &NewLibraryFile {
-                            id: file_id,
-                            folder_id: target_folder_id,
-                            external_id: Some(external_id.to_string()),
-                            filename: filename.clone(),
-                            media_type: storage::text_media_type(content_format).to_string(),
-                            size_bytes: bytes.len() as i64,
-                            sha256,
-                            storage_rel_path,
-                            storage_object_id: None,
-                        },
-                    )
-                    .await?;
+        } else {
+            let create_result = self
+                .store
+                .create_file_in_project(
+                    project.id,
+                    &NewLibraryFile {
+                        id: file_id,
+                        folder_id: target_folder_id,
+                        external_id: Some(external_id.to_string()),
+                        filename: filename.clone(),
+                        media_type: storage::text_media_type(content_format).to_string(),
+                        size_bytes: bytes.len() as i64,
+                        sha256: sha256.clone(),
+                        storage_rel_path: storage_rel_path.clone(),
+                        storage_object_id: None,
+                    },
+                )
+                .await;
+            if let Err(error) = create_result {
+                self.rollback_project_file_change(
+                    project.id,
+                    file_id,
+                    previous_file.as_ref(),
+                    None,
+                    previous_translation.as_ref(),
+                    &storage_key,
+                    None,
+                )
+                .await;
+                return Err(error);
             }
         }
-        let file = self
+        if let Err(error) = self
             .apply_file_business_metadata(
                 file_id,
                 &crate::contracts::LibraryFileUploadMetadata {
@@ -135,44 +179,105 @@ impl LibraryService {
                     metadata_json: request.metadata_json.clone(),
                 },
             )
-            .await?;
-        if let Some(directive) = request.translation.as_ref() {
-            self.apply_file_translation_directive(file_id, directive)
-                .await?;
+            .await
+        {
+            self.rollback_project_file_change(
+                project.id,
+                file_id,
+                previous_file.as_ref(),
+                None,
+                previous_translation.as_ref(),
+                &storage_key,
+                None,
+            )
+            .await;
+            return Err(error);
         }
-        let _created_job = self.store.create_job(job_id, file_id).await?;
-
-        self.ingest_text_sections(
-            &file,
-            job_id,
-            vec![IngestSection {
-                section_key: "document".to_string(),
-                section_label: title.clone(),
-                title: title.clone(),
-                summary,
-                body_text: normalize_body(content),
-                source_uri: None,
-                external_id: None,
-                published_at: None,
-                metadata_json: json!({}),
-            }],
-            "library text upsert",
-        )
-        .await?;
+        if let Some(directive) = request.translation.as_ref()
+            && let Err(error) = self
+                .apply_file_translation_directive(file_id, directive)
+                .await
+        {
+            self.rollback_project_file_change(
+                project.id,
+                file_id,
+                previous_file.as_ref(),
+                None,
+                previous_translation.as_ref(),
+                &storage_key,
+                None,
+            )
+            .await;
+            return Err(error);
+        }
+        let section_payload = match serde_json::to_value(vec![IngestSection {
+            section_key: "document".to_string(),
+            section_label: title.clone(),
+            title: title.clone(),
+            summary,
+            body_text: normalize_body(content),
+            source_uri: None,
+            external_id: None,
+            published_at: None,
+            metadata_json: json!({}),
+        }]) {
+            Ok(payload) => payload,
+            Err(error) => {
+                self.rollback_project_file_change(
+                    project.id,
+                    file_id,
+                    previous_file.as_ref(),
+                    None,
+                    previous_translation.as_ref(),
+                    &storage_key,
+                    None,
+                )
+                .await;
+                return Err(error.into());
+            }
+        };
+        let created_job = match self
+            .store
+            .create_job_with_options(job_id, file_id, false, Some(section_payload))
+            .await
+        {
+            Ok(job) => job,
+            Err(error) => {
+                self.rollback_project_file_change(
+                    project.id,
+                    file_id,
+                    previous_file.as_ref(),
+                    None,
+                    previous_translation.as_ref(),
+                    &storage_key,
+                    None,
+                )
+                .await;
+                return Err(error);
+            }
+        };
+        if let Some(previous_file) = previous_file.as_ref()
+            && let Err(error) = self
+                .delete_active_storage(&previous_file.storage_rel_path)
+                .await
+        {
+            warn!(
+                file_id = %file_id,
+                path = %previous_file.storage_rel_path,
+                %error,
+                "failed to remove replaced text storage object"
+            );
+        }
+        self.notify_ingest_worker();
 
         let file = self
             .store
             .get_file(file_id)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        let job = self
-            .store
-            .get_job(job_id)
-            .await?
-            .with_context(|| format!("unknown job {job_id}"))?;
         Ok(LibraryUploadResponse {
             files: vec![file_to_summary(&file)],
-            jobs: vec![job_to_response(job)],
+            jobs: vec![job_to_response(created_job)],
         })
     }
 
@@ -193,8 +298,6 @@ impl LibraryService {
         if content.trim().is_empty() {
             return Err(anyhow!("text content must not be empty"));
         }
-        self.runtime()?;
-
         if let Some(folder_id) = request.folder_id {
             self.store
                 .get_folder_in_project(project.id, folder_id)
@@ -215,166 +318,174 @@ impl LibraryService {
             .store
             .get_file_by_external_id_in_project(project.id, external_id)
             .await?;
+        let previous_file = existing.clone();
+        let previous_translation = match existing.as_ref() {
+            Some(file) => self.store.file_translation_directive(file.id).await?,
+            None => None,
+        };
         let file_id = existing
             .as_ref()
             .map(|file| file.id)
             .unwrap_or_else(Uuid::new_v4);
         let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
-        let storage_rel_path = storage::build_storage_rel_path(file_id, filename);
-        self.storage.write(&storage_rel_path, bytes.clone()).await?;
+        let storage_namespace = if existing.is_some() {
+            Uuid::new_v4()
+        } else {
+            file_id
+        };
+        let storage_rel_path = storage::build_storage_rel_path(storage_namespace, filename);
+        let storage_key = storage_rel_path.clone();
+        self.write_active_storage(&storage_rel_path, bytes.clone())
+            .await?;
 
-        let file = match existing {
-            Some(existing_file) => {
-                let updated = self
-                    .store
-                    .update_file_content_in_project(
+        if let Some(existing_file) = existing.as_ref() {
+            let update_result = self
+                .store
+                .update_file_content_in_project(
+                    project.id,
+                    existing_file.id,
+                    &crate::library_store::UpdateLibraryFileContent {
+                        folder_id: request.folder_id,
+                        external_id: Some(external_id.to_string()),
+                        filename: filename.to_string(),
+                        media_type: request.media_type.clone(),
+                        size_bytes: bytes.len() as i64,
+                        sha256: sha256.clone(),
+                        storage_rel_path: storage_rel_path.clone(),
+                        storage_object_id: None,
+                    },
+                )
+                .await;
+            match update_result {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    self.rollback_project_file_change(
                         project.id,
-                        existing_file.id,
-                        &crate::library_store::UpdateLibraryFileContent {
-                            folder_id: request.folder_id,
-                            external_id: Some(external_id.to_string()),
-                            filename: filename.to_string(),
-                            media_type: request.media_type.clone(),
-                            size_bytes: bytes.len() as i64,
-                            sha256,
-                            storage_rel_path,
-                            storage_object_id: None,
-                        },
+                        file_id,
+                        previous_file.as_ref(),
+                        None,
+                        previous_translation.as_ref(),
+                        &storage_key,
+                        None,
                     )
-                    .await?
-                    .with_context(|| format!("unknown file {}", existing_file.id))?;
-                if existing_file.storage_rel_path != updated.storage_rel_path
-                    && let Err(error) = self.storage.delete(&existing_file.storage_rel_path).await
-                {
-                    warn!(path = %existing_file.storage_rel_path, error = %error, "failed to remove stale library file");
+                    .await;
+                    return Err(anyhow!("unknown file {}", existing_file.id));
                 }
-                updated
-            }
-            None => {
-                self.store
-                    .create_file_in_project(
+                Err(error) => {
+                    self.rollback_project_file_change(
                         project.id,
-                        &NewLibraryFile {
-                            id: file_id,
-                            folder_id: request.folder_id,
-                            external_id: Some(external_id.to_string()),
-                            filename: filename.to_string(),
-                            media_type: request.media_type.clone(),
-                            size_bytes: bytes.len() as i64,
-                            sha256,
-                            storage_rel_path,
-                            storage_object_id: None,
-                        },
+                        file_id,
+                        previous_file.as_ref(),
+                        None,
+                        previous_translation.as_ref(),
+                        &storage_key,
+                        None,
                     )
-                    .await?
+                    .await;
+                    return Err(error);
+                }
+            }
+        } else {
+            let create_result = self
+                .store
+                .create_file_in_project(
+                    project.id,
+                    &NewLibraryFile {
+                        id: file_id,
+                        folder_id: request.folder_id,
+                        external_id: Some(external_id.to_string()),
+                        filename: filename.to_string(),
+                        media_type: request.media_type.clone(),
+                        size_bytes: bytes.len() as i64,
+                        sha256: sha256.clone(),
+                        storage_rel_path: storage_rel_path.clone(),
+                        storage_object_id: None,
+                    },
+                )
+                .await;
+            if let Err(error) = create_result {
+                self.rollback_project_file_change(
+                    project.id,
+                    file_id,
+                    previous_file.as_ref(),
+                    None,
+                    previous_translation.as_ref(),
+                    &storage_key,
+                    None,
+                )
+                .await;
+                return Err(error);
+            }
+        }
+        let section_payload = match serde_json::to_value(vec![IngestSection {
+            section_key: "document".to_string(),
+            section_label: filename.to_string(),
+            title: filename.to_string(),
+            summary: None,
+            body_text: normalize_body(content),
+            source_uri: None,
+            external_id: None,
+            published_at: None,
+            metadata_json: json!({}),
+        }]) {
+            Ok(payload) => payload,
+            Err(error) => {
+                self.rollback_project_file_change(
+                    project.id,
+                    file_id,
+                    previous_file.as_ref(),
+                    None,
+                    previous_translation.as_ref(),
+                    &storage_key,
+                    None,
+                )
+                .await;
+                return Err(error.into());
             }
         };
-        let _created_job = self.store.create_job(job_id, file_id).await?;
-
-        let sections = self.ingest_text(&file, &bytes).await?;
-        self.ingest_text_sections(&file, job_id, sections, "library text upsert")
-            .await?;
+        let created_job = match self
+            .store
+            .create_job_with_options(job_id, file_id, false, Some(section_payload))
+            .await
+        {
+            Ok(job) => job,
+            Err(error) => {
+                self.rollback_project_file_change(
+                    project.id,
+                    file_id,
+                    previous_file.as_ref(),
+                    None,
+                    previous_translation.as_ref(),
+                    &storage_key,
+                    None,
+                )
+                .await;
+                return Err(error);
+            }
+        };
+        if let Some(previous_file) = previous_file.as_ref()
+            && let Err(error) = self
+                .delete_active_storage(&previous_file.storage_rel_path)
+                .await
+        {
+            warn!(
+                file_id = %file_id,
+                path = %previous_file.storage_rel_path,
+                %error,
+                "failed to remove replaced text storage object"
+            );
+        }
+        self.notify_ingest_worker();
 
         let file = self
             .store
             .get_file(file_id)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        let job = self
-            .store
-            .get_job(job_id)
-            .await?
-            .with_context(|| format!("unknown job {job_id}"))?;
         Ok(LibraryUploadResponse {
             files: vec![file_to_summary(&file)],
-            jobs: vec![job_to_response(job)],
+            jobs: vec![job_to_response(created_job)],
         })
-    }
-
-    pub(super) async fn ingest_text_sections(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        job_id: Uuid,
-        sections: Vec<IngestSection>,
-        search_generation_reason: &str,
-    ) -> Result<()> {
-        let Some(_) = self
-            .store
-            .update_job_status(
-                job_id,
-                LibraryIngestStatus::Running,
-                None,
-                None,
-                None,
-                JobStatusFlags {
-                    mark_started_now: true,
-                    mark_finished_now: false,
-                },
-            )
-            .await?
-        else {
-            return Ok(());
-        };
-        self.store
-            .update_file_status(file.id, LibraryIngestStatus::Running, None, false)
-            .await?;
-
-        let persist_result = self.persist_sections(file, sections).await;
-        match persist_result {
-            Ok(()) => {
-                let Some(_) = self
-                    .store
-                    .update_job_status(
-                        job_id,
-                        LibraryIngestStatus::Succeeded,
-                        None,
-                        None,
-                        None,
-                        JobStatusFlags {
-                            mark_started_now: true,
-                            mark_finished_now: true,
-                        },
-                    )
-                    .await?
-                else {
-                    return Ok(());
-                };
-                self.store
-                    .update_file_status(file.id, LibraryIngestStatus::Succeeded, None, true)
-                    .await?;
-                self.bump_search_generation(search_generation_reason)
-                    .await?;
-                Ok(())
-            }
-            Err(error) => {
-                let message = error.to_string();
-                let job_updated = self
-                    .store
-                    .update_job_status(
-                        job_id,
-                        LibraryIngestStatus::Failed,
-                        None,
-                        Some(error.stage),
-                        Some(&message),
-                        JobStatusFlags {
-                            mark_started_now: true,
-                            mark_finished_now: true,
-                        },
-                    )
-                    .await?;
-                if job_updated.is_some() {
-                    self.store
-                        .update_file_status(
-                            file.id,
-                            LibraryIngestStatus::Failed,
-                            Some(&message),
-                            false,
-                        )
-                        .await?;
-                }
-                Err(error.into())
-            }
-        }
     }
 }

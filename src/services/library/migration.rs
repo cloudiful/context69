@@ -25,7 +25,7 @@ impl LibraryService {
                 .get_storage_object(file.group_id, &file.sha256)
                 .await?
                 && object.storage_backend == "s3"
-                && self.storage.exists(&object.object_key).await?
+                && self.exists_active_storage(&object.object_key).await?
             {
                 summary.already_migrated += 1;
                 continue;

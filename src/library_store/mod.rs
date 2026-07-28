@@ -10,6 +10,7 @@ use crate::contracts::{
 use crate::db::Database;
 use crate::domain::{LibraryFileRecord, LibraryFolderRecord, LibraryIngestJobRecord};
 
+mod dependency_gates;
 mod detail;
 pub(crate) mod documents;
 mod files;
@@ -22,17 +23,15 @@ mod resources;
 mod url_imports;
 pub use resources::ResourceListQuery;
 
+pub(crate) use dependency_gates::{
+    DependencyGateRecord, DependencyGateTransition, IngestClaim, PendingIngestDependencies,
+};
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format, job_to_response};
+pub(crate) use processing_jobs::ProcessingQueueHealth;
 
 #[derive(Clone)]
 pub struct LibraryStore {
     db: Database,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct JobStatusFlags {
-    pub mark_started_now: bool,
-    pub mark_finished_now: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -117,6 +116,7 @@ pub struct UrlImportJobRecord {
     pub updated_at: DateTime<Utc>,
     pub lease_token: Option<Uuid>,
     pub lease_expires_at: Option<DateTime<Utc>>,
+    pub next_attempt_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, FromRow)]

@@ -10,9 +10,9 @@ use crate::contracts::{
     ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
     LibraryFileJobPageQuery, LibraryFileJobPageResponse, LibraryFolderResponse,
     LibraryIngestJobResponse, LibraryProcessingJobBulkActionResponse,
-    LibraryProcessingJobPageQuery, LibraryProcessingJobPageResponse, LibraryResourcePageQuery,
-    LibraryResourcePageResponse, LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest,
-    MoveFolderRequest,
+    LibraryProcessingJobPageQuery, LibraryProcessingJobPageResponse,
+    LibraryProcessingJobRetryRequest, LibraryResourcePageQuery, LibraryResourcePageResponse,
+    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
 };
 
 use super::{
@@ -88,6 +88,7 @@ pub(crate) async fn get_library_processing_jobs(
 #[utoipa::path(
     post,
     path = "/v1/library/processing-jobs/retry-failed",
+    request_body = LibraryProcessingJobRetryRequest,
     responses(
         (status = 200, description = "Accepted and skipped failed processing jobs", body = LibraryProcessingJobBulkActionResponse),
         (status = 403, description = "Owner or maintainer access required", body = ApiErrorResponse),
@@ -97,6 +98,7 @@ pub(crate) async fn get_library_processing_jobs(
 pub(crate) async fn retry_failed_library_processing_jobs(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
+    request: Option<Json<LibraryProcessingJobRetryRequest>>,
 ) -> impl IntoResponse {
     let scope = match state
         .app
@@ -107,7 +109,23 @@ pub(crate) async fn retry_failed_library_processing_jobs(
         Ok(scope) => scope,
         Err(error) => return library_management_error_response(error),
     };
-    match state.app.library.retry_failed_processing_jobs(&scope).await {
+    let request =
+        request
+            .map(|Json(request)| request)
+            .unwrap_or(LibraryProcessingJobRetryRequest {
+                dry_run: false,
+                failure_stage: None,
+                error_filter: None,
+                limit: 100,
+                batch_size: 10,
+                rate_limit_ms: 250,
+            });
+    match state
+        .app
+        .library
+        .retry_failed_processing_jobs(&scope, &request)
+        .await
+    {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => library_management_error_response(error),
     }
@@ -117,7 +135,7 @@ pub(crate) async fn retry_failed_library_processing_jobs(
     post,
     path = "/v1/library/processing-jobs/cleanup-stuck",
     responses(
-        (status = 200, description = "Accepted and skipped stuck processing jobs", body = LibraryProcessingJobBulkActionResponse),
+        (status = 200, description = "Recovered and skipped stuck processing jobs", body = LibraryProcessingJobBulkActionResponse),
         (status = 403, description = "Owner or maintainer access required", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
@@ -173,6 +191,7 @@ pub(crate) async fn create_library_folder(
     responses(
         (status = 201, description = "Created text library entry", body = LibraryUploadResponse),
         (status = 400, description = "Invalid text payload", body = ApiErrorResponse),
+        (status = 503, description = "Library dependency unavailable", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
@@ -236,6 +255,7 @@ pub(crate) async fn delete_library_folder(
     responses(
         (status = 201, description = "Accepted uploaded files", body = LibraryUploadResponse),
         (status = 400, description = "Invalid upload", body = ApiErrorResponse),
+        (status = 503, description = "Library dependency unavailable", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]

@@ -3578,6 +3578,16 @@
       "post": {
         "tags": [],
         "operationId": "retry_failed_library_processing_jobs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryProcessingJobRetryRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Accepted and skipped failed processing jobs",
@@ -6242,6 +6252,35 @@
             "format": "int64",
             "minimum": 0
           },
+          "library_dependency_gates": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryDependencyGateResponse"
+                }
+              }
+            ]
+          },
+          "library_processing_queue": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryProcessingQueueHealth"
+              }
+            ]
+          },
+          "library_processing_ready": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "qdrant_ok": {
             "type": [
               "boolean",
@@ -6306,6 +6345,52 @@
             ]
           },
           "url": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryDependencyGateResponse": {
+        "type": "object",
+        "required": [
+          "dependency_key",
+          "state",
+          "failure_count",
+          "last_transition_at"
+        ],
+        "properties": {
+          "dependency_key": {
+            "type": "string"
+          },
+          "failure_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_transition_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "next_probe_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
             "type": "string"
           }
         }
@@ -6837,14 +6922,24 @@
       "LibraryProcessingJobBulkActionResponse": {
         "type": "object",
         "required": [
+          "candidate_count",
           "accepted",
-          "skipped"
+          "skipped",
+          "dry_run"
         ],
         "properties": {
           "accepted": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "candidate_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dry_run": {
+            "type": "boolean"
           },
           "skipped": {
             "type": "integer",
@@ -6977,6 +7072,45 @@
           }
         }
       },
+      "LibraryProcessingJobRetryRequest": {
+        "type": "object",
+        "properties": {
+          "batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "error_filter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure_stage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryIngestFailureStage"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rate_limit_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "LibraryProcessingJobSummaryResponse": {
         "type": "object",
         "required": [
@@ -7018,6 +7152,47 @@
             "minimum": 0
           },
           "stuck_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LibraryProcessingQueueHealth": {
+        "type": "object",
+        "required": [
+          "pending_count",
+          "queued_count",
+          "recent_failure_count"
+        ],
+        "properties": {
+          "oldest_pending_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "oldest_queued_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "pending_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queued_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "recent_failure_count": {
             "type": "integer",
             "format": "int64",
             "minimum": 0

@@ -79,6 +79,13 @@ impl TranslationStore {
         .await?)
     }
 
+    pub(crate) async fn release_claimed_job(&self, id: Uuid) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!("sql/jobs/release.sql", id)
+            .fetch_optional(self.pool())
+            .await?
+            .is_some())
+    }
+
     pub(crate) async fn insert_attempt(&self, attempt: TranslationAttempt<'_>) -> Result<()> {
         sqlx::query_file!(
             "sql/jobs/insert_attempt.sql",

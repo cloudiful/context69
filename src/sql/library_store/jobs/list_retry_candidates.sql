@@ -18,6 +18,8 @@ WITH RECURSIVE inherited_roles AS (
         job.dedupe_key,
         job.file_id,
         job.status,
+        job.failure_stage,
+        job.error_message,
         job.created_at
     FROM context69.library_url_import_jobs job
     JOIN context69.groups group_row ON group_row.id = job.group_id
@@ -33,6 +35,8 @@ WITH RECURSIVE inherited_roles AS (
         NULL::TEXT AS dedupe_key,
         job.file_id,
         job.status,
+        job.failure_stage,
+        job.error_message,
         job.created_at
     FROM context69.library_ingest_jobs job
     JOIN context69.groups group_row ON group_row.id = job.group_id
@@ -44,7 +48,7 @@ WITH RECURSIVE inherited_roles AS (
           WHERE url_job.ingest_job_id = job.id
       )
 ), latest_ingest AS (
-    SELECT group_id, job_id, kind, file_id
+    SELECT group_id, job_id, kind, file_id, failure_stage, error_message, created_at
     FROM (
         SELECT
             jobs.*,
@@ -58,7 +62,7 @@ WITH RECURSIVE inherited_roles AS (
     WHERE row_number = 1
       AND status = 'failed'
 ), latest_url_import AS (
-    SELECT group_id, job_id, kind, file_id
+    SELECT group_id, job_id, kind, file_id, failure_stage, error_message, created_at
     FROM (
         SELECT
             jobs.*,
@@ -71,10 +75,26 @@ WITH RECURSIVE inherited_roles AS (
     ) ranked
     WHERE row_number = 1
       AND status = 'failed'
+), candidates AS (
+    SELECT group_id, job_id, kind, file_id, created_at
+    FROM latest_ingest
+    WHERE file_id IS NOT NULL
+      AND ($3::TEXT IS NULL OR failure_stage = $3::TEXT)
+      AND ($4::TEXT IS NULL OR COALESCE(error_message, '') ILIKE '%' || BTRIM($4::TEXT) || '%')
+
+    UNION ALL
+
+    SELECT group_id, job_id, kind, file_id, created_at
+    FROM latest_url_import
+    WHERE ($3::TEXT IS NULL OR failure_stage = $3::TEXT)
+      AND ($4::TEXT IS NULL OR COALESCE(error_message, '') ILIKE '%' || BTRIM($4::TEXT) || '%')
 )
-SELECT group_id AS "group_id!", job_id AS "job_id!", kind AS "kind!", file_id
-FROM latest_ingest
-WHERE file_id IS NOT NULL
-UNION ALL
-SELECT group_id AS "group_id!", job_id AS "job_id!", kind AS "kind!", file_id
-FROM latest_url_import
+SELECT
+    group_id AS "group_id!",
+    job_id AS "job_id!",
+    kind AS "kind!",
+    file_id,
+    COUNT(*) OVER () AS "candidate_count!: i64"
+FROM candidates
+ORDER BY created_at, job_id
+LIMIT $5
