@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)::BIGINT AS \"count!\"\nFROM context69.users\nWHERE (\n       NULLIF(BTRIM($1::TEXT), '') IS NULL\n    OR login_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n    OR display_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8835496c2636d8f30ed5370c859ce3abd597be58c533bfa51489873c804237fd"
+}

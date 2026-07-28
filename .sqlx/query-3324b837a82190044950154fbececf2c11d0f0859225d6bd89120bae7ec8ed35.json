@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT full_path\nFROM context69.groups\nWHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "full_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3324b837a82190044950154fbececf2c11d0f0859225d6bd89120bae7ec8ed35"
+}

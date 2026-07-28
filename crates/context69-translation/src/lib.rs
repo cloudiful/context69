@@ -105,8 +105,32 @@ pub trait TranslationPublisher: Send + Sync {
 pub trait TranslationReadiness: Send + Sync {
     async fn is_ready(&self) -> Result<bool>;
 
+    async fn reserve_probe(&self) -> Result<Option<Uuid>> {
+        Ok(None)
+    }
+
+    async fn is_ready_for_probe(&self, _probe_token: Uuid) -> Result<bool> {
+        self.is_ready().await
+    }
+
     async fn report_processing_error(&self, _error: &str) -> Result<bool> {
         Ok(false)
+    }
+
+    async fn report_processing_error_with_probe(
+        &self,
+        error: &str,
+        _probe_token: Option<Uuid>,
+    ) -> Result<bool> {
+        self.report_processing_error(error).await
+    }
+
+    async fn complete_probe(&self, _probe_token: Uuid) -> Result<()> {
+        Ok(())
+    }
+
+    async fn abandon_probe(&self, _probe_token: Uuid) -> Result<()> {
+        Ok(())
     }
 }
 

@@ -91,6 +91,7 @@ pub(super) fn is_s3_transient_error(error: &anyhow::Error) -> bool {
     s3_error_is_transport_failure(error)
         || message.contains("timeout")
         || message.contains("timed out")
+        || message.contains("s3 dependency unavailable: state=")
         || message.contains("connect")
         || message.contains("connection")
         || message.contains("transport")
@@ -131,6 +132,10 @@ fn s3_error_is_permanent(error: &anyhow::Error) -> bool {
             || message.contains("kind=configinvalid")
             || message.contains("kind=alreadyexists")
             || message.contains("kind=conditionnotmatch")
+            || message.contains("authentication")
+            || message.contains("unauthorized")
+            || message.contains("forbidden")
+            || message.contains("permission denied")
             || message.contains("not found")
             || status_is_client_error(&message)
     }
@@ -230,7 +235,7 @@ pub(super) fn redact_dependency_error(error: &anyhow::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::{Context, anyhow};
+    use anyhow::anyhow;
 
     use super::{
         dependency_is_transient, is_configuration_error, is_s3_attempt_retryable,
@@ -248,6 +253,7 @@ mod tests {
             "status 429",
             "status 503",
             "kind=Unexpected: upstream reset the connection",
+            "s3 dependency unavailable: state=open",
         ] {
             assert!(
                 is_s3_transient_error(&anyhow!(message)),

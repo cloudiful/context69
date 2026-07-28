@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (document_id)\n    document_id,\n    status,\n    COALESCE(detected_source_locale, requested_source_locale) AS source_locale\nFROM context69.document_translation_jobs\nWHERE document_id = ANY($1)\n  AND target_locale = $2\nORDER BY document_id, created_at DESC, id DESC\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_translation_jobs",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_translation_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "source_locale",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "139e2155931747b61a06aabc50f89017d01209409abc46453822826c5935ce1a"
+}

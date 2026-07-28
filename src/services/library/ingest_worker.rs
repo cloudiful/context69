@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use anyhow::Result;
 use tracing::{info, warn};
 use uuid::Uuid;
 

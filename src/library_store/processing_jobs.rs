@@ -147,7 +147,7 @@ impl LibraryStore {
         .fetch_one(self.db.pool())
         .await?;
         Ok(LibraryProcessingJobBulkActionResponse {
-            candidate_count: row.accepted + row.skipped,
+            candidate_count: non_negative_count(row.accepted + row.skipped)?,
             accepted: non_negative_count(row.accepted)?,
             skipped: non_negative_count(row.skipped)?,
             dry_run: false,

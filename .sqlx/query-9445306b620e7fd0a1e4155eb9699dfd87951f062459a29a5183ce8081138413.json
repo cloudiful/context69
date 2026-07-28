@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.sync_runs\nWHERE source_key = $1\n  AND ($2::bigint IS NULL OR group_id = $2)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9445306b620e7fd0a1e4155eb9699dfd87951f062459a29a5183ce8081138413"
+}

@@ -19,9 +19,9 @@ INSERT INTO context69.library_ingest_jobs (
 )
 SELECT
     $3,
-    group_id,
-    visibility,
-    id,
+    claimed.group_id,
+    claimed.visibility,
+    claimed.id,
     'pending',
     (
         lower(file.filename) LIKE '%.pdf'
@@ -37,8 +37,8 @@ FROM claimed
 JOIN context69.library_files file ON file.id = claimed.id
 RETURNING
     group_id,
-    (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",
-    (SELECT full_path FROM context69.groups WHERE id = group_id) AS "group_path!",
+    (SELECT group_key FROM context69.groups group_row WHERE group_row.id = context69.library_ingest_jobs.group_id) AS "group_key!",
+    (SELECT full_path FROM context69.groups group_row WHERE group_row.id = context69.library_ingest_jobs.group_id) AS "group_path!",
     visibility,
     id,
     file_id,

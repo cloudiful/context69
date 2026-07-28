@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_url_import_jobs\nSET status = CASE\n        WHEN status = 'ingesting' AND ingest_job_id IS NOT NULL THEN 'ingesting'\n        ELSE 'queued'\n    END,\n    lease_token = NULL,\n    lease_expires_at = NULL,\n    next_attempt_at = CASE\n        WHEN status = 'ingesting' AND ingest_job_id IS NOT NULL THEN NULL\n        ELSE now() + INTERVAL '30 seconds'\n    END,\n    error_code = NULL,\n    error_message = NULL,\n    failure_stage = NULL,\n    updated_at = now()\nWHERE (\n    status IN ('downloading', 'ingesting')\n    AND lease_expires_at IS NOT NULL\n    AND lease_expires_at <= now()\n) OR (\n    status = 'downloading'\n    AND lease_token IS NULL\n    AND updated_at <= now() - INTERVAL '10 minutes'\n)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "12da7ed1f01a2cd58cfa651e10217c0a48cea25037b83d2718071e9ab344dfb4"
+}

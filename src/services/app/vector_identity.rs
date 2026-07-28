@@ -40,7 +40,7 @@ fn digest_parts(parts: impl IntoIterator<Item = String>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::fingerprint;
+    use super::{configuration_fingerprint, fingerprint};
     use crate::config::Config;
 
     #[test]

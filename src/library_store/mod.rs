@@ -24,10 +24,9 @@ mod url_imports;
 pub use resources::ResourceListQuery;
 
 pub(crate) use dependency_gates::{
-    DependencyGateRecord, DependencyGateTransition, IngestClaim, PendingIngestDependencies,
+    DependencyGateTransition, IngestClaim, PendingIngestDependencies,
 };
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format, job_to_response};
-pub(crate) use processing_jobs::ProcessingQueueHealth;
 
 #[derive(Clone)]
 pub struct LibraryStore {

@@ -18,10 +18,10 @@ use crate::library_store::LibraryStore;
 const INGEST_LEASE_TTL_SECS: i64 = 120;
 const INGEST_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const INGEST_POLL_INTERVAL: Duration = Duration::from_secs(5);
-const PROBE_LEASE_TTL_SECS: i64 = 120;
+const PROBE_LEASE_TTL_SECS: i64 = super::LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS;
 
 impl LibraryService {
-    pub(super) async fn resume_ingest_jobs(&self) -> Result<()> {
+    pub(crate) async fn resume_ingest_jobs(&self) -> Result<()> {
         self.refresh_dependency_configuration().await?;
         self.store.recover_expired_ingest_jobs().await?;
         self.start_ingest_workers();
@@ -268,9 +268,10 @@ impl LibraryService {
     }
 }
 
-pub(crate) async fn report_embedding_vector_processing_error(
+pub(crate) async fn report_embedding_vector_processing_error_with_lease(
     store: &LibraryStore,
     configuration_fingerprint: &str,
+    lease_token: Uuid,
     error: &str,
 ) -> Result<bool> {
     let error = anyhow::anyhow!(error.to_string());
@@ -288,7 +289,7 @@ pub(crate) async fn report_embedding_vector_processing_error(
         store
             .record_dependency_failure(
                 LibraryDependency::EmbeddingVector.as_str(),
-                Uuid::nil(),
+                lease_token,
                 &error_message,
             )
             .await?
@@ -301,7 +302,7 @@ pub(crate) async fn report_embedding_vector_processing_error(
     Ok(true)
 }
 
-pub(super) fn log_dependency_transition(
+pub(crate) fn log_dependency_transition(
     transition: &crate::library_store::DependencyGateTransition,
 ) {
     if transition.transitioned {

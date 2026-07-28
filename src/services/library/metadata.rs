@@ -118,6 +118,14 @@ impl LibraryService {
             // A later retry needs those IDs to remove points left by a partial ingest.
             runtime.index.delete_points(&chunk_ids).await?;
         }
+        if let Some(runtime) = &self.runtime {
+            // SQL may already have been cleared by a previous partial ingest while its
+            // Qdrant points survived; the payload filter catches those orphaned points.
+            runtime
+                .index
+                .delete_points_for_library_file(file_id)
+                .await?;
+        }
         self.store
             .delete_documents_for_library_file(file_id)
             .await?;

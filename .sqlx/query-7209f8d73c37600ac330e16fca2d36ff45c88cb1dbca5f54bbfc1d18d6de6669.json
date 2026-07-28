@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_roles AS (\n    SELECT gm.group_id, gm.role\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_roles.role\n    FROM context69.groups child\n    JOIN inherited_roles ON child.parent_group_id = inherited_roles.group_id\n), managed_groups AS (\n    SELECT DISTINCT group_id\n    FROM inherited_roles\n    WHERE role IN ('owner', 'maintainer')\n), stale_urls AS (\n    SELECT job.id, job.file_id, job.ingest_job_id, job.lease_token\n    FROM context69.library_url_import_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND group_row.id IN (SELECT group_id FROM managed_groups)\n      AND (\n          (\n              job.status IN ('downloading', 'ingesting')\n              AND job.lease_expires_at IS NOT NULL\n              AND job.lease_expires_at < now()\n          ) OR (\n              job.status = 'downloading'\n              AND job.lease_token IS NULL\n              AND job.updated_at < $3\n          )\n      )\n    FOR UPDATE OF job SKIP LOCKED\n), stale_ingests AS (\n    SELECT job.id, job.file_id, job.lease_token\n    FROM context69.library_ingest_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND group_row.id IN (SELECT group_id FROM managed_groups)\n      AND job.status = 'running'\n      AND (\n          (\n              job.lease_expires_at IS NOT NULL\n              AND job.lease_expires_at < now()\n          ) OR (\n              job.lease_token IS NULL\n              AND job.updated_at < $3\n          )\n      )\n    FOR UPDATE OF job SKIP LOCKED\n), requeued_urls AS (\n    UPDATE context69.library_url_import_jobs job\n    SET status = CASE\n            WHEN job.status = 'ingesting' AND job.ingest_job_id IS NOT NULL THEN 'ingesting'\n            ELSE 'queued'\n        END,\n        next_attempt_at = CASE\n            WHEN job.status = 'ingesting' AND job.ingest_job_id IS NOT NULL THEN NULL\n            ELSE now() + INTERVAL '30 seconds'\n        END,\n        error_code = NULL,\n        error_message = NULL,\n        failure_stage = NULL,\n        finished_at = NULL,\n        lease_token = NULL,\n        lease_expires_at = NULL,\n        updated_at = now()\n    FROM stale_urls target\n    WHERE job.id = target.id\n      AND (\n          job.lease_token IS NOT DISTINCT FROM target.lease_token\n          OR target.lease_token IS NULL\n      )\n    RETURNING job.id, job.file_id\n), requeued_ingests AS (\n    UPDATE context69.library_ingest_jobs job\n    SET status = 'pending',\n        lease_token = NULL,\n        lease_expires_at = NULL,\n        started_at = NULL,\n        finished_at = NULL,\n        failure_stage = NULL,\n        error_message = NULL,\n        updated_at = now()\n    FROM stale_ingests target\n    WHERE job.id = target.id\n      AND (\n          job.lease_token IS NOT DISTINCT FROM target.lease_token\n          OR target.lease_token IS NULL\n      )\n    RETURNING job.id, job.file_id\n), affected_files AS (\n    SELECT file_id FROM requeued_urls WHERE file_id IS NOT NULL\n    UNION ALL\n    SELECT file_id FROM requeued_ingests WHERE file_id IS NOT NULL\n), updated_files AS (\n    UPDATE context69.library_files file\n    SET ingest_status = 'pending',\n        error_message = NULL,\n        ingested_at = NULL,\n        updated_at = now()\n    FROM affected_files target\n    WHERE file.id = target.file_id\n      AND file.ingest_status IN ('pending', 'running')\n    RETURNING file.id\n), action_targets AS (\n    SELECT id FROM stale_urls\n    UNION ALL\n    SELECT id FROM stale_ingests\n)\nSELECT\n    (\n        (SELECT COUNT(*) FROM requeued_urls)\n        + (SELECT COUNT(*) FROM requeued_ingests)\n    ) AS \"accepted!: i64\",\n    (\n        SELECT COUNT(*) FROM action_targets\n    ) - (\n        (SELECT COUNT(*) FROM requeued_urls)\n        + (SELECT COUNT(*) FROM requeued_ingests)\n    ) AS \"skipped!: i64\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "accepted!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "skipped!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "7209f8d73c37600ac330e16fca2d36ff45c88cb1dbca5f54bbfc1d18d6de6669"
+}

@@ -12,8 +12,8 @@ WHERE id = $1
   AND status = 'running'
 RETURNING
     group_id,
-    (SELECT group_key FROM context69.groups WHERE id = group_id) AS "group_key!",
-    (SELECT full_path FROM context69.groups WHERE id = group_id) AS "group_path!",
+    (SELECT group_key FROM context69.groups group_row WHERE group_row.id = context69.library_ingest_jobs.group_id) AS group_key,
+    (SELECT full_path FROM context69.groups group_row WHERE group_row.id = context69.library_ingest_jobs.group_id) AS group_path,
     visibility,
     id,
     file_id,

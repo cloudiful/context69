@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.document_translation_jobs\nSET status = 'queued',\n    attempt_count = GREATEST(attempt_count - 1, 0),\n    started_at = NULL,\n    finished_at = NULL,\n    error_message = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND status = 'running'\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_translation_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0989b4efff986643832c34ae97367b3e7cdd359a8e32ced3a3201e38a3ed7c1e"
+}

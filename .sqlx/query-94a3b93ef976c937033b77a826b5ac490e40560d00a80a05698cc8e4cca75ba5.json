@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH jobs AS (\n    SELECT status, created_at, updated_at, requires_docling\n    FROM context69.library_ingest_jobs\n\n    UNION ALL\n\n    SELECT status, created_at, updated_at, FALSE AS requires_docling\n    FROM context69.library_url_import_jobs\n)\nSELECT\n    COUNT(*) FILTER (WHERE status = 'pending') AS \"pending_count!: i64\",\n    COUNT(*) FILTER (WHERE status = 'queued') AS \"queued_count!: i64\",\n    MIN(created_at) FILTER (WHERE status = 'pending') AS oldest_pending_at,\n    MIN(created_at) FILTER (WHERE status = 'queued') AS oldest_queued_at,\n    COUNT(*) FILTER (\n        WHERE status = 'failed'\n          AND updated_at >= now() - INTERVAL '15 minutes'\n    ) AS \"recent_failure_count!: i64\",\n    COUNT(*) FILTER (\n        WHERE requires_docling\n          AND status IN ('pending', 'running')\n    ) AS \"docling_required_count!: i64\"\nFROM jobs\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pending_count!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "queued_count!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest_pending_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "oldest_queued_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "recent_failure_count!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "docling_required_count!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "94a3b93ef976c937033b77a826b5ac490e40560d00a80a05698cc8e4cca75ba5"
+}

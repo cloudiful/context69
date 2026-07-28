@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.sync_runs\nWHERE group_id = $1\n  AND source_key = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b4428f93c5244cace6a7917ac78218f5b331f7bff17e97316ccab12ee7ad067"
+}

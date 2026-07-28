@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH expired AS (\n    SELECT id, file_id\n    FROM context69.library_ingest_jobs\n    WHERE status = 'running'\n      AND (\n          (lease_expires_at IS NOT NULL AND lease_expires_at <= now())\n          OR (lease_token IS NULL AND updated_at <= now() - INTERVAL '10 minutes')\n      )\n    ORDER BY created_at, id\n    FOR UPDATE SKIP LOCKED\n), requeued_jobs AS (\n    UPDATE context69.library_ingest_jobs job\n    SET status = 'pending',\n        lease_token = NULL,\n        lease_expires_at = NULL,\n        started_at = NULL,\n        finished_at = NULL,\n        failure_stage = NULL,\n        error_message = NULL,\n        updated_at = now()\n    FROM expired\n    WHERE job.id = expired.id\n    RETURNING job.id AS job_id, job.file_id\n), requeued_urls AS (\n    UPDATE context69.library_url_import_jobs url_job\n    SET status = 'queued',\n        next_attempt_at = now() + INTERVAL '30 seconds',\n        error_code = NULL,\n        error_message = NULL,\n        failure_stage = NULL,\n        finished_at = NULL,\n        lease_token = NULL,\n        lease_expires_at = NULL,\n        updated_at = now()\n    FROM requeued_jobs\n    WHERE url_job.ingest_job_id = requeued_jobs.job_id\n      AND url_job.status = 'ingesting'\n    RETURNING url_job.id\n)\nUPDATE context69.library_files file\nSET ingest_status = 'pending',\n    error_message = NULL,\n    ingested_at = NULL,\n    updated_at = now()\nFROM requeued_jobs\nWHERE file.id = requeued_jobs.file_id\n  AND file.ingest_status = 'running'\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "69fc2b380dd64ad780909a1f8dd4758a9d871e87341cf161c2aa782bd034ad7d"
+}

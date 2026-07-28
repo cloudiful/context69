@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.metadata_index_definitions\nSET status = 'deleting', error_message = NULL, updated_at = now()\nWHERE index_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e30cf5e1a40831541422d83bba803ec1fdb4e8639c08ad29b8562cf8d581fc1e"
+}

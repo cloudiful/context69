@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.group_memberships (group_id, user_id, role)\nVALUES ($1, $2, $3)\nON CONFLICT (group_id, user_id) DO UPDATE\nSET role = EXCLUDED.role,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0495a1baf6d6ce341215eec812ef84cc38a816ed482c0af69a54fd1c02ceaea8"
+}

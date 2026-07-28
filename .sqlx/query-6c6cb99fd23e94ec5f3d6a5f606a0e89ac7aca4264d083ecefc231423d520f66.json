@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT filename\nFROM context69.library_files\nWHERE group_id = $1\n  AND (\n    ($2::uuid IS NULL AND folder_id IS NULL)\n    OR folder_id = $2\n  )\n  AND ($3::uuid IS NULL OR id <> $3)\nORDER BY filename, id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "filename",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "filename"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6c6cb99fd23e94ec5f3d6a5f606a0e89ac7aca4264d083ecefc231423d520f66"
+}

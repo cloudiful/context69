@@ -1,0 +1,244 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks\nWHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_path"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "total_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "total_count"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "queued_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "queued_count"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "running_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "running_count"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "succeeded_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "succeeded_count"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "failed_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "failed_count"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "cancelled_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "cancelled_count"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "error_summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "error_summary"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "30d68e82cbf11d9788d818c34201025ff608939d58d3fded88f46fa3ac648903"
+}

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result, anyhow};
 use qdrant_client::qdrant::{
-    GetPointsBuilder, PointId, PointStruct, RetrievedPoint, Vector, vector_output,
+    GetPointsBuilder, PointId, PointStruct, RetrievedPoint, Vector, vector, vector_output,
 };
 use tokio::time::timeout;
 use uuid::Uuid;
@@ -178,12 +178,18 @@ fn point_to_struct(point: RetrievedPoint) -> Result<(Uuid, PointStruct)> {
     let vector = vectors
         .get_vector()
         .context("named qdrant vectors are not supported for rollback")?;
-    let vector = match vector {
-        vector_output::Vector::Dense(vector) => Vector::from(vector),
-        vector_output::Vector::Sparse(vector) => Vector::from(vector),
-        vector_output::Vector::MultiDense(vector) => Vector::from(vector),
+    let vector = Vector {
+        vector: Some(match vector {
+            vector_output::Vector::Dense(value) => vector::Vector::Dense(value),
+            vector_output::Vector::Sparse(value) => vector::Vector::Sparse(value),
+            vector_output::Vector::MultiDense(value) => vector::Vector::MultiDense(value),
+        }),
+        ..Default::default()
     };
-    Ok((chunk_id, PointStruct::new(chunk_id, vector, point.payload)))
+    Ok((
+        chunk_id,
+        PointStruct::new(chunk_id.to_string(), vector, point.payload),
+    ))
 }
 
 fn unique_ids(ids: impl IntoIterator<Item = Uuid>) -> Vec<Uuid> {

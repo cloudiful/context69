@@ -41,7 +41,9 @@ use crate::{
 mod content_objects;
 mod dependency_errors;
 mod dependency_runtime;
-pub(crate) use dependency_runtime::report_embedding_vector_processing_error;
+pub(crate) use dependency_runtime::{
+    log_dependency_transition, report_embedding_vector_processing_error_with_lease,
+};
 mod dependency_storage;
 mod filenames;
 mod files;
@@ -76,15 +78,16 @@ mod url_imports;
 mod xlsx;
 
 pub(crate) use ingest_types::LibraryDependency;
-pub(super) use ingest_types::{
+use ingest_types::{
     IngestClaimOutcome, IngestFailure, IngestResult, IngestSection, LibraryFileKind,
     PreparedIngestSection, SourceConfigPreview, SourceRecordJson,
 };
-pub(super) use metadata_helpers::{compose_library_metadata, library_system_metadata};
+use metadata_helpers::{compose_library_metadata, library_system_metadata};
 pub use upload_types::UploadedLibraryFile;
-pub(super) use upload_types::{UploadedLibraryFileResult, UploadedLibraryFileRollback};
+use upload_types::{UploadedLibraryFileResult, UploadedLibraryFileRollback};
 
 const FILE_LIBRARY_SOURCE_KEY: &str = "file_library";
+pub(crate) const LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS: i64 = 120;
 
 #[derive(Clone)]
 pub struct LibraryService {

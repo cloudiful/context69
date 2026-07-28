@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_url_import_jobs url_job\nSET status = CASE ingest.status\n        WHEN 'succeeded' THEN 'succeeded'\n        WHEN 'failed' THEN 'failed'\n    END,\n    error_code = CASE\n        WHEN ingest.status = 'failed' THEN COALESCE('ingest_' || ingest.failure_stage, 'ingest_failed')\n        ELSE NULL\n    END,\n    error_message = CASE\n        WHEN ingest.status = 'failed' THEN ingest.error_message\n        ELSE NULL\n    END,\n    failure_stage = CASE\n        WHEN ingest.status = 'failed' THEN ingest.failure_stage\n        ELSE NULL\n    END,\n    next_attempt_at = NULL,\n    finished_at = COALESCE(ingest.finished_at, now()),\n    lease_token = NULL,\n    lease_expires_at = NULL,\n    updated_at = now()\nFROM context69.library_ingest_jobs ingest\nWHERE url_job.ingest_job_id = ingest.id\n  AND url_job.status = 'ingesting'\n  AND ingest.status IN ('succeeded', 'failed')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "01aec562d4c6d347627186ed853fa2a8e692498b9a4d6c6e830b09a204bb3be8"
+}

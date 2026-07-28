@@ -8,7 +8,7 @@ use super::dependency_runtime::{
 use super::url_import_helpers::{
     clean_optional, hex_digest, job_metadata, job_translation, url_import_response,
 };
-use super::url_import_runtime::{URL_IMPORT_LEASE_TTL_SECS, UrlImportRuntime};
+use super::url_import_runtime::URL_IMPORT_LEASE_TTL_SECS;
 use super::url_import_worker::{
     URL_IMPORT_PENDING_REQUEUE_SECS, URL_IMPORT_TRANSIENT_REQUEUE_SECS, UrlImportOutcome,
     UrlImportProgress,

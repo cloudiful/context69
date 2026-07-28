@@ -13,12 +13,9 @@ pub(crate) struct DependencyGateRecord {
     pub failure_count: i32,
     pub next_probe_at: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
-    pub configuration_fingerprint: Option<String>,
     pub probe_lease_token: Option<Uuid>,
-    pub probe_lease_expires_at: Option<DateTime<Utc>>,
     pub last_transition_at: DateTime<Utc>,
     pub last_success_at: Option<DateTime<Utc>>,
-    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -35,8 +32,6 @@ pub(crate) struct IngestClaim {
     pub created_at: DateTime<Utc>,
     pub requires_docling: bool,
     pub lease_token: Uuid,
-    pub filename: String,
-    pub media_type: String,
     pub storage_backend: String,
     pub section_payload: Option<Value>,
 }

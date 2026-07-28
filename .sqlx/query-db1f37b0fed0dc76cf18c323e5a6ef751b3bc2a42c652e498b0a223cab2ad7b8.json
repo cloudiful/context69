@@ -1,0 +1,196 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.id AS document_id, d.group_id, g.group_key, g.full_path AS group_path,\n       d.visibility, d.source_key, d.external_id, d.source_uri, d.published_at,\n       d.updated_at_source, d.metadata_json, d.record_hash, d.title, d.summary, v.body_text\nFROM context69.documents d\nJOIN context69.groups g ON g.id = d.group_id\nJOIN context69.document_versions v\n  ON v.document_id = d.id AND v.record_hash = d.record_hash\nWHERE d.id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "group_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at_source",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "updated_at_source"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "summary"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "body_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_versions",
+            "name": "body_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "db1f37b0fed0dc76cf18c323e5a6ef751b3bc2a42c652e498b0a223cab2ad7b8"
+}

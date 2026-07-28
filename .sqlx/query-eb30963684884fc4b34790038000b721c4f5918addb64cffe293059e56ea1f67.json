@@ -1,0 +1,134 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_roles AS (\n    SELECT gm.group_id, gm.role\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_roles.role\n    FROM context69.groups child\n    JOIN inherited_roles ON child.parent_group_id = inherited_roles.group_id\n), managed_groups AS (\n    SELECT DISTINCT group_id\n    FROM inherited_roles\n    WHERE role IN ('owner', 'maintainer')\n), jobs AS (\n    SELECT\n        'url_import'::TEXT AS kind,\n        job.id AS job_id,\n        group_row.group_key,\n        group_row.full_path AS group_path,\n        job.visibility,\n        job.file_id,\n        COALESCE(file.filename, job.requested_filename, job.source_url) AS filename,\n        job.source_url,\n        CASE job.status\n            WHEN 'queued' THEN 'pending'\n            WHEN 'downloading' THEN 'running'\n            WHEN 'ingesting' THEN 'running'\n            ELSE job.status\n        END AS status,\n        COALESCE(job.failure_stage, ingest.failure_stage) AS failure_stage,\n        COALESCE(ingest.error_message, job.error_message) AS error_message,\n        group_row.id IN (SELECT group_id FROM managed_groups) AS can_retry,\n        job.created_at,\n        COALESCE(job.started_at, ingest.started_at) AS started_at,\n        COALESCE(job.finished_at, ingest.finished_at) AS finished_at,\n        job.updated_at\n    FROM context69.library_url_import_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    LEFT JOIN context69.library_files file ON file.id = job.file_id\n    LEFT JOIN context69.library_ingest_jobs ingest ON ingest.id = job.ingest_job_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n\n    UNION ALL\n\n    SELECT\n        'ingest'::TEXT AS kind,\n        job.id AS job_id,\n        group_row.group_key,\n        group_row.full_path AS group_path,\n        job.visibility,\n        job.file_id,\n        file.filename,\n        NULL::TEXT AS source_url,\n        job.status,\n        job.failure_stage,\n        job.error_message,\n        group_row.id IN (SELECT group_id FROM managed_groups) AS can_retry,\n        job.created_at,\n        job.started_at,\n        job.finished_at,\n        job.updated_at\n    FROM context69.library_ingest_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    JOIN context69.library_files file ON file.id = job.file_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.library_url_import_jobs url_job\n          WHERE url_job.ingest_job_id = job.id\n      )\n)\nSELECT\n    kind AS \"kind!\",\n    job_id AS \"job_id!\",\n    group_key AS \"group_key!\",\n    group_path AS \"group_path!\",\n    visibility AS \"visibility!\",\n    file_id,\n    filename,\n    source_url,\n    status AS \"status!\",\n    failure_stage,\n    error_message,\n    can_retry AS \"can_retry!\",\n    created_at AS \"created_at!\",\n    started_at,\n    finished_at,\n    updated_at AS \"updated_at!\"\nFROM jobs\nWHERE ($3::TEXT IS NULL OR CONCAT_WS(' ', filename, group_key, group_path, source_url, error_message) ILIKE '%' || BTRIM($3::TEXT) || '%')\n  AND ($4::TEXT IS NULL OR status = $4::TEXT)\n  AND ($5::TEXT IS NULL OR failure_stage = $5::TEXT)\nORDER BY updated_at DESC, job_id DESC\nLIMIT $6\nOFFSET $7\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "filename",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "source_url",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "status!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "can_retry!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "eb30963684884fc4b34790038000b721c4f5918addb64cffe293059e56ea1f67"
+}

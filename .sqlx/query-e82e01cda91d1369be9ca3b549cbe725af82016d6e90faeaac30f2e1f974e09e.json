@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH updated_document AS (\n    UPDATE context69.documents\n    SET external_id = $2,\n        source_uri = $3,\n        published_at = $4,\n        updated_at_source = $5,\n        metadata_json = $6,\n        record_hash = $7,\n        updated_at = now()\n    WHERE id = $1\n    RETURNING id\n)\nUPDATE context69.document_chunks\nSET record_hash = $7\nWHERE document_id IN (SELECT id FROM updated_document)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e82e01cda91d1369be9ca3b549cbe725af82016d6e90faeaac30f2e1f974e09e"
+}

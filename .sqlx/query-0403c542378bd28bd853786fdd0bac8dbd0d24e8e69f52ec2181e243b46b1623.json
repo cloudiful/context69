@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH default_scope AS (\n    SELECT id AS group_id\n    FROM context69.groups\n    WHERE full_path = 'public'\n)\nINSERT INTO context69.source_configs (\n    group_id,\n    visibility,\n    source_key,\n    display_name,\n    description,\n    example_queries,\n    connection,\n    sync_strategy,\n    connector_type,\n    base_query,\n    batch_size\n)\nSELECT\n    ds.group_id,\n    'public',\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8,\n    $9\nFROM default_scope ds\nON CONFLICT (source_key) DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0403c542378bd28bd853786fdd0bac8dbd0d24e8e69f52ec2181e243b46b1623"
+}

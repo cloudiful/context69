@@ -1,0 +1,148 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT file_id, document_id, group_id, visibility, section_key, section_label,\n       section_external_id, section_source_uri, section_published_at, section_metadata_json,\n       sort_order\nFROM context69.library_file_documents\nWHERE file_id = $1\nORDER BY sort_order ASC, section_key ASC\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "section_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_key"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "section_label",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_label"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "section_external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "section_source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "section_published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "section_metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "section_metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "sort_order",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.library_file_documents",
+            "name": "sort_order"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "598efa408061e49ea7b08ee8ba7c9fff1ced538216f3a4f8eb484326d8790f48"
+}

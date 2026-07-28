@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.search_generations (scope, generation, updated_at)\nVALUES ('global', 1, now())\nON CONFLICT (scope) DO UPDATE\nSET generation = context69.search_generations.generation + 1,\n    updated_at = now()\nRETURNING generation\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_generations",
+            "name": "generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9a8b19770b26bdaf81c243f4ef5781e48abaa21dbc5a3bb0f651f9927e705581"
+}

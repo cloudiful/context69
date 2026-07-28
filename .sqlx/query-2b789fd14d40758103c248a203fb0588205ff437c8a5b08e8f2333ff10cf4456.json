@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_roles AS (\n    SELECT gm.group_id, gm.role\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_roles.role\n    FROM context69.groups child\n    JOIN inherited_roles ON child.parent_group_id = inherited_roles.group_id\n), managed_groups AS (\n    SELECT DISTINCT group_id\n    FROM inherited_roles\n    WHERE role IN ('owner', 'maintainer')\n), jobs AS (\n    SELECT\n        group_row.id AS group_id,\n        job.id AS job_id,\n        'url_import'::TEXT AS kind,\n        job.dedupe_key,\n        job.file_id,\n        job.status,\n        job.failure_stage,\n        job.error_message,\n        job.created_at\n    FROM context69.library_url_import_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND group_row.id IN (SELECT group_id FROM managed_groups)\n\n    UNION ALL\n\n    SELECT\n        group_row.id AS group_id,\n        job.id AS job_id,\n        'ingest'::TEXT AS kind,\n        NULL::TEXT AS dedupe_key,\n        job.file_id,\n        job.status,\n        job.failure_stage,\n        job.error_message,\n        job.created_at\n    FROM context69.library_ingest_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND group_row.id IN (SELECT group_id FROM managed_groups)\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.library_url_import_jobs url_job\n          WHERE url_job.ingest_job_id = job.id\n      )\n), latest_ingest AS (\n    SELECT group_id, job_id, kind, file_id, failure_stage, error_message, created_at\n    FROM (\n        SELECT\n            jobs.*,\n            ROW_NUMBER() OVER (\n                PARTITION BY file_id\n                ORDER BY created_at DESC, job_id DESC\n            ) AS row_number\n        FROM jobs\n        WHERE kind = 'ingest'\n    ) ranked\n    WHERE row_number = 1\n      AND status = 'failed'\n), latest_url_import AS (\n    SELECT group_id, job_id, kind, file_id, failure_stage, error_message, created_at\n    FROM (\n        SELECT\n            jobs.*,\n            ROW_NUMBER() OVER (\n                PARTITION BY group_id, dedupe_key\n                ORDER BY created_at DESC, job_id DESC\n            ) AS row_number\n        FROM jobs\n        WHERE kind = 'url_import'\n    ) ranked\n    WHERE row_number = 1\n      AND status = 'failed'\n), candidates AS (\n    SELECT group_id, job_id, kind, file_id, created_at\n    FROM latest_ingest\n    WHERE file_id IS NOT NULL\n      AND ($3::TEXT IS NULL OR failure_stage = $3::TEXT)\n      AND ($4::TEXT IS NULL OR COALESCE(error_message, '') ILIKE '%' || BTRIM($4::TEXT) || '%')\n\n    UNION ALL\n\n    SELECT group_id, job_id, kind, file_id, created_at\n    FROM latest_url_import\n    WHERE ($3::TEXT IS NULL OR failure_stage = $3::TEXT)\n      AND ($4::TEXT IS NULL OR COALESCE(error_message, '') ILIKE '%' || BTRIM($4::TEXT) || '%')\n)\nSELECT\n    group_id AS \"group_id!\",\n    job_id AS \"job_id!\",\n    kind AS \"kind!\",\n    file_id,\n    COUNT(*) OVER () AS \"candidate_count!: i64\"\nFROM candidates\nORDER BY created_at, job_id\nLIMIT $5\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "candidate_count!: i64",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2b789fd14d40758103c248a203fb0588205ff437c8a5b08e8f2333ff10cf4456"
+}

@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH candidate AS (\n    SELECT\n        dependency_key,\n        state,\n        last_error,\n        configuration_fingerprint,\n        CASE\n            WHEN $2::BOOLEAN\n                THEN state <> 'closed'\n                    AND configuration_fingerprint IS DISTINCT FROM $4::TEXT\n            ELSE state <> 'open'\n        END AS transitioned\n    FROM context69.library_dependency_gates\n    WHERE dependency_key = $1\n    FOR UPDATE\n), updated AS (\n    UPDATE context69.library_dependency_gates gate\n        SET state = CASE\n            WHEN NOT $2::BOOLEAN THEN 'open'\n            WHEN gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN 'closed'\n            ELSE gate.state\n        END,\n        failure_count = CASE\n            WHEN NOT $2::BOOLEAN THEN GREATEST(gate.failure_count, 1)\n            WHEN gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN 0\n            ELSE gate.failure_count\n        END,\n        next_probe_at = CASE\n            WHEN NOT $2::BOOLEAN THEN NULL\n            WHEN gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN NULL\n            ELSE gate.next_probe_at\n        END,\n        last_error = CASE\n            WHEN NOT $2::BOOLEAN THEN $3\n            WHEN gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN NULL\n            ELSE gate.last_error\n        END,\n        configuration_fingerprint = $4::TEXT,\n        probe_lease_token = CASE\n            WHEN NOT $2::BOOLEAN THEN NULL\n            WHEN gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN NULL\n            ELSE gate.probe_lease_token\n        END,\n        probe_lease_expires_at = CASE\n            WHEN NOT $2::BOOLEAN THEN NULL\n            WHEN gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN NULL\n            ELSE gate.probe_lease_expires_at\n        END,\n        last_success_at = CASE\n            WHEN $2::BOOLEAN\n                AND gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN now()\n            ELSE gate.last_success_at\n        END,\n        last_transition_at = CASE\n            WHEN NOT $2::BOOLEAN AND gate.state <> 'open' THEN now()\n            WHEN $2::BOOLEAN\n                AND gate.state <> 'closed'\n                AND gate.configuration_fingerprint IS DISTINCT FROM $4::TEXT\n                THEN now()\n            ELSE gate.last_transition_at\n        END,\n        updated_at = now()\n    FROM candidate\n    WHERE gate.dependency_key = candidate.dependency_key\n    RETURNING gate.dependency_key, gate.state\n)\nSELECT updated.dependency_key AS \"dependency_key!\",\n       updated.state AS \"state!\",\n       candidate.transitioned AS \"transitioned!\"\nFROM updated\nJOIN candidate USING (dependency_key)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependency_key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "state!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "transitioned!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "834919e9fabaf4c2a224da41838f8a1a0692221046f1acf44e5aee05a8d8f4a2"
+}

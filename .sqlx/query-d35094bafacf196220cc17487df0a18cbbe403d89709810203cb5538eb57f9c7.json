@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.source_checkpoints\nWHERE source_key = $1\n  AND ($2::bigint IS NULL OR group_id = $2)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d35094bafacf196220cc17487df0a18cbbe403d89709810203cb5538eb57f9c7"
+}

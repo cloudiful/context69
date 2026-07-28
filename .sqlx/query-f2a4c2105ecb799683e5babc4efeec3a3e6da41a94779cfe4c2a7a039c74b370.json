@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.runtime_embedding_settings (\n    singleton,\n    base_url,\n    api_key,\n    model,\n    dimensions,\n    timeout_secs,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, now())\nON CONFLICT (singleton) DO UPDATE\nSET base_url = EXCLUDED.base_url,\n    api_key = EXCLUDED.api_key,\n    model = EXCLUDED.model,\n    dimensions = EXCLUDED.dimensions,\n    timeout_secs = EXCLUDED.timeout_secs,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f2a4c2105ecb799683e5babc4efeec3a3e6da41a94779cfe4c2a7a039c74b370"
+}

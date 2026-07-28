@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.documents\nWHERE id IN (\n    SELECT DISTINCT document_id\n    FROM context69.library_file_documents\n    WHERE file_id = ANY($1)\n)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e298e748e325dd94705054359ef4f80913adc5cf4c28312c83636af314a157c"
+}

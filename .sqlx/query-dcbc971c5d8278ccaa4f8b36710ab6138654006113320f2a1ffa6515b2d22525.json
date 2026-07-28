@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_roles AS (\n    SELECT gm.group_id, gm.role\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_roles.role\n    FROM context69.groups child\n    JOIN inherited_roles ON child.parent_group_id = inherited_roles.group_id\n), managed_groups AS (\n    SELECT DISTINCT group_id\n    FROM inherited_roles\n    WHERE role IN ('owner', 'maintainer')\n), jobs AS (\n    SELECT\n        'url_import'::TEXT AS kind,\n        job.id AS job_id,\n        group_row.group_key,\n        group_row.full_path AS group_path,\n        job.visibility,\n        job.file_id,\n        COALESCE(file.filename, job.requested_filename, job.source_url) AS filename,\n        job.source_url,\n        CASE job.status\n            WHEN 'queued' THEN 'pending'\n            WHEN 'downloading' THEN 'running'\n            WHEN 'ingesting' THEN 'running'\n            ELSE job.status\n        END AS status,\n        COALESCE(job.failure_stage, ingest.failure_stage) AS failure_stage,\n        COALESCE(ingest.error_message, job.error_message) AS error_message,\n        group_row.id IN (SELECT group_id FROM managed_groups) AS can_retry,\n        job.created_at,\n        COALESCE(job.started_at, ingest.started_at) AS started_at,\n        COALESCE(job.finished_at, ingest.finished_at) AS finished_at,\n        job.updated_at\n    FROM context69.library_url_import_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    LEFT JOIN context69.library_files file ON file.id = job.file_id\n    LEFT JOIN context69.library_ingest_jobs ingest ON ingest.id = job.ingest_job_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n\n    UNION ALL\n\n    SELECT\n        'ingest'::TEXT AS kind,\n        job.id AS job_id,\n        group_row.group_key,\n        group_row.full_path AS group_path,\n        job.visibility,\n        job.file_id,\n        file.filename,\n        NULL::TEXT AS source_url,\n        job.status,\n        job.failure_stage,\n        job.error_message,\n        group_row.id IN (SELECT group_id FROM managed_groups) AS can_retry,\n        job.created_at,\n        job.started_at,\n        job.finished_at,\n        job.updated_at\n    FROM context69.library_ingest_jobs job\n    JOIN context69.groups group_row ON group_row.id = job.group_id\n    JOIN context69.library_files file ON file.id = job.file_id\n    WHERE (group_row.visibility = 'public' OR group_row.id = ANY($2::BIGINT[]))\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.library_url_import_jobs url_job\n          WHERE url_job.ingest_job_id = job.id\n      )\n)\nSELECT COUNT(*)\nFROM jobs\nWHERE ($3::TEXT IS NULL OR CONCAT_WS(' ', filename, group_key, group_path, source_url, error_message) ILIKE '%' || BTRIM($3::TEXT) || '%')\n  AND ($4::TEXT IS NULL OR status = $4::TEXT)\n  AND ($5::TEXT IS NULL OR failure_stage = $5::TEXT)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dcbc971c5d8278ccaa4f8b36710ab6138654006113320f2a1ffa6515b2d22525"
+}

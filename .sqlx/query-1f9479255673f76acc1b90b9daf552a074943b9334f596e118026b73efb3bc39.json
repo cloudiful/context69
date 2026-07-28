@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT cursor_updated_at, cursor_external_id\nFROM context69.source_checkpoints\nWHERE source_key = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cursor_updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "cursor_updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "cursor_external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.source_checkpoints",
+            "name": "cursor_external_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "1f9479255673f76acc1b90b9daf552a074943b9334f596e118026b73efb3bc39"
+}

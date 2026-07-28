@@ -8,6 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
 use tracing::warn;
+use uuid::Uuid;
 
 use crate::{
     chunking::ChunkingConfig,
@@ -21,7 +22,10 @@ use crate::{
     services::{
         auth::AuthService,
         document_store::DocumentStoreService,
-        library::{LibraryService, report_embedding_vector_processing_error},
+        library::{
+            LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS, LibraryDependency, LibraryService,
+            log_dependency_transition, report_embedding_vector_processing_error_with_lease,
+        },
         namespace::NamespaceService,
         personal_access_tokens::PersonalAccessTokenService,
         query::QueryService,
@@ -55,13 +59,78 @@ impl TranslationReadiness for LibraryEmbeddingVectorReadiness {
         .await?)
     }
 
+    async fn reserve_probe(&self) -> Result<Option<Uuid>> {
+        let token = Uuid::new_v4();
+        let transition = self
+            .store
+            .reserve_dependency_probe(
+                LibraryDependency::EmbeddingVector.as_str(),
+                token,
+                LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS,
+            )
+            .await?;
+        if let Some(transition) = transition {
+            log_dependency_transition(&transition);
+            Ok(Some(token))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn is_ready_for_probe(&self, probe_token: Uuid) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/dependency_gates/embedding_vector_ready_for_probe.sql",
+            probe_token
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     async fn report_processing_error(&self, error: &str) -> Result<bool> {
-        report_embedding_vector_processing_error(
+        report_embedding_vector_processing_error_with_lease(
             &self.store,
             &self.configuration_fingerprint,
+            Uuid::nil(),
             error,
         )
         .await
+    }
+
+    async fn report_processing_error_with_probe(
+        &self,
+        error: &str,
+        probe_token: Option<Uuid>,
+    ) -> Result<bool> {
+        let handled = report_embedding_vector_processing_error_with_lease(
+            &self.store,
+            &self.configuration_fingerprint,
+            probe_token.unwrap_or_else(Uuid::nil),
+            error,
+        )
+        .await?;
+        Ok(handled)
+    }
+
+    async fn complete_probe(&self, probe_token: Uuid) -> Result<()> {
+        if let Some(transition) = self
+            .store
+            .release_dependency_probe(LibraryDependency::EmbeddingVector.as_str(), probe_token)
+            .await?
+        {
+            log_dependency_transition(&transition);
+        }
+        Ok(())
+    }
+
+    async fn abandon_probe(&self, probe_token: Uuid) -> Result<()> {
+        if let Some(transition) = self
+            .store
+            .abandon_dependency_probe(LibraryDependency::EmbeddingVector.as_str(), probe_token)
+            .await?
+        {
+            log_dependency_transition(&transition);
+        }
+        Ok(())
     }
 }
 

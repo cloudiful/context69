@@ -194,17 +194,6 @@ impl LibraryService {
             .await
     }
 
-    pub(super) async fn store_project_content_for_lease(
-        &self,
-        group_id: i64,
-        sha256: &str,
-        bytes: Bytes,
-        lease_token: Uuid,
-    ) -> Result<crate::library_store::objects::StorageObjectRecord> {
-        self.store_project_content_with_lease_context(group_id, sha256, bytes, Some(lease_token))
-            .await
-    }
-
     pub(super) async fn store_project_content_with_optional_lease(
         &self,
         group_id: i64,

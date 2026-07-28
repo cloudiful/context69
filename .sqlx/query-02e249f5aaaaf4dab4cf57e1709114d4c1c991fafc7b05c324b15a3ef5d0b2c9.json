@@ -1,0 +1,177 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.library_ingest_jobs (\n    id,\n    group_id,\n    visibility,\n    file_id,\n    status,\n    requires_docling,\n    section_payload\n)\nSELECT\n    $1,\n    lf.group_id,\n    lf.visibility,\n    $2,\n    'pending',\n    $3,\n    $4\nFROM context69.library_files lf\nWHERE lf.id = $2\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    file_id,\n    status,\n    docling_task_id,\n    failure_stage,\n    error_message,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "docling_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "docling_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "02e249f5aaaaf4dab4cf57e1709114d4c1c991fafc7b05c324b15a3ef5d0b2c9"
+}

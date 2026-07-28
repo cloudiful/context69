@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.sync_runs\nSET source_key = $3,\n    updated_at = now()\nWHERE group_id = $1\n  AND source_key = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "213207314568d45d3474fdc861edbdd938466ad0f6809bd23857c9a3ce23940a"
+}

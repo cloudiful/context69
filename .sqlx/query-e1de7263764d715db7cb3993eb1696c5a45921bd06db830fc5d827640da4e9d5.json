@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_dependency_gates\nSET probe_lease_expires_at = now() + ($3::BIGINT * INTERVAL '1 second'),\n    updated_at = now()\nWHERE dependency_key = $1\n  AND state = 'half_open'\n  AND probe_lease_token = $2\nRETURNING dependency_key AS \"dependency_key!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependency_key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "dependency_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e1de7263764d715db7cb3993eb1696c5a45921bd06db830fc5d827640da4e9d5"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.runtime_scheduler_settings (\n    singleton,\n    interval_secs,\n    run_on_start,\n    max_concurrency,\n    job_id,\n    valkey_url,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, now())\nON CONFLICT (singleton) DO UPDATE\nSET interval_secs = EXCLUDED.interval_secs,\n    run_on_start = EXCLUDED.run_on_start,\n    max_concurrency = EXCLUDED.max_concurrency,\n    job_id = EXCLUDED.job_id,\n    valkey_url = EXCLUDED.valkey_url,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "700b46942632d8347bbcceed9a6522112a23aa0a936e6bf39148de331f60674e"
+}

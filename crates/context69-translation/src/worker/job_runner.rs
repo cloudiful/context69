@@ -5,7 +5,7 @@ use context69_contracts::TranslationGlossaryEntry;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::TranslationService;
+use super::{TranslationService, readiness::ProcessingPermit};
 use crate::{
     TranslationPublication,
     providers::{ProviderTranslationRequest, source_character_count, translate},
@@ -38,8 +38,20 @@ impl TranslationService {
             if ids.is_empty() {
                 return Ok(());
             }
-            if !self.library_processing_ready().await {
-                tokio::time::sleep(READINESS_POLL_INTERVAL).await;
+            let permit = self.acquire_processing_permit().await?;
+            let probe_token = match permit {
+                ProcessingPermit::Ready => None,
+                ProcessingPermit::Probe(token) => Some(token),
+                ProcessingPermit::Blocked => {
+                    tokio::time::sleep(READINESS_POLL_INTERVAL).await;
+                    continue;
+                }
+            };
+
+            if let Some(probe_token) = probe_token {
+                let result = self.run_job(ids[0], Some(probe_token)).await;
+                self.finish_processing_probe(probe_token, &result).await?;
+                result?;
                 continue;
             }
 
@@ -48,7 +60,7 @@ impl TranslationService {
                 let service = self.clone();
                 tasks.push(tokio::spawn(async move {
                     let _permit = service.semaphore.acquire().await?;
-                    service.run_job(id).await
+                    service.run_job(id, None).await
                 }));
             }
             for task in tasks {
@@ -59,20 +71,16 @@ impl TranslationService {
         }
     }
 
-    async fn library_processing_ready(&self) -> bool {
-        self.readiness.is_ready().await.unwrap_or(false)
-    }
-
-    async fn run_job(&self, id: Uuid) -> Result<()> {
-        if !self.library_processing_ready().await {
-            return Ok(());
+    async fn run_job(&self, id: Uuid, probe_token: Option<Uuid>) -> Result<bool> {
+        if !self.processing_ready_for(probe_token).await {
+            return Ok(false);
         }
         let Some(job) = self.store.claim_job(id).await? else {
-            return Ok(());
+            return Ok(false);
         };
-        if !self.library_processing_ready().await {
+        if !self.processing_ready_for(probe_token).await {
             self.store.release_claimed_job(id).await?;
-            return Ok(());
+            return Ok(false);
         }
         let document = self.store.document(job.document_id).await?;
         if document.record_hash != job.source_record_hash {
@@ -87,7 +95,7 @@ impl TranslationService {
                     error_message: Some("source document changed"),
                 })
                 .await?;
-            return Ok(());
+            return Ok(false);
         }
         let detected = job
             .requested_source_locale
@@ -108,7 +116,7 @@ impl TranslationService {
                     error_message: None,
                 })
                 .await?;
-            return Ok(());
+            return Ok(false);
         }
         let group = self.store.group_settings(document.group_id).await?;
         let glossary = serde_json::from_value::<Vec<TranslationGlossaryEntry>>(group.glossary)?;
@@ -193,10 +201,14 @@ impl TranslationService {
                         .await;
                     if let Err(error) = publish_result {
                         let message = format!("{error:#}");
-                        match self.readiness.report_processing_error(&message).await {
+                        match self
+                            .readiness
+                            .report_processing_error_with_probe(&message, probe_token)
+                            .await
+                        {
                             Ok(true) => {
                                 self.store.release_claimed_job(id).await?;
-                                return Ok(());
+                                return Ok(false);
                             }
                             Ok(false) => {
                                 self.store
@@ -210,7 +222,7 @@ impl TranslationService {
                                         error_message: Some(&message),
                                     })
                                     .await?;
-                                return Ok(());
+                                return Ok(false);
                             }
                             Err(report_error) => {
                                 warn!(
@@ -219,7 +231,7 @@ impl TranslationService {
                                     "failed to report translation processing dependency error; releasing job"
                                 );
                                 self.store.release_claimed_job(id).await?;
-                                return Ok(());
+                                return Ok(false);
                             }
                         }
                     }
@@ -234,7 +246,7 @@ impl TranslationService {
                             error_message: None,
                         })
                         .await?;
-                    return Ok(());
+                    return Ok(true);
                 }
                 Err(error) => {
                     let message = error.to_string();
@@ -275,7 +287,7 @@ impl TranslationService {
                 error_message: Some(&message),
             })
             .await?;
-        Ok(())
+        Ok(false)
     }
 
     async fn publish_translation(

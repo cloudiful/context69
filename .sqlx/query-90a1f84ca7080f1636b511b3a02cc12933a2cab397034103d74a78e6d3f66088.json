@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH candidate AS (\n    SELECT\n        dependency_key,\n        (state <> 'closed') AS transitioned\n    FROM context69.library_dependency_gates\n    WHERE dependency_key = $1\n      AND (\n          state = 'closed'\n          OR (state = 'half_open' AND probe_lease_token = $2)\n      )\n    FOR UPDATE\n), updated AS (\n    UPDATE context69.library_dependency_gates gate\n    SET state = 'closed',\n        failure_count = 0,\n        next_probe_at = NULL,\n        last_error = NULL,\n        probe_lease_token = NULL,\n        probe_lease_expires_at = NULL,\n        last_success_at = now(),\n        last_transition_at = CASE\n            WHEN gate.state <> 'closed' THEN now()\n            ELSE gate.last_transition_at\n        END,\n        updated_at = now()\n    FROM candidate\n    WHERE gate.dependency_key = candidate.dependency_key\n    RETURNING gate.dependency_key, gate.state\n)\nSELECT updated.dependency_key AS \"dependency_key!\",\n       updated.state AS \"state!\",\n       candidate.transitioned AS \"transitioned!\"\nFROM updated\nJOIN candidate USING (dependency_key)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependency_key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "state!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "transitioned!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "90a1f84ca7080f1636b511b3a02cc12933a2cab397034103d74a78e6d3f66088"
+}

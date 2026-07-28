@@ -1,5 +1,2 @@
-[common]
-database-url-var = "CONTEXT69_APP_DB__URL"
-
 [migrate]
 migrations-dir = "./migrations"

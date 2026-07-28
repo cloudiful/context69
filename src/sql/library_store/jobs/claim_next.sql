@@ -64,9 +64,6 @@ SELECT
     claimed.requires_docling AS "requires_docling!",
     claimed.lease_token AS "lease_token!",
     claimed.section_payload,
-    file.filename AS "filename!",
-    file.media_type AS "media_type!",
     $3::TEXT AS "storage_backend!"
 FROM claimed
-JOIN context69.library_ingest_jobs job ON job.id = claimed.id
-JOIN context69.library_files file ON file.id = claimed.file_id;
+JOIN context69.library_ingest_jobs job ON job.id = claimed.id;

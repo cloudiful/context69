@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH candidate AS (\n    SELECT\n        dependency_key,\n        (state = 'open') AS transitioned\n    FROM context69.library_dependency_gates\n    WHERE dependency_key = $1\n      AND COALESCE(last_error, '') NOT LIKE 'configuration:%'\n      AND (\n          (state = 'open' AND (next_probe_at IS NULL OR next_probe_at <= now()))\n          OR (state = 'half_open' AND (probe_lease_expires_at IS NULL OR probe_lease_expires_at <= now()))\n      )\n    FOR UPDATE\n), updated AS (\n    UPDATE context69.library_dependency_gates gate\n    SET state = 'half_open',\n        probe_lease_token = $2,\n        probe_lease_expires_at = now() + ($3::BIGINT * INTERVAL '1 second'),\n        last_transition_at = CASE\n            WHEN gate.state = 'open' THEN now()\n            ELSE gate.last_transition_at\n        END,\n        updated_at = now()\n    FROM candidate\n    WHERE gate.dependency_key = candidate.dependency_key\n    RETURNING gate.dependency_key, gate.state\n)\nSELECT updated.dependency_key AS \"dependency_key!\",\n       updated.state AS \"state!\",\n       candidate.transitioned AS \"transitioned!\"\nFROM updated\nJOIN candidate USING (dependency_key)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependency_key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "state!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "transitioned!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "d18a21c709eaba9edd66a0e580d28e90c299bf58eb951938c9413aa743a4b17e"
+}

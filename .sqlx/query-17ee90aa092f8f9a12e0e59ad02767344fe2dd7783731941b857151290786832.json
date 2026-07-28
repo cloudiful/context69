@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    dependency_key,\n    state,\n    failure_count,\n    next_probe_at,\n    last_error,\n    probe_lease_token,\n    last_transition_at,\n    last_success_at\nFROM context69.library_dependency_gates\nORDER BY dependency_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "failure_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "failure_count"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "next_probe_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "next_probe_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "probe_lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "probe_lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "last_transition_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "last_transition_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "last_success_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "last_success_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "17ee90aa092f8f9a12e0e59ad02767344fe2dd7783731941b857151290786832"
+}

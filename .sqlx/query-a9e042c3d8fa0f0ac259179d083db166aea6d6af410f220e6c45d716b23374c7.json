@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.search_settings (\n    singleton,\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, now())\nON CONFLICT (singleton) DO UPDATE\nSET mode = EXCLUDED.mode,\n    rerank_enabled = EXCLUDED.rerank_enabled,\n    rerank_base_url = EXCLUDED.rerank_base_url,\n    rerank_model = EXCLUDED.rerank_model,\n    candidate_limit = EXCLUDED.candidate_limit,\n    timeout_secs = EXCLUDED.timeout_secs,\n    api_key = EXCLUDED.api_key,\n    updated_at = now()\nRETURNING\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "mode"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rerank_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "rerank_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "rerank_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "rerank_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rerank_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "rerank_model"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "candidate_limit",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "candidate_limit"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "timeout_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "timeout_secs"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "api_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "api_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a9e042c3d8fa0f0ac259179d083db166aea6d6af410f220e6c45d716b23374c7"
+}

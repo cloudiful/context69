@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n    SELECT 1\n    FROM context69.library_dependency_gates\n    WHERE dependency_key = 'embedding_vector'\n      AND (\n          state = 'closed'\n          OR (state = 'half_open' AND probe_lease_token = $1)\n      )\n) AS \"ready!: bool\";\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ready!: bool",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5d833100fd6f78fc3d7d88e81268f37ba9b22d4c401d2ed838596f686a066bfa"
+}

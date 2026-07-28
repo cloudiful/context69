@@ -1,0 +1,178 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH finished AS (\nUPDATE context69.library_ingest_jobs\nSET status = $3,\n    failure_stage = $4,\n    error_message = $5,\n    lease_token = NULL,\n    lease_expires_at = NULL,\n    finished_at = now(),\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups group_row WHERE group_row.id = context69.library_ingest_jobs.group_id) AS group_key,\n    (SELECT full_path FROM context69.groups group_row WHERE group_row.id = context69.library_ingest_jobs.group_id) AS group_path,\n    visibility,\n    id,\n    file_id,\n    status,\n    docling_task_id,\n    failure_stage,\n    error_message,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\n), file_updated AS (\n    UPDATE context69.library_files file\n    SET ingest_status = finished.status,\n        error_message = finished.error_message,\n        ingested_at = CASE\n            WHEN finished.status = 'succeeded' THEN now()\n            ELSE NULL\n        END,\n        updated_at = now()\n    FROM finished\n    WHERE file.id = finished.file_id\n    RETURNING file.id\n), url_updated AS (\n    UPDATE context69.library_url_import_jobs url_job\n    SET status = CASE finished.status\n            WHEN 'succeeded' THEN 'succeeded'\n            WHEN 'failed' THEN 'failed'\n        END,\n        error_code = CASE\n            WHEN finished.status = 'failed'\n                THEN COALESCE('ingest_' || finished.failure_stage, 'ingest_failed')\n            ELSE NULL\n        END,\n        error_message = CASE\n            WHEN finished.status = 'failed' THEN finished.error_message\n            ELSE NULL\n        END,\n        failure_stage = CASE\n            WHEN finished.status = 'failed' THEN finished.failure_stage\n            ELSE NULL\n        END,\n        next_attempt_at = NULL,\n        finished_at = COALESCE(finished.finished_at, now()),\n        lease_token = NULL,\n        lease_expires_at = NULL,\n        updated_at = now()\n    FROM finished\n    JOIN file_updated ON file_updated.id = finished.file_id\n    WHERE url_job.ingest_job_id = finished.id\n      AND url_job.status IN ('ingesting', 'queued')\n)\nSELECT\n    finished.group_id AS \"group_id!\",\n    finished.group_key AS \"group_key!\",\n    finished.group_path AS \"group_path!\",\n    finished.visibility AS \"visibility!\",\n    finished.id AS \"id!\",\n    finished.file_id AS \"file_id!\",\n    finished.status AS \"status!\",\n    finished.docling_task_id,\n    finished.failure_stage,\n    finished.error_message,\n    finished.created_at AS \"created_at!\",\n    finished.started_at,\n    finished.finished_at,\n    finished.updated_at AS \"updated_at!\"\nFROM finished\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "visibility!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "file_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "docling_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "docling_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_jobs",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "e1902c0fbb930b7f60f3a88d1326eaa39162e7cd5e8cbf3ff8a422d52c81eccb"
+}

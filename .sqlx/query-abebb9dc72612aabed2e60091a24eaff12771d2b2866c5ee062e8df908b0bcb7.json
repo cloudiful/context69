@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT base_url, api_key, model, dimensions, timeout_secs\nFROM context69.runtime_embedding_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "api_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "api_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "timeout_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "timeout_secs"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "abebb9dc72612aabed2e60091a24eaff12771d2b2866c5ee062e8df908b0bcb7"
+}

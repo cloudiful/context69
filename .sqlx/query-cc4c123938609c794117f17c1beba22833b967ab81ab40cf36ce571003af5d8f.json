@@ -1,0 +1,248 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_files\nSET folder_id = $3, updated_at = now()\nWHERE group_id = $1\n  AND id = $2\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "folder_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "folder_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "filename",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "filename"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "media_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "media_type"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "storage_rel_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "storage_rel_path"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "ingest_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "ingest_status"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "ingested_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "ingested_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "cc4c123938609c794117f17c1beba22833b967ab81ab40cf36ce571003af5d8f"
+}

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use tokio::time::timeout;
 use uuid::Uuid;
@@ -135,15 +135,6 @@ impl LibraryService {
             .await
     }
 
-    pub(super) async fn exists_active_storage_for_lease(
-        &self,
-        key: &str,
-        lease_token: Uuid,
-    ) -> Result<bool> {
-        self.exists_active_storage_for_lease_context(key, Some(lease_token))
-            .await
-    }
-
     async fn exists_active_storage_for_lease_context(
         &self,
         key: &str,
@@ -176,15 +167,6 @@ impl LibraryService {
 
     pub(super) async fn delete_active_storage(&self, key: &str) -> Result<()> {
         self.delete_active_storage_with_lease(key, None).await
-    }
-
-    pub(super) async fn delete_active_storage_for_lease(
-        &self,
-        key: &str,
-        lease_token: Uuid,
-    ) -> Result<()> {
-        self.delete_active_storage_with_lease(key, Some(lease_token))
-            .await
     }
 
     async fn delete_active_storage_with_lease(
