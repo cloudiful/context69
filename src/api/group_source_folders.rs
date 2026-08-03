@@ -4,10 +4,12 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use context69_contracts::TaskKind;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::contracts::{
-    CreateSourceFolderRequest, MembershipRole, SourceConfigInput, SourceFolderResponse, SyncOutcome,
+    CreateSourceFolderRequest, MembershipRole, SourceConfigInput, SourceFolderResponse,
 };
 
 use super::{
@@ -15,7 +17,9 @@ use super::{
     auth::CurrentUser,
     errors::library_management_error_response,
     group_access::{group_access_error_response, group_for_user, require_group_role},
+    submit_task_request,
 };
+use crate::services::tasks::TaskSubmission;
 
 #[utoipa::path(
     post,
@@ -98,7 +102,7 @@ pub(crate) async fn update_group_source_folder_config(
         ("folder_id" = Uuid, Path, description = "Source folder id")
     ),
     responses(
-        (status = 202, description = "Triggered source folder sync", body = SyncOutcome),
+        (status = 202, description = "Source folder sync task accepted", body = crate::contracts::TaskRef),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group or source folder not found")
     )
@@ -115,13 +119,17 @@ pub(crate) async fn sync_group_source_folder(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state
-        .app
-        .source_folders
-        .sync_source_folder_in_project(&group, folder_id)
-        .await
-    {
-        Ok(response) => (StatusCode::ACCEPTED, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group.group_path),
+            source_key: None,
+            kind: TaskKind::SourceSync,
+            payloads: vec![json!({"source_folder_id": folder_id})],
+            idempotency_key: None,
+        },
+    )
+    .await
 }

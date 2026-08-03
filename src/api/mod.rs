@@ -27,6 +27,7 @@ mod library_upload;
 mod personal_access_tokens;
 mod router;
 mod sources;
+mod task_inputs;
 mod tasks;
 mod translations;
 
@@ -53,10 +54,7 @@ pub(crate) fn build_api_state(app: Arc<Context69App>) -> ApiState {
             )),
         },
         settings_http: SettingsHttpState {
-            settings: Arc::new(SettingsApiAdapter::new(
-                app.settings.clone(),
-                app.sync.clone(),
-            )),
+            settings: Arc::new(SettingsApiAdapter::new(app.settings.clone())),
         },
     }
 }
@@ -107,22 +105,19 @@ pub(crate) use documents::{
 };
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
-    delete_group_library_folder, get_group_library_file, get_group_library_file_jobs,
-    get_group_library_job, get_group_library_resources, get_group_library_tree,
-    get_group_library_url_import_job, import_group_library_file_url, move_group_library_file,
-    move_group_library_folder, prepare_group_library_upload, retry_group_library_file,
-    retry_group_library_url_import_job, upload_group_library_files, upsert_group_library_text,
+    delete_group_library_folder, get_group_library_file, get_group_library_resources,
+    get_group_library_tree, import_group_library_file_url, move_group_library_file,
+    move_group_library_folder, prepare_group_library_upload, upload_group_library_files,
+    upsert_group_library_text,
 };
 pub(crate) use group_source_folders::{
     create_group_source_folder, sync_group_source_folder, update_group_source_folder_config,
 };
 pub(crate) use health::healthz;
 pub(crate) use library::{
-    cleanup_stuck_library_processing_jobs, create_library_folder, create_library_text,
-    delete_library_file, delete_library_folder, get_library_file, get_library_file_jobs,
-    get_library_job, get_library_processing_jobs, get_library_resources, get_library_tree,
-    move_library_file, move_library_folder, retry_failed_library_processing_jobs,
-    upload_library_files,
+    create_library_folder, create_library_text, delete_library_file, delete_library_folder,
+    get_library_file, get_library_resources, get_library_tree, move_library_file,
+    move_library_folder, upload_library_files,
 };
 pub(crate) use personal_access_tokens::{
     create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,
@@ -131,8 +126,10 @@ pub(crate) use sources::{
     create_source, create_source_connection, delete_source, delete_source_connection,
     list_source_connections, list_sources, sync_source, update_source, update_source_connection,
 };
+pub(crate) use task_inputs::{create_text_payload, file_batch_payloads};
 pub(crate) use tasks::{
     cancel_task, ensure_scope, get_task, list_task_items, list_tasks, retry_task,
-    submit_delete_batch, submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
+    submit_delete_batch, submit_file_batch, submit_task, submit_task_request, submit_text_batch,
+    submit_url_batch, submit_vector_index_rebuild,
 };
 pub(crate) use translations::*;

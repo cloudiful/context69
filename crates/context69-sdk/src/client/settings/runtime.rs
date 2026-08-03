@@ -1,4 +1,4 @@
-use context69_contracts::{RuntimeSettingsResponse, UpdateRuntimeSettingsRequest};
+use context69_contracts::{RuntimeSettingsResponse, TaskRef, UpdateRuntimeSettingsRequest};
 use reqwest::Method;
 
 use super::Context69Client;
@@ -33,6 +33,19 @@ impl<'a> RuntimeSettingsApi<'a> {
                     .authorized_request(Method::PUT, "/v1/settings/runtime")
                     .await?
                     .json(request),
+            )
+            .await
+    }
+
+    pub async fn rebuild_vector_index(&self) -> Result<TaskRef, Error> {
+        self.client
+            .execute_json(
+                self.client
+                    .authorized_request(
+                        Method::POST,
+                        "/v1/settings/runtime/vector-index/rebuild",
+                    )
+                    .await?,
             )
             .await
     }

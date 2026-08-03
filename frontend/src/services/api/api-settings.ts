@@ -7,6 +7,7 @@ import type {
   UpdateSearchSettingsRequest,
   UpdateTranslationSettingsRequest,
   TranslationProviderPageResponse,
+  TaskRef,
 } from "./api-types";
 
 type Deps = {
@@ -47,19 +48,12 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
         }),
       );
     },
-    getVectorIndexRebuildStatus(options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.GET("/v1/settings/runtime/vector-index/rebuild", {
-          signal: options?.signal,
-        }),
-      );
-    },
-    startVectorIndexRebuild(options?: RequestOptions) {
+    submitVectorIndexRebuild(options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.POST("/v1/settings/runtime/vector-index/rebuild", {
           signal: options?.signal,
         }),
-      );
+      ) as Promise<TaskRef>;
     },
     getDoclingSettings(options?: RequestOptions) {
       return unwrapResponse(

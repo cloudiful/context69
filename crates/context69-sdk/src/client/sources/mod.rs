@@ -1,5 +1,5 @@
 use context69_contracts::{
-    SourceConfigInput, SourceConnectionResponse, SourceStatus, SyncOutcome,
+    SourceConfigInput, SourceConnectionResponse, SourceStatus, TaskRef,
     UpsertSourceConnectionRequest,
 };
 use reqwest::Method;
@@ -68,7 +68,7 @@ impl<'a> SourceApi<'a> {
             .await
     }
 
-    pub async fn sync(&self) -> Result<SyncOutcome, Error> {
+    pub async fn sync(&self) -> Result<TaskRef, Error> {
         let path = self.path("/sync");
         self.client
             .execute_json(self.client.authorized_request(Method::POST, &path).await?)

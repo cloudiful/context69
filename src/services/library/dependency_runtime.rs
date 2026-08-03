@@ -1,8 +1,9 @@
-use std::time::Duration;
-
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
-use context69_contracts::{LibraryDependencyGateResponse, LibraryProcessingQueueHealth};
+use context69_contracts::{
+    LibraryDependencyGateResponse, LibraryProcessingMetric, LibraryProcessingQueueHealth,
+};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -15,18 +16,58 @@ pub(super) use super::dependency_storage::bounded_s3_operation;
 use super::{LibraryDependency, LibraryService};
 use crate::library_store::LibraryStore;
 
-const INGEST_LEASE_TTL_SECS: i64 = 120;
-const INGEST_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
-const INGEST_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const PROBE_LEASE_TTL_SECS: i64 = super::LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS;
 
 impl LibraryService {
-    pub(crate) async fn resume_ingest_jobs(&self) -> Result<()> {
-        self.refresh_dependency_configuration().await?;
-        self.store.recover_expired_ingest_jobs().await?;
-        self.start_ingest_workers();
-        self.notify_ingest_worker();
-        Ok(())
+    pub(crate) async fn initialize_dependency_gates(&self) -> Result<()> {
+        self.refresh_dependency_configuration().await
+    }
+
+    pub(crate) async fn dependency_wait_until(
+        &self,
+        dependency_key: &str,
+        lease_token: Uuid,
+    ) -> Result<Option<DateTime<Utc>>> {
+        if dependency_key == LibraryDependency::S3.as_str() && self.storage.backend() != "s3" {
+            return Ok(None);
+        }
+        if dependency_key == LibraryDependency::EmbeddingVector.as_str() && self.runtime.is_none() {
+            return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
+        }
+        let gate = self
+            .store
+            .list_dependency_gates()
+            .await?
+            .into_iter()
+            .find(|gate| gate.dependency_key == dependency_key);
+        let Some(gate) = gate else {
+            return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
+        };
+        if gate.state == "closed" || gate.probe_lease_token == Some(lease_token) {
+            return Ok(None);
+        }
+
+        let now = Utc::now();
+        let probe_due = gate
+            .next_probe_at
+            .map(|next_probe_at| next_probe_at <= now)
+            .unwrap_or(gate.state == "half_open");
+        if probe_due
+            && let Some(transition) = self
+                .store
+                .reserve_dependency_probe(dependency_key, lease_token, PROBE_LEASE_TTL_SECS)
+                .await?
+        {
+            log_dependency_transition(&transition);
+            return Ok(None);
+        }
+
+        Ok(Some(
+            gate.probe_lease_expires_at
+                .or(gate.next_probe_at)
+                .filter(|value| *value > now)
+                .unwrap_or_else(|| now + chrono::Duration::seconds(30)),
+        ))
     }
 
     pub(super) async fn refresh_dependency_configuration(&self) -> Result<()> {
@@ -125,26 +166,6 @@ impl LibraryService {
         Ok(())
     }
 
-    pub(super) fn start_ingest_workers(&self) {
-        if self
-            .ingest_workers_started
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
-        {
-            return;
-        }
-
-        for worker_id in 0..self.ingest_worker_count {
-            let service = self.clone();
-            tokio::spawn(async move {
-                service.run_ingest_worker(worker_id).await;
-            });
-        }
-    }
-
-    pub(super) fn notify_ingest_worker(&self) {
-        self.ingest_wakeup.notify_waiters();
-    }
-
     pub(crate) async fn processing_health(
         &self,
     ) -> Result<(
@@ -153,7 +174,7 @@ impl LibraryService {
         LibraryProcessingQueueHealth,
     )> {
         let gates = self.store.list_dependency_gates().await?;
-        let queue = self.store.processing_queue_health().await?;
+        let queue = self.db.task_processing_health().await?;
         let mut required_dependencies = vec![LibraryDependency::EmbeddingVector.as_str()];
         if queue.docling_required_count > 0 {
             required_dependencies.push(LibraryDependency::Docling.as_str());
@@ -179,6 +200,18 @@ impl LibraryService {
             })
             .collect();
         let now = Utc::now();
+        let status_counts = parse_processing_metrics(queue.status_counts)?;
+        let stage_counts = parse_processing_metrics(queue.stage_counts)?;
+        let waiting_reason_counts = parse_processing_metrics(queue.waiting_reason_counts)?;
+        let dependency_counts = parse_processing_metrics(queue.dependency_counts)?;
+        let processed_last_hour = non_negative_count(queue.processed_last_hour)?;
+        let failed_last_hour = non_negative_count(queue.failed_last_hour)?;
+        let processing_rate_per_minute = processed_last_hour as f64 / 60.0;
+        let failure_rate_percent = if processed_last_hour == 0 {
+            0.0
+        } else {
+            failed_last_hour as f64 * 100.0 / processed_last_hour as f64
+        };
         Ok((
             ready,
             response,
@@ -188,6 +221,14 @@ impl LibraryService {
                 oldest_pending_age_seconds: queue_age_seconds(queue.oldest_pending_at, now),
                 oldest_queued_age_seconds: queue_age_seconds(queue.oldest_queued_at, now),
                 recent_failure_count: non_negative_count(queue.recent_failure_count)?,
+                status_counts,
+                stage_counts,
+                waiting_reason_counts,
+                dependency_counts,
+                processed_last_hour,
+                failed_last_hour,
+                processing_rate_per_minute,
+                failure_rate_percent,
             },
         ))
     }
@@ -259,13 +300,6 @@ impl LibraryService {
             }
         }
     }
-
-    pub(super) async fn wait_for_ingest_work(&self) {
-        tokio::select! {
-            _ = self.ingest_wakeup.notified() => {}
-            _ = tokio::time::sleep(INGEST_POLL_INTERVAL) => {}
-        }
-    }
 }
 
 pub(crate) async fn report_embedding_vector_processing_error_with_lease(
@@ -322,12 +356,8 @@ fn queue_age_seconds(timestamp: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Op
     timestamp.map(|timestamp| now.signed_duration_since(timestamp).num_seconds().max(0) as u64)
 }
 
-pub(super) const fn ingest_lease_ttl_secs() -> i64 {
-    INGEST_LEASE_TTL_SECS
-}
-
-pub(super) const fn ingest_heartbeat_interval() -> Duration {
-    INGEST_HEARTBEAT_INTERVAL
+fn parse_processing_metrics(value: Value) -> Result<Vec<LibraryProcessingMetric>> {
+    serde_json::from_value(value).map_err(Into::into)
 }
 
 pub(super) const fn probe_lease_ttl_secs() -> i64 {

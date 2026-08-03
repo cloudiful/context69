@@ -17,7 +17,7 @@ impl LibraryService {
                 .await?
                 .with_context(|| format!("unknown folder {folder_id}"))?;
         }
-        let kind = storage::detect_file_kind(&request.filename, &request.media_type)?;
+        storage::detect_file_kind(&request.filename, &request.media_type)?;
         if let Some(external_id) = request
             .metadata
             .as_ref()
@@ -77,7 +77,6 @@ impl LibraryService {
         }
 
         let file_id = Uuid::new_v4();
-        let job_id = Uuid::new_v4();
         let object_key = object.object_key.clone();
         let object_id = object.id;
         let create_result = self
@@ -140,29 +139,10 @@ impl LibraryService {
                 return Err(error);
             }
         }
-        let job = match self
-            .store
-            .create_job_with_options(job_id, file_id, requires_docling(kind), None)
-            .await
-        {
-            Ok(job) => job,
-            Err(error) => {
-                self.rollback_new_file_record(
-                    Some(project.id),
-                    file_id,
-                    Some(&object_key),
-                    Some(object_id),
-                )
-                .await;
-                return Err(error);
-            }
-        };
-        self.notify_ingest_worker();
-
         Ok(PrepareLibraryUploadResponse {
             upload_required: false,
             file: Some(file_to_summary(&created)),
-            job: Some(job_to_response(job)),
+            task: None,
         })
     }
 
@@ -172,7 +152,11 @@ impl LibraryService {
         metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
         translation: Option<&crate::contracts::TranslationDirective>,
     ) -> Result<PrepareLibraryUploadResponse> {
-        let (file, job) = self.reuse_file_with_metadata(file, metadata).await?;
+        let file = if let Some(metadata) = metadata {
+            self.apply_file_business_metadata(file.id, metadata).await?
+        } else {
+            file
+        };
         if let Some(directive) = translation {
             self.apply_file_translation_directive(file.id, directive)
                 .await?;
@@ -180,7 +164,7 @@ impl LibraryService {
         Ok(PrepareLibraryUploadResponse {
             upload_required: false,
             file: Some(file_to_summary(&file)),
-            job: job.map(job_to_response),
+            task: None,
         })
     }
 
@@ -254,15 +238,11 @@ impl LibraryService {
     }
 }
 
-fn requires_docling(kind: LibraryFileKind) -> bool {
-    !matches!(kind, LibraryFileKind::PlainText)
-}
-
 fn upload_required() -> PrepareLibraryUploadResponse {
     PrepareLibraryUploadResponse {
         upload_required: true,
         file: None,
-        job: None,
+        task: None,
     }
 }
 

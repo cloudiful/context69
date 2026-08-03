@@ -4,16 +4,24 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use context69_contracts::TaskKind;
+use serde_json::json;
 
 use crate::{
     contracts::{
         ApiErrorResponse, SourceConfigInput, SourceConnectionResponse, SourcePageQuery,
-        SourcePageResponse, SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
+        SourcePageResponse, SourceStatus, TaskRef, UpsertSourceConnectionRequest,
     },
-    services::scheduler::{ManualRunResult, run_manual_sync_guarded},
+    services::tasks::TaskSubmission,
 };
 
-use super::{ApiState, errors::source_management_error_response};
+use super::{
+    ApiState,
+    auth::CurrentUser,
+    errors::source_management_error_response,
+    group_access::{group_access_error_response, group_for_user, require_group_role},
+    submit_task_request,
+};
 
 #[utoipa::path(
     get,
@@ -191,7 +199,7 @@ pub(crate) async fn delete_source(
     path = "/v1/sources/{source_key}/sync",
     params(("source_key" = String, Path, description = "Source key")),
     responses(
-        (status = 202, description = "Triggered source sync", body = SyncOutcome),
+        (status = 202, description = "Source sync task accepted", body = TaskRef),
         (status = 409, description = "Source sync is already running elsewhere", body = ApiErrorResponse),
         (status = 404, description = "Source not found", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
@@ -199,39 +207,45 @@ pub(crate) async fn delete_source(
 )]
 pub(crate) async fn sync_source(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Path(source_key): Path<String>,
 ) -> impl IntoResponse {
-    let source_key_for_sync = source_key.clone();
-    match run_manual_sync_guarded(
-        state.app.clone(),
-        format!("source:{source_key}"),
-        async move || {
-            state
-                .app
-                .sync
-                .sync_source(&source_key_for_sync, "api")
-                .await
+    let source = match state.app.sync.list_sources().await {
+        Ok(sources) => match sources
+            .into_iter()
+            .find(|source| source.source_key == source_key)
+        {
+            Some(source) => source,
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(ApiErrorResponse {
+                        error: format!("unknown source {source_key}"),
+                    }),
+                )
+                    .into_response();
+            }
+        },
+        Err(error) => return super::errors::internal_error_response(error),
+    };
+    let group = match group_for_user(&state, session.user.id, &source.group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, crate::contracts::MembershipRole::Maintainer) {
+        return group_access_error_response(error);
+    }
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group.group_path),
+            source_key: Some(source_key),
+            kind: TaskKind::SourceSync,
+            payloads: vec![json!({})],
+            idempotency_key: None,
         },
     )
     .await
-    {
-        Ok(ManualRunResult::Completed(outcome)) => {
-            (StatusCode::ACCEPTED, Json(outcome)).into_response()
-        }
-        Ok(ManualRunResult::Contended) => (
-            StatusCode::CONFLICT,
-            Json(ApiErrorResponse {
-                error: format!("source {source_key} sync is already running"),
-            }),
-        )
-            .into_response(),
-        Err(error) if error.to_string().contains("unknown source") => (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                error: error.to_string(),
-            }),
-        )
-            .into_response(),
-        Err(error) => super::errors::internal_error_response(error),
-    }
 }

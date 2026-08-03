@@ -28,6 +28,7 @@ struct ProjectSourceFolderSync<'a> {
     source: &'a SourceConfig,
     connector: Arc<dyn SourceConnector>,
     library: &'a LibraryService,
+    lease_token: Uuid,
 }
 
 impl SyncService {
@@ -39,6 +40,7 @@ impl SyncService {
         records_folder_id: Uuid,
         source: &SourceConfig,
         library: &LibraryService,
+        lease_token: Uuid,
     ) -> Result<SyncOutcome> {
         let identity = source_folder_identity(project.id, folder_path);
 
@@ -69,6 +71,7 @@ impl SyncService {
                 source,
                 connector,
                 library,
+                lease_token,
             })
             .await
         {
@@ -137,6 +140,7 @@ impl SyncService {
             source,
             connector,
             library,
+            lease_token,
         } = context;
         let persisted_checkpoint = if source.sync_strategy == SyncStrategy::Cursor {
             self.db.get_checkpoint(identity).await?
@@ -175,8 +179,8 @@ impl SyncService {
                     updated_at: normalized.updated_at,
                     metadata_json: normalized.metadata_json.clone(),
                 })?;
-                let response = library
-                    .upsert_named_text_file_in_project(
+                let (response, section_payload) = library
+                    .upsert_named_text_file_for_task(
                         project,
                         &UpsertNamedTextFileRequest {
                             folder_id: Some(records_folder_id),
@@ -188,10 +192,24 @@ impl SyncService {
                             media_type: "application/json".to_string(),
                             content,
                         },
+                        lease_token,
                     )
                     .await?;
+                library
+                    .mark_file_running_for_task(response.file_id)
+                    .await
+                    .map_err(anyhow::Error::new)?;
+                if let Err(failure) = library
+                    .persist_file_sections_for_task(response.file_id, &section_payload, lease_token)
+                    .await
+                {
+                    let failure = library
+                        .handle_task_ingest_failure(response.file_id, lease_token, failure)
+                        .await;
+                    return Err(anyhow::Error::new(failure));
+                }
                 outcome.records_changed += 1;
-                outcome.chunks_upserted += response.files.iter().map(|_| 1usize).sum::<usize>();
+                outcome.chunks_upserted += 1;
 
                 local_checkpoint.updated_at = Some(normalized.updated_at);
                 local_checkpoint.external_id = Some(normalized.external_id);
@@ -222,7 +240,9 @@ impl SyncService {
                 })
                 .collect::<Vec<_>>();
             for file in stale_files {
-                library.delete_file_in_project(project, file.id).await?;
+                library
+                    .delete_file_in_project_for_task(project, file.id, lease_token)
+                    .await?;
                 outcome.records_changed += 1;
             }
         }

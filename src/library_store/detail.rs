@@ -27,13 +27,6 @@ impl LibraryStore {
         };
 
         let sections = self.list_section_previews_for_file(file_id).await?;
-        let jobs = self
-            .list_jobs_for_file(file_id)
-            .await?
-            .into_iter()
-            .map(super::job_to_response)
-            .collect();
-
         Ok(Some(LibraryFileDetailResponse {
             file_id: file.file_id,
             group_key: file.group_key,
@@ -52,7 +45,6 @@ impl LibraryStore {
             updated_at: file.updated_at,
             ingested_at: file.ingested_at,
             sections,
-            jobs,
         }))
     }
 
@@ -76,13 +68,6 @@ impl LibraryStore {
         };
 
         let sections = self.list_section_previews_for_file(file_id).await?;
-        let jobs = self
-            .list_jobs_for_file(file_id)
-            .await?
-            .into_iter()
-            .map(super::job_to_response)
-            .collect();
-
         Ok(Some(LibraryFileDetailResponse {
             file_id: file.file_id,
             group_key: file.group_key,
@@ -101,7 +86,6 @@ impl LibraryStore {
             updated_at: file.updated_at,
             ingested_at: file.ingested_at,
             sections,
-            jobs,
         }))
     }
 

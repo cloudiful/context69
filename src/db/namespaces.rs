@@ -168,6 +168,18 @@ impl Database {
         rows.into_iter().next().map(group_from_row).transpose()
     }
 
+    pub async fn get_group_by_id(&self, group_id: i64) -> Result<Option<GroupRecord>> {
+        sqlx::query_file_as!(
+            GroupRow,
+            "src/sql/db/namespaces/get_group_by_id.sql",
+            group_id
+        )
+        .fetch_optional(self.pool())
+        .await?
+        .map(group_from_row)
+        .transpose()
+    }
+
     pub async fn create_group(
         &self,
         actor: &NamespaceActor,

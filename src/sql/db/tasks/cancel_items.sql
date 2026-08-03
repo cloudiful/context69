@@ -1,5 +1,19 @@
-UPDATE context69.task_items
+WITH cancelled AS (
+    UPDATE context69.task_items
+    SET status = 'cancelled',
+        lease_token = NULL,
+        lease_until = NULL,
+        waiting_reason = NULL,
+        dependency_key = NULL,
+        next_attempt_at = NULL,
+        finished_at = now(),
+        updated_at = now()
+    WHERE task_id = $1 AND status IN ('queued', 'running', 'waiting')
+    RETURNING id
+)
+UPDATE context69.task_attempts attempt
 SET status = 'cancelled',
-    finished_at = now(),
-    updated_at = now()
-WHERE task_id = $1 AND status IN ('queued', 'running')
+    retryable = FALSE,
+    finished_at = now()
+WHERE attempt.item_id IN (SELECT id FROM cancelled)
+  AND attempt.finished_at IS NULL

@@ -278,17 +278,20 @@ impl SyncService {
         self.vector_rebuild_status.read().await.clone()
     }
 
-    pub async fn start_vector_index_rebuild(&self) -> Result<VectorIndexRebuildStatus> {
-        self.runtime()?;
+    pub(crate) async fn run_vector_index_rebuild(&self) -> Result<usize> {
         self.begin_vector_index_rebuild().await?;
-
-        let service = self.clone();
-        tokio::spawn(async move {
-            let result = service.rebuild_index_from_db().await;
-            service.finish_vector_index_rebuild(result).await;
-        });
-
-        Ok(self.vector_index_rebuild_status().await)
+        match self.rebuild_index_from_db().await {
+            Ok(rebuilt) => {
+                self.finish_vector_index_rebuild(Ok(rebuilt)).await;
+                Ok(rebuilt)
+            }
+            Err(error) => {
+                let message = error.to_string();
+                self.finish_vector_index_rebuild(Err(anyhow!(message)))
+                    .await;
+                Err(error)
+            }
+        }
     }
 
     pub(crate) async fn begin_vector_index_rebuild(&self) -> Result<()> {

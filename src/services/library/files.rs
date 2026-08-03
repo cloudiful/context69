@@ -1,57 +1,19 @@
 use super::*;
-use crate::pagination::PageBounds;
 
 impl LibraryService {
-    pub async fn get_file_jobs(
+    pub(crate) async fn file_summary_for_task(
         &self,
+        group_id: i64,
         file_id: Uuid,
-        page: u32,
-        page_size: u32,
-    ) -> Result<crate::contracts::LibraryFileJobPageResponse> {
-        self.get_file_jobs_for_group(None, file_id, page, page_size)
-            .await
-    }
-
-    pub async fn get_file_jobs_in_project(
-        &self,
-        project: &crate::domain::GroupRecord,
-        file_id: Uuid,
-        page: u32,
-        page_size: u32,
-    ) -> Result<crate::contracts::LibraryFileJobPageResponse> {
-        self.get_file_jobs_for_group(Some(project.id), file_id, page, page_size)
-            .await
-    }
-
-    async fn get_file_jobs_for_group(
-        &self,
-        project_id: Option<i64>,
-        file_id: Uuid,
-        page: u32,
-        page_size: u32,
-    ) -> Result<crate::contracts::LibraryFileJobPageResponse> {
-        let bounds = PageBounds::new(page, page_size)?;
-        let file = match project_id {
-            Some(project_id) => self.store.get_file_in_project(project_id, file_id).await?,
-            None => self.store.get_file(file_id).await?,
-        }
-        .with_context(|| format!("unknown file {file_id}"))?;
-        let total = self.store.count_jobs_for_file(file.id).await?;
-        let items = self
+    ) -> Result<crate::contracts::LibraryFileSummary> {
+        let file = self
             .store
-            .list_jobs_for_file_page(file.id, i64::from(bounds.page_size), bounds.offset)
+            .get_file_in_project(group_id, file_id)
             .await?
-            .into_iter()
-            .map(crate::library_store::job_to_response)
-            .collect();
-        Ok(crate::contracts::LibraryFileJobPageResponse {
-            items,
-            pagination: bounds.pagination(total)?,
-        })
+            .with_context(|| format!("unknown file {file_id}"))?;
+        Ok(crate::library_store::file_to_summary(&file))
     }
-}
 
-impl LibraryService {
     pub(crate) async fn list_file_records_in_project(
         &self,
         project: &crate::domain::GroupRecord,
@@ -81,10 +43,31 @@ impl LibraryService {
         &self,
         file: &crate::domain::LibraryFileRecord,
     ) -> Result<String> {
-        let bytes = self
-            .read_active_storage(&file.storage_rel_path)
-            .await?
-            .with_context(|| format!("stored file not found for file {}", file.id))?;
+        self.read_text_file_content_with_lease(file, None).await
+    }
+
+    pub(crate) async fn read_text_file_content_for_lease(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+        lease_token: Uuid,
+    ) -> Result<String> {
+        self.read_text_file_content_with_lease(file, Some(lease_token))
+            .await
+    }
+
+    async fn read_text_file_content_with_lease(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+        lease_token: Option<Uuid>,
+    ) -> Result<String> {
+        let bytes = match lease_token {
+            Some(lease_token) => {
+                self.read_active_storage_for_lease(&file.storage_rel_path, lease_token)
+                    .await?
+            }
+            None => self.read_active_storage(&file.storage_rel_path).await?,
+        }
+        .with_context(|| format!("stored file not found for file {}", file.id))?;
         String::from_utf8(bytes.to_vec())
             .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
     }
@@ -123,46 +106,6 @@ impl LibraryService {
             .with_context(|| format!("unknown file {file_id}"))?;
         detail.source_available = self.exists_active_storage(&file.storage_rel_path).await?;
         Ok(detail)
-    }
-
-    pub async fn retry_file_in_project(
-        &self,
-        project: &crate::domain::GroupRecord,
-        file_id: Uuid,
-    ) -> Result<LibraryIngestJobResponse> {
-        self.retry_file_with_group_id(project.id, file_id).await
-    }
-
-    pub(super) async fn retry_file_with_group_id(
-        &self,
-        group_id: i64,
-        file_id: Uuid,
-    ) -> Result<LibraryIngestJobResponse> {
-        let file = self
-            .store
-            .get_file_in_project(group_id, file_id)
-            .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
-        if file.ingest_status != LibraryIngestStatus::Failed {
-            return Err(anyhow!(
-                "file {file_id} is not failed and cannot be retried"
-            ));
-        }
-
-        storage::detect_file_kind(&file.filename, &file.media_type)?;
-        if !self.exists_active_storage(&file.storage_rel_path).await? {
-            return Err(anyhow!("stored file not found for file {file_id}"));
-        }
-
-        let job_id = Uuid::new_v4();
-        let job = self
-            .store
-            .claim_failed_file_retry_in_project(group_id, file_id, job_id)
-            .await?
-            .ok_or_else(|| anyhow!("file {file_id} is not failed and cannot be retried"))?;
-        self.notify_ingest_worker();
-
-        Ok(job_to_response(job))
     }
 
     pub async fn move_file(
@@ -224,6 +167,26 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
         file_id: Uuid,
     ) -> Result<()> {
+        self.delete_file_in_project_with_lease(project, file_id, None)
+            .await
+    }
+
+    pub(crate) async fn delete_file_in_project_for_task(
+        &self,
+        project: &crate::domain::GroupRecord,
+        file_id: Uuid,
+        lease_token: Uuid,
+    ) -> Result<()> {
+        self.delete_file_in_project_with_lease(project, file_id, Some(lease_token))
+            .await
+    }
+
+    async fn delete_file_in_project_with_lease(
+        &self,
+        project: &crate::domain::GroupRecord,
+        file_id: Uuid,
+        lease_token: Option<Uuid>,
+    ) -> Result<()> {
         let paths = self.store.list_storage_paths_for_files(&[file_id]).await?;
         self.delete_file_ids(&[file_id]).await?;
         if !self
@@ -233,30 +196,9 @@ impl LibraryService {
         {
             return Err(anyhow!("unknown file {file_id}"));
         }
-        self.delete_unreferenced_objects(paths).await?;
+        self.delete_unreferenced_objects_with_lease(paths, lease_token)
+            .await?;
         self.bump_search_generation("library file delete").await?;
         Ok(())
-    }
-
-    pub async fn get_job(&self, job_id: Uuid) -> Result<LibraryIngestJobResponse> {
-        let job = self
-            .store
-            .get_job(job_id)
-            .await?
-            .with_context(|| format!("unknown job {job_id}"))?;
-        Ok(job_to_response(job))
-    }
-
-    pub async fn get_job_in_project(
-        &self,
-        project: &crate::domain::GroupRecord,
-        job_id: Uuid,
-    ) -> Result<LibraryIngestJobResponse> {
-        let job = self
-            .store
-            .get_job_in_project(project.id, job_id)
-            .await?
-            .with_context(|| format!("unknown job {job_id}"))?;
-        Ok(job_to_response(job))
     }
 }

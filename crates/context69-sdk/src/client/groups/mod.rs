@@ -15,7 +15,7 @@ use crate::{Error, client::transport::group_path};
 pub use documents::{GroupDocumentsApi, GroupMetadataIndexesApi};
 pub use members::{GroupMemberApi, GroupMembersApi};
 pub use source_folders::{GroupSourceFolderApi, GroupSourceFoldersApi};
-pub use translations::{GroupTranslationApi, TranslationJobApi};
+pub use translations::GroupTranslationApi;
 
 pub struct GroupsApi<'a> {
     client: &'a Context69Client,
@@ -147,9 +147,6 @@ impl<'a> GroupApi<'a> {
         GroupTranslationApi::new(self.client, self.group_path.clone())
     }
 
-    pub fn translation_job(&self, job_id: uuid::Uuid) -> TranslationJobApi<'a> {
-        TranslationJobApi::new(self.client, self.group_path.clone(), job_id)
-    }
 }
 
 pub struct GroupChildrenApi<'a> {

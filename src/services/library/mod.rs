@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
-    sync::{Arc, atomic::AtomicBool},
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -10,7 +10,6 @@ use bytes::Bytes;
 use chrono::Utc;
 use context69_translation::{TranslationCoordinator, TranslationService};
 use serde_json::{Value, json};
-use tokio::sync::{Notify, Semaphore};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -18,21 +17,16 @@ use crate::{
     chunking::ChunkingConfig,
     config::FileLibraryConfig,
     contracts::{
-        CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse, LibraryFileSummary,
-        LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse,
-        LibraryIngestFailureStage, LibraryIngestJobResponse, LibraryIngestStatus,
-        LibraryProcessingJobBulkActionResponse, LibraryProcessingJobPageQuery,
-        LibraryProcessingJobPageResponse, LibraryProcessingJobRetryRequest,
+        CreateFolderRequest, LibraryFileDetailResponse, LibraryFileSummary,
+        LibraryFileUploadMetadata, LibraryFolderNode, LibraryFolderResponse, LibraryIngestStatus,
         LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryTreeResponse,
-        LibraryUploadResponse, MoveFileRequest, MoveFolderRequest, UpsertLibraryTextRequest,
+        MoveFileRequest, MoveFolderRequest, UpsertLibraryTextRequest,
     },
     db::Database,
     docling::DoclingXlsxClient,
     domain::{ChunkPayload, LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
     embedding::EmbeddingProvider,
-    library_store::{
-        LibraryStore, NewLibraryFile, ProcessingJobPage, file_to_summary, job_to_response,
-    },
+    library_store::{LibraryStore, NewLibraryFile, file_to_summary},
     normalize::{normalize_body, normalize_record, normalize_whitespace},
     qdrant_index::QdrantIndex,
     services::settings::SettingsService,
@@ -48,41 +42,38 @@ mod dependency_storage;
 mod filenames;
 mod files;
 mod folders;
-mod ingest;
 mod ingest_batches;
 mod ingest_documents;
 mod ingest_persistence;
 mod ingest_types;
-mod ingest_worker;
 mod metadata;
 mod metadata_helpers;
 mod migration;
 pub use migration::StorageMigrationSummary;
 pub(crate) mod object_storage;
-mod processing_jobs;
 mod remote_download;
 mod remote_proxy;
 mod resources;
 mod storage;
-mod text_creation;
+mod task_ingest;
 mod texts;
 mod tree;
+mod unified_ingest;
+pub(crate) use unified_ingest::UnifiedIngestError;
 mod upload_rollback;
-mod upload_simple;
 mod upload_types;
 mod uploads;
-mod url_import_helpers;
 mod url_import_runtime;
-mod url_import_worker;
 mod url_imports;
 mod xlsx;
 
 pub(crate) use ingest_types::LibraryDependency;
 use ingest_types::{
-    IngestClaimOutcome, IngestFailure, IngestResult, IngestSection, LibraryFileKind,
-    PreparedIngestSection, SourceConfigPreview, SourceRecordJson,
+    IngestFailure, IngestResult, IngestSection, LibraryFileKind, PreparedIngestSection,
+    SourceConfigPreview, SourceRecordJson,
 };
 use metadata_helpers::{compose_library_metadata, library_system_metadata};
+pub(crate) use upload_types::DownloadedLibraryFile;
 pub use upload_types::UploadedLibraryFile;
 use upload_types::{UploadedLibraryFileResult, UploadedLibraryFileRollback};
 
@@ -104,10 +95,6 @@ pub struct LibraryService {
     s3_configuration_fingerprint: Option<String>,
     embedding_vector_configured: bool,
     embedding_vector_configuration_fingerprint: String,
-    ingest_semaphore: Arc<Semaphore>,
-    ingest_wakeup: Arc<Notify>,
-    ingest_workers_started: Arc<AtomicBool>,
-    ingest_worker_count: usize,
     url_import_runtime: Arc<url_import_runtime::UrlImportRuntime>,
     translation: TranslationService,
 }
@@ -190,10 +177,6 @@ impl LibraryService {
             s3_configuration_fingerprint,
             embedding_vector_configured,
             embedding_vector_configuration_fingerprint,
-            ingest_semaphore: Arc::new(Semaphore::new(file_library.ingest_concurrency)),
-            ingest_wakeup: Arc::new(Notify::new()),
-            ingest_workers_started: Arc::new(AtomicBool::new(false)),
-            ingest_worker_count: file_library.ingest_concurrency.max(1),
             url_import_runtime,
             translation,
         })

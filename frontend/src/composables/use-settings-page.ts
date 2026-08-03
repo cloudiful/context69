@@ -11,9 +11,9 @@ import {
   type DoclingSettingsResponse,
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
+  type TaskResponse,
   type TranslationProviderInput,
   type TranslationSettingsResponse,
-  type VectorIndexRebuildStatus,
 } from "../services/api";
 import { authSessionState } from "../services/auth/session";
 import {
@@ -52,7 +52,7 @@ export function useSettingsPage() {
   const saving = ref(false);
   const s3Testing = ref(false);
   const valkeyTesting = ref(false);
-  const vectorRebuildStatus = ref<VectorIndexRebuildStatus | null>(null);
+  const vectorRebuildStatus = ref<TaskResponse | null>(null);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
@@ -197,7 +197,7 @@ export function useSettingsPage() {
       assignDoclingDraft(docling);
       assignSearchDraft(search);
       if (translation) assignTranslationDraft(translation);
-      await loadVectorIndexRebuildStatus();
+      await loadVectorRebuildTask();
 
     } catch (error) {
       showErrorToast(error, t("settings.loadFailed"));
@@ -300,17 +300,26 @@ export function useSettingsPage() {
     }
   }
 
-  async function loadVectorIndexRebuildStatus() {
-    vectorRebuildStatus.value = await apiClient.getVectorIndexRebuildStatus();
+  async function loadVectorRebuildTask() {
+    const response = await apiClient.listTasks({
+      page: 1,
+      pageSize: 1,
+      kind: "vector_rebuild",
+      status: null,
+      stage: null,
+      waitingReason: null,
+      dependencyKey: null,
+    });
+    vectorRebuildStatus.value = response.items[0] ?? null;
     scheduleVectorRebuildPoll();
   }
 
   function scheduleVectorRebuildPoll() {
     clearTimeout(vectorRebuildTimer);
-    if (vectorRebuildStatus.value?.state !== "running") return;
+    if (!vectorRebuildStatus.value || !["queued", "running", "waiting"].includes(vectorRebuildStatus.value.status)) return;
     vectorRebuildTimer = setTimeout(async () => {
       try {
-        await loadVectorIndexRebuildStatus();
+        await loadVectorRebuildTask();
       } catch (error) {
         showErrorToast(error, t("settings.runtime.vectorRebuildStatusFailed"));
       }
@@ -329,7 +338,8 @@ export function useSettingsPage() {
 
   async function startVectorIndexRebuild() {
     try {
-      vectorRebuildStatus.value = await apiClient.startVectorIndexRebuild();
+      const task = await apiClient.submitVectorIndexRebuild();
+      vectorRebuildStatus.value = await apiClient.getTask(task.task_id);
       toast.add({ color: "info", title: t("settings.runtime.vectorRebuildStarted"), duration: 2500 });
       scheduleVectorRebuildPoll();
     } catch (error) {

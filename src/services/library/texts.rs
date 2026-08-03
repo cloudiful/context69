@@ -5,7 +5,29 @@ impl LibraryService {
         &self,
         project: &crate::domain::GroupRecord,
         request: &UpsertLibraryTextRequest,
-    ) -> Result<LibraryUploadResponse> {
+    ) -> Result<LibraryFileSummary> {
+        let (file, _) = self
+            .upsert_text_file_in_project_inner(project, request, None)
+            .await?;
+        Ok(file)
+    }
+
+    pub(crate) async fn upsert_text_file_for_task(
+        &self,
+        project: &crate::domain::GroupRecord,
+        request: &UpsertLibraryTextRequest,
+        lease_token: Uuid,
+    ) -> Result<(LibraryFileSummary, Value)> {
+        self.upsert_text_file_in_project_inner(project, request, Some(lease_token))
+            .await
+    }
+
+    async fn upsert_text_file_in_project_inner(
+        &self,
+        project: &crate::domain::GroupRecord,
+        request: &UpsertLibraryTextRequest,
+        lease_token: Option<Uuid>,
+    ) -> Result<(LibraryFileSummary, Value)> {
         let title = normalize_whitespace(&request.title);
         if title.is_empty() {
             return Err(anyhow!("text title must not be empty"));
@@ -78,7 +100,6 @@ impl LibraryService {
             .as_ref()
             .map(|file| file.id)
             .unwrap_or_else(Uuid::new_v4);
-        let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
         let storage_namespace = if existing.is_some() {
             Uuid::new_v4()
@@ -87,8 +108,16 @@ impl LibraryService {
         };
         let storage_rel_path = storage::build_storage_rel_path(storage_namespace, &filename);
         let storage_key = storage_rel_path.clone();
-        self.write_active_storage(&storage_rel_path, bytes.clone())
-            .await?;
+        match lease_token {
+            Some(lease_token) => {
+                self.write_active_storage_for_lease(&storage_rel_path, bytes.clone(), lease_token)
+                    .await?
+            }
+            None => {
+                self.write_active_storage(&storage_rel_path, bytes.clone())
+                    .await?
+            }
+        }
 
         if let Some(existing_file) = existing.as_ref() {
             let update_result = self
@@ -119,6 +148,7 @@ impl LibraryService {
                         previous_translation.as_ref(),
                         &storage_key,
                         None,
+                        lease_token,
                     )
                     .await;
                     return Err(anyhow!("unknown file {}", existing_file.id));
@@ -132,6 +162,7 @@ impl LibraryService {
                         previous_translation.as_ref(),
                         &storage_key,
                         None,
+                        lease_token,
                     )
                     .await;
                     return Err(error);
@@ -164,6 +195,7 @@ impl LibraryService {
                     previous_translation.as_ref(),
                     &storage_key,
                     None,
+                    lease_token,
                 )
                 .await;
                 return Err(error);
@@ -189,6 +221,7 @@ impl LibraryService {
                 previous_translation.as_ref(),
                 &storage_key,
                 None,
+                lease_token,
             )
             .await;
             return Err(error);
@@ -206,6 +239,7 @@ impl LibraryService {
                 previous_translation.as_ref(),
                 &storage_key,
                 None,
+                lease_token,
             )
             .await;
             return Err(error);
@@ -231,61 +265,58 @@ impl LibraryService {
                     previous_translation.as_ref(),
                     &storage_key,
                     None,
+                    lease_token,
                 )
                 .await;
                 return Err(error.into());
             }
         };
-        let created_job = match self
-            .store
-            .create_job_with_options(job_id, file_id, false, Some(section_payload))
-            .await
-        {
-            Ok(job) => job,
-            Err(error) => {
-                self.rollback_project_file_change(
-                    project.id,
-                    file_id,
-                    previous_file.as_ref(),
-                    None,
-                    previous_translation.as_ref(),
-                    &storage_key,
-                    None,
-                )
-                .await;
-                return Err(error);
+        if let Some(previous_file) = previous_file.as_ref() {
+            let result = match lease_token {
+                Some(lease_token) => {
+                    self.delete_active_storage_for_lease(
+                        &previous_file.storage_rel_path,
+                        lease_token,
+                    )
+                    .await
+                }
+                None => {
+                    self.delete_active_storage(&previous_file.storage_rel_path)
+                        .await
+                }
+            };
+            if let Err(error) = result {
+                warn!(
+                    file_id = %file_id,
+                    path = %previous_file.storage_rel_path,
+                    %error,
+                    "failed to remove replaced text storage object"
+                );
             }
-        };
-        if let Some(previous_file) = previous_file.as_ref()
-            && let Err(error) = self
-                .delete_active_storage(&previous_file.storage_rel_path)
-                .await
-        {
-            warn!(
-                file_id = %file_id,
-                path = %previous_file.storage_rel_path,
-                %error,
-                "failed to remove replaced text storage object"
-            );
         }
-        self.notify_ingest_worker();
-
         let file = self
             .store
             .get_file(file_id)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        Ok(LibraryUploadResponse {
-            files: vec![file_to_summary(&file)],
-            jobs: vec![job_to_response(created_job)],
-        })
+        Ok((file_to_summary(&file), section_payload))
     }
 
     pub(crate) async fn upsert_named_text_file_in_project(
         &self,
         project: &crate::domain::GroupRecord,
         request: &UpsertNamedTextFileRequest,
-    ) -> Result<LibraryUploadResponse> {
+    ) -> Result<LibraryFileSummary> {
+        self.upsert_named_text_file_in_project_inner(project, request, None)
+            .await
+    }
+
+    async fn upsert_named_text_file_in_project_inner(
+        &self,
+        project: &crate::domain::GroupRecord,
+        request: &UpsertNamedTextFileRequest,
+        lease_token: Option<Uuid>,
+    ) -> Result<LibraryFileSummary> {
         let external_id = request.external_id.trim();
         if external_id.is_empty() {
             return Err(anyhow!("external_id must not be empty"));
@@ -327,7 +358,6 @@ impl LibraryService {
             .as_ref()
             .map(|file| file.id)
             .unwrap_or_else(Uuid::new_v4);
-        let job_id = Uuid::new_v4();
         let sha256 = storage::hash_bytes(&bytes);
         let storage_namespace = if existing.is_some() {
             Uuid::new_v4()
@@ -336,8 +366,16 @@ impl LibraryService {
         };
         let storage_rel_path = storage::build_storage_rel_path(storage_namespace, filename);
         let storage_key = storage_rel_path.clone();
-        self.write_active_storage(&storage_rel_path, bytes.clone())
-            .await?;
+        match lease_token {
+            Some(lease_token) => {
+                self.write_active_storage_for_lease(&storage_rel_path, bytes.clone(), lease_token)
+                    .await?
+            }
+            None => {
+                self.write_active_storage(&storage_rel_path, bytes.clone())
+                    .await?
+            }
+        }
 
         if let Some(existing_file) = existing.as_ref() {
             let update_result = self
@@ -368,6 +406,7 @@ impl LibraryService {
                         previous_translation.as_ref(),
                         &storage_key,
                         None,
+                        lease_token,
                     )
                     .await;
                     return Err(anyhow!("unknown file {}", existing_file.id));
@@ -381,6 +420,7 @@ impl LibraryService {
                         previous_translation.as_ref(),
                         &storage_key,
                         None,
+                        lease_token,
                     )
                     .await;
                     return Err(error);
@@ -413,6 +453,7 @@ impl LibraryService {
                     previous_translation.as_ref(),
                     &storage_key,
                     None,
+                    lease_token,
                 )
                 .await;
                 return Err(error);
@@ -439,53 +480,63 @@ impl LibraryService {
                     previous_translation.as_ref(),
                     &storage_key,
                     None,
+                    lease_token,
                 )
                 .await;
                 return Err(error.into());
             }
         };
-        let created_job = match self
-            .store
-            .create_job_with_options(job_id, file_id, false, Some(section_payload))
-            .await
-        {
-            Ok(job) => job,
-            Err(error) => {
-                self.rollback_project_file_change(
-                    project.id,
-                    file_id,
-                    previous_file.as_ref(),
-                    None,
-                    previous_translation.as_ref(),
-                    &storage_key,
-                    None,
-                )
-                .await;
-                return Err(error);
+        if let Some(previous_file) = previous_file.as_ref() {
+            let result = match lease_token {
+                Some(lease_token) => {
+                    self.delete_active_storage_for_lease(
+                        &previous_file.storage_rel_path,
+                        lease_token,
+                    )
+                    .await
+                }
+                None => {
+                    self.delete_active_storage(&previous_file.storage_rel_path)
+                        .await
+                }
+            };
+            if let Err(error) = result {
+                warn!(
+                    file_id = %file_id,
+                    path = %previous_file.storage_rel_path,
+                    %error,
+                    "failed to remove replaced text storage object"
+                );
             }
-        };
-        if let Some(previous_file) = previous_file.as_ref()
-            && let Err(error) = self
-                .delete_active_storage(&previous_file.storage_rel_path)
-                .await
-        {
-            warn!(
-                file_id = %file_id,
-                path = %previous_file.storage_rel_path,
-                %error,
-                "failed to remove replaced text storage object"
-            );
         }
-        self.notify_ingest_worker();
-
         let file = self
             .store
             .get_file(file_id)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        Ok(LibraryUploadResponse {
-            files: vec![file_to_summary(&file)],
-            jobs: vec![job_to_response(created_job)],
-        })
+        Ok(file_to_summary(&file))
+    }
+
+    pub(crate) async fn upsert_named_text_file_for_task(
+        &self,
+        project: &crate::domain::GroupRecord,
+        request: &UpsertNamedTextFileRequest,
+        lease_token: Uuid,
+    ) -> Result<(LibraryFileSummary, Value)> {
+        let summary = self
+            .upsert_named_text_file_in_project_inner(project, request, Some(lease_token))
+            .await?;
+        let section_payload = serde_json::to_value(vec![IngestSection {
+            section_key: "document".to_string(),
+            section_label: request.filename.clone(),
+            title: request.filename.clone(),
+            summary: None,
+            body_text: normalize_body(&request.content),
+            source_uri: None,
+            external_id: None,
+            published_at: None,
+            metadata_json: json!({}),
+        }])?;
+        Ok((summary, section_payload))
     }
 }

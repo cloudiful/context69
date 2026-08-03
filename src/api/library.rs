@@ -4,21 +4,27 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use context69_contracts::TaskKind;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::contracts::{
     ApiErrorResponse, CreateFolderRequest, CreateTextRequest, LibraryFileDetailResponse,
-    LibraryFileJobPageQuery, LibraryFileJobPageResponse, LibraryFolderResponse,
-    LibraryIngestJobResponse, LibraryProcessingJobBulkActionResponse,
-    LibraryProcessingJobPageQuery, LibraryProcessingJobPageResponse,
-    LibraryProcessingJobRetryRequest, LibraryResourcePageQuery, LibraryResourcePageResponse,
-    LibraryTreeResponse, LibraryUploadResponse, MoveFileRequest, MoveFolderRequest,
+    LibraryFolderResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
+    LibraryTreeResponse, MoveFileRequest, MoveFolderRequest,
 };
 
 use super::{
-    ApiState, auth::CurrentUser, errors::library_management_error_response,
+    ApiState,
+    auth::CurrentUser,
+    create_text_payload,
+    errors::library_management_error_response,
+    file_batch_payloads,
+    group_access::{group_for_user, require_group_role},
     library_upload::read_library_uploads,
+    submit_task_request,
 };
+use crate::services::tasks::TaskSubmission;
 
 #[utoipa::path(
     get,
@@ -56,115 +62,6 @@ pub(crate) async fn get_library_resources(
 }
 
 #[utoipa::path(
-    get,
-    path = "/v1/library/processing-jobs",
-    params(LibraryProcessingJobPageQuery),
-    responses(
-        (status = 200, description = "Visible library processing jobs", body = LibraryProcessingJobPageResponse),
-        (status = 400, description = "Invalid pagination parameters", body = ApiErrorResponse),
-        (status = 500, description = "Internal error", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn get_library_processing_jobs(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Query(query): Query<LibraryProcessingJobPageQuery>,
-) -> impl IntoResponse {
-    let scope = match state
-        .app
-        .auth
-        .access_scope(Some(session.user.id), None)
-        .await
-    {
-        Ok(scope) => scope,
-        Err(error) => return library_management_error_response(error),
-    };
-    match state.app.library.list_processing_jobs(&scope, &query).await {
-        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/library/processing-jobs/retry-failed",
-    request_body = LibraryProcessingJobRetryRequest,
-    responses(
-        (status = 200, description = "Accepted and skipped failed processing jobs", body = LibraryProcessingJobBulkActionResponse),
-        (status = 403, description = "Owner or maintainer access required", body = ApiErrorResponse),
-        (status = 500, description = "Internal error", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn retry_failed_library_processing_jobs(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    request: Option<Json<LibraryProcessingJobRetryRequest>>,
-) -> impl IntoResponse {
-    let scope = match state
-        .app
-        .auth
-        .access_scope(Some(session.user.id), None)
-        .await
-    {
-        Ok(scope) => scope,
-        Err(error) => return library_management_error_response(error),
-    };
-    let request =
-        request
-            .map(|Json(request)| request)
-            .unwrap_or(LibraryProcessingJobRetryRequest {
-                dry_run: false,
-                failure_stage: None,
-                error_filter: None,
-                limit: 100,
-                batch_size: 10,
-                rate_limit_ms: 250,
-            });
-    match state
-        .app
-        .library
-        .retry_failed_processing_jobs(&scope, &request)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/library/processing-jobs/cleanup-stuck",
-    responses(
-        (status = 200, description = "Recovered and skipped stuck processing jobs", body = LibraryProcessingJobBulkActionResponse),
-        (status = 403, description = "Owner or maintainer access required", body = ApiErrorResponse),
-        (status = 500, description = "Internal error", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn cleanup_stuck_library_processing_jobs(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-) -> impl IntoResponse {
-    let scope = match state
-        .app
-        .auth
-        .access_scope(Some(session.user.id), None)
-        .await
-    {
-        Ok(scope) => scope,
-        Err(error) => return library_management_error_response(error),
-    };
-    match state
-        .app
-        .library
-        .cleanup_stuck_processing_jobs(&scope)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
     post,
     path = "/v1/library/folders",
     request_body = CreateFolderRequest,
@@ -189,7 +86,7 @@ pub(crate) async fn create_library_folder(
     path = "/v1/library/texts",
     request_body = CreateTextRequest,
     responses(
-        (status = 201, description = "Created text library entry", body = LibraryUploadResponse),
+        (status = 202, description = "Text task accepted", body = crate::contracts::TaskRef),
         (status = 400, description = "Invalid text payload", body = ApiErrorResponse),
         (status = 503, description = "Library dependency unavailable", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
@@ -197,12 +94,30 @@ pub(crate) async fn create_library_folder(
 )]
 pub(crate) async fn create_library_text(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Json(request): Json<CreateTextRequest>,
 ) -> impl IntoResponse {
-    match state.app.library.create_text_file(&request).await {
-        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    let group = match group_for_user(&state, session.user.id, "public").await {
+        Ok(group) => group,
+        Err(error) => return super::group_access::group_access_error_response(error),
+    };
+    let payload = match create_text_payload(request) {
+        Ok(payload) => payload,
+        Err(error) => return library_management_error_response(error),
+    };
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group.group_path),
+            source_key: None,
+            kind: TaskKind::TextBatch,
+            payloads: vec![payload],
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -233,19 +148,45 @@ pub(crate) async fn move_library_folder(
     path = "/v1/library/folders/{folder_id}",
     params(("folder_id" = Uuid, Path, description = "Folder id")),
     responses(
-        (status = 204, description = "Deleted folder and indexed data"),
+        (status = 202, description = "Folder delete task accepted", body = crate::contracts::TaskRef),
         (status = 404, description = "Folder not found", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
 pub(crate) async fn delete_library_folder(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Path(folder_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match state.app.library.delete_folder(folder_id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => library_management_error_response(error),
+    let group = match group_for_user(&state, session.user.id, "public").await {
+        Ok(group) => group,
+        Err(error) => return super::group_access::group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, context69_contracts::MembershipRole::Maintainer)
+    {
+        return super::group_access::group_access_error_response(error);
     }
+    if let Err(error) = state
+        .app
+        .library
+        .get_folder_record_in_project(&group, folder_id)
+        .await
+    {
+        return library_management_error_response(error);
+    }
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group.group_path),
+            source_key: None,
+            kind: TaskKind::DeleteBatch,
+            payloads: vec![json!({"folder_id": folder_id})],
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -253,7 +194,7 @@ pub(crate) async fn delete_library_folder(
     path = "/v1/library/files/upload",
     request_body(content = String, content_type = "multipart/form-data"),
     responses(
-        (status = 201, description = "Accepted uploaded files", body = LibraryUploadResponse),
+        (status = 202, description = "File task accepted", body = crate::contracts::TaskRef),
         (status = 400, description = "Invalid upload", body = ApiErrorResponse),
         (status = 503, description = "Library dependency unavailable", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
@@ -261,16 +202,34 @@ pub(crate) async fn delete_library_folder(
 )]
 pub(crate) async fn upload_library_files(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     multipart: Multipart,
 ) -> impl IntoResponse {
     let uploads = match read_library_uploads(multipart).await {
         Ok(uploads) => uploads,
         Err(response) => return response,
     };
-    match state.app.library.upload_files(uploads).await {
-        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    let group = match group_for_user(&state, session.user.id, "public").await {
+        Ok(group) => group,
+        Err(error) => return super::group_access::group_access_error_response(error),
+    };
+    let payloads = match file_batch_payloads(uploads) {
+        Ok(payloads) => payloads,
+        Err(error) => return library_management_error_response(error),
+    };
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group.group_path),
+            source_key: None,
+            kind: TaskKind::FileBatch,
+            payloads,
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -289,33 +248,6 @@ pub(crate) async fn get_library_file(
 ) -> impl IntoResponse {
     match state.app.library.get_file(file_id).await {
         Ok(file) => (StatusCode::OK, Json(file)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/library/files/{file_id}/jobs",
-    params(("file_id" = Uuid, Path, description = "File id"), LibraryFileJobPageQuery),
-    responses(
-        (status = 200, description = "Paginated library file ingest jobs", body = LibraryFileJobPageResponse),
-        (status = 400, description = "Invalid pagination parameters", body = ApiErrorResponse),
-        (status = 404, description = "File not found", body = ApiErrorResponse),
-        (status = 500, description = "Internal error", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn get_library_file_jobs(
-    State(state): State<ApiState>,
-    Path(file_id): Path<Uuid>,
-    Query(query): Query<LibraryFileJobPageQuery>,
-) -> impl IntoResponse {
-    match state
-        .app
-        .library
-        .get_file_jobs(file_id, query.page, query.page_size)
-        .await
-    {
-        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }
@@ -348,37 +280,35 @@ pub(crate) async fn move_library_file(
     path = "/v1/library/files/{file_id}",
     params(("file_id" = Uuid, Path, description = "File id")),
     responses(
-        (status = 204, description = "Deleted file and indexed data"),
+        (status = 202, description = "File delete task accepted", body = crate::contracts::TaskRef),
         (status = 404, description = "File not found", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
 pub(crate) async fn delete_library_file(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Path(file_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match state.app.library.delete_file(file_id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => library_management_error_response(error),
+    let group = match group_for_user(&state, session.user.id, "public").await {
+        Ok(group) => group,
+        Err(error) => return super::group_access::group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, context69_contracts::MembershipRole::Maintainer)
+    {
+        return super::group_access::group_access_error_response(error);
     }
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/library/jobs/{job_id}",
-    params(("job_id" = Uuid, Path, description = "Job id")),
-    responses(
-        (status = 200, description = "Library ingest job", body = LibraryIngestJobResponse),
-        (status = 404, description = "Job not found", body = ApiErrorResponse),
-        (status = 500, description = "Internal error", body = ApiErrorResponse)
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group.group_path),
+            source_key: None,
+            kind: TaskKind::DeleteBatch,
+            payloads: vec![json!({"file_id": file_id})],
+            idempotency_key: None,
+        },
     )
-)]
-pub(crate) async fn get_library_job(
-    State(state): State<ApiState>,
-    Path(job_id): Path<Uuid>,
-) -> impl IntoResponse {
-    match state.app.library.get_job(job_id).await {
-        Ok(job) => (StatusCode::OK, Json(job)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    .await
 }

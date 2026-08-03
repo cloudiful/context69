@@ -1,16 +1,12 @@
 import type {
   CreateFolderRequest,
-  LibraryIngestFailureStage,
   LibraryIngestStatus,
-  LibraryFileJobPageResponse,
-  LibraryProcessingJobBulkActionResponse,
-  LibraryProcessingJobPageResponse,
   LibraryResourceSortBy,
-  LibraryUploadResponse,
   MoveFileRequest,
   MoveFolderRequest,
   RequestOptions,
   SortDirection,
+  TaskRef,
 } from "./api-types";
 
 type Deps = {
@@ -60,41 +56,6 @@ export function createLibraryApi({
         signal: options?.signal,
       }));
     },
-    getLibraryProcessingJobs(params: {
-      page: number;
-      pageSize: number;
-      query: string;
-      status: LibraryIngestStatus | null;
-      failureStage: LibraryIngestFailureStage | null;
-    }, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/library/processing-jobs", {
-        params: {
-          query: {
-            page: params.page,
-            page_size: params.pageSize,
-            query: params.query || undefined,
-            status: params.status ?? undefined,
-            failure_stage: params.failureStage ?? undefined,
-          },
-        },
-        signal: options?.signal,
-      })) as Promise<LibraryProcessingJobPageResponse>;
-    },
-    retryFailedLibraryProcessingJobs(options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.POST("/v1/library/processing-jobs/retry-failed", {
-          body: {},
-          signal: options?.signal,
-        }),
-      ) as Promise<LibraryProcessingJobBulkActionResponse>;
-    },
-    cleanupStuckLibraryProcessingJobs(options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.POST("/v1/library/processing-jobs/cleanup-stuck", {
-          signal: options?.signal,
-        }),
-      ) as Promise<LibraryProcessingJobBulkActionResponse>;
-    },
     createLibraryFolder(payload: CreateFolderRequest, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.POST("/v1/library/folders", {
@@ -143,7 +104,7 @@ export function createLibraryApi({
         signal: options?.signal,
       });
 
-      return unwrapFetchResponse<LibraryUploadResponse>(response);
+      return unwrapFetchResponse<TaskRef>(response);
     },
     getLibraryFile(fileId: string, options?: RequestOptions) {
       return unwrapResponse(
@@ -156,15 +117,6 @@ export function createLibraryApi({
           signal: options?.signal,
         }),
       );
-    },
-    getLibraryFileJobs(fileId: string, params: { page: number; pageSize: number }, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/library/files/{file_id}/jobs", {
-        params: {
-          path: { file_id: fileId },
-          query: { page: params.page, page_size: params.pageSize },
-        },
-        signal: options?.signal,
-      })) as Promise<LibraryFileJobPageResponse>;
     },
     moveLibraryFile(fileId: string, payload: MoveFileRequest, options?: RequestOptions) {
       return unwrapResponse(
@@ -185,18 +137,6 @@ export function createLibraryApi({
           params: {
             path: {
               file_id: fileId,
-            },
-          },
-          signal: options?.signal,
-        }),
-      );
-    },
-    getLibraryJob(jobId: string, options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.GET("/v1/library/jobs/{job_id}", {
-          params: {
-            path: {
-              job_id: jobId,
             },
           },
           signal: options?.signal,

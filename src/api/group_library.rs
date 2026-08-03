@@ -4,15 +4,15 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use context69_contracts::TaskKind;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::contracts::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
-    LibraryFileDetailResponse, LibraryFileJobPageQuery, LibraryFileJobPageResponse,
-    LibraryIngestJobResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
-    LibraryTreeResponse, LibraryUploadResponse, LibraryUrlImportJobResponse, MembershipRole,
-    MoveFileRequest, MoveFolderRequest, PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
-    UpsertLibraryTextRequest,
+    LibraryFileDetailResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
+    LibraryTreeResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
 
 #[utoipa::path(
@@ -21,7 +21,7 @@ use crate::contracts::{
     params(("group_path" = String, Path)),
     request_body = ImportLibraryFileFromUrlRequest,
     responses(
-        (status = 202, body = LibraryUrlImportJobResponse),
+        (status = 202, body = crate::contracts::TaskRef),
         (status = 403),
         (status = 404),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
@@ -40,53 +40,54 @@ pub(crate) async fn import_group_library_file_url(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state
-        .app
-        .library
-        .import_url_in_project(&group, &request)
-        .await
-    {
-        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::UrlBatch,
+            payloads: vec![match serde_json::to_value(request) {
+                Ok(payload) => payload,
+                Err(error) => return library_management_error_response(error.into()),
+            }],
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
-#[utoipa::path(
-    get,
-    path = "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}",
-    params(("group_path" = String, Path), ("job_id" = Uuid, Path)),
-    responses((status = 200, body = LibraryUrlImportJobResponse), (status = 404))
-)]
-pub(crate) async fn get_group_library_url_import_job(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Path((group_path, job_id)): Path<(String, Uuid)>,
-) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
-        Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
-    };
-    match state
-        .app
-        .library
-        .get_url_import_job_in_project(group.id, job_id)
-        .await
-    {
-        Ok(job) => (StatusCode::OK, Json(job)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
+use super::{
+    ApiState,
+    auth::CurrentUser,
+    create_text_payload,
+    errors::library_management_error_response,
+    file_batch_payloads,
+    group_access::{group_access_error_response, group_for_user, require_group_role},
+    library_upload::read_library_uploads,
+    submit_task_request,
+};
+use crate::services::tasks::TaskSubmission;
 
 #[utoipa::path(
     post,
-    path = "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry",
-    params(("group_path" = String, Path), ("job_id" = Uuid, Path)),
-    responses((status = 202, body = LibraryUrlImportJobResponse), (status = 404), (status = 409))
+    path = "/v1/groups/by-path/{group_path}/library/files/prepare-upload",
+    params(("group_path" = String, Path)),
+    request_body = PrepareLibraryUploadRequest,
+    responses(
+        (status = 200, body = PrepareLibraryUploadResponse),
+        (status = 202, body = PrepareLibraryUploadResponse),
+        (status = 403),
+        (status = 404),
+        (status = 409, body = crate::contracts::ApiErrorResponse)
+    )
 )]
-pub(crate) async fn retry_group_library_url_import_job(
+pub(crate) async fn prepare_group_library_upload(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
-    Path((group_path, job_id)): Path<(String, Uuid)>,
+    Path(group_path): Path<String>,
+    Json(request): Json<PrepareLibraryUploadRequest>,
 ) -> impl IntoResponse {
     let group = match group_for_user(&state, session.user.id, &group_path).await {
         Ok(group) => group,
@@ -95,24 +96,43 @@ pub(crate) async fn retry_group_library_url_import_job(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state
+    let mut prepared = match state
         .app
         .library
-        .retry_url_import_job_in_project(group.id, job_id)
+        .prepare_upload_in_project(&group, &request)
         .await
     {
-        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
-        Err(error) => library_management_error_response(error),
+        Ok(value) => value,
+        Err(error) => return library_management_error_response(error),
+    };
+    if prepared.upload_required {
+        return (StatusCode::OK, Json(prepared)).into_response();
     }
+    let Some(file) = prepared.file.as_ref() else {
+        return library_management_error_response(anyhow::anyhow!(
+            "prepared upload did not return a file"
+        ));
+    };
+    let task = match state
+        .app
+        .tasks
+        .submit(TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::FileBatch,
+            payloads: vec![json!({"file_id": file.file_id})],
+            idempotency_key: None,
+        })
+        .await
+    {
+        Ok(task) => task,
+        Err(error) => return library_management_error_response(error),
+    };
+    prepared.task = Some(task);
+    (StatusCode::ACCEPTED, Json(prepared)).into_response()
 }
-
-use super::{
-    ApiState,
-    auth::CurrentUser,
-    errors::library_management_error_response,
-    group_access::{group_access_error_response, group_for_user, require_group_role},
-    library_upload::read_library_uploads,
-};
 
 #[utoipa::path(
     get,
@@ -221,7 +241,7 @@ pub(crate) async fn create_group_library_folder(
     params(("group_path" = String, Path, description = "URL-encoded group path")),
     request_body = CreateTextRequest,
     responses(
-        (status = 201, description = "Created text library entry", body = LibraryUploadResponse),
+        (status = 202, description = "Text task accepted", body = crate::contracts::TaskRef),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group not found"),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
@@ -240,15 +260,23 @@ pub(crate) async fn create_group_library_text(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state
-        .app
-        .library
-        .create_text_file_in_project(&group, &request)
-        .await
-    {
-        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    let payload = match create_text_payload(request) {
+        Ok(payload) => payload,
+        Err(error) => return library_management_error_response(error),
+    };
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::TextBatch,
+            payloads: vec![payload],
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -257,7 +285,7 @@ pub(crate) async fn create_group_library_text(
     params(("group_path" = String, Path, description = "URL-encoded group path")),
     request_body = UpsertLibraryTextRequest,
     responses(
-        (status = 200, description = "Upserted text library entry", body = LibraryUploadResponse),
+        (status = 202, description = "Text task accepted", body = crate::contracts::TaskRef),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group not found"),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
@@ -276,15 +304,23 @@ pub(crate) async fn upsert_group_library_text(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state
-        .app
-        .library
-        .upsert_text_file_in_project(&group, &request)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    let payload = match serde_json::to_value(request) {
+        Ok(payload) => payload,
+        Err(error) => return library_management_error_response(error.into()),
+    };
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::TextBatch,
+            payloads: vec![payload],
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -333,7 +369,7 @@ pub(crate) async fn move_group_library_folder(
         ("folder_id" = Uuid, Path, description = "Folder id")
     ),
     responses(
-        (status = 204, description = "Deleted folder"),
+        (status = 202, description = "Folder delete task accepted", body = crate::contracts::TaskRef),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group or folder not found")
     )
@@ -350,15 +386,27 @@ pub(crate) async fn delete_group_library_folder(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state
+    if let Err(error) = state
         .app
-        .source_folders
-        .delete_source_aware_folder_in_project(&group, folder_id)
+        .library
+        .get_folder_record_in_project(&group, folder_id)
         .await
     {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => library_management_error_response(error),
+        return library_management_error_response(error);
     }
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::DeleteBatch,
+            payloads: vec![json!({"folder_id": folder_id})],
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -367,7 +415,7 @@ pub(crate) async fn delete_group_library_folder(
     params(("group_path" = String, Path, description = "URL-encoded group path")),
     request_body(content = String, content_type = "multipart/form-data"),
     responses(
-        (status = 201, description = "Accepted uploaded files", body = LibraryUploadResponse),
+        (status = 202, description = "File task accepted", body = crate::contracts::TaskRef),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group not found"),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
@@ -390,51 +438,23 @@ pub(crate) async fn upload_group_library_files(
         Ok(uploads) => uploads,
         Err(response) => return response,
     };
-    match state
-        .app
-        .library
-        .upload_files_in_project(&group, uploads)
-        .await
-    {
-        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/groups/by-path/{group_path}/library/files/prepare-upload",
-    params(("group_path" = String, Path, description = "URL-encoded group path")),
-    request_body = PrepareLibraryUploadRequest,
-    responses(
-        (status = 200, description = "Upload requirement or reused file", body = PrepareLibraryUploadResponse),
-        (status = 403, description = "Insufficient permissions"),
-        (status = 404, description = "Group or folder not found"),
-        (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
-    )
-)]
-pub(crate) async fn prepare_group_library_upload(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Path(group_path): Path<String>,
-    Json(request): Json<PrepareLibraryUploadRequest>,
-) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
-        Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
+    let payloads = match file_batch_payloads(uploads) {
+        Ok(payloads) => payloads,
+        Err(error) => return library_management_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
-        return group_access_error_response(error);
-    }
-    match state
-        .app
-        .library
-        .prepare_upload_in_project(&group, &request)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::FileBatch,
+            payloads,
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -460,78 +480,6 @@ pub(crate) async fn get_group_library_file(
     };
     match state.app.library.get_file_in_project(&group, file_id).await {
         Ok(file) => (StatusCode::OK, Json(file)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/groups/by-path/{group_path}/library/files/{file_id}/jobs",
-    params(
-        ("group_path" = String, Path, description = "URL-encoded group path"),
-        ("file_id" = Uuid, Path, description = "File id"),
-        LibraryFileJobPageQuery
-    ),
-    responses(
-        (status = 200, description = "Paginated library file ingest jobs", body = LibraryFileJobPageResponse),
-        (status = 400, description = "Invalid pagination parameters"),
-        (status = 404, description = "Group or file not found")
-    )
-)]
-pub(crate) async fn get_group_library_file_jobs(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Path((group_path, file_id)): Path<(String, Uuid)>,
-    Query(query): Query<LibraryFileJobPageQuery>,
-) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
-        Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
-    };
-    match state
-        .app
-        .library
-        .get_file_jobs_in_project(&group, file_id, query.page, query.page_size)
-        .await
-    {
-        Ok(page) => (StatusCode::OK, Json(page)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/groups/by-path/{group_path}/library/files/{file_id}/retry",
-    params(
-        ("group_path" = String, Path, description = "URL-encoded group path"),
-        ("file_id" = Uuid, Path, description = "Failed file id")
-    ),
-    responses(
-        (status = 202, description = "Retry accepted", body = LibraryIngestJobResponse),
-        (status = 403, description = "Insufficient permissions"),
-        (status = 404, description = "Group, file, or stored file not found"),
-        (status = 409, description = "File is not failed")
-    )
-)]
-pub(crate) async fn retry_group_library_file(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Path((group_path, file_id)): Path<(String, Uuid)>,
-) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
-        Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
-    };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
-        return group_access_error_response(error);
-    }
-    match state
-        .app
-        .library
-        .retry_file_in_project(&group, file_id)
-        .await
-    {
-        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
         Err(error) => library_management_error_response(error),
     }
 }
@@ -582,7 +530,7 @@ pub(crate) async fn move_group_library_file(
         ("file_id" = Uuid, Path, description = "File id")
     ),
     responses(
-        (status = 204, description = "Deleted file"),
+        (status = 202, description = "File delete task accepted", body = crate::contracts::TaskRef),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group or file not found")
     )
@@ -599,40 +547,17 @@ pub(crate) async fn delete_group_library_file(
     if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
-    match state
-        .app
-        .library
-        .delete_file_in_project(&group, file_id)
-        .await
-    {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/groups/by-path/{group_path}/library/jobs/{job_id}",
-    params(
-        ("group_path" = String, Path, description = "URL-encoded group path"),
-        ("job_id" = Uuid, Path, description = "Job id")
-    ),
-    responses(
-        (status = 200, description = "Library ingest job", body = LibraryIngestJobResponse),
-        (status = 404, description = "Group or job not found")
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::DeleteBatch,
+            payloads: vec![json!({"file_id": file_id})],
+            idempotency_key: None,
+        },
     )
-)]
-pub(crate) async fn get_group_library_job(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Path((group_path, job_id)): Path<(String, Uuid)>,
-) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
-        Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
-    };
-    match state.app.library.get_job_in_project(&group, job_id).await {
-        Ok(job) => (StatusCode::OK, Json(job)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    .await
 }

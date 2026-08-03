@@ -8,6 +8,7 @@ use context69_contracts::{
     ApiErrorResponse, DeleteBatchRequest, FileBatchRequest, GenericTaskRequest, ScopeSpec,
     TaskItemsQuery, TaskListQuery, TaskRef, TextBatchRequest, UrlBatchRequest,
 };
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{contracts::TaskKind, services::tasks::TaskSubmission};
@@ -210,11 +211,40 @@ pub(crate) async fn submit_task(
     .await
 }
 
-async fn submit(state: &ApiState, request: TaskSubmission) -> Response {
+#[utoipa::path(
+    post,
+    path = "/v1/settings/runtime/vector-index/rebuild",
+    responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse))
+)]
+pub(crate) async fn submit_vector_index_rebuild(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    headers: HeaderMap,
+) -> Response {
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: None,
+            group_path: None,
+            source_key: None,
+            kind: TaskKind::VectorRebuild,
+            payloads: vec![json!({})],
+            idempotency_key: idempotency_key(&headers),
+        },
+    )
+    .await
+}
+
+pub(crate) async fn submit_task_request(state: &ApiState, request: TaskSubmission) -> Response {
     match state.app.tasks.submit(request).await {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
         Err(error) => task_error(error),
     }
+}
+
+async fn submit(state: &ApiState, request: TaskSubmission) -> Response {
+    submit_task_request(state, request).await
 }
 
 #[utoipa::path(get, path = "/v1/tasks/{task_id}", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 404, body = ApiErrorResponse)))]
@@ -315,6 +345,7 @@ fn task_error(error: anyhow::Error) -> Response {
     let status = if message.contains("not found") || message.contains("unknown group") {
         StatusCode::NOT_FOUND
     } else if message.contains("conflict")
+        || message.contains("duplicate key")
         || message.contains("already used")
         || message.contains("terminal")
     {

@@ -1264,11 +1264,18 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": ""
-          },
           "404": {
             "description": ""
+          },
+          "202": {
+            "description": "Document delete task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
           }
         }
       }
@@ -1350,7 +1357,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TranslationJobsResponse"
+                  "$ref": "#/components/schemas/TaskRef"
                 }
               }
             }
@@ -1431,11 +1438,11 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "URL import task accepted",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LibraryUrlImportJobResponse"
+                  "$ref": "#/components/schemas/TaskRef"
                 }
               }
             }
@@ -1490,6 +1497,16 @@
           },
           "404": {
             "description": "Group or folder not found"
+          },
+          "202": {
+            "description": "Reused file task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrepareLibraryUploadResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1520,16 +1537,6 @@
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Accepted uploaded files",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryUploadResponse"
-                }
-              }
-            }
-          },
           "403": {
             "description": "Insufficient permissions"
           },
@@ -1605,76 +1612,8 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Deleted file"
-          },
           "403": {
             "description": "Insufficient permissions"
-          },
-          "404": {
-            "description": "Group or file not found"
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/library/files/{file_id}/jobs": {
-      "get": {
-        "tags": [],
-        "operationId": "get_group_library_file_jobs",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "description": "URL-encoded group path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "file_id",
-            "in": "path",
-            "description": "File id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "page_size",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Paginated library file ingest jobs",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryFileJobPageResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid pagination parameters"
           },
           "404": {
             "description": "Group or file not found"
@@ -1733,54 +1672,6 @@
           },
           "404": {
             "description": "Group or file not found"
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/library/files/{file_id}/retry": {
-      "post": {
-        "tags": [],
-        "operationId": "retry_group_library_file",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "description": "URL-encoded group path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "file_id",
-            "in": "path",
-            "description": "Failed file id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Retry accepted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryIngestJobResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          },
-          "404": {
-            "description": "Group, file, or stored file not found"
-          },
-          "409": {
-            "description": "File is not failed"
           }
         }
       }
@@ -1856,8 +1747,15 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Deleted folder"
+          "202": {
+            "description": "Folder delete task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
           },
           "403": {
             "description": "Insufficient permissions"
@@ -1919,48 +1817,6 @@
           },
           "404": {
             "description": "Group or folder not found"
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/library/jobs/{job_id}": {
-      "get": {
-        "tags": [],
-        "operationId": "get_group_library_job",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "description": "URL-encoded group path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "description": "Job id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Library ingest job",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryIngestJobResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Group or job not found"
           }
         }
       }
@@ -2087,16 +1943,6 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Upserted text library entry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryUploadResponse"
-                }
-              }
-            }
-          },
           "403": {
             "description": "Insufficient permissions"
           },
@@ -2130,16 +1976,6 @@
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Created text library entry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryUploadResponse"
-                }
-              }
-            }
-          },
           "403": {
             "description": "Insufficient permissions"
           },
@@ -2177,89 +2013,6 @@
           },
           "404": {
             "description": "Group not found"
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}": {
-      "get": {
-        "tags": [],
-        "operationId": "get_group_library_url_import_job",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryUrlImportJobResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry": {
-      "post": {
-        "tags": [],
-        "operationId": "retry_group_library_url_import_job",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryUrlImportJobResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": ""
-          },
-          "409": {
-            "description": ""
           }
         }
       }
@@ -2755,11 +2508,11 @@
         ],
         "responses": {
           "202": {
-            "description": "Triggered source folder sync",
+            "description": "Source folder sync task accepted",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SyncOutcome"
+                  "$ref": "#/components/schemas/TaskRef"
                 }
               }
             }
@@ -2769,80 +2522,6 @@
           },
           "404": {
             "description": "Group or source folder not found"
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}": {
-      "get": {
-        "tags": [],
-        "operationId": "get_translation_job",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TranslationJobResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}/retry": {
-      "post": {
-        "tags": [],
-        "operationId": "retry_translation_job",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TranslationJobResponse"
-                }
-              }
-            }
           }
         }
       }
@@ -2967,16 +2646,6 @@
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Accepted uploaded files",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryUploadResponse"
-                }
-              }
-            }
-          },
           "400": {
             "description": "Invalid upload",
             "content": {
@@ -3065,89 +2734,6 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Deleted file and indexed data"
-          },
-          "404": {
-            "description": "File not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/library/files/{file_id}/jobs": {
-      "get": {
-        "tags": [],
-        "operationId": "get_library_file_jobs",
-        "parameters": [
-          {
-            "name": "file_id",
-            "in": "path",
-            "description": "File id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "page_size",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Paginated library file ingest jobs",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryFileJobPageResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid pagination parameters",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
           "404": {
             "description": "File not found",
             "content": {
@@ -3306,8 +2892,15 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Deleted folder and indexed data"
+          "202": {
+            "description": "Folder delete task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
           },
           "404": {
             "description": "Folder not found",
@@ -3381,226 +2974,6 @@
           },
           "404": {
             "description": "Folder not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/library/jobs/{job_id}": {
-      "get": {
-        "tags": [],
-        "operationId": "get_library_job",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "description": "Job id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Library ingest job",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryIngestJobResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Job not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/library/processing-jobs": {
-      "get": {
-        "tags": [],
-        "operationId": "get_library_processing_jobs",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "page_size",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "query",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/LibraryIngestStatus"
-            }
-          },
-          {
-            "name": "failure_stage",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/LibraryIngestFailureStage"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Visible library processing jobs",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryProcessingJobPageResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid pagination parameters",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/library/processing-jobs/cleanup-stuck": {
-      "post": {
-        "tags": [],
-        "operationId": "cleanup_stuck_library_processing_jobs",
-        "responses": {
-          "200": {
-            "description": "Accepted and skipped stuck processing jobs",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryProcessingJobBulkActionResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Owner or maintainer access required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/library/processing-jobs/retry-failed": {
-      "post": {
-        "tags": [],
-        "operationId": "retry_failed_library_processing_jobs",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LibraryProcessingJobRetryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Accepted and skipped failed processing jobs",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryProcessingJobBulkActionResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Owner or maintainer access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -3724,16 +3097,6 @@
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Created text library entry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryUploadResponse"
-                }
-              }
-            }
-          },
           "400": {
             "description": "Invalid text payload",
             "content": {
@@ -4092,57 +3455,21 @@
       }
     },
     "/v1/settings/runtime/vector-index/rebuild": {
-      "get": {
-        "tags": [],
-        "operationId": "get_vector_index_rebuild_status",
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
       "post": {
         "tags": [],
-        "operationId": "start_vector_index_rebuild",
+        "operationId": "submit_vector_index_rebuild",
         "responses": {
           "202": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
+                  "$ref": "#/components/schemas/TaskRef"
                 }
               }
             }
           },
           "409": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
             "description": "",
             "content": {
               "application/json": {
@@ -4758,11 +4085,11 @@
         ],
         "responses": {
           "202": {
-            "description": "Triggered source sync",
+            "description": "Source sync task accepted",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SyncOutcome"
+                  "$ref": "#/components/schemas/TaskRef"
                 }
               }
             }
@@ -4839,6 +4166,38 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/TaskStatus"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waiting_reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dependency_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -5978,6 +5337,12 @@
           "media_type": {
             "type": "string"
           },
+          "declared_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "metadata": {
             "oneOf": [
               {
@@ -6446,8 +5811,7 @@
           "ingest_status",
           "created_at",
           "updated_at",
-          "sections",
-          "jobs"
+          "sections"
         ],
         "properties": {
           "created_at": {
@@ -6492,12 +5856,6 @@
               "null"
             ],
             "format": "date-time"
-          },
-          "jobs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LibraryIngestJobResponse"
-            }
           },
           "media_type": {
             "type": "string"
@@ -6548,39 +5906,6 @@
             }
           }
         ]
-      },
-      "LibraryFileJobPageQuery": {
-        "type": "object",
-        "properties": {
-          "page": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "LibraryFileJobPageResponse": {
-        "type": "object",
-        "required": [
-          "items",
-          "pagination"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LibraryIngestJobResponse"
-            }
-          },
-          "pagination": {
-            "$ref": "#/components/schemas/Pagination"
-          }
-        }
       },
       "LibraryFileSummary": {
         "type": "object",
@@ -6824,85 +6149,6 @@
           "other"
         ]
       },
-      "LibraryIngestJobResponse": {
-        "type": "object",
-        "required": [
-          "job_id",
-          "group_key",
-          "group_path",
-          "visibility",
-          "file_id",
-          "status",
-          "created_at",
-          "updated_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "docling_task_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "error_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "failure_stage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryIngestFailureStage"
-              }
-            ]
-          },
-          "file_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "group_key": {
-            "type": "string"
-          },
-          "group_path": {
-            "type": "string"
-          },
-          "job_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "started_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "status": {
-            "$ref": "#/components/schemas/LibraryIngestStatus"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility"
-          }
-        }
-      },
       "LibraryIngestStatus": {
         "type": "string",
         "enum": [
@@ -6919,254 +6165,39 @@
           "markdown"
         ]
       },
-      "LibraryProcessingJobBulkActionResponse": {
-        "type": "object",
-        "required": [
-          "candidate_count",
-          "accepted",
-          "skipped",
-          "dry_run"
-        ],
-        "properties": {
-          "accepted": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "candidate_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "dry_run": {
-            "type": "boolean"
-          },
-          "skipped": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "LibraryProcessingJobKind": {
-        "type": "string",
-        "enum": [
-          "ingest",
-          "url_import"
-        ]
-      },
-      "LibraryProcessingJobPageResponse": {
-        "type": "object",
-        "required": [
-          "items",
-          "pagination",
-          "summary"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LibraryProcessingJobResponse"
-            }
-          },
-          "pagination": {
-            "$ref": "#/components/schemas/Pagination"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/LibraryProcessingJobSummaryResponse"
-          }
-        }
-      },
-      "LibraryProcessingJobResponse": {
-        "type": "object",
-        "required": [
-          "job_id",
-          "kind",
-          "group_key",
-          "group_path",
-          "visibility",
-          "status",
-          "can_retry",
-          "created_at",
-          "updated_at"
-        ],
-        "properties": {
-          "can_retry": {
-            "type": "boolean"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "error_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "failure_stage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryIngestFailureStage"
+        "LibraryProcessingQueueHealth": {
+          "type": "object",
+          "required": [
+            "pending_count",
+            "queued_count",
+            "recent_failure_count",
+            "status_counts",
+            "stage_counts",
+            "waiting_reason_counts",
+            "dependency_counts",
+            "processed_last_hour",
+            "failed_last_hour",
+            "processing_rate_per_minute",
+            "failure_rate_percent"
+          ],
+          "properties": {
+            "dependency_counts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/LibraryProcessingMetric"
               }
-            ]
-          },
-          "file_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "filename": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "group_key": {
-            "type": "string"
-          },
-          "group_path": {
-            "type": "string"
-          },
-          "job_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/LibraryProcessingJobKind"
-          },
-          "source_url": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "started_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "status": {
-            "$ref": "#/components/schemas/LibraryIngestStatus"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility"
-          }
-        }
-      },
-      "LibraryProcessingJobRetryRequest": {
-        "type": "object",
-        "properties": {
-          "batch_size": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "dry_run": {
-            "type": "boolean"
-          },
-          "error_filter": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "failure_stage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryIngestFailureStage"
-              }
-            ]
-          },
-          "limit": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "rate_limit_ms": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "LibraryProcessingJobSummaryResponse": {
-        "type": "object",
-        "required": [
-          "can_manage",
-          "pending_count",
-          "running_count",
-          "failed_count",
-          "stuck_count",
-          "retryable_failed_count",
-          "cleanupable_stuck_count"
-        ],
-        "properties": {
-          "can_manage": {
-            "type": "boolean"
-          },
-          "cleanupable_stuck_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "failed_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "pending_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "retryable_failed_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "running_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "stuck_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "LibraryProcessingQueueHealth": {
-        "type": "object",
-        "required": [
-          "pending_count",
-          "queued_count",
-          "recent_failure_count"
-        ],
-        "properties": {
-          "oldest_pending_age_seconds": {
+            },
+            "failed_last_hour": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "failure_rate_percent": {
+              "type": "number",
+              "format": "double",
+              "minimum": 0
+            },
+            "oldest_pending_age_seconds": {
             "type": [
               "integer",
               "null"
@@ -7182,20 +6213,65 @@
             "format": "int64",
             "minimum": 0
           },
-          "pending_count": {
+            "pending_count": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
           },
-          "queued_count": {
+            "queued_count": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
           },
-          "recent_failure_count": {
+            "recent_failure_count": {
+            "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "processed_last_hour": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "processing_rate_per_minute": {
+              "type": "number",
+              "format": "double",
+              "minimum": 0
+            },
+            "stage_counts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/LibraryProcessingMetric"
+              }
+            },
+            "status_counts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/LibraryProcessingMetric"
+              }
+            },
+            "waiting_reason_counts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/LibraryProcessingMetric"
+              }
+            }
+          }
+        },
+      "LibraryProcessingMetric": {
+        "type": "object",
+        "required": [
+          "key",
+          "count"
+        ],
+        "properties": {
+          "count": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "key": {
+            "type": "string"
           }
         }
       },
@@ -7355,132 +6431,6 @@
             "$ref": "#/components/schemas/LibraryFolderNode"
           }
         }
-      },
-      "LibraryUploadResponse": {
-        "type": "object",
-        "required": [
-          "files",
-          "jobs"
-        ],
-        "properties": {
-          "files": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LibraryFileSummary"
-            }
-          },
-          "jobs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LibraryIngestJobResponse"
-            }
-          }
-        }
-      },
-      "LibraryUrlImportJobResponse": {
-        "type": "object",
-        "required": [
-          "import_job_id",
-          "group_path",
-          "source_url",
-          "status",
-          "attempt_count",
-          "created_at",
-          "updated_at"
-        ],
-        "properties": {
-          "attempt_count": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "error_code": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "error_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "failure_stage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryIngestFailureStage"
-              }
-            ]
-          },
-          "file": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryFileSummary"
-              }
-            ]
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "group_path": {
-            "type": "string"
-          },
-          "import_job_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "ingest_job": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryIngestJobResponse"
-              }
-            ]
-          },
-          "source_url": {
-            "type": "string"
-          },
-          "started_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "status": {
-            "$ref": "#/components/schemas/LibraryUrlImportStatus"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "LibraryUrlImportStatus": {
-        "type": "string",
-        "enum": [
-          "queued",
-          "downloading",
-          "ingesting",
-          "succeeded",
-          "failed"
-        ]
       },
       "MembershipRole": {
         "type": "string",
@@ -7918,18 +6868,18 @@
               }
             ]
           },
-          "job": {
+          "upload_required": {
+            "type": "boolean"
+          },
+          "task": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/LibraryIngestJobResponse"
+                "$ref": "#/components/schemas/TaskRef"
               }
             ]
-          },
-          "upload_required": {
-            "type": "boolean"
           }
         }
       },
@@ -8857,6 +7807,38 @@
           },
           "status": {
             "$ref": "#/components/schemas/TaskItemStatus"
+          },
+          "file_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waiting_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -8867,7 +7849,8 @@
           "running",
           "succeeded",
           "failed",
-          "cancelled"
+          "cancelled",
+          "waiting"
         ]
       },
       "TaskItemsQuery": {
@@ -8950,6 +7933,30 @@
                 "$ref": "#/components/schemas/TaskStatus"
               }
             ]
+          },
+          "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waiting_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -8979,7 +7986,8 @@
           "running",
           "succeeded",
           "failed",
-          "cancelled"
+          "cancelled",
+          "waiting"
         ],
         "properties": {
           "cancelled": {
@@ -9005,18 +8013,30 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          },
+          "waiting": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
       "TaskRef": {
         "type": "object",
         "required": [
-          "task_id"
+          "task_id",
+          "item_ids"
         ],
         "properties": {
           "task_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "item_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },
@@ -9096,6 +8116,24 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waiting_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -9122,7 +8160,8 @@
           "running",
           "succeeded",
           "failed",
-          "cancelled"
+          "cancelled",
+          "waiting"
         ]
       },
       "TestRuntimeValkeyRequest": {
@@ -9978,56 +9017,6 @@
           "user_id": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "VectorIndexRebuildState": {
-        "type": "string",
-        "enum": [
-          "idle",
-          "running",
-          "succeeded",
-          "failed"
-        ]
-      },
-      "VectorIndexRebuildStatus": {
-        "type": "object",
-        "required": [
-          "state",
-          "processed_chunks",
-          "total_chunks"
-        ],
-        "properties": {
-          "error_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "processed_chunks": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "started_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "state": {
-            "$ref": "#/components/schemas/VectorIndexRebuildState"
-          },
-          "total_chunks": {
-            "type": "integer",
-            "minimum": 0
           }
         }
       },

@@ -7,12 +7,8 @@ import { createTestI18n } from "../../test-utils/i18n";
 import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
 import { useProjectLibraryActions } from "./use-project-library-actions";
 
-const mocks = vi.hoisted(() => ({
-  retryGroupLibraryFile: vi.fn(),
-}));
-
 const getGroupLibraryFile = vi.spyOn(apiClient, "getGroupLibraryFile");
-const retryGroupLibraryFile = vi.spyOn(apiClient, "retryGroupLibraryFile");
+const submitTask = vi.spyOn(apiClient, "submitTask");
 
 const root: LibraryFolderNode = {
   children: [],
@@ -31,11 +27,11 @@ describe("useProjectLibraryActions retry", () => {
   beforeEach(() => {
     getGroupLibraryFile.mockReset();
     getGroupLibraryFile.mockResolvedValue({ source_available: true } as never);
-    retryGroupLibraryFile.mockReset();
+    submitTask.mockReset();
   });
 
   it("prevents duplicate retry requests and refreshes the tree once", async () => {
-    retryGroupLibraryFile.mockResolvedValue({ job_id: "job-id" } as never);
+    submitTask.mockResolvedValue({ task_id: "task-id", item_ids: ["item-id"] } as never);
     const loadTree = vi.fn().mockResolvedValue(undefined);
     const groupPath = ref("group-a");
     let state!: ReturnType<typeof useProjectLibraryActions>;
@@ -62,8 +58,12 @@ describe("useProjectLibraryActions retry", () => {
     groupPath.value = "group-b";
     const first = state.retryFile("file-id");
     await state.retryFile("file-id");
-    expect(retryGroupLibraryFile).toHaveBeenCalledTimes(1);
-    expect(retryGroupLibraryFile).toHaveBeenCalledWith("group-b", "file-id");
+    expect(submitTask).toHaveBeenCalledTimes(1);
+    expect(submitTask).toHaveBeenCalledWith({
+      kind: "file_batch",
+      group_path: "group-b",
+      items: [{ file_id: "file-id" }],
+    });
     expect(state.retryingFileIds.value).toEqual(["file-id"]);
 
     await first;
@@ -98,7 +98,7 @@ describe("useProjectLibraryActions retry", () => {
 
     await state.retryFile("file-id");
 
-    expect(retryGroupLibraryFile).not.toHaveBeenCalled();
+    expect(submitTask).not.toHaveBeenCalled();
     expect(state.unavailableFileIds.value).toEqual(["file-id"]);
     wrapper.unmount();
   });

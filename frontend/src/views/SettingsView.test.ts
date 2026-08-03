@@ -91,9 +91,22 @@ const personalAccessTokensResponse = [
 ];
 
 const vectorRebuildStatus = {
-  state: "idle" as const,
-  processed_chunks: 0,
-  total_chunks: 0,
+  task_id: "00000000-0000-0000-0000-000000000001",
+  kind: "vector_rebuild" as const,
+  status: "succeeded" as const,
+  group_path: null,
+  source_key: null,
+  stage: "finalize",
+  waiting_reason: null,
+  dependency_key: null,
+  progress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 1, failed: 0, cancelled: 0 },
+  failure_stage: null,
+  error_summary: null,
+  eta_seconds: null,
+  created_at: "2026-08-02T00:00:00Z",
+  started_at: "2026-08-02T00:00:00Z",
+  finished_at: "2026-08-02T00:01:00Z",
+  updated_at: "2026-08-02T00:01:00Z",
 };
 
 function createApiSpies() {
@@ -101,11 +114,9 @@ function createApiSpies() {
     getRuntimeSettings: vi.spyOn(apiClient, "getRuntimeSettings").mockResolvedValue(runtimeResponse as never),
     updateRuntimeSettings: vi.spyOn(apiClient, "updateRuntimeSettings").mockResolvedValue(runtimeResponse as never),
     testValkeyConnection: vi.spyOn(apiClient, "testValkeyConnection").mockResolvedValue(undefined as never),
-    getVectorIndexRebuildStatus: vi.spyOn(apiClient, "getVectorIndexRebuildStatus").mockResolvedValue(vectorRebuildStatus as never),
-    startVectorIndexRebuild: vi.spyOn(apiClient, "startVectorIndexRebuild").mockResolvedValue({
-      ...vectorRebuildStatus,
-      state: "running",
-    } as never),
+    listTasks: vi.spyOn(apiClient, "listTasks").mockResolvedValue({ items: [vectorRebuildStatus], pagination: { page: 1, page_size: 1, total: 1, total_pages: 1 } } as never),
+    submitVectorIndexRebuild: vi.spyOn(apiClient, "submitVectorIndexRebuild").mockResolvedValue({ task_id: vectorRebuildStatus.task_id, item_ids: [] } as never),
+    getTask: vi.spyOn(apiClient, "getTask").mockResolvedValue(vectorRebuildStatus as never),
     getDoclingSettings: vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never),
     getSearchSettings: vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never),
     updateDoclingSettings: vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never),

@@ -38,26 +38,6 @@ impl LibraryService {
         Ok(())
     }
 
-    pub(super) async fn reuse_file_with_metadata(
-        &self,
-        mut file: crate::domain::LibraryFileRecord,
-        metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
-    ) -> Result<(
-        crate::domain::LibraryFileRecord,
-        Option<crate::domain::LibraryIngestJobRecord>,
-    )> {
-        if let Some(metadata) = metadata {
-            file = self.apply_file_business_metadata(file.id, metadata).await?;
-        }
-        let job = self
-            .store
-            .list_jobs_for_file(file.id)
-            .await?
-            .into_iter()
-            .next();
-        Ok((file, job))
-    }
-
     pub(super) async fn apply_file_business_metadata(
         &self,
         file_id: Uuid,
@@ -130,35 +110,6 @@ impl LibraryService {
             .delete_documents_for_library_file(file_id)
             .await?;
         Ok(())
-    }
-
-    pub(super) async fn cleanup_unclaimed_ingest_file(&self, file_id: Uuid, job_id: Uuid) {
-        let removed = match self
-            .store
-            .remove_unclaimed_ingest_file(file_id, job_id)
-            .await
-        {
-            Ok(removed) => removed,
-            Err(error) => {
-                warn!(%file_id, %job_id, %error, "failed to remove unclaimed URL ingest file");
-                return;
-            }
-        };
-
-        let Some(removed) = removed else {
-            return;
-        };
-        if let Some(storage_object_id) = removed.storage_object_id {
-            self.delete_unreferenced_storage_object(storage_object_id)
-                .await;
-        } else if let Err(error) = self.delete_active_storage(&removed.storage_rel_path).await {
-            warn!(
-                %file_id,
-                path = %removed.storage_rel_path,
-                %error,
-                "failed to remove unclaimed URL ingest storage"
-            );
-        }
     }
 
     pub(super) async fn refresh_metadata_for_folder_subtree(&self, folder_id: Uuid) -> Result<()> {
@@ -286,16 +237,49 @@ impl LibraryService {
         &self,
         paths: Vec<crate::library_store::documents::StoragePathRow>,
     ) -> Result<()> {
+        self.delete_unreferenced_objects_with_lease(paths, None)
+            .await
+    }
+
+    pub(super) async fn delete_unreferenced_objects_for_task(
+        &self,
+        paths: Vec<crate::library_store::documents::StoragePathRow>,
+        lease_token: Uuid,
+    ) -> Result<()> {
+        self.delete_unreferenced_objects_with_lease(paths, Some(lease_token))
+            .await
+    }
+
+    pub(super) async fn delete_unreferenced_objects_with_lease(
+        &self,
+        paths: Vec<crate::library_store::documents::StoragePathRow>,
+        lease_token: Option<Uuid>,
+    ) -> Result<()> {
         for path in paths {
             if let Some(object_id) = path.storage_object_id {
-                self.delete_unreferenced_storage_object(object_id).await;
-            } else if let Err(error) = self.delete_active_storage(&path.storage_rel_path).await {
-                warn!(
-                    file_id = %path.id,
-                    path = %path.storage_rel_path,
-                    error = %error,
-                    "failed to remove stored object"
-                );
+                match lease_token {
+                    Some(lease_token) => {
+                        self.delete_unreferenced_storage_object_for_lease(object_id, lease_token)
+                            .await
+                    }
+                    None => self.delete_unreferenced_storage_object(object_id).await,
+                }
+            } else {
+                let result = match lease_token {
+                    Some(lease_token) => {
+                        self.delete_active_storage_for_lease(&path.storage_rel_path, lease_token)
+                            .await
+                    }
+                    None => self.delete_active_storage(&path.storage_rel_path).await,
+                };
+                if let Err(error) = result {
+                    warn!(
+                        file_id = %path.id,
+                        path = %path.storage_rel_path,
+                        error = %error,
+                        "failed to remove stored object"
+                    );
+                }
             }
         }
         Ok(())

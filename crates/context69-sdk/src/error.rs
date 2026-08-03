@@ -7,6 +7,7 @@ pub enum Error {
     InvalidBaseUrl(String),
     InvalidHeader(String),
     InvalidPersonalAccessToken(String),
+    InvalidResponse(String),
     Http(reqwest::Error),
     Serialization(serde_json::Error),
     HttpStatus {
@@ -32,6 +33,7 @@ impl fmt::Display for Error {
             Self::InvalidBaseUrl(url) => write!(f, "invalid base url: {url}"),
             Self::InvalidHeader(value) => write!(f, "invalid header value: {value}"),
             Self::InvalidPersonalAccessToken(message) => write!(f, "{message}"),
+            Self::InvalidResponse(message) => write!(f, "{message}"),
             Self::Http(error) => write!(f, "{error}"),
             Self::Serialization(error) => write!(f, "{error}"),
             Self::HttpStatus {

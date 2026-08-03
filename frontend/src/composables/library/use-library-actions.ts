@@ -113,12 +113,8 @@ export function useLibraryActions({
     uploadBusy.value = true;
 
     try {
-      const response = await apiClient.uploadLibraryFiles(selectedFolder.value?.folder_id ?? null, files);
+      await apiClient.uploadLibraryFiles(selectedFolder.value?.folder_id ?? null, files);
       await loadTree();
-
-      if (response.files.length > 0) {
-        await replaceQuery(response.files[0].folder_id ?? selectedFolder.value?.folder_id ?? null, response.files[0].file_id);
-      }
 
       toast.add({
         color: "success",

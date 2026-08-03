@@ -4,7 +4,8 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use uuid::Uuid;
+use context69_contracts::TaskKind;
+use serde_json::json;
 
 use super::{
     ApiState,
@@ -14,10 +15,11 @@ use super::{
 };
 use crate::contracts::{
     ApiErrorResponse, GroupTranslationSettingsResponse, MembershipRole,
-    RebuildDocumentTranslationsRequest, TranslationJobResponse, TranslationJobsResponse,
+    RebuildDocumentTranslationsRequest, TaskRef, TranslationJobsResponse,
     TranslationProviderPageQuery, TranslationProviderPageResponse, TranslationSettingsResponse,
     UpdateGroupTranslationSettingsRequest, UpdateTranslationSettingsRequest,
 };
+use crate::services::tasks::TaskSubmission;
 
 #[utoipa::path(get, path = "/v1/settings/translation", responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
 pub(crate) async fn get_translation_settings(
@@ -140,7 +142,7 @@ pub(crate) async fn list_document_translation_jobs(
     }
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild", params(("group_path" = String, Path), ("document_id" = i64, Path)), request_body = RebuildDocumentTranslationsRequest, responses((status = 202, body = TranslationJobsResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild", params(("group_path" = String, Path), ("document_id" = i64, Path)), request_body = RebuildDocumentTranslationsRequest, responses((status = 202, body = TaskRef), (status = 403), (status = 404)))]
 pub(crate) async fn rebuild_document_translations(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -156,45 +158,21 @@ pub(crate) async fn rebuild_document_translations(
     }
     match state
         .app
-        .translation
-        .rebuild_document(group.id, document_id, &request)
+        .tasks
+        .submit(TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::Translation,
+            payloads: vec![json!({
+                "document_id": document_id,
+                "target_locales": request.target_locales,
+            })],
+            idempotency_key: None,
+        })
         .await
     {
-        Ok(value) => (StatusCode::ACCEPTED, Json(value)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}", params(("group_path" = String, Path), ("job_id" = Uuid, Path)), responses((status = 200, body = TranslationJobResponse)))]
-pub(crate) async fn get_translation_job(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Path((group_path, job_id)): Path<(String, Uuid)>,
-) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
-        Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
-    };
-    match state.app.translation.job(group.id, job_id).await {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-        Err(error) => library_management_error_response(error),
-    }
-}
-
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/translation-jobs/{job_id}/retry", params(("group_path" = String, Path), ("job_id" = Uuid, Path)), responses((status = 202, body = TranslationJobResponse)))]
-pub(crate) async fn retry_translation_job(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Path((group_path, job_id)): Path<(String, Uuid)>,
-) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
-        Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
-    };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
-        return group_access_error_response(error);
-    }
-    match state.app.translation.retry_job(group.id, job_id).await {
         Ok(value) => (StatusCode::ACCEPTED, Json(value)).into_response(),
         Err(error) => library_management_error_response(error),
     }

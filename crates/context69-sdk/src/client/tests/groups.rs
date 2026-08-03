@@ -1,5 +1,5 @@
 use axum::http::{Method, StatusCode};
-use context69_contracts::{MembershipRole, SyncOutcome, UpsertMembershipRequest};
+use context69_contracts::{MembershipRole, TaskRef, UpsertMembershipRequest};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -100,12 +100,11 @@ async fn group_member_encodes_login_name() {
 #[tokio::test]
 async fn group_source_folder_chain_syncs() {
     let folder_id = Uuid::new_v4();
-    let outcome = SyncOutcome {
-        records_seen: 4,
-        records_changed: 2,
-        chunks_upserted: 8,
+    let task = TaskRef {
+        task_id: Uuid::new_v4(),
+        item_ids: vec![Uuid::new_v4()],
     };
-    let (base_url, captured) = spawn_json(StatusCode::ACCEPTED, &outcome).await;
+    let (base_url, captured) = spawn_json(StatusCode::ACCEPTED, &task).await;
     let actual = client(&base_url)
         .group("ops/platform")
         .source_folder(folder_id)
@@ -113,7 +112,7 @@ async fn group_source_folder_chain_syncs() {
         .await
         .expect("sync source folder");
     let request = captured.await.expect("captured request");
-    assert_eq!(actual.records_changed, 2);
+    assert_eq!(actual, task);
     assert_eq!(request.method, Method::POST);
     assert_eq!(
         request.uri.path(),
@@ -146,38 +145,5 @@ async fn group_translation_settings_use_bound_scope() {
     assert_eq!(
         request.uri.path(),
         "/v1/groups/by-path/ops%2Fplatform/translation-settings"
-    );
-}
-
-#[tokio::test]
-async fn translation_job_retry_uses_bound_scope() {
-    let job_id = Uuid::new_v4();
-    let response = json!({
-        "job_id": job_id,
-        "document_id": 42,
-        "target_locale": "zh-CN",
-        "source_locale": "en-US",
-        "status": "queued",
-        "provider": null,
-        "attempt_count": 1,
-        "source_character_count": 100,
-        "error_message": null,
-        "created_at": "2026-07-12T00:00:00Z",
-        "started_at": null,
-        "finished_at": null,
-        "updated_at": "2026-07-12T00:00:00Z"
-    });
-    let (base_url, captured) = spawn_json(StatusCode::ACCEPTED, &response).await;
-    client(&base_url)
-        .group("ops/platform")
-        .translation_job(job_id)
-        .retry()
-        .await
-        .expect("retry translation");
-    let request = captured.await.unwrap();
-    assert_eq!(request.method, Method::POST);
-    assert_eq!(
-        request.uri.path(),
-        format!("/v1/groups/by-path/ops%2Fplatform/translation-jobs/{job_id}/retry")
     );
 }

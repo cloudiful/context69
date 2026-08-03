@@ -41,6 +41,7 @@ impl TaskKind {
 pub enum TaskStatus {
     Queued,
     Running,
+    Waiting,
     Succeeded,
     Failed,
     Cancelled,
@@ -51,6 +52,7 @@ impl TaskStatus {
         match self {
             Self::Queued => "queued",
             Self::Running => "running",
+            Self::Waiting => "waiting",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
@@ -63,6 +65,7 @@ impl TaskStatus {
 pub enum TaskItemStatus {
     Queued,
     Running,
+    Waiting,
     Succeeded,
     Failed,
     Cancelled,
@@ -73,6 +76,7 @@ impl TaskItemStatus {
         match self {
             Self::Queued => "queued",
             Self::Running => "running",
+            Self::Waiting => "waiting",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
@@ -83,6 +87,8 @@ impl TaskItemStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskRef {
     pub task_id: Uuid,
+    #[serde(default)]
+    pub item_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -90,6 +96,7 @@ pub struct TaskProgress {
     pub total: i64,
     pub queued: i64,
     pub running: i64,
+    pub waiting: i64,
     pub succeeded: i64,
     pub failed: i64,
     pub cancelled: i64,
@@ -102,6 +109,9 @@ pub struct TaskResponse {
     pub status: TaskStatus,
     pub group_path: Option<String>,
     pub source_key: Option<String>,
+    pub stage: Option<String>,
+    pub waiting_reason: Option<String>,
+    pub dependency_key: Option<String>,
     pub progress: TaskProgress,
     pub failure_stage: Option<String>,
     pub error_summary: Option<String>,
@@ -118,6 +128,11 @@ pub struct TaskItemResponse {
     pub ordinal: i32,
     pub status: TaskItemStatus,
     pub resource_id: Option<String>,
+    pub file_id: Option<Uuid>,
+    pub stage: Option<String>,
+    pub waiting_reason: Option<String>,
+    pub dependency_key: Option<String>,
+    pub next_attempt_at: Option<DateTime<Utc>>,
     pub failure_stage: Option<String>,
     pub error_message: Option<String>,
     pub attempt_count: i32,
@@ -135,9 +150,17 @@ pub struct TaskListQuery {
     #[serde(default = "default_page_size")]
     pub page_size: u32,
     #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
     pub kind: Option<TaskKind>,
     #[serde(default)]
     pub status: Option<TaskStatus>,
+    #[serde(default)]
+    pub stage: Option<String>,
+    #[serde(default)]
+    pub waiting_reason: Option<String>,
+    #[serde(default)]
+    pub dependency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -205,6 +228,8 @@ pub struct FileBatchItem {
     pub filename: String,
     pub media_type: String,
     pub content_base64: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_sha256: Option<String>,
     #[serde(default)]
     pub folder_id: Option<Uuid>,
     #[serde(default)]

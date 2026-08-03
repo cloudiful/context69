@@ -106,7 +106,7 @@ export function useProjectLibraryActions({
     if (!createTextDialog.value) return;
     createFolderBusy.value = true;
     try {
-      const response = await apiClient.upsertGroupLibraryText(toValue(groupPath), {
+      await apiClient.upsertGroupLibraryText(toValue(groupPath), {
         title: payload.title,
         content: payload.content,
         external_id: crypto.randomUUID(),
@@ -114,10 +114,6 @@ export function useProjectLibraryActions({
       });
       createTextDialog.value = null;
       await loadTree();
-      const nextFile = response.files[0] ?? null;
-      if (nextFile) {
-        await replaceSelection(nextFile.folder_id ?? selectedFolder.value?.folder_id ?? null, nextFile.file_id);
-      }
       toast.add({ color: "success", title: t("library.newTextFile"), description: payload.title, duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("library.createTextFileFailed"));
@@ -162,7 +158,11 @@ export function useProjectLibraryActions({
         unavailableFileIds.value = [...new Set([...unavailableFileIds.value, fileId])];
         throw new Error(t("library.sourceMissingMessage"));
       }
-      const job = await apiClient.retryGroupLibraryFile(toValue(groupPath), fileId);
+      await apiClient.submitTask({
+        kind: "file_batch",
+        group_path: toValue(groupPath),
+        items: [{ file_id: fileId }],
+      });
       await loadTree();
       toast.add({
         color: "success",

@@ -1,8 +1,6 @@
 import type {
   CreateFolderRequest,
   CreateSourceFolderRequest,
-  LibraryUploadResponse,
-  LibraryFileJobPageResponse,
   MoveFileRequest,
   MoveFolderRequest,
   RequestOptions,
@@ -14,6 +12,7 @@ import type {
   CreateMetadataIndexRequest,
   UpdateMetadataIndexRequest,
   UpdateGroupTranslationSettingsRequest,
+  TaskRef,
 } from "./api-types";
 
 type Deps = {
@@ -176,7 +175,7 @@ export function createGroupWorkspaceApi({
       if (pending.length === 0) {
         return {
           files: reused.flatMap(({ result }) => result.file ? [result.file] : []),
-          jobs: reused.flatMap(({ result }) => result.job ? [result.job] : []),
+          tasks: reused.flatMap(({ result }) => result.task ? [result.task] : []),
         };
       }
       const form = new FormData();
@@ -194,36 +193,15 @@ export function createGroupWorkspaceApi({
         signal: options?.signal,
       });
 
-      const uploaded = await unwrapFetchResponse<LibraryUploadResponse>(response);
+      const uploaded = await unwrapFetchResponse<TaskRef>(response);
       return {
-        files: [...reused.flatMap(({ result }) => result.file ? [result.file] : []), ...uploaded.files],
-        jobs: [...reused.flatMap(({ result }) => result.job ? [result.job] : []), ...uploaded.jobs],
+        files: reused.flatMap(({ result }) => result.file ? [result.file] : []),
+        tasks: [...reused.flatMap(({ result }) => result.task ? [result.task] : []), uploaded],
       };
     },
     getGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/files/{file_id}", {
         params: { path: { group_path: groupPath, file_id: fileId } },
-        signal: options?.signal,
-      }));
-    },
-    getGroupLibraryFileJobs(groupPath: string, fileId: string, params: { page: number; pageSize: number }, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/files/{file_id}/jobs", {
-        params: {
-          path: { group_path: groupPath, file_id: fileId },
-          query: { page: params.page, page_size: params.pageSize },
-        },
-        signal: options?.signal,
-      })) as Promise<LibraryFileJobPageResponse>;
-    },
-    retryGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/{file_id}/retry", {
-        params: { path: { group_path: groupPath, file_id: fileId } },
-        signal: options?.signal,
-      }));
-    },
-    retryGroupLibraryUrlImportJob(groupPath: string, jobId: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/url-import-jobs/{job_id}/retry", {
-        params: { path: { group_path: groupPath, job_id: jobId } },
         signal: options?.signal,
       }));
     },
@@ -237,12 +215,6 @@ export function createGroupWorkspaceApi({
     deleteGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.DELETE("/v1/groups/by-path/{group_path}/library/files/{file_id}", {
         params: { path: { group_path: groupPath, file_id: fileId } },
-        signal: options?.signal,
-      }));
-    },
-    getGroupLibraryJob(groupPath: string, jobId: string, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/jobs/{job_id}", {
-        params: { path: { group_path: groupPath, job_id: jobId } },
         signal: options?.signal,
       }));
     },

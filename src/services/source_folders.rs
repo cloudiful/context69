@@ -114,11 +114,7 @@ impl SourceFoldersService {
         let _ = validated;
         Ok(SourceFolderResponse {
             folder_id: folder.folder_id,
-            source_config_file_id: source_config_file
-                .files
-                .first()
-                .map(|file| file.file_id)
-                .context("missing source config file")?,
+            source_config_file_id: source_config_file.file_id,
             records_folder_id: records_folder.folder_id,
             path: folder.path,
         })
@@ -155,11 +151,7 @@ impl SourceFoldersService {
 
         Ok(SourceFolderResponse {
             folder_id,
-            source_config_file_id: source_config_file
-                .files
-                .first()
-                .map(|file| file.file_id)
-                .context("missing source config file")?,
+            source_config_file_id: source_config_file.file_id,
             records_folder_id: descriptor.records_folder.id,
             path: descriptor.path,
         })
@@ -169,11 +161,12 @@ impl SourceFoldersService {
         &self,
         project: &GroupRecord,
         folder_id: Uuid,
+        lease_token: Uuid,
     ) -> Result<SyncOutcome> {
         let descriptor = self.describe_source_folder(project, folder_id).await?;
         let config_text = self
             .library
-            .read_text_file_content(&descriptor.source_config_file)
+            .read_text_file_content_for_lease(&descriptor.source_config_file, lease_token)
             .await?;
         let input: SourceConfigInput =
             serde_json::from_str(&config_text).context("failed to parse source.json content")?;
@@ -192,6 +185,7 @@ impl SourceFoldersService {
                 descriptor.records_folder.id,
                 &validated,
                 &self.library,
+                lease_token,
             )
             .await
     }
@@ -246,13 +240,33 @@ impl SourceFoldersService {
         project: &GroupRecord,
         folder_id: Uuid,
     ) -> Result<()> {
+        self.delete_source_aware_folder_in_project_with_lease(project, folder_id, None)
+            .await
+    }
+
+    pub(crate) async fn delete_source_aware_folder_in_project_for_task(
+        &self,
+        project: &GroupRecord,
+        folder_id: Uuid,
+        lease_token: Uuid,
+    ) -> Result<()> {
+        self.delete_source_aware_folder_in_project_with_lease(project, folder_id, Some(lease_token))
+            .await
+    }
+
+    async fn delete_source_aware_folder_in_project_with_lease(
+        &self,
+        project: &GroupRecord,
+        folder_id: Uuid,
+        lease_token: Option<Uuid>,
+    ) -> Result<()> {
         let descriptors = self
             .describe_source_folder_subtree(project, folder_id)
             .await?;
         for descriptor in descriptors {
             let identity = source_folder_identity(project.id, &descriptor.path);
             let legacy_source_key = self
-                .read_source_config_input(&descriptor)
+                .read_source_config_input_with_lease(&descriptor, lease_token)
                 .await?
                 .map(|input| input.source_key);
             self.sync
@@ -263,9 +277,18 @@ impl SourceFoldersService {
                 )
                 .await?;
         }
-        self.library
-            .delete_folder_in_project(project, folder_id)
-            .await
+        match lease_token {
+            Some(lease_token) => {
+                self.library
+                    .delete_folder_in_project_for_task(project, folder_id, lease_token)
+                    .await
+            }
+            None => {
+                self.library
+                    .delete_folder_in_project(project, folder_id)
+                    .await
+            }
+        }
     }
 
     async fn ensure_legacy_source_folder(
@@ -387,14 +410,23 @@ impl SourceFoldersService {
         Ok(descriptors)
     }
 
-    async fn read_source_config_input(
+    async fn read_source_config_input_with_lease(
         &self,
         descriptor: &SourceFolderDescriptor,
+        lease_token: Option<Uuid>,
     ) -> Result<Option<SourceConfigInput>> {
-        let content = self
-            .library
-            .read_text_file_content(&descriptor.source_config_file)
-            .await;
+        let content = match lease_token {
+            Some(lease_token) => {
+                self.library
+                    .read_text_file_content_for_lease(&descriptor.source_config_file, lease_token)
+                    .await
+            }
+            None => {
+                self.library
+                    .read_text_file_content(&descriptor.source_config_file)
+                    .await
+            }
+        };
         match content {
             Ok(content) => serde_json::from_str(&content)
                 .map(Some)

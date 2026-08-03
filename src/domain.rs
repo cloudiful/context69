@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::contracts::{LibraryIngestFailureStage, LibraryIngestStatus, Visibility};
+use crate::contracts::{LibraryIngestStatus, Visibility};
 
 pub use context69_namespace::{
     AccessScope, GroupRecord, NamespaceMemberRecord, PersonalGroupRecord,
@@ -116,24 +116,6 @@ pub struct LibraryFileRecord {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub ingested_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LibraryIngestJobRecord {
-    pub id: Uuid,
-    pub group_id: i64,
-    pub group_key: String,
-    pub group_path: String,
-    pub visibility: Visibility,
-    pub file_id: Uuid,
-    pub status: LibraryIngestStatus,
-    pub docling_task_id: Option<String>,
-    pub failure_stage: Option<LibraryIngestFailureStage>,
-    pub error_message: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub started_at: Option<DateTime<Utc>>,
-    pub finished_at: Option<DateTime<Utc>>,
-    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]

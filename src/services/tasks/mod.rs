@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
@@ -11,7 +11,10 @@ use context69_contracts::{
 use context69_translation::TranslationService;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tokio::time::{interval, sleep};
+use tokio::{
+    sync::Semaphore,
+    time::{interval, sleep},
+};
 use uuid::Uuid;
 
 use crate::{
@@ -20,10 +23,15 @@ use crate::{
     pagination::PageBounds,
     services::{
         document_store::DocumentStoreService, library::LibraryService, namespace::NamespaceService,
-        sync::SyncService,
+        source_folders::SourceFoldersService, sync::SyncService,
     },
 };
 
+mod item_file_processors;
+mod item_lifecycle_processors;
+mod item_processors;
+mod item_translation_processors;
+mod item_url_processor;
 mod runtime;
 
 #[derive(Clone)]
@@ -33,7 +41,9 @@ pub struct TaskService {
     document_store: DocumentStoreService,
     library: LibraryService,
     sync: SyncService,
+    source_folders: SourceFoldersService,
     translation: TranslationService,
+    worker_slots: Arc<Semaphore>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,7 +64,9 @@ impl TaskService {
         document_store: DocumentStoreService,
         library: LibraryService,
         sync: SyncService,
+        source_folders: SourceFoldersService,
         translation: TranslationService,
+        concurrency: usize,
     ) -> Self {
         Self {
             db,
@@ -62,7 +74,9 @@ impl TaskService {
             document_store,
             library,
             sync,
+            source_folders,
             translation,
+            worker_slots: Arc::new(Semaphore::new(concurrency.max(1))),
         }
     }
 
@@ -91,7 +105,7 @@ impl TaskService {
             .map(str::trim)
             .filter(|v| !v.is_empty());
         let task_id = Uuid::new_v4();
-        let (task_id, reused) = self
+        let (task_id, reused, item_ids) = self
             .db
             .create_task_submission(
                 task_id,
@@ -108,7 +122,7 @@ impl TaskService {
         if !reused {
             self.spawn(task_id);
         }
-        Ok(TaskRef { task_id })
+        Ok(TaskRef { task_id, item_ids })
     }
 
     pub async fn get(&self, task_id: Uuid, user_id: i64) -> Result<TaskResponse> {
@@ -123,13 +137,28 @@ impl TaskService {
         let bounds = PageBounds::new(query.page, query.page_size)?;
         let kind = query.kind.map(TaskKind::as_str);
         let status = query.status.map(TaskStatus::as_str);
-        let total = self.db.count_tasks(user_id, kind, status).await?;
+        let total = self
+            .db
+            .count_tasks(
+                user_id,
+                query.query.as_deref(),
+                kind,
+                status,
+                query.stage.as_deref(),
+                query.waiting_reason.as_deref(),
+                query.dependency_key.as_deref(),
+            )
+            .await?;
         let items = self
             .db
             .list_tasks(
                 user_id,
+                query.query.as_deref(),
                 kind,
                 status,
+                query.stage.as_deref(),
+                query.waiting_reason.as_deref(),
+                query.dependency_key.as_deref(),
                 i64::from(bounds.page_size),
                 bounds.offset,
             )
@@ -166,42 +195,25 @@ impl TaskService {
     }
 
     pub async fn retry(&self, task_id: Uuid, user_id: i64) -> Result<TaskRetryResponse> {
-        let task = self
-            .db
+        self.db
             .get_task(task_id, user_id)
             .await?
             .context("task not found")?;
-        let all_items = self.list_all_task_items(task_id).await?;
-        let failed = all_items
-            .iter()
-            .filter(|item| item.status == "failed" && item.retryable)
-            .map(|item| item.ordinal)
-            .collect::<std::collections::HashSet<_>>();
-        let payloads = self
-            .db
-            .list_task_payloads(task_id)
-            .await?
-            .into_iter()
-            .filter(|item| failed.contains(&item.ordinal))
-            .map(|item| item.payload)
-            .collect::<Vec<_>>();
-        if payloads.is_empty() {
+        if !self.db.can_manage_task(task_id, user_id).await? {
+            return Err(anyhow!("task management permission denied"));
+        }
+        let item_ids = self.db.retry_task_items(task_id, user_id).await?;
+        if item_ids.is_empty() {
             return Err(anyhow!("task has no retryable failed items"));
         }
-        let new_task = self
-            .submit(TaskSubmission {
-                user_id,
-                group_id: task.group_id,
-                group_path: task.group_path,
-                source_key: task.source_key,
-                kind: parse_kind(&task.kind)?,
-                payloads,
-                idempotency_key: None,
-            })
-            .await?;
+        self.db.recompute_task(task_id).await?;
+        self.spawn(task_id);
         Ok(TaskRetryResponse {
-            task: new_task,
-            retried_items: failed.len() as i64,
+            task: TaskRef {
+                task_id,
+                item_ids: item_ids.clone(),
+            },
+            retried_items: item_ids.len() as i64,
         })
     }
 
@@ -210,6 +222,9 @@ impl TaskService {
             .get_task(task_id, user_id)
             .await?
             .context("task not found")?;
+        if !self.db.can_manage_task(task_id, user_id).await? {
+            return Err(anyhow!("task management permission denied"));
+        }
         if self.db.cancel_task(task_id, user_id).await? {
             Ok(())
         } else {
@@ -318,6 +333,7 @@ impl TaskService {
     }
 
     async fn run(&self, task_id: Uuid) -> Result<()> {
+        let _worker_slot = self.worker_slots.acquire().await?;
         let lease = Uuid::new_v4();
         if !self.db.claim_task(task_id, lease).await? {
             return Ok(());
@@ -351,6 +367,9 @@ impl TaskService {
     }
     pub(crate) fn sync(&self) -> &SyncService {
         &self.sync
+    }
+    pub(crate) fn source_folders(&self) -> &SourceFoldersService {
+        &self.source_folders
     }
     pub(crate) fn translation(&self) -> &TranslationService {
         &self.translation
@@ -491,10 +510,14 @@ fn task_response(task: StoredTask) -> TaskResponse {
             total: task.total_count,
             queued: task.queued_count,
             running: task.running_count,
+            waiting: task.waiting_count,
             succeeded: task.succeeded_count,
             failed: task.failed_count,
             cancelled: task.cancelled_count,
         },
+        stage: task.stage,
+        waiting_reason: task.waiting_reason,
+        dependency_key: task.dependency_key,
         failure_stage: task.failure_stage,
         error_summary: task.error_summary,
         eta_seconds,
@@ -509,6 +532,7 @@ fn parse_status(value: &str) -> Result<TaskStatus> {
     match value {
         "queued" => Ok(TaskStatus::Queued),
         "running" => Ok(TaskStatus::Running),
+        "waiting" => Ok(TaskStatus::Waiting),
         "succeeded" => Ok(TaskStatus::Succeeded),
         "failed" => Ok(TaskStatus::Failed),
         "cancelled" => Ok(TaskStatus::Cancelled),
@@ -522,6 +546,11 @@ fn task_item_response(item: StoredTaskItem) -> TaskItemResponse {
         ordinal: item.ordinal,
         status: parse_item_status(&item.status).unwrap_or(TaskItemStatus::Failed),
         resource_id: item.resource_id,
+        file_id: item.file_id,
+        stage: item.stage,
+        waiting_reason: item.waiting_reason,
+        dependency_key: item.dependency_key,
+        next_attempt_at: item.next_attempt_at,
         failure_stage: item.failure_stage,
         error_message: item.error_message,
         attempt_count: item.attempt_count,
@@ -536,6 +565,7 @@ fn parse_item_status(value: &str) -> Result<TaskItemStatus> {
     match value {
         "queued" => Ok(TaskItemStatus::Queued),
         "running" => Ok(TaskItemStatus::Running),
+        "waiting" => Ok(TaskItemStatus::Waiting),
         "succeeded" => Ok(TaskItemStatus::Succeeded),
         "failed" => Ok(TaskItemStatus::Failed),
         "cancelled" => Ok(TaskItemStatus::Cancelled),

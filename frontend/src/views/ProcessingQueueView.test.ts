@@ -4,177 +4,132 @@ import * as nuxtUiComposables from "@nuxt/ui/composables";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import ProcessingQueueView from "./ProcessingQueueView.vue";
-import { apiClient, type LibraryProcessingJobResponse } from "../services/api";
+import { apiClient, type TaskResponse } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
-const getLibraryProcessingJobs = vi.spyOn(apiClient, "getLibraryProcessingJobs");
-const retryGroupLibraryFile = vi.spyOn(apiClient, "retryGroupLibraryFile");
-const retryFailedLibraryProcessingJobs = vi.spyOn(apiClient, "retryFailedLibraryProcessingJobs");
-const cleanupStuckLibraryProcessingJobs = vi.spyOn(apiClient, "cleanupStuckLibraryProcessingJobs");
+const listTasks = vi.spyOn(apiClient, "listTasks");
+const retryTask = vi.spyOn(apiClient, "retryTask");
+const cancelTask = vi.spyOn(apiClient, "cancelTask");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 const addToast = vi.fn();
 const useToast = vi.spyOn(nuxtUiComposables, "useToast");
 
-let confirmResult = true;
-
-const row: LibraryProcessingJobResponse = {
-  can_retry: true,
-  created_at: "2026-07-20T00:00:00Z",
-  error_message: "Qdrant unavailable",
-  failure_stage: "indexing",
-  file_id: "file-id",
-  filename: "report.pdf",
-  finished_at: "2026-07-20T00:02:00Z",
-  group_key: "research",
+const row: TaskResponse = {
+  task_id: "task-id",
+  kind: "file_batch",
+  status: "waiting",
   group_path: "research",
-  job_id: "job-id",
-  kind: "ingest",
-  source_url: null,
+  source_key: null,
+  stage: "docling",
+  waiting_reason: "dependency",
+  dependency_key: "docling",
+  progress: { total: 1, queued: 0, running: 0, waiting: 1, succeeded: 0, failed: 0, cancelled: 0 },
+  failure_stage: null,
+  error_summary: null,
+  eta_seconds: null,
+  created_at: "2026-07-20T00:00:00Z",
   started_at: "2026-07-20T00:01:00Z",
-  status: "failed",
+  finished_at: null,
   updated_at: "2026-07-20T00:02:00Z",
-  visibility: "private",
 };
+
+const failedRow: TaskResponse = {
+  ...row,
+  status: "failed",
+  waiting_reason: null,
+  dependency_key: null,
+  failure_stage: "indexing",
+  error_summary: "Qdrant unavailable",
+  progress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 1, cancelled: 0 },
+  finished_at: "2026-07-20T00:02:00Z",
+};
+
+function response(items: TaskResponse[]) {
+  return {
+    items,
+    pagination: { page: 1, page_size: 25, total: items.length, total_pages: items.length ? 1 : 0 },
+  };
+}
+
+async function mountQueue() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
+  });
+  await router.push("/processing-queue");
+  await router.isReady();
+  return mount(ProcessingQueueView, {
+    global: { plugins: [testNuxtUiPlugin, createTestI18n("en"), router] },
+  });
+}
 
 describe("ProcessingQueueView", () => {
   beforeEach(() => {
-    getLibraryProcessingJobs.mockReset().mockResolvedValue({
-      items: [row],
-      pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
-      summary: {
-        can_manage: false,
-        cleanupable_stuck_count: 0,
-        failed_count: 1,
-        pending_count: 0,
-        retryable_failed_count: 0,
-        running_count: 0,
-        stuck_count: 0,
-      },
-    } as never);
-    retryGroupLibraryFile.mockReset().mockResolvedValue({ job_id: "new-job-id" } as never);
-    retryFailedLibraryProcessingJobs.mockReset().mockResolvedValue({ accepted: 1, skipped: 0 } as never);
-    cleanupStuckLibraryProcessingJobs.mockReset().mockResolvedValue({ accepted: 1, skipped: 0 } as never);
-    confirmResult = true;
+    listTasks.mockReset().mockResolvedValue(response([row]) as never);
+    retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
+    cancelTask.mockReset().mockResolvedValue(undefined);
     useOverlay.mockReset().mockReturnValue({
-      create: () => ({ open: async () => confirmResult }),
+      create: () => ({ open: async () => true }),
     } as never);
     addToast.mockReset();
     useToast.mockReset().mockReturnValue({ add: addToast } as never);
   });
 
-  it("shows failure stage and retries the whole file without reloading the queue", async () => {
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
-    });
-    await router.push("/processing-queue");
-    await router.isReady();
-    const wrapper = mount(ProcessingQueueView, {
-      global: { plugins: [testNuxtUiPlugin, createTestI18n("en"), router] },
-    });
+  it("shows waiting stage and dependency reason", async () => {
+    const wrapper = await mountQueue();
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Indexing");
-    expect(wrapper.text()).toContain("Qdrant unavailable");
+    expect(wrapper.text()).toContain("Docling");
+    expect(wrapper.text()).toContain("docling");
+    expect(wrapper.text()).toContain("Waiting");
+    wrapper.unmount();
+  });
 
-    const retryButton = wrapper.findAll("button").find((button) => button.text().includes("Retry file"));
+  it("retries a failed task through the unified endpoint", async () => {
+    listTasks
+      .mockResolvedValueOnce(response([failedRow]) as never)
+      .mockResolvedValueOnce(response([row]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const retryButton = wrapper.findAll("button").find((button) => button.text().includes("Retry"));
     expect(retryButton).toBeDefined();
     await retryButton!.trigger("click");
     await flushPromises();
 
-    expect(retryGroupLibraryFile).toHaveBeenCalledWith("research", "file-id");
-    expect(getLibraryProcessingJobs).toHaveBeenCalledOnce();
-    expect(wrapper.text()).toContain("Pending");
+    expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(listTasks).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
-  it("does not call a bulk endpoint when confirmation is cancelled", async () => {
-    confirmResult = false;
-    getLibraryProcessingJobs.mockResolvedValue({
-      items: [row],
-      pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
-      summary: {
-        can_manage: true,
-        cleanupable_stuck_count: 1,
-        failed_count: 1,
-        pending_count: 1,
-        retryable_failed_count: 1,
-        running_count: 0,
-        stuck_count: 1,
-      },
-    } as never);
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
-    });
-    await router.push("/processing-queue");
-    await router.isReady();
-    const wrapper = mount(ProcessingQueueView, {
-      global: { plugins: [testNuxtUiPlugin, createTestI18n("en"), router] },
-    });
+  it("shows retry for a cancelled task with failed items", async () => {
+    const cancelledFailedRow: TaskResponse = {
+      ...failedRow,
+      task_id: "cancelled-task-id",
+      status: "cancelled",
+      progress: { total: 2, queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 1, cancelled: 1 },
+    };
+    listTasks.mockResolvedValue(response([cancelledFailedRow]) as never);
+
+    const wrapper = await mountQueue();
     await flushPromises();
 
-    const retryAllButton = wrapper.findAll("button").find((button) => button.text().includes("Retry all failed"));
-    expect(retryAllButton).toBeDefined();
-    await retryAllButton!.trigger("click");
-    await flushPromises();
-
-    expect(retryFailedLibraryProcessingJobs).not.toHaveBeenCalled();
-    expect(getLibraryProcessingJobs).toHaveBeenCalledOnce();
+    const retryButton = wrapper.findAll("button").find((button) => button.text().includes("Retry"));
+    expect(retryButton).toBeDefined();
     wrapper.unmount();
   });
 
-  it("confirms bulk retry, refreshes once, and reports accepted/skipped counts", async () => {
-    getLibraryProcessingJobs
-      .mockResolvedValueOnce({
-        items: [row],
-        pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
-        summary: {
-          can_manage: true,
-          cleanupable_stuck_count: 0,
-          failed_count: 1,
-          pending_count: 0,
-          retryable_failed_count: 1,
-          running_count: 0,
-          stuck_count: 0,
-        },
-      } as never)
-      .mockResolvedValueOnce({
-        items: [],
-        pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 },
-        summary: {
-          can_manage: true,
-          cleanupable_stuck_count: 0,
-          failed_count: 0,
-          pending_count: 1,
-          retryable_failed_count: 0,
-          running_count: 0,
-          stuck_count: 0,
-        },
-      } as never);
-    retryFailedLibraryProcessingJobs.mockResolvedValue({ accepted: 3, skipped: 2 } as never);
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
-    });
-    await router.push("/processing-queue");
-    await router.isReady();
-    const wrapper = mount(ProcessingQueueView, {
-      global: { plugins: [testNuxtUiPlugin, createTestI18n("en"), router] },
-    });
+  it("cancels a waiting task through the unified endpoint", async () => {
+    const wrapper = await mountQueue();
     await flushPromises();
 
-    const retryAllButton = wrapper.findAll("button").find((button) => button.text().includes("Retry all failed"));
-    expect(retryAllButton).toBeDefined();
-    await retryAllButton!.trigger("click");
+    const cancelButton = wrapper.findAll("button").find((button) => button.attributes("aria-label")?.includes("Cancel"));
+    expect(cancelButton).toBeDefined();
+    await cancelButton!.trigger("click");
     await flushPromises();
 
-    expect(retryFailedLibraryProcessingJobs).toHaveBeenCalledOnce();
-    expect(getLibraryProcessingJobs).toHaveBeenCalledTimes(2);
-    expect(addToast).toHaveBeenCalledWith(expect.objectContaining({
-      description: "Accepted: 3; Skipped: 2",
-    }));
+    expect(cancelTask).toHaveBeenCalledWith("task-id");
     wrapper.unmount();
   });
 });

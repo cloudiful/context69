@@ -17,9 +17,13 @@ WITH failed_task AS (
         error_message = $4,
         lease_token = NULL,
         lease_until = NULL,
+        waiting_reason = NULL,
+        dependency_key = NULL,
+        next_attempt_at = NULL,
         finished_at = now(),
         updated_at = now()
-    WHERE task_id = $1 AND status IN ('queued', 'running')
+    WHERE task_id = $1 AND status IN ('queued', 'running', 'waiting')
+      AND EXISTS (SELECT 1 FROM failed_task)
     RETURNING id
 )
 UPDATE context69.task_attempts

@@ -28,7 +28,7 @@ pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
-pub use tasks::{StoredTask, StoredTaskItem, StoredTaskPayload};
+pub use tasks::{ClaimedTaskItem, StoredTask, StoredTaskItem, StoredTaskPayload};
 pub use vector_index_state::VectorIndexState;
 
 #[derive(Clone)]

@@ -193,6 +193,26 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
         folder_id: Uuid,
     ) -> Result<()> {
+        self.delete_folder_in_project_with_lease(project, folder_id, None)
+            .await
+    }
+
+    pub(crate) async fn delete_folder_in_project_for_task(
+        &self,
+        project: &crate::domain::GroupRecord,
+        folder_id: Uuid,
+        lease_token: Uuid,
+    ) -> Result<()> {
+        self.delete_folder_in_project_with_lease(project, folder_id, Some(lease_token))
+            .await
+    }
+
+    async fn delete_folder_in_project_with_lease(
+        &self,
+        project: &crate::domain::GroupRecord,
+        folder_id: Uuid,
+        lease_token: Option<Uuid>,
+    ) -> Result<()> {
         self.store
             .get_folder_in_project(project.id, folder_id)
             .await?
@@ -203,7 +223,8 @@ impl LibraryService {
         let paths = self.store.list_storage_paths_for_files(&file_ids).await?;
         self.delete_file_ids(&file_ids).await?;
         self.store.delete_folder_record(folder_id).await?;
-        self.delete_unreferenced_objects(paths).await?;
+        self.delete_unreferenced_objects_with_lease(paths, lease_token)
+            .await?;
         self.bump_search_generation("library folder delete").await?;
         Ok(())
     }

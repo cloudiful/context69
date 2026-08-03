@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::Visibility;
+use super::{TaskRef, Visibility};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -71,6 +71,12 @@ pub struct LibraryDependencyGateResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryProcessingMetric {
+    pub key: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryProcessingQueueHealth {
     pub pending_count: u64,
     pub queued_count: u64,
@@ -79,6 +85,14 @@ pub struct LibraryProcessingQueueHealth {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oldest_queued_age_seconds: Option<u64>,
     pub recent_failure_count: u64,
+    pub status_counts: Vec<LibraryProcessingMetric>,
+    pub stage_counts: Vec<LibraryProcessingMetric>,
+    pub waiting_reason_counts: Vec<LibraryProcessingMetric>,
+    pub dependency_counts: Vec<LibraryProcessingMetric>,
+    pub processed_last_hour: u64,
+    pub failed_last_hour: u64,
+    pub processing_rate_per_minute: f64,
+    pub failure_rate_percent: f64,
 }
 
 impl LibraryIngestFailureStage {
@@ -291,18 +305,6 @@ fn default_page_size() -> u32 {
     50
 }
 
-fn default_retry_limit() -> u32 {
-    100
-}
-
-fn default_retry_batch_size() -> u32 {
-    10
-}
-
-fn default_retry_rate_limit_ms() -> u64 {
-    250
-}
-
 fn default_resource_sort_by() -> LibraryResourceSortBy {
     LibraryResourceSortBy::UpdatedAt
 }
@@ -363,119 +365,6 @@ pub struct LibraryResourcePageResponse {
     pub pagination: crate::Pagination,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryIngestJobResponse {
-    pub job_id: Uuid,
-    pub group_key: String,
-    pub group_path: String,
-    pub visibility: Visibility,
-    pub file_id: Uuid,
-    pub status: LibraryIngestStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub docling_task_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_stage: Option<LibraryIngestFailureStage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    pub created_at: DateTime<Utc>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub finished_at: Option<DateTime<Utc>>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum LibraryProcessingJobKind {
-    Ingest,
-    UrlImport,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryProcessingJobResponse {
-    pub job_id: Uuid,
-    pub kind: LibraryProcessingJobKind,
-    pub group_key: String,
-    pub group_path: String,
-    pub visibility: Visibility,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_id: Option<Uuid>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filename: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_url: Option<String>,
-    pub status: LibraryIngestStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_stage: Option<LibraryIngestFailureStage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    pub can_retry: bool,
-    pub created_at: DateTime<Utc>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub finished_at: Option<DateTime<Utc>>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct LibraryProcessingJobPageQuery {
-    #[serde(default = "default_page")]
-    pub page: u32,
-    #[serde(default = "default_page_size")]
-    pub page_size: u32,
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub status: Option<LibraryIngestStatus>,
-    #[serde(default)]
-    pub failure_stage: Option<LibraryIngestFailureStage>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryProcessingJobRetryRequest {
-    #[serde(default)]
-    pub dry_run: bool,
-    #[serde(default)]
-    pub failure_stage: Option<LibraryIngestFailureStage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_filter: Option<String>,
-    #[serde(default = "default_retry_limit")]
-    pub limit: u32,
-    #[serde(default = "default_retry_batch_size")]
-    pub batch_size: u32,
-    #[serde(default = "default_retry_rate_limit_ms")]
-    pub rate_limit_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryProcessingJobPageResponse {
-    pub items: Vec<LibraryProcessingJobResponse>,
-    pub pagination: crate::Pagination,
-    pub summary: LibraryProcessingJobSummaryResponse,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryProcessingJobSummaryResponse {
-    pub can_manage: bool,
-    pub pending_count: u64,
-    pub running_count: u64,
-    pub failed_count: u64,
-    pub stuck_count: u64,
-    pub retryable_failed_count: u64,
-    pub cleanupable_stuck_count: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryProcessingJobBulkActionResponse {
-    pub candidate_count: u64,
-    pub accepted: u64,
-    pub skipped: u64,
-    pub dry_run: bool,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryTextContentFormat {
@@ -525,28 +414,6 @@ pub struct LibraryFileDetailResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ingested_at: Option<DateTime<Utc>>,
     pub sections: Vec<LibraryDocumentSectionPreview>,
-    pub jobs: Vec<LibraryIngestJobResponse>,
-}
-
-#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
-#[into_params(parameter_in = Query)]
-pub struct LibraryFileJobPageQuery {
-    #[serde(default = "default_page")]
-    pub page: u32,
-    #[serde(default = "default_page_size")]
-    pub page_size: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryFileJobPageResponse {
-    pub items: Vec<LibraryIngestJobResponse>,
-    pub pagination: crate::Pagination,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryUploadResponse {
-    pub files: Vec<LibraryFileSummary>,
-    pub jobs: Vec<LibraryIngestJobResponse>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
@@ -590,7 +457,7 @@ pub struct PrepareLibraryUploadResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<LibraryFileSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub job: Option<LibraryIngestJobResponse>,
+    pub task: Option<TaskRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -606,41 +473,6 @@ pub struct ImportLibraryFileFromUrlRequest {
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<crate::TranslationDirective>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum LibraryUrlImportStatus {
-    Queued,
-    Downloading,
-    Ingesting,
-    Succeeded,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryUrlImportJobResponse {
-    pub import_job_id: Uuid,
-    pub group_path: String,
-    pub source_url: String,
-    pub status: LibraryUrlImportStatus,
-    pub attempt_count: i32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file: Option<LibraryFileSummary>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ingest_job: Option<LibraryIngestJobResponse>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_stage: Option<LibraryIngestFailureStage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_code: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    pub created_at: DateTime<Utc>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub finished_at: Option<DateTime<Utc>>,
-    pub updated_at: DateTime<Utc>,
 }
 
 fn default_preview_content_format() -> LibraryPreviewContentFormat {

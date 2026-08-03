@@ -97,11 +97,7 @@ describe("SourcesView", () => {
         },
       ]));
     listSourceConnections.mockResolvedValue([{ name: "gov-info", has_database_url: true, origin_status: "connected", origin_message: null }]);
-    syncSource.mockResolvedValue({
-      records_seen: 10,
-      records_changed: 2,
-      chunks_upserted: 6,
-    });
+    syncSource.mockResolvedValue({ task_id: "task-id", item_ids: ["item-id"] });
 
     const wrapper = mount(SourcesView, {
       global: {

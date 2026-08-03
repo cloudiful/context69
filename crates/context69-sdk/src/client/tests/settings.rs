@@ -26,6 +26,26 @@ async fn runtime_settings_get_uses_nested_resource() {
 }
 
 #[tokio::test]
+async fn vector_rebuild_returns_unified_task_ref() {
+    let response = json!({
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "item_ids": ["00000000-0000-0000-0000-000000000002"]
+    });
+    let (base_url, captured) = spawn_json(StatusCode::ACCEPTED, &response).await;
+    let task = client(&base_url)
+        .settings()
+        .runtime()
+        .rebuild_vector_index()
+        .await
+        .expect("vector rebuild task");
+    let request = captured.await.expect("captured request");
+
+    assert_eq!(request.method, axum::http::Method::POST);
+    assert_eq!(request.uri.path(), "/v1/settings/runtime/vector-index/rebuild");
+    assert_eq!(task.item_ids.len(), 1);
+}
+
+#[tokio::test]
 async fn docling_settings_get_uses_nested_resource() {
     let response = json!({
         "configured": false, "source": "unconfigured",

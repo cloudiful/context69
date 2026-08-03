@@ -11,6 +11,7 @@ import { createGroupWorkspaceApi } from "./api-group-workspace";
 import { createSearchApi } from "./api-search";
 import { createSettingsApi } from "./api-settings";
 import { createSourcesApi } from "./api-sources";
+import { createTasksApi } from "./api-tasks";
 
 export class ApiError extends Error {
   status: number;
@@ -87,6 +88,7 @@ export const apiClient = {
     unwrapResponse,
   }),
   ...createSourcesApi({ openapiClient, unwrapResponse }),
+  ...createTasksApi({ openapiClient, unwrapResponse }),
   ...createSettingsApi({ openapiClient, unwrapResponse }),
   ...createSearchApi({ openapiClient, unwrapResponse }),
   ...createLibraryApi({

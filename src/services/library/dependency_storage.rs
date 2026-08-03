@@ -169,6 +169,15 @@ impl LibraryService {
         self.delete_active_storage_with_lease(key, None).await
     }
 
+    pub(super) async fn delete_active_storage_for_lease(
+        &self,
+        key: &str,
+        lease_token: Uuid,
+    ) -> Result<()> {
+        self.delete_active_storage_with_lease(key, Some(lease_token))
+            .await
+    }
+
     async fn delete_active_storage_with_lease(
         &self,
         key: &str,

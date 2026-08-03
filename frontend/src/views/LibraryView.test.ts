@@ -108,7 +108,6 @@ describe("LibraryView", () => {
       created_at: "2026-04-07T00:00:00Z",
       updated_at: "2026-04-07T00:00:00Z",
       ingested_at: "2026-04-07T00:00:00Z",
-      jobs: [],
       sections: [
         {
           content_format: "plain_text",
@@ -262,7 +261,6 @@ describe("LibraryView", () => {
       created_at: "2026-04-07T00:00:00Z",
       updated_at: "2026-04-07T00:00:00Z",
       ingested_at: "2026-04-07T00:00:00Z",
-      jobs: [],
       sections: [
         {
           content_format: "plain_text",

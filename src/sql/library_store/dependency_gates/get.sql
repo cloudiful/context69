@@ -3,6 +3,7 @@ SELECT
     state,
     failure_count,
     next_probe_at,
+    probe_lease_expires_at,
     last_error,
     probe_lease_token,
     last_transition_at,

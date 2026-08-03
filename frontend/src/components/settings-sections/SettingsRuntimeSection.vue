@@ -9,7 +9,7 @@ import AppToggleGroup from "../AppToggleGroup.vue";
 import SettingsFileLibraryBlock from "./SettingsFileLibraryBlock.vue";
 import VectorIndexRebuildControl from "./VectorIndexRebuildControl.vue";
 import type { DraftRuntimeSettings } from "../../utils/settings";
-import type { VectorIndexRebuildStatus } from "../../services/api";
+import type { TaskResponse } from "../../services/api";
 
 type QdrantToggleModel = { recreate_on_dimension_mismatch: boolean };
 type SchedulerToggleModel = { run_on_start: boolean };
@@ -19,7 +19,7 @@ const props = defineProps<{
   schedulerToggleModel: SchedulerToggleModel;
   s3Testing: boolean;
   valkeyTesting: boolean;
-  vectorRebuildStatus: VectorIndexRebuildStatus | null;
+  vectorRebuildStatus: TaskResponse | null;
 }>();
 const emit = defineEmits<{
   "update:qdrantToggleModel": [value: QdrantToggleModel];

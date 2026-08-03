@@ -15,7 +15,7 @@ describe("useProjectLibraryDetail", () => {
   });
 
   it("loads details with the current group path after navigation", async () => {
-    getGroupLibraryFile.mockResolvedValue({ jobs: [], sections: [] } as never);
+    getGroupLibraryFile.mockResolvedValue({ sections: [] } as never);
     const groupPath = ref("stock/group-a");
     const wrapper = mount(defineComponent({
       setup() {

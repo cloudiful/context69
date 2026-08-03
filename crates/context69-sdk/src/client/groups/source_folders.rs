@@ -1,5 +1,5 @@
 use context69_contracts::{
-    CreateSourceFolderRequest, SourceConfigInput, SourceFolderResponse, SyncOutcome,
+    CreateSourceFolderRequest, SourceConfigInput, SourceFolderResponse, TaskRef,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -61,7 +61,7 @@ impl<'a> GroupSourceFolderApi<'a> {
             .await
     }
 
-    pub async fn sync(&self) -> Result<SyncOutcome, Error> {
+    pub async fn sync(&self) -> Result<TaskRef, Error> {
         let suffix = format!("/source-folders/{}/sync", self.folder_id);
         let path = group_path(&self.group_path, &suffix);
         self.client

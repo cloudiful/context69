@@ -4,6 +4,8 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use context69_contracts::TaskKind;
+use serde_json::json;
 use uuid::Uuid;
 
 use super::{
@@ -11,6 +13,7 @@ use super::{
     auth::CurrentUser,
     errors::library_management_error_response,
     group_access::{group_access_error_response, group_for_user, require_group_role},
+    submit_task_request,
 };
 use crate::contracts::{
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, CreateMetadataIndexRequest, DocumentKey,
@@ -18,6 +21,7 @@ use crate::contracts::{
     MembershipRole, MetadataIndexPageQuery, MetadataIndexPageResponse, MetadataIndexResponse,
     UpdateMetadataIndexRequest,
 };
+use crate::services::tasks::TaskSubmission;
 
 async fn group_and_scope(
     state: &ApiState,
@@ -106,7 +110,7 @@ pub(crate) async fn batch_get_group_documents(
     }
 }
 
-#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/documents/by-external-id", params(("group_path" = String, Path), DocumentLookupQuery), responses((status = 204), (status = 404)))]
+#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/documents/by-external-id", params(("group_path" = String, Path), DocumentLookupQuery), responses((status = 202, body = crate::contracts::TaskRef), (status = 403), (status = 404)))]
 pub(crate) async fn delete_group_document_by_key(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -124,10 +128,19 @@ pub(crate) async fn delete_group_document_by_key(
         source_key: query.source_key,
         external_id: query.external_id,
     };
-    match state.app.document_store.delete_by_key(&group, &key).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => library_management_error_response(error),
-    }
+    submit_task_request(
+        &state,
+        TaskSubmission {
+            user_id: session.user.id,
+            group_id: Some(group.id),
+            group_path: Some(group_path),
+            source_key: None,
+            kind: TaskKind::DeleteBatch,
+            payloads: vec![json!(key)],
+            idempotency_key: None,
+        },
+    )
+    .await
 }
 
 #[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), MetadataIndexPageQuery), responses((status = 200, body = MetadataIndexPageResponse)))]

@@ -1,4 +1,4 @@
-use context69_contracts::{CreateTextRequest, LibraryUploadResponse, UpsertLibraryTextRequest};
+use context69_contracts::{CreateTextRequest, TaskRef, UpsertLibraryTextRequest};
 use reqwest::Method;
 
 use super::Context69Client;
@@ -17,7 +17,7 @@ impl<'a> LibraryTextsApi<'a> {
     pub async fn create(
         &self,
         request: &CreateTextRequest,
-    ) -> Result<LibraryUploadResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         create_text(self.client, &self.base_path, request).await
     }
 }
@@ -35,14 +35,14 @@ impl<'a> GroupLibraryTextsApi<'a> {
     pub async fn create(
         &self,
         request: &CreateTextRequest,
-    ) -> Result<LibraryUploadResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         create_text(self.client, &self.base_path, request).await
     }
 
     pub async fn upsert(
         &self,
         request: &UpsertLibraryTextRequest,
-    ) -> Result<LibraryUploadResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         let path = format!("{}/texts", self.base_path);
         self.client
             .execute_json(
@@ -59,7 +59,7 @@ async fn create_text(
     client: &Context69Client,
     base_path: &str,
     request: &CreateTextRequest,
-) -> Result<LibraryUploadResponse, Error> {
+) -> Result<TaskRef, Error> {
     let path = format!("{base_path}/texts");
     client
         .execute_json(

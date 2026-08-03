@@ -2,12 +2,9 @@ use std::str::FromStr;
 
 use anyhow::Result;
 
-use super::{
-    FileRow, FolderRow, JobRow, LibraryFileSummary, LibraryIngestJobResponse,
-    LibraryPreviewContentFormat,
-};
-use crate::contracts::{LibraryIngestFailureStage, LibraryIngestStatus, Visibility};
-use crate::domain::{LibraryFileRecord, LibraryFolderRecord, LibraryIngestJobRecord};
+use super::{FileRow, FolderRow, LibraryFileSummary, LibraryPreviewContentFormat};
+use crate::contracts::{LibraryIngestStatus, Visibility};
+use crate::domain::{LibraryFileRecord, LibraryFolderRecord};
 
 pub(crate) fn infer_preview_content_format(
     filename: &str,
@@ -70,29 +67,6 @@ pub(super) fn file_from_row(row: FileRow) -> Result<LibraryFileRecord> {
     })
 }
 
-pub(super) fn job_from_row(row: JobRow) -> Result<LibraryIngestJobRecord> {
-    Ok(LibraryIngestJobRecord {
-        id: row.id,
-        group_id: row.group_id,
-        group_key: row.group_key,
-        group_path: row.group_path,
-        visibility: row.visibility.parse().unwrap_or(Visibility::Private),
-        file_id: row.file_id,
-        status: LibraryIngestStatus::from_str(&row.status)?,
-        docling_task_id: row.docling_task_id,
-        failure_stage: row
-            .failure_stage
-            .as_deref()
-            .map(LibraryIngestFailureStage::from_str)
-            .transpose()?,
-        error_message: row.error_message,
-        created_at: row.created_at,
-        started_at: row.started_at,
-        finished_at: row.finished_at,
-        updated_at: row.updated_at,
-    })
-}
-
 pub fn file_to_summary(file: &LibraryFileRecord) -> LibraryFileSummary {
     LibraryFileSummary {
         file_id: file.id,
@@ -112,24 +86,6 @@ pub fn file_to_summary(file: &LibraryFileRecord) -> LibraryFileSummary {
         created_at: file.created_at,
         updated_at: file.updated_at,
         ingested_at: file.ingested_at,
-    }
-}
-
-pub fn job_to_response(job: LibraryIngestJobRecord) -> LibraryIngestJobResponse {
-    LibraryIngestJobResponse {
-        job_id: job.id,
-        group_key: job.group_key,
-        group_path: job.group_path,
-        visibility: job.visibility,
-        file_id: job.file_id,
-        status: job.status,
-        docling_task_id: job.docling_task_id,
-        failure_stage: job.failure_stage,
-        error_message: job.error_message,
-        created_at: job.created_at,
-        started_at: job.started_at,
-        finished_at: job.finished_at,
-        updated_at: job.updated_at,
     }
 }
 

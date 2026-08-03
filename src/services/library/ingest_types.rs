@@ -120,8 +120,3 @@ pub(super) struct PreparedIngestSection {
     pub section: IngestSection,
     pub normalized: crate::domain::NormalizedDocument,
 }
-
-pub(super) enum IngestClaimOutcome {
-    Succeeded,
-    Requeued,
-}

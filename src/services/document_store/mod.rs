@@ -229,6 +229,25 @@ impl DocumentStoreService {
         group: &crate::domain::GroupRecord,
         key: &DocumentKey,
     ) -> Result<()> {
+        self.delete_by_key_with_lease(group, key, None).await
+    }
+
+    pub(crate) async fn delete_by_key_for_task(
+        &self,
+        group: &crate::domain::GroupRecord,
+        key: &DocumentKey,
+        lease_token: uuid::Uuid,
+    ) -> Result<()> {
+        self.delete_by_key_with_lease(group, key, Some(lease_token))
+            .await
+    }
+
+    async fn delete_by_key_with_lease(
+        &self,
+        group: &crate::domain::GroupRecord,
+        key: &DocumentKey,
+        lease_token: Option<uuid::Uuid>,
+    ) -> Result<()> {
         let id = self
             .db
             .find_document_id_by_key(group.id, key.source_key.trim(), key.external_id.trim())
@@ -246,7 +265,14 @@ impl DocumentStoreService {
             .await?
             .context("document not found")?;
         if let Some(file_id) = document.library_file_id {
-            return self.library.delete_file_in_project(group, file_id).await;
+            return match lease_token {
+                Some(lease_token) => {
+                    self.library
+                        .delete_file_in_project_for_task(group, file_id, lease_token)
+                        .await
+                }
+                None => self.library.delete_file_in_project(group, file_id).await,
+            };
         }
         let chunk_ids = self.db.document_chunk_ids(id).await?;
         self.db.delete_document_by_id(id).await?;

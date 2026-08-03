@@ -15,16 +15,6 @@ const detail: LibraryFileDetailResponse = {
   group_path: "stock/disclosures",
   ingest_status: "succeeded",
   ingested_at: "2026-07-12T04:11:00Z",
-  jobs: [{
-    created_at: "2026-07-12T04:11:00Z",
-    file_id: "00000000-0000-0000-0000-000000000001",
-    group_key: "stock",
-    group_path: "stock/disclosures",
-    job_id: "00000000-0000-0000-0000-000000000002",
-    status: "succeeded",
-    updated_at: "2026-07-12T04:11:00Z",
-    visibility: "private",
-  }],
   media_type: "text/markdown",
   sections: [{
     content_format: "plain_text",

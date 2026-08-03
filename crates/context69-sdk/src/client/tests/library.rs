@@ -7,7 +7,7 @@ use reqwest::multipart::Part;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::support::{client, spawn_empty, spawn_json};
+use super::support::{client, spawn_json};
 
 fn tree_json() -> serde_json::Value {
     json!({
@@ -26,23 +26,23 @@ fn file_json(file_id: Uuid) -> serde_json::Value {
         "filename": "runbook.md", "media_type": "text/markdown", "size_bytes": 8,
         "sha256": "abc", "ingest_status": "succeeded", "error_message": null,
         "created_at": "2026-07-10T00:00:00Z", "updated_at": "2026-07-10T00:00:00Z",
-        "ingested_at": "2026-07-10T00:00:00Z", "sections": [], "jobs": []
+        "ingested_at": "2026-07-10T00:00:00Z", "sections": []
     })
 }
 
-fn url_import_job_json(job_id: Uuid) -> serde_json::Value {
+fn task_ref_json(task_id: Uuid, item_id: Uuid) -> serde_json::Value {
     json!({
-        "import_job_id": job_id, "group_path": "ops/platform",
-        "source_url": "https://files.example.test/report.pdf", "status": "queued",
-        "attempt_count": 0, "created_at": "2026-07-12T00:00:00Z",
-        "started_at": null, "finished_at": null, "updated_at": "2026-07-12T00:00:00Z"
+        "task_id": task_id,
+        "item_ids": [item_id]
     })
 }
 
 #[tokio::test]
 async fn group_library_imports_public_url() {
-    let job_id = Uuid::new_v4();
-    let (base_url, captured) = spawn_json(StatusCode::ACCEPTED, &url_import_job_json(job_id)).await;
+    let task_id = Uuid::new_v4();
+    let item_id = Uuid::new_v4();
+    let (base_url, captured) =
+        spawn_json(StatusCode::ACCEPTED, &task_ref_json(task_id, item_id)).await;
     let request = ImportLibraryFileFromUrlRequest {
         url: "https://files.example.test/report.pdf".into(),
         folder_id: None,
@@ -54,7 +54,7 @@ async fn group_library_imports_public_url() {
         }),
         translation: None,
     };
-    let job = client(&base_url)
+    let task = client(&base_url)
         .group("ops/platform")
         .library()
         .files()
@@ -62,7 +62,8 @@ async fn group_library_imports_public_url() {
         .await
         .expect("import URL");
     let captured = captured.await.expect("captured request");
-    assert_eq!(job.import_job_id, job_id);
+    assert_eq!(task.task_id, task_id);
+    assert_eq!(task.item_ids, vec![item_id]);
     assert_eq!(captured.method, Method::POST);
     assert_eq!(
         captured.uri.path(),
@@ -75,21 +76,36 @@ async fn group_library_imports_public_url() {
 }
 
 #[tokio::test]
-async fn group_library_url_import_job_get_uses_group_scope() {
-    let job_id = Uuid::new_v4();
-    let (base_url, captured) = spawn_json(StatusCode::OK, &url_import_job_json(job_id)).await;
+async fn unified_task_get_uses_task_endpoint() {
+    let task_id = Uuid::new_v4();
+    let response = json!({
+        "task_id": task_id,
+        "kind": "url_batch",
+        "status": "queued",
+        "group_path": "ops/platform",
+        "source_key": null,
+        "stage": "download",
+        "waiting_reason": null,
+        "dependency_key": null,
+        "progress": {
+            "total": 1, "queued": 1, "running": 0, "waiting": 0,
+            "succeeded": 0, "failed": 0, "cancelled": 0
+        },
+        "failure_stage": null,
+        "error_summary": null,
+        "eta_seconds": null,
+        "created_at": "2026-07-12T00:00:00Z",
+        "started_at": null,
+        "finished_at": null,
+        "updated_at": "2026-07-12T00:00:00Z"
+    });
+    let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
     client(&base_url)
-        .group("ops/platform")
-        .library()
-        .url_import_job(job_id)
-        .get()
+        .task(task_id)
         .await
-        .expect("get URL import job");
+        .expect("get task");
     let captured = captured.await.expect("captured request");
-    assert_eq!(
-        captured.uri.path(),
-        format!("/v1/groups/by-path/ops%2Fplatform/library/url-import-jobs/{job_id}")
-    );
+    assert_eq!(captured.uri.path(), format!("/v1/tasks/{task_id}"));
 }
 
 #[tokio::test]
@@ -103,7 +119,7 @@ async fn global_library_tree_uses_global_scope() {
 
 #[tokio::test]
 async fn group_library_text_upsert_uses_group_scope() {
-    let response = json!({"files": [], "jobs": []});
+    let response = task_ref_json(Uuid::new_v4(), Uuid::new_v4());
     let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
     let input = UpsertLibraryTextRequest {
         external_id: "incident-42".to_string(),
@@ -179,7 +195,7 @@ async fn library_folder_resource_moves() {
 #[tokio::test]
 async fn library_files_upload_builds_multipart_form() {
     let folder_id = Uuid::new_v4();
-    let response = json!({"files": [], "jobs": []});
+    let response = task_ref_json(Uuid::new_v4(), Uuid::new_v4());
     let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
     client(&base_url)
         .library()
@@ -206,10 +222,12 @@ async fn library_files_upload_builds_multipart_form() {
 #[tokio::test]
 async fn deduplicated_upload_sends_metadata_and_reuses_existing_file() {
     let file_id = Uuid::new_v4();
+    let task_id = Uuid::new_v4();
+    let item_id = Uuid::new_v4();
     let response = json!({
         "upload_required": false,
         "file": file_json(file_id),
-        "job": null
+        "task": task_ref_json(task_id, item_id)
     });
     let (base_url, captured) = spawn_json(StatusCode::OK, &response).await;
     let metadata = LibraryFileUploadMetadata {
@@ -219,7 +237,7 @@ async fn deduplicated_upload_sends_metadata_and_reuses_existing_file() {
         metadata_json: json!({"ticker": "ACME"}),
     };
 
-    let upload = client(&base_url)
+    let task = client(&base_url)
         .group("ops/platform")
         .library()
         .files()
@@ -233,8 +251,8 @@ async fn deduplicated_upload_sends_metadata_and_reuses_existing_file() {
         .await
         .expect("reuse upload");
 
-    assert_eq!(upload.files[0].file_id, file_id);
-    assert!(upload.jobs.is_empty());
+    assert_eq!(task.task_id, task_id);
+    assert_eq!(task.item_ids, vec![item_id]);
     let request = captured.await.expect("captured request");
     assert_eq!(
         request.uri.path(),
@@ -249,12 +267,17 @@ async fn deduplicated_upload_sends_metadata_and_reuses_existing_file() {
 #[tokio::test]
 async fn library_file_delete_uses_item_endpoint() {
     let file_id = Uuid::new_v4();
-    let (base_url, captured) = spawn_empty(StatusCode::NO_CONTENT).await;
-    client(&base_url)
+    let task_id = Uuid::new_v4();
+    let item_id = Uuid::new_v4();
+    let (base_url, captured) =
+        spawn_json(StatusCode::ACCEPTED, &task_ref_json(task_id, item_id)).await;
+    let task = client(&base_url)
         .library()
         .file(file_id)
         .delete()
         .await
         .expect("delete file");
+    assert_eq!(task.task_id, task_id);
+    assert_eq!(task.item_ids, vec![item_id]);
     assert_eq!(captured.await.unwrap().method, Method::DELETE);
 }

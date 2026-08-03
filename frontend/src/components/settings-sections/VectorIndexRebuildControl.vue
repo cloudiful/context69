@@ -2,22 +2,19 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
-import type { VectorIndexRebuildStatus } from "../../services/api";
+import type { TaskResponse } from "../../services/api";
 
 const props = defineProps<{
-  status: VectorIndexRebuildStatus | null;
+  status: TaskResponse | null;
 }>();
 
 defineEmits<{ rebuild: [] }>();
 
 const { t } = useI18n();
-const running = computed(() => props.status?.state === "running");
+const running = computed(() => props.status ? ["queued", "running", "waiting"].includes(props.status.status) : false);
 const progress = computed(() => {
-  if (!props.status || props.status.total_chunks === 0) return "";
-  return t("settings.runtime.vectorRebuildProgress", {
-    processed: props.status.processed_chunks,
-    total: props.status.total_chunks,
-  });
+  if (!props.status) return "";
+  return t(`processingQueue.statuses.${props.status.status}`);
 });
 </script>
 
@@ -40,11 +37,11 @@ const progress = computed(() => {
     <p v-if="running" class="m-0 text-sm text-muted-color">
       {{ progress || t('settings.runtime.vectorRebuilding') }}
     </p>
-    <p v-else-if="status?.state === 'succeeded'" class="m-0 text-sm text-green-500">
-      {{ t('settings.runtime.vectorRebuildSucceeded', { count: status.processed_chunks }) }}
+    <p v-else-if="status?.status === 'succeeded'" class="m-0 text-sm text-green-500">
+      {{ t('settings.runtime.vectorRebuildSucceeded', { count: status.progress.succeeded }) }}
     </p>
-    <p v-else-if="status?.state === 'failed'" class="m-0 text-sm text-red-500">
-      {{ status.error_message || t('settings.runtime.vectorRebuildFailed') }}
+    <p v-else-if="status?.status === 'failed'" class="m-0 text-sm text-red-500">
+      {{ status.error_summary || t('settings.runtime.vectorRebuildFailed') }}
     </p>
   </div>
 </template>

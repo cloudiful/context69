@@ -9,7 +9,7 @@ use super::Database;
 #[derive(Debug, Clone, FromRow)]
 pub struct StoredTask {
     pub id: Uuid,
-    pub user_id: i64,
+    pub user_id: Option<i64>,
     pub group_id: Option<i64>,
     pub kind: String,
     pub status: String,
@@ -18,11 +18,16 @@ pub struct StoredTask {
     pub total_count: i64,
     pub queued_count: i64,
     pub running_count: i64,
+    pub waiting_count: i64,
     pub succeeded_count: i64,
     pub failed_count: i64,
     pub cancelled_count: i64,
     pub failure_stage: Option<String>,
     pub error_summary: Option<String>,
+    pub stage: Option<String>,
+    pub waiting_reason: Option<String>,
+    pub dependency_key: Option<String>,
+    pub next_attempt_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
@@ -36,6 +41,11 @@ pub struct StoredTaskItem {
     pub ordinal: i32,
     pub status: String,
     pub resource_id: Option<String>,
+    pub file_id: Option<Uuid>,
+    pub stage: Option<String>,
+    pub waiting_reason: Option<String>,
+    pub dependency_key: Option<String>,
+    pub next_attempt_at: Option<DateTime<Utc>>,
     pub failure_stage: Option<String>,
     pub error_message: Option<String>,
     pub attempt_count: i32,
@@ -52,6 +62,9 @@ pub struct ClaimedTaskItem {
     pub attempt_count: i32,
     pub lease_token: Uuid,
     pub attempt_id: i64,
+    pub payload: Value,
+    pub file_id: Option<Uuid>,
+    pub stage: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -61,10 +74,36 @@ pub struct StoredTaskPayload {
     pub payload: Value,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct StoredTaskItemId {
+    pub id: Uuid,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RetriedTaskItem {
+    pub id: Uuid,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct StoredIdempotencyKey {
     pub task_id: Uuid,
     pub request_hash: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct TaskProcessingHealth {
+    pub pending_count: i64,
+    pub queued_count: i64,
+    pub oldest_pending_at: Option<DateTime<Utc>>,
+    pub oldest_queued_at: Option<DateTime<Utc>>,
+    pub recent_failure_count: i64,
+    pub docling_required_count: i64,
+    pub status_counts: Value,
+    pub stage_counts: Value,
+    pub waiting_reason_counts: Value,
+    pub dependency_counts: Value,
+    pub processed_last_hour: i64,
+    pub failed_last_hour: i64,
 }
 
 impl Database {
@@ -79,7 +118,7 @@ impl Database {
         payloads: &[Value],
         idempotency_key: Option<&str>,
         request_hash: &str,
-    ) -> Result<(Uuid, bool)> {
+    ) -> Result<(Uuid, bool, Vec<Uuid>)> {
         let mut tx = self.pool().begin().await?;
         if let Some(key) = idempotency_key {
             if let Some(existing) = sqlx::query_file_as!(
@@ -94,8 +133,12 @@ impl Database {
                 if existing.request_hash != request_hash {
                     anyhow::bail!("idempotency key was already used with a different request");
                 }
+                let item_ids =
+                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", existing.task_id)
+                        .fetch_all(&mut *tx)
+                        .await?;
                 tx.commit().await?;
-                return Ok((existing.task_id, true));
+                return Ok((existing.task_id, true, item_ids));
             }
         }
 
@@ -111,13 +154,21 @@ impl Database {
         )
         .fetch_one(&mut *tx)
         .await?;
+        let mut item_ids = Vec::with_capacity(payloads.len());
         for (ordinal, payload) in payloads.iter().enumerate() {
+            let item_id = Uuid::new_v4();
+            item_ids.push(item_id);
             sqlx::query_file!(
                 "src/sql/db/tasks/insert_item.sql",
-                Uuid::new_v4(),
+                item_id,
                 task_id,
                 ordinal as i32,
+                payload,
+                initial_stage(kind),
                 payload
+                    .get("file_id")
+                    .and_then(Value::as_str)
+                    .and_then(|value| value.parse::<Uuid>().ok())
             )
             .execute(&mut *tx)
             .await?;
@@ -145,12 +196,16 @@ impl Database {
                 if existing.request_hash != request_hash {
                     anyhow::bail!("idempotency key was already used with a different request");
                 }
+                let item_ids =
+                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", existing.task_id)
+                        .fetch_all(&mut *tx)
+                        .await?;
                 tx.rollback().await?;
-                return Ok((existing.task_id, true));
+                return Ok((existing.task_id, true, item_ids));
             }
         }
         tx.commit().await?;
-        Ok((task_id, false))
+        Ok((task_id, false, item_ids))
     }
 
     pub async fn create_task(
@@ -184,13 +239,17 @@ impl Database {
         task_id: Uuid,
         ordinal: i32,
         payload: &Value,
+        stage: Option<&str>,
+        file_id: Option<Uuid>,
     ) -> Result<()> {
         sqlx::query_file!(
             "src/sql/db/tasks/insert_item.sql",
             item_id,
             task_id,
             ordinal,
-            payload
+            payload,
+            stage,
+            file_id
         )
         .execute(self.pool())
         .await?;
@@ -216,8 +275,12 @@ impl Database {
     pub async fn list_tasks(
         &self,
         user_id: i64,
+        query: Option<&str>,
         kind: Option<&str>,
         status: Option<&str>,
+        stage: Option<&str>,
+        waiting_reason: Option<&str>,
+        dependency_key: Option<&str>,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<StoredTask>> {
@@ -225,8 +288,12 @@ impl Database {
             StoredTask,
             "src/sql/db/tasks/list.sql",
             user_id,
+            query,
             kind,
             status,
+            stage,
+            waiting_reason,
+            dependency_key,
             limit,
             offset
         )
@@ -237,15 +304,26 @@ impl Database {
     pub async fn count_tasks(
         &self,
         user_id: i64,
+        query: Option<&str>,
         kind: Option<&str>,
         status: Option<&str>,
+        stage: Option<&str>,
+        waiting_reason: Option<&str>,
+        dependency_key: Option<&str>,
     ) -> Result<i64> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/count.sql", user_id, kind, status)
-                .fetch_one(self.pool())
-                .await?
-                .unwrap_or(0),
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/tasks/count.sql",
+            user_id,
+            query,
+            kind,
+            status,
+            stage,
+            waiting_reason,
+            dependency_key
         )
+        .fetch_one(self.pool())
+        .await?
+        .unwrap_or(0))
     }
 
     pub async fn list_task_items(
@@ -275,6 +353,14 @@ impl Database {
         .await?)
     }
 
+    pub async fn list_task_item_ids(&self, task_id: Uuid) -> Result<Vec<Uuid>> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", task_id)
+                .fetch_all(self.pool())
+                .await?,
+        )
+    }
+
     pub async fn claim_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
         Ok(
             sqlx::query_file_scalar!("src/sql/db/tasks/claim.sql", task_id, lease_token)
@@ -288,6 +374,15 @@ impl Database {
         Ok(sqlx::query_file_scalar!("src/sql/db/tasks/pending.sql")
             .fetch_all(self.pool())
             .await?)
+    }
+
+    pub async fn task_processing_health(&self) -> Result<TaskProcessingHealth> {
+        Ok(sqlx::query_file_as!(
+            TaskProcessingHealth,
+            "src/sql/db/tasks/processing_health.sql"
+        )
+        .fetch_one(self.pool())
+        .await?)
     }
 
     pub async fn claim_task_item(&self, item_id: Uuid) -> Result<bool> {
@@ -323,7 +418,7 @@ impl Database {
         retryable: bool,
         lease_token: Uuid,
         attempt_id: i64,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let updated = sqlx::query_file!(
             "src/sql/db/tasks/finish_item.sql",
             item_id,
@@ -337,12 +432,13 @@ impl Database {
         )
         .execute(self.pool())
         .await?;
-        if updated.rows_affected() > 0 {
+        let updated = updated.rows_affected() > 0;
+        if updated {
             sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
                 .execute(self.pool())
                 .await?;
         }
-        Ok(())
+        Ok(updated)
     }
 
     pub async fn recompute_task(&self, task_id: Uuid) -> Result<()> {
@@ -353,19 +449,31 @@ impl Database {
     }
 
     pub async fn cancel_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
+        let mut tx = self.pool().begin().await?;
         let updated = sqlx::query_file!("src/sql/db/tasks/cancel.sql", task_id, user_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await?
             .is_some();
-        sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
-            .execute(self.pool())
-            .await?;
-        if updated {
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-                .execute(self.pool())
-                .await?;
+        if !updated {
+            tx.rollback().await?;
+            return Ok(false);
         }
-        Ok(updated)
+        sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn can_manage_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/manage_access.sql", task_id, user_id)
+                .fetch_one(self.pool())
+                .await?,
+        )
     }
 
     pub async fn heartbeat_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
@@ -386,6 +494,109 @@ impl Database {
                 .rows_affected()
                 > 0,
         )
+    }
+
+    pub async fn release_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
+        Ok(
+            sqlx::query_file!("src/sql/db/tasks/release.sql", task_id, lease_token)
+                .execute(self.pool())
+                .await?
+                .rows_affected()
+                > 0,
+        )
+    }
+
+    pub async fn progress_task_item(
+        &self,
+        task_id: Uuid,
+        item_id: Uuid,
+        lease_token: Uuid,
+        attempt_id: i64,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file!(
+            "src/sql/db/tasks/progress_item.sql",
+            item_id,
+            lease_token,
+            attempt_id
+        )
+        .execute(self.pool())
+        .await?
+        .rows_affected()
+            > 0;
+        if updated {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(self.pool())
+                .await?;
+        }
+        Ok(updated)
+    }
+
+    pub async fn set_task_item_stage(
+        &self,
+        task_id: Uuid,
+        item_id: Uuid,
+        lease_token: Uuid,
+        stage: &str,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file!(
+            "src/sql/db/tasks/set_stage.sql",
+            item_id,
+            lease_token,
+            stage
+        )
+        .execute(self.pool())
+        .await?
+        .rows_affected()
+            > 0;
+        if updated {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(self.pool())
+                .await?;
+        }
+        Ok(updated)
+    }
+
+    pub async fn set_task_item_file(
+        &self,
+        task_id: Uuid,
+        item_id: Uuid,
+        lease_token: Uuid,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file!(
+            "src/sql/db/tasks/set_file.sql",
+            item_id,
+            lease_token,
+            file_id
+        )
+        .execute(self.pool())
+        .await?
+        .rows_affected()
+            > 0;
+        if updated {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(self.pool())
+                .await?;
+        }
+        Ok(updated)
+    }
+
+    pub async fn set_task_item_payload(
+        &self,
+        item_id: Uuid,
+        lease_token: Uuid,
+        payload: &Value,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file!(
+            "src/sql/db/tasks/set_payload.sql",
+            item_id,
+            lease_token,
+            payload
+        )
+        .execute(self.pool())
+        .await?
+        .rows_affected()
+            > 0)
     }
 
     pub async fn fail_task(
@@ -443,4 +654,61 @@ impl Database {
         .await?;
         Ok(())
     }
+
+    pub async fn wait_task_item(
+        &self,
+        task_id: Uuid,
+        item_id: Uuid,
+        lease_token: Uuid,
+        waiting_reason: &str,
+        dependency_key: Option<&str>,
+        next_attempt_at: DateTime<Utc>,
+        error_message: Option<&str>,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file!(
+            "src/sql/db/tasks/wait_item.sql",
+            item_id,
+            lease_token,
+            waiting_reason,
+            dependency_key,
+            next_attempt_at,
+            error_message
+        )
+        .execute(self.pool())
+        .await?
+        .rows_affected()
+            > 0;
+        if updated {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(self.pool())
+                .await?;
+        }
+        Ok(updated)
+    }
+
+    pub async fn retry_task_items(&self, task_id: Uuid, user_id: i64) -> Result<Vec<Uuid>> {
+        let mut tx = self.pool().begin().await?;
+        let ids = sqlx::query_file_scalar!("src/sql/db/tasks/retry_items.sql", task_id, user_id)
+            .fetch_all(&mut *tx)
+            .await?;
+        if !ids.is_empty() {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(ids)
+    }
+}
+
+fn initial_stage(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "url_batch" => "download",
+        "file_batch" | "text_batch" => "storage",
+        "source_sync" => "sync",
+        "delete_batch" => "delete",
+        "translation" => "translation",
+        "vector_rebuild" => "indexing",
+        _ => "finalize",
+    })
 }

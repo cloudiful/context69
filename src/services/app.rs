@@ -296,8 +296,7 @@ impl Context69App {
         )
         .await?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
-        library.resume_ingest_jobs().await?;
-        library.resume_url_imports().await?;
+        library.initialize_dependency_gates().await?;
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
         document_store.resume_pending();
         let tasks = TaskService::new(
@@ -306,7 +305,13 @@ impl Context69App {
             document_store.clone(),
             library.clone(),
             sync.clone(),
+            source_folders.clone(),
             translation.clone(),
+            config
+                .file_library
+                .ingest_concurrency
+                .min(config.file_library.url_import_concurrency)
+                .max(1),
         );
         tasks.resume_pending();
         translation.resume().await?;

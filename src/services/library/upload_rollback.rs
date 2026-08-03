@@ -12,6 +12,42 @@ impl LibraryService {
         storage_key: Option<&str>,
         storage_object_id: Option<Uuid>,
     ) {
+        self.rollback_new_file_record_with_lease(
+            project_id,
+            file_id,
+            storage_key,
+            storage_object_id,
+            None,
+        )
+        .await;
+    }
+
+    pub(super) async fn rollback_new_file_record_for_task(
+        &self,
+        project_id: Option<i64>,
+        file_id: Uuid,
+        storage_key: Option<&str>,
+        storage_object_id: Option<Uuid>,
+        lease_token: Uuid,
+    ) {
+        self.rollback_new_file_record_with_lease(
+            project_id,
+            file_id,
+            storage_key,
+            storage_object_id,
+            Some(lease_token),
+        )
+        .await;
+    }
+
+    async fn rollback_new_file_record_with_lease(
+        &self,
+        project_id: Option<i64>,
+        file_id: Uuid,
+        storage_key: Option<&str>,
+        storage_object_id: Option<Uuid>,
+        lease_token: Option<Uuid>,
+    ) {
         let removed = match project_id {
             Some(project_id) => {
                 self.store
@@ -29,23 +65,66 @@ impl LibraryService {
         }
 
         if let Some(storage_object_id) = storage_object_id {
-            self.delete_unreferenced_storage_object(storage_object_id)
-                .await;
-        } else if let Some(storage_key) = storage_key
-            && let Err(error) = self.delete_active_storage(storage_key).await
-        {
-            warn!(file_id = %file_id, %error, "failed to remove storage object after file rollback");
+            match lease_token {
+                Some(lease_token) => {
+                    self.delete_unreferenced_storage_object_for_lease(
+                        storage_object_id,
+                        lease_token,
+                    )
+                    .await
+                }
+                None => {
+                    self.delete_unreferenced_storage_object(storage_object_id)
+                        .await
+                }
+            }
+        } else if let Some(storage_key) = storage_key {
+            let result = match lease_token {
+                Some(lease_token) => {
+                    self.delete_active_storage_for_lease(storage_key, lease_token)
+                        .await
+                }
+                None => self.delete_active_storage(storage_key).await,
+            };
+            if let Err(error) = result {
+                warn!(file_id = %file_id, %error, "failed to remove storage object after file rollback");
+            }
         }
     }
 
     pub(super) async fn delete_unreferenced_storage_object(&self, object_id: Uuid) {
+        self.delete_unreferenced_storage_object_with_lease(object_id, None)
+            .await;
+    }
+
+    pub(super) async fn delete_unreferenced_storage_object_for_lease(
+        &self,
+        object_id: Uuid,
+        lease_token: Uuid,
+    ) {
+        self.delete_unreferenced_storage_object_with_lease(object_id, Some(lease_token))
+            .await;
+    }
+
+    async fn delete_unreferenced_storage_object_with_lease(
+        &self,
+        object_id: Uuid,
+        lease_token: Option<Uuid>,
+    ) {
         match self
             .store
             .delete_unreferenced_storage_object(object_id)
             .await
         {
             Ok(Some(object)) if object.storage_backend == self.storage.backend() => {
-                if let Err(error) = self.delete_active_storage(&object.object_key).await {
+                let result = match lease_token {
+                    Some(lease_token) => {
+                        self.delete_active_storage_for_lease(&object.object_key, lease_token)
+                            .await
+                    }
+                    None => self.delete_active_storage(&object.object_key).await,
+                };
+                if let Err(error) = result {
                     warn!(
                         object_id = %object_id,
                         object_key = %object.object_key,
@@ -110,6 +189,7 @@ impl LibraryService {
         previous_translation: Option<&crate::contracts::TranslationDirective>,
         new_storage_key: &str,
         new_storage_object_id: Option<Uuid>,
+        lease_token: Option<Uuid>,
     ) {
         if let Some(previous_file) = previous_file {
             if let Err(error) = self
@@ -127,23 +207,39 @@ impl LibraryService {
                 );
             }
             if let Some(object_id) = new_storage_object_id {
-                self.delete_unreferenced_storage_object(object_id).await;
-            } else if let Err(error) = self.delete_active_storage(new_storage_key).await {
-                warn!(
-                    file_id = %file_id,
-                    path = %new_storage_key,
-                    %error,
-                    "failed to remove replacement storage object"
-                );
+                match lease_token {
+                    Some(lease_token) => {
+                        self.delete_unreferenced_storage_object_for_lease(object_id, lease_token)
+                            .await
+                    }
+                    None => self.delete_unreferenced_storage_object(object_id).await,
+                }
+            } else {
+                let result = match lease_token {
+                    Some(lease_token) => {
+                        self.delete_active_storage_for_lease(new_storage_key, lease_token)
+                            .await
+                    }
+                    None => self.delete_active_storage(new_storage_key).await,
+                };
+                if let Err(error) = result {
+                    warn!(
+                        file_id = %file_id,
+                        path = %new_storage_key,
+                        %error,
+                        "failed to remove replacement storage object"
+                    );
+                }
             }
             return;
         }
 
-        self.rollback_new_file_record(
+        self.rollback_new_file_record_with_lease(
             Some(project_id),
             file_id,
             Some(new_storage_key),
             new_storage_object_id,
+            lease_token,
         )
         .await;
     }
@@ -157,147 +253,16 @@ impl LibraryService {
         }
     }
 
-    pub(super) async fn rollback_uploaded_file(
+    pub(super) async fn finalize_uploaded_file_for_task(
         &self,
-        file: &LibraryFileSummary,
-        job: &LibraryIngestJobResponse,
-        created_file: bool,
         rollback: UploadedLibraryFileRollback,
+        lease_token: Uuid,
     ) {
-        if rollback.previous_file.is_none() {
-            if created_file {
-                self.cleanup_unclaimed_ingest_file(file.file_id, job.job_id)
-                    .await;
-            }
-            return;
-        }
-
-        if rollback.created_job {
-            match self.store.delete_pending_ingest_job(job.job_id).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    warn!(
-                        file_id = %file.file_id,
-                        job_id = %job.job_id,
-                        "URL upload replacement job was already claimed; keeping replacement"
-                    );
-                    return;
-                }
-                Err(error) => {
-                    warn!(
-                        file_id = %file.file_id,
-                        job_id = %job.job_id,
-                        %error,
-                        "failed to remove URL upload replacement job; keeping replacement"
-                    );
-                    return;
-                }
-            }
-        }
-
-        if !rollback.restore_required {
-            return;
-        }
-
-        let Some(previous_file) = rollback.previous_file.as_ref() else {
-            return;
-        };
         if let Err(error) = self
-            .restore_project_file_snapshot(
-                previous_file,
-                rollback.previous_storage_object_id,
-                rollback.previous_translation.as_ref(),
-            )
+            .delete_unreferenced_objects_with_lease(rollback.old_storage_paths, Some(lease_token))
             .await
         {
-            warn!(
-                file_id = %file.file_id,
-                %error,
-                "failed to restore URL upload replacement"
-            );
-            return;
+            warn!(%error, "failed to remove replaced library storage object");
         }
-
-        if let Some(object_id) = rollback.new_storage_object_id {
-            self.delete_unreferenced_storage_object(object_id).await;
-        } else if let Some(storage_key) = rollback.new_storage_key.as_deref()
-            && let Err(error) = self.delete_active_storage(storage_key).await
-        {
-            warn!(
-                file_id = %file.file_id,
-                path = %storage_key,
-                %error,
-                "failed to remove URL upload replacement storage"
-            );
-        }
-    }
-
-    pub(super) async fn file_upload_rollback(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        restore_required: bool,
-    ) -> Result<UploadedLibraryFileRollback> {
-        let previous_storage_object_id = self
-            .store
-            .list_storage_paths_for_files(&[file.id])
-            .await?
-            .iter()
-            .find(|path| path.id == file.id)
-            .and_then(|path| path.storage_object_id);
-        Ok(UploadedLibraryFileRollback {
-            previous_file: Some(file.clone()),
-            previous_storage_object_id,
-            previous_translation: self.store.file_translation_directive(file.id).await?,
-            restore_required,
-            ..UploadedLibraryFileRollback::empty()
-        })
-    }
-
-    pub(super) async fn reuse_uploaded_file(
-        &self,
-        file: crate::domain::LibraryFileRecord,
-        metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
-        translation: Option<&crate::contracts::TranslationDirective>,
-    ) -> Result<(LibraryFileSummary, LibraryIngestJobResponse)> {
-        let original_file = file.clone();
-        let restore_snapshot = if metadata.is_some() || translation.is_some() {
-            let rollback = self.file_upload_rollback(&file, true).await?;
-            Some((
-                rollback.previous_storage_object_id,
-                rollback.previous_translation,
-            ))
-        } else {
-            None
-        };
-        let result = async {
-            let (file, job) = self.reuse_file_with_metadata(file, metadata).await?;
-            if let Some(directive) = translation {
-                self.apply_file_translation_directive(file.id, directive)
-                    .await?;
-            }
-            let job = job.context("deduplicated library file has no ingest job")?;
-            Ok((file_to_summary(&file), job_to_response(job)))
-        }
-        .await;
-        if let Err(error) = result {
-            if let Some((storage_object_id, translation)) = restore_snapshot {
-                if let Err(restore_error) = self
-                    .restore_project_file_snapshot(
-                        &original_file,
-                        storage_object_id,
-                        translation.as_ref(),
-                    )
-                    .await
-                {
-                    warn!(
-                        file_id = %original_file.id,
-                        %restore_error,
-                        "failed to restore deduplicated library file after upload failure"
-                    );
-                }
-            }
-            return Err(error);
-        }
-        result
     }
 }

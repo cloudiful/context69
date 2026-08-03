@@ -1,19 +1,16 @@
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { apiClient, type LibraryIngestFailureStage, type LibraryIngestStatus, type LibraryProcessingJobPageResponse, type LibraryProcessingJobResponse, type LibraryProcessingJobSummaryResponse } from "../services/api";
+import { apiClient, type TaskKind, type TaskPageResponse, type TaskResponse, type TaskStatus } from "../services/api";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
 import { useToast } from "@nuxt/ui/composables";
 
 const DEFAULT_PAGE_SIZE = 25;
-const EMPTY_SUMMARY: LibraryProcessingJobSummaryResponse = {
-  can_manage: false,
-  cleanupable_stuck_count: 0,
-  failed_count: 0,
-  pending_count: 0,
-  retryable_failed_count: 0,
-  running_count: 0,
-  stuck_count: 0,
+const EMPTY_PAGINATION: TaskPageResponse["pagination"] = {
+  page: 1,
+  page_size: DEFAULT_PAGE_SIZE,
+  total: 0,
+  total_pages: 0,
 };
 
 interface UseProcessingQueueOptions {
@@ -24,29 +21,30 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const showErrorToast = useErrorToast();
   const toast = useToast();
   const confirm = useAppConfirm();
-  const items = ref<LibraryProcessingJobResponse[]>([]);
-  const pagination = ref<LibraryProcessingJobPageResponse["pagination"]>({ page: 1, page_size: DEFAULT_PAGE_SIZE, total: 0, total_pages: 0 });
+  const items = ref<TaskResponse[]>([]);
+  const pagination = ref<TaskPageResponse["pagination"]>({ ...EMPTY_PAGINATION });
   const loading = ref(false);
   const error = ref<string | null>(null);
   const page = ref(1);
   const pageSize = ref(DEFAULT_PAGE_SIZE);
-  const total = ref(0);
-  const totalPages = ref(0);
-  const summary = ref<LibraryProcessingJobSummaryResponse>(EMPTY_SUMMARY);
   const searchInput = ref("");
   const query = ref("");
-  const statusFilter = ref<LibraryIngestStatus | null>(null);
-  const failureStageFilter = ref<LibraryIngestFailureStage | null>(null);
-  const retryingJobIds = ref<string[]>([]);
-  const bulkAction = ref<"retry" | "cleanup" | null>(null);
+  const statusFilter = ref<TaskStatus | null>(null);
+  const kindFilter = ref<TaskKind | null>(null);
+  const stageFilter = ref<string | null>(null);
+  const waitingReasonFilter = ref<string | null>(null);
+  const actionTaskIds = ref<string[]>([]);
+  const bulkAction = ref<"retry" | "cancel" | null>(null);
   let requestController: AbortController | null = null;
   let requestId = 0;
 
-  async function load(options: { resetPage?: boolean } = {}) {
-    if (options.resetPage) {
-      page.value = 1;
-    }
+  const isRetryableTask = (task: TaskResponse) =>
+    task.status === "failed" || (task.status === "cancelled" && task.progress.failed > 0);
+  const failedCount = computed(() => items.value.filter(isRetryableTask).length);
+  const activeCount = computed(() => items.value.filter((task) => ["queued", "running", "waiting"].includes(task.status)).length);
 
+  async function load(options: { resetPage?: boolean } = {}) {
+    if (options.resetPage) page.value = 1;
     requestController?.abort();
     requestController = new AbortController();
     const currentRequest = ++requestId;
@@ -54,21 +52,20 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     error.value = null;
 
     try {
-      const response = await apiClient.getLibraryProcessingJobs({
+      const response = await apiClient.listTasks({
         page: page.value,
         pageSize: pageSize.value,
         query: query.value,
+        kind: kindFilter.value,
         status: statusFilter.value,
-        failureStage: failureStageFilter.value,
+        stage: stageFilter.value,
+        waitingReason: waitingReasonFilter.value,
       }, { signal: requestController.signal });
       if (currentRequest !== requestId) return;
       items.value = response.items;
       pagination.value = response.pagination;
       page.value = response.pagination.page;
       pageSize.value = response.pagination.page_size;
-      total.value = response.pagination.total;
-      totalPages.value = response.pagination.total_pages;
-      summary.value = response.summary ?? EMPTY_SUMMARY;
     } catch (loadError) {
       if (loadError instanceof Error && loadError.name === "AbortError") return;
       if (currentRequest !== requestId) return;
@@ -83,15 +80,9 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     void load({ resetPage: true });
   }
 
-  function setStatusFilter(value: LibraryIngestStatus | null) {
-    if (statusFilter.value === value) return;
-    statusFilter.value = value;
-    void load({ resetPage: true });
-  }
-
-  function setFailureStageFilter(value: LibraryIngestFailureStage | null) {
-    if (failureStageFilter.value === value) return;
-    failureStageFilter.value = value;
+  function setFilter<T>(target: { value: T }, value: T) {
+    if (target.value === value) return;
+    target.value = value;
     void load({ resetPage: true });
   }
 
@@ -108,67 +99,45 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     void load();
   }
 
-  function replaceRetriedItem(item: LibraryProcessingJobResponse, nextJobId: string) {
-    items.value = items.value.map((current) => current.job_id === item.job_id
-      ? {
-          ...current,
-          job_id: nextJobId,
-          status: "pending",
-          failure_stage: null,
-          error_message: null,
-          started_at: null,
-          finished_at: null,
-          updated_at: new Date().toISOString(),
-        }
-      : current);
+  function isActing(task: TaskResponse) {
+    return actionTaskIds.value.includes(task.task_id);
   }
 
-  async function retryJob(item: LibraryProcessingJobResponse) {
-    if (!item.can_retry || item.status !== "failed" || retryingJobIds.value.includes(item.job_id)) return;
-    retryingJobIds.value = [...retryingJobIds.value, item.job_id];
-
+  async function retryTask(task: TaskResponse) {
+    if (!isRetryableTask(task) || isActing(task)) return;
+    actionTaskIds.value = [...actionTaskIds.value, task.task_id];
     try {
-      let nextJobId = item.job_id;
-      if (item.kind === "url_import") {
-        const response = await apiClient.retryGroupLibraryUrlImportJob(item.group_path, item.job_id);
-        nextJobId = response.import_job_id;
-      } else if (item.file_id) {
-        const response = await apiClient.retryGroupLibraryFile(item.group_path, item.file_id);
-        nextJobId = response.job_id;
-      } else {
-        return;
-      }
-
-      replaceRetriedItem(item, nextJobId);
-      toast.add({
-        color: "success",
-        title: t("processingQueue.retryAccepted"),
-        description: item.filename || item.source_url || item.job_id,
-        duration: 2500,
-      });
+      await apiClient.retryTask(task.task_id);
+      await load();
+      toast.add({ color: "success", title: t("processingQueue.retryAccepted"), description: task.task_id, duration: 2500 });
     } catch (retryError) {
       showErrorToast(retryError, t("processingQueue.retryFailed"));
     } finally {
-      retryingJobIds.value = retryingJobIds.value.filter((jobId) => jobId !== item.job_id);
+      actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
     }
   }
 
-  function isRetrying(item: LibraryProcessingJobResponse) {
-    return retryingJobIds.value.includes(item.job_id);
+  async function cancelTask(task: TaskResponse) {
+    if (!["queued", "running", "waiting"].includes(task.status) || isActing(task)) return;
+    actionTaskIds.value = [...actionTaskIds.value, task.task_id];
+    try {
+      await apiClient.cancelTask(task.task_id);
+      await load();
+      toast.add({ color: "success", title: t("processingQueue.cancelAccepted"), description: task.task_id, duration: 2500 });
+    } catch (cancelError) {
+      showErrorToast(cancelError, t("processingQueue.cancelFailed"));
+    } finally {
+      actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
+    }
   }
 
   async function retryAllFailed() {
-    if (!summary.value.can_manage || summary.value.retryable_failed_count === 0 || bulkAction.value) return;
+    if (failedCount.value === 0 || bulkAction.value) return;
     bulkAction.value = "retry";
     try {
-      const response = await apiClient.retryFailedLibraryProcessingJobs();
+      await Promise.all(items.value.filter(isRetryableTask).map((task) => apiClient.retryTask(task.task_id)));
       await load();
-      toast.add({
-        color: "success",
-        title: t("processingQueue.bulkCompleted"),
-        description: t("processingQueue.accepted") + ": " + response.accepted + "; " + t("processingQueue.skipped") + ": " + response.skipped,
-        duration: 3500,
-      });
+      toast.add({ color: "success", title: t("processingQueue.bulkCompleted"), duration: 3000 });
     } catch (retryError) {
       showErrorToast(retryError, t("processingQueue.bulkRetryFailed"));
     } finally {
@@ -176,55 +145,43 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   }
 
-  async function cleanupStuck() {
-    if (!summary.value.can_manage || summary.value.cleanupable_stuck_count === 0 || bulkAction.value) return;
-    bulkAction.value = "cleanup";
+  async function cancelActive() {
+    if (activeCount.value === 0 || bulkAction.value) return;
+    bulkAction.value = "cancel";
     try {
-      const response = await apiClient.cleanupStuckLibraryProcessingJobs();
+      await Promise.all(items.value.filter((task) => ["queued", "running", "waiting"].includes(task.status)).map((task) => apiClient.cancelTask(task.task_id)));
       await load();
-      toast.add({
-        color: "success",
-        title: t("processingQueue.bulkCompleted"),
-        description: t("processingQueue.accepted") + ": " + response.accepted + "; " + t("processingQueue.skipped") + ": " + response.skipped,
-        duration: 3500,
-      });
-    } catch (cleanupError) {
-      showErrorToast(cleanupError, t("processingQueue.bulkCleanupFailed"));
+      toast.add({ color: "success", title: t("processingQueue.bulkCompleted"), duration: 3000 });
+    } catch (cancelError) {
+      showErrorToast(cancelError, t("processingQueue.bulkCancelFailed"));
     } finally {
       bulkAction.value = null;
     }
   }
 
   function confirmRetryAllFailed() {
-    if (!summary.value.can_manage || summary.value.retryable_failed_count === 0 || bulkAction.value) return;
+    if (failedCount.value === 0 || bulkAction.value) return;
     confirm.require({
       header: t("processingQueue.retryAll"),
       message: t("processingQueue.retryAllConfirm"),
       rejectLabel: t("common.cancel"),
       acceptLabel: t("processingQueue.retryAllAction"),
-      accept: () => {
-        void retryAllFailed();
-      },
+      accept: () => void retryAllFailed(),
     });
   }
 
-  function confirmCleanupStuck() {
-    if (!summary.value.can_manage || summary.value.cleanupable_stuck_count === 0 || bulkAction.value) return;
+  function confirmCancelActive() {
+    if (activeCount.value === 0 || bulkAction.value) return;
     confirm.require({
-      header: t("processingQueue.cleanupStuck"),
-      message: t("processingQueue.cleanupStuckConfirm"),
+      header: t("processingQueue.cancelActive"),
+      message: t("processingQueue.cancelActiveConfirm"),
       rejectLabel: t("common.cancel"),
-      acceptLabel: t("processingQueue.cleanupStuckAction"),
-      accept: () => {
-        void cleanupStuck();
-      },
+      acceptLabel: t("processingQueue.cancelActiveAction"),
+      accept: () => void cancelActive(),
     });
   }
 
-  onMounted(() => {
-    void load();
-  });
-
+  onMounted(() => void load());
   onBeforeUnmount(() => {
     requestController?.abort();
     requestId += 1;
@@ -232,32 +189,37 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
 
   return {
     items,
-    loading,
     pagination,
+    loading,
     error,
     page,
     pageSize,
-    total,
-    totalPages,
-    summary,
     searchInput,
     query,
     statusFilter,
-    failureStageFilter,
-    retryingJobIds,
+    kindFilter,
+    stageFilter,
+    waitingReasonFilter,
+    actionTaskIds,
     bulkAction,
+    failedCount,
+    activeCount,
+    isRetryableTask,
     load,
     refresh: () => load(),
     submitSearch,
-    setStatusFilter,
-    setFailureStageFilter,
+    setStatusFilter: (value: TaskStatus | null) => setFilter(statusFilter, value),
+    setKindFilter: (value: TaskKind | null) => setFilter(kindFilter, value),
+    setStageFilter: (value: string | null) => setFilter(stageFilter, value),
+    setWaitingReasonFilter: (value: string | null) => setFilter(waitingReasonFilter, value),
     changePage,
     changePageSize,
-    retryJob,
-    isRetrying,
+    retryTask,
+    cancelTask,
+    isActing,
     retryAllFailed,
-    cleanupStuck,
+    cancelActive,
     confirmRetryAllFailed,
-    confirmCleanupStuck,
+    confirmCancelActive,
   };
 }

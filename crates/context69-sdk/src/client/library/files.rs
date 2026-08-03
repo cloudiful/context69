@@ -1,7 +1,7 @@
 use context69_contracts::{
     ImportLibraryFileFromUrlRequest, LibraryFileDetailResponse, LibraryFileIngestOptions,
-    LibraryFileUploadMetadata, LibraryUploadResponse, LibraryUrlImportJobResponse, MoveFileRequest,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
+    LibraryFileUploadMetadata, MoveFileRequest, PrepareLibraryUploadRequest,
+    PrepareLibraryUploadResponse, TaskRef,
 };
 use reqwest::{Method, multipart::Part};
 use sha2::{Digest, Sha256};
@@ -27,7 +27,7 @@ impl<'a> LibraryFilesApi<'a> {
         &self,
         folder_id: Option<Uuid>,
         files: Vec<Part>,
-    ) -> Result<LibraryUploadResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         let path = format!("{}/files/upload", self.base_path);
         self.client
             .execute_json(
@@ -57,7 +57,7 @@ impl<'a> LibraryFilesApi<'a> {
     pub async fn import_url(
         &self,
         request: &ImportLibraryFileFromUrlRequest,
-    ) -> Result<LibraryUrlImportJobResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         let path = format!("{}/files/import-url", self.base_path);
         self.client
             .execute_json(
@@ -75,7 +75,7 @@ impl<'a> LibraryFilesApi<'a> {
         filename: impl Into<String>,
         media_type: impl Into<String>,
         bytes: Vec<u8>,
-    ) -> Result<LibraryUploadResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         self.upload_bytes_deduplicated_with_metadata(folder_id, filename, media_type, bytes, None)
             .await
     }
@@ -87,7 +87,7 @@ impl<'a> LibraryFilesApi<'a> {
         media_type: impl Into<String>,
         bytes: Vec<u8>,
         metadata: Option<LibraryFileUploadMetadata>,
-    ) -> Result<LibraryUploadResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         let options = metadata.map(|metadata| LibraryFileIngestOptions {
             metadata,
             translation: None,
@@ -103,7 +103,7 @@ impl<'a> LibraryFilesApi<'a> {
         media_type: impl Into<String>,
         bytes: Vec<u8>,
         options: Option<LibraryFileIngestOptions>,
-    ) -> Result<LibraryUploadResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         let filename = filename.into();
         let media_type = media_type.into();
         let sha256: String = Sha256::digest(&bytes)
@@ -122,9 +122,8 @@ impl<'a> LibraryFilesApi<'a> {
             })
             .await?;
         if !prepared.upload_required {
-            return Ok(LibraryUploadResponse {
-                files: prepared.file.into_iter().collect(),
-                jobs: prepared.job.into_iter().collect(),
+            return prepared.task.ok_or_else(|| {
+                Error::InvalidResponse("prepared upload did not return a task".to_string())
             });
         }
 
@@ -185,10 +184,10 @@ impl<'a> LibraryFileApi<'a> {
             .await
     }
 
-    pub async fn delete(&self) -> Result<(), Error> {
+    pub async fn delete(&self) -> Result<TaskRef, Error> {
         let path = format!("{}/files/{}", self.base_path, self.file_id);
         self.client
-            .execute_empty(
+            .execute_json(
                 self.client
                     .authorized_request(Method::DELETE, &path)
                     .await?,

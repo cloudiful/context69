@@ -1,9 +1,8 @@
 use context69_contracts::{
-    GroupTranslationSettingsResponse, RebuildDocumentTranslationsRequest, TranslationJobResponse,
+    GroupTranslationSettingsResponse, RebuildDocumentTranslationsRequest, TaskRef,
     TranslationJobsResponse, UpdateGroupTranslationSettingsRequest,
 };
 use reqwest::Method;
-use uuid::Uuid;
 
 use super::super::Context69Client;
 use crate::{Error, client::transport::group_path};
@@ -54,7 +53,7 @@ impl<'a> GroupTranslationApi<'a> {
         &self,
         document_id: i64,
         request: &RebuildDocumentTranslationsRequest,
-    ) -> Result<TranslationJobsResponse, Error> {
+    ) -> Result<TaskRef, Error> {
         let path = group_path(
             &self.group_path,
             &format!("/documents/{document_id}/translations/rebuild"),
@@ -66,40 +65,6 @@ impl<'a> GroupTranslationApi<'a> {
                     .await?
                     .json(request),
             )
-            .await
-    }
-}
-
-pub struct TranslationJobApi<'a> {
-    client: &'a Context69Client,
-    group_path: String,
-    job_id: Uuid,
-}
-
-impl<'a> TranslationJobApi<'a> {
-    pub(crate) fn new(client: &'a Context69Client, group_path: String, job_id: Uuid) -> Self {
-        Self {
-            client,
-            group_path,
-            job_id,
-        }
-    }
-
-    pub async fn get(&self) -> Result<TranslationJobResponse, Error> {
-        self.request(Method::GET, "").await
-    }
-
-    pub async fn retry(&self) -> Result<TranslationJobResponse, Error> {
-        self.request(Method::POST, "/retry").await
-    }
-
-    async fn request(&self, method: Method, suffix: &str) -> Result<TranslationJobResponse, Error> {
-        let path = group_path(
-            &self.group_path,
-            &format!("/translation-jobs/{}{suffix}", self.job_id),
-        );
-        self.client
-            .execute_json(self.client.authorized_request(method, &path).await?)
             .await
     }
 }
