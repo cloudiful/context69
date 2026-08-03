@@ -67,6 +67,7 @@ mod url_import_runtime;
 mod url_imports;
 mod xlsx;
 
+pub(crate) use crate::contracts::LibraryIngestFailureStage;
 pub(crate) use ingest_types::LibraryDependency;
 use ingest_types::{
     IngestFailure, IngestResult, IngestSection, LibraryFileKind, PreparedIngestSection,

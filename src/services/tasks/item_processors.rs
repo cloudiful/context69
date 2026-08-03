@@ -11,15 +11,15 @@ pub(super) enum ProcessResult {
     Succeeded(Option<String>),
     Progressed,
     Waiting {
-        pub(super) reason: String,
-        pub(super) dependency_key: Option<String>,
-        pub(super) next_attempt_at: DateTime<Utc>,
-        pub(super) message: Option<String>,
+        reason: String,
+        dependency_key: Option<String>,
+        next_attempt_at: DateTime<Utc>,
+        message: Option<String>,
     },
     Failed {
-        pub(super) stage: String,
-        pub(super) message: String,
-        pub(super) retryable: bool,
+        stage: String,
+        message: String,
+        retryable: bool,
     },
 }
 

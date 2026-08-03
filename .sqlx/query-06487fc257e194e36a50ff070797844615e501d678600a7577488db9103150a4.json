@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT gm.group_id,\n           CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END AS role_rank\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $2\n    UNION ALL\n    SELECT child.id, inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n), allowed AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE task.id = $1\n      AND (\n          (task.group_id IS NULL AND task.user_id = $2)\n          OR EXISTS (\n              SELECT 1\n              FROM inherited_groups\n              WHERE inherited_groups.group_id = task.group_id\n                AND inherited_groups.role_rank >= 2\n          )\n      )\n)\nSELECT EXISTS (SELECT 1 FROM allowed) AS \"allowed!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "allowed!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "06487fc257e194e36a50ff070797844615e501d678600a7577488db9103150a4"
+}

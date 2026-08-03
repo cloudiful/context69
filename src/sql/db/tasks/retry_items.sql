@@ -27,7 +27,7 @@ WITH RECURSIVE inherited_groups AS (
             ELSE item.payload
         END,
         status = 'queued',
-        stage = COALESCE(stage, failure_stage, 'finalize'),
+        stage = COALESCE(item.stage, item.failure_stage, 'finalize'),
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

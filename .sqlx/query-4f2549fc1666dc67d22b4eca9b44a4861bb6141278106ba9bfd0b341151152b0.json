@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*)::bigint\nFROM context69.tasks task\nWHERE (\n      task.user_id = $1\n      OR EXISTS (\n          WITH RECURSIVE inherited_groups AS (\n              SELECT gm.group_id\n              FROM context69.group_memberships gm\n              WHERE gm.user_id = $1\n              UNION ALL\n              SELECT child.id\n              FROM context69.groups child\n              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n          )\n          SELECT 1\n          FROM inherited_groups\n          WHERE inherited_groups.group_id = task.group_id\n      )\n  )\n  AND (\n      $2::text IS NULL\n      OR task.group_path ILIKE '%' || $2 || '%'\n      OR task.source_key ILIKE '%' || $2 || '%'\n      OR task.error_summary ILIKE '%' || $2 || '%'\n      OR EXISTS (\n          SELECT 1\n          FROM context69.task_items item\n          WHERE item.task_id = task.id\n            AND item.payload::text ILIKE '%' || $2 || '%'\n      )\n  )\n  AND ($3::text IS NULL OR task.kind = $3)\n  AND ($4::text IS NULL OR task.status = $4)\n  AND ($5::text IS NULL OR task.stage = $5)\n  AND ($6::text IS NULL OR task.waiting_reason = $6)\n  AND ($7::text IS NULL OR task.dependency_key = $7)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4f2549fc1666dc67d22b4eca9b44a4861bb6141278106ba9bfd0b341151152b0"
+}

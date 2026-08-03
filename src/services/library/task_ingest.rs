@@ -66,7 +66,8 @@ impl LibraryService {
             .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)
             .await
             .map_err(|error| task_failure("finalize", error, true))?
-            .context("file disappeared while finalizing task ingest")?;
+            .context("file disappeared while finalizing task ingest")
+            .map_err(|error| task_failure("finalize", error, false))?;
         Ok(())
     }
 
@@ -78,7 +79,8 @@ impl LibraryService {
             .update_file_status(file_id, LibraryIngestStatus::Running, None, false)
             .await
             .map_err(|error| task_failure("storage", error, true))?
-            .context("file disappeared while starting task ingest")?;
+            .context("file disappeared while starting task ingest")
+            .map_err(|error| task_failure("storage", error, false))?;
         Ok(())
     }
 
@@ -145,7 +147,7 @@ impl LibraryService {
 fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
     let mut failure = failure;
     if failure.dependency.is_none() {
-        failure.dependency = infer_unified_dependency(&failure);
+        failure.dependency = super::unified_ingest::infer_unified_dependency(&failure);
     }
     if let Some(dependency) = failure.dependency {
         failure.retryable |= dependency_is_transient(dependency, &failure.error)
@@ -154,12 +156,16 @@ fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
     UnifiedIngestError::from_failure(failure)
 }
 
-fn task_failure(stage: &str, error: anyhow::Error, retryable: bool) -> UnifiedIngestError {
+fn task_failure(
+    stage: &str,
+    error: impl Into<anyhow::Error>,
+    retryable: bool,
+) -> UnifiedIngestError {
     UnifiedIngestError {
         stage: stage.to_string(),
         dependency_key: None,
         retryable,
-        message: error.to_string(),
+        message: error.into().to_string(),
     }
 }
 

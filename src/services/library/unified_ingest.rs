@@ -89,7 +89,7 @@ impl LibraryService {
     }
 }
 
-fn infer_unified_dependency(failure: &IngestFailure) -> Option<LibraryDependency> {
+pub(super) fn infer_unified_dependency(failure: &IngestFailure) -> Option<LibraryDependency> {
     if is_s3_error(&failure.error) {
         return Some(LibraryDependency::S3);
     }

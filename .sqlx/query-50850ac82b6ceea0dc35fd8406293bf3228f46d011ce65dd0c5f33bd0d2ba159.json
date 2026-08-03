@@ -1,0 +1,304 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks\nWHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_path"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "total_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "total_count"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "queued_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "queued_count"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "running_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "running_count"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "waiting_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "waiting_count"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "succeeded_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "succeeded_count"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "failed_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "failed_count"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "cancelled_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "cancelled_count"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "error_summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "error_summary"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "stage"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "waiting_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "dependency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "next_attempt_at"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "50850ac82b6ceea0dc35fd8406293bf3228f46d011ce65dd0c5f33bd0d2ba159"
+}

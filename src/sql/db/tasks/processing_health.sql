@@ -53,12 +53,12 @@ queue_counts AS (
     FROM context69.task_items item
 )
 SELECT
-    queue_counts.pending_count,
-    queue_counts.queued_count,
+    queue_counts.pending_count AS "pending_count!",
+    queue_counts.queued_count AS "queued_count!",
     queue_counts.oldest_pending_at,
     queue_counts.oldest_queued_at,
-    queue_counts.recent_failure_count,
-    queue_counts.docling_required_count,
+    queue_counts.recent_failure_count AS "recent_failure_count!",
+    queue_counts.docling_required_count AS "docling_required_count!",
     COALESCE(
         (SELECT jsonb_agg(jsonb_build_object('key', key, 'count', count) ORDER BY key)
          FROM status_counts),
@@ -79,7 +79,7 @@ SELECT
          FROM dependency_counts),
         '[]'::jsonb
     ) AS dependency_counts,
-    recent_processing.processed_last_hour,
-    recent_processing.failed_last_hour
+    recent_processing.processed_last_hour AS "processed_last_hour!",
+    recent_processing.failed_last_hour AS "failed_last_hour!"
 FROM queue_counts
 CROSS JOIN recent_processing

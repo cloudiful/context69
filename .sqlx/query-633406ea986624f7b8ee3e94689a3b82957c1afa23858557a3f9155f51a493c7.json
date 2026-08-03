@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.tasks\nSET status = 'running',\n    lease_token = $2,\n    lease_until = now() + interval '5 minutes',\n    next_attempt_at = NULL,\n    started_at = coalesce(started_at, now()),\n    updated_at = now()\nWHERE id = $1\n  AND (\n      status IN ('queued', 'waiting')\n      OR (status = 'running' AND (lease_until IS NULL OR lease_until < now()))\n  )\n  AND (next_attempt_at IS NULL OR next_attempt_at <= now())\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "633406ea986624f7b8ee3e94689a3b82957c1afa23858557a3f9155f51a493c7"
+}
