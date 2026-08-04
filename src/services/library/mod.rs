@@ -1,15 +1,15 @@
+use anyhow::{Context, Result, anyhow};
+use bytes::Bytes;
+use chrono::Utc;
+use context69_translation::{TranslationCoordinator, TranslationService};
+use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
     sync::Arc,
 };
-
-use anyhow::{Context, Result, anyhow};
-use bytes::Bytes;
-use chrono::Utc;
-use context69_translation::{TranslationCoordinator, TranslationService};
-use serde_json::{Value, json};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -98,6 +98,7 @@ pub struct LibraryService {
     embedding_vector_configuration_fingerprint: String,
     url_import_runtime: Arc<url_import_runtime::UrlImportRuntime>,
     translation: TranslationService,
+    docling_slots: Arc<Semaphore>,
 }
 
 pub struct LibraryServiceConfig {
@@ -180,6 +181,7 @@ impl LibraryService {
             embedding_vector_configuration_fingerprint,
             url_import_runtime,
             translation,
+            docling_slots: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -203,6 +205,14 @@ impl LibraryService {
                 library_runtime_unavailable()
             }
         })
+    }
+
+    pub(super) async fn acquire_docling_permit(&self) -> Result<OwnedSemaphorePermit> {
+        self.docling_slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(anyhow::Error::from)
     }
 }
 

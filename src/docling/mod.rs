@@ -18,6 +18,7 @@ pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
 pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 600;
+pub(crate) const MAX_DOCLING_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

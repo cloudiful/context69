@@ -6,16 +6,21 @@ use std::time::Duration;
 
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use bytes::Bytes;
+use futures::stream;
 use serde_json::{Value, json};
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 
-use super::{DoclingConfig, DoclingConnectionConfig, DoclingVlmConfig, DoclingXlsxClient};
+use super::{
+    DoclingConfig, DoclingConnectionConfig, DoclingVlmConfig, DoclingXlsxClient,
+    MAX_DOCLING_OUTPUT_BYTES,
+};
 
 #[derive(Clone)]
 struct MockState {
@@ -32,6 +37,7 @@ enum MockResponse {
     Status(StatusCode),
     Json(Value),
     Text(StatusCode, String),
+    Chunked(Vec<Vec<u8>>),
 }
 
 impl MockState {
@@ -110,6 +116,9 @@ async fn take_response(queue: &Mutex<Vec<MockResponse>>, default: MockResponse) 
         MockResponse::Status(status) => status.into_response(),
         MockResponse::Json(value) => (StatusCode::OK, Json(value)).into_response(),
         MockResponse::Text(status, body) => (status, body).into_response(),
+        MockResponse::Chunked(chunks) => Response::new(Body::from_stream(stream::iter(
+            chunks.into_iter().map(Ok::<_, std::convert::Infallible>),
+        ))),
     }
 }
 
@@ -235,6 +244,26 @@ async fn result_error_includes_response_body() {
     assert!(message.contains("message: result is not ready"));
     assert!(message.contains("detail: retry later"));
     assert!(message.contains("result is not ready"));
+}
+
+#[tokio::test]
+async fn oversized_chunked_result_is_rejected_while_reading() {
+    let (base_url, _, server) = spawn_mock(
+        vec![],
+        vec![MockResponse::Json(json!({"task_status": "success"}))],
+        vec![MockResponse::Chunked(vec![
+            vec![b'x'; MAX_DOCLING_OUTPUT_BYTES],
+            vec![b'x'],
+        ])],
+    )
+    .await;
+
+    let error = convert(&client(base_url, Duration::from_secs(10), Duration::ZERO))
+        .await
+        .expect_err("oversized result should fail");
+    server.abort();
+
+    assert!(error.to_string().contains("docling output exceeds maximum"));
 }
 
 #[tokio::test]

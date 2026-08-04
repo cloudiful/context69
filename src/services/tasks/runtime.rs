@@ -245,7 +245,7 @@ async fn release_task_and_resume(
         .map(|next_attempt_at| next_attempt_at <= Utc::now())
         .unwrap_or(true);
     if (task.status == "queued" || task.status == "waiting") && due {
-        service.spawn(task_id);
+        service.notify_dispatch();
     }
     Ok(())
 }

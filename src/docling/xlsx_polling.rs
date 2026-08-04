@@ -1,11 +1,13 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
+use futures::StreamExt;
 use reqwest::Client;
 use serde_json::Value;
 use tokio::time::sleep;
 
 use super::client::ensure_success;
+use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
 use crate::retry;
 
 pub(super) async fn wait_for_result(
@@ -120,9 +122,8 @@ async fn fetch_result(
                 .await
                 .context("failed to fetch docling result")?;
             let response = ensure_success(response, "Docling task result fetch").await?;
-            response
-                .json::<Value>()
-                .await
+            let body = read_limited_body(response).await?;
+            serde_json::from_slice::<Value>(&body)
                 .context("failed to parse docling result")
         },
     )
@@ -134,12 +135,47 @@ async fn fetch_result(
         )
     })?;
 
-    Ok(body
-        .get("document")
-        .and_then(|document| document.get("json_content"))
-        .cloned()
-        .or_else(|| body.get("json_content").cloned())
-        .unwrap_or(body))
+    Ok(extract_json_content(body))
+}
+
+async fn read_limited_body(response: reqwest::Response) -> Result<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_DOCLING_OUTPUT_BYTES as u64)
+    {
+        return Err(anyhow!(
+            "docling output exceeds maximum of {MAX_DOCLING_OUTPUT_BYTES} bytes"
+        ));
+    }
+
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("failed to read docling result")?;
+        let next_len = body.len().saturating_add(chunk.len());
+        if next_len > MAX_DOCLING_OUTPUT_BYTES {
+            return Err(anyhow!(
+                "docling output exceeds maximum of {MAX_DOCLING_OUTPUT_BYTES} bytes: {next_len} bytes"
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+fn extract_json_content(mut body: Value) -> Value {
+    if let Some(document) = body.get_mut("document")
+        && let Some(document) = document.as_object_mut()
+        && let Some(json_content) = document.remove("json_content")
+    {
+        return json_content;
+    }
+    if let Value::Object(body) = &mut body
+        && let Some(json_content) = body.remove("json_content")
+    {
+        return json_content;
+    }
+    body
 }
 
 async fn sleep_until_deadline(deadline: Instant, delay: Duration) -> bool {
@@ -166,4 +202,34 @@ fn task_timeout_error(
         "docling task {task_id} timed out after {:.1}s while {phase}; last status: {status}",
         started.elapsed().as_secs_f64()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::extract_json_content;
+
+    #[test]
+    fn extracts_nested_json_content_without_cloning_the_outer_document() {
+        let value = json!({
+            "document": {
+                "json_content": {"rows": [1, 2]},
+                "unused": "released"
+            },
+            "task_id": "task-1"
+        });
+
+        assert_eq!(extract_json_content(value), json!({"rows": [1, 2]}));
+    }
+
+    #[test]
+    fn falls_back_to_top_level_json_content() {
+        let value = json!({
+            "document": {"unused": "released"},
+            "json_content": {"rows": [1, 2]}
+        });
+
+        assert_eq!(extract_json_content(value), json!({"rows": [1, 2]}));
+    }
 }

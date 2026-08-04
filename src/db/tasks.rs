@@ -370,10 +370,20 @@ impl Database {
         )
     }
 
-    pub async fn pending_task_ids(&self) -> Result<Vec<Uuid>> {
-        Ok(sqlx::query_file_scalar!("src/sql/db/tasks/pending.sql")
-            .fetch_all(self.pool())
-            .await?)
+    pub async fn pending_task_ids(&self, limit: i64) -> Result<Vec<Uuid>> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/pending.sql", limit)
+                .fetch_all(self.pool())
+                .await?,
+        )
+    }
+
+    pub async fn pending_task_count(&self) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/pending_count.sql")
+                .fetch_one(self.pool())
+                .await?,
+        )
     }
 
     pub async fn task_processing_health(&self) -> Result<TaskProcessingHealth> {

@@ -151,6 +151,7 @@ pub(super) async fn process_file_stage(
                 .prepare_file_sections_for_task(
                     file_id,
                     item.lease_token,
+                    item.task_id,
                     persisted_section_payload(&item.payload),
                 )
                 .await
@@ -171,7 +172,7 @@ pub(super) async fn process_file_stage(
             if persisted_section_payload(&item.payload).is_none() {
                 let sections = match service
                     .library()
-                    .prepare_file_sections_for_task(file_id, item.lease_token, None)
+                    .prepare_file_sections_for_task(file_id, item.lease_token, item.task_id, None)
                     .await
                 {
                     Ok(sections) => sections,
@@ -205,7 +206,7 @@ pub(super) async fn process_file_stage(
                 Some(sections) => sections,
                 None => match service
                     .library()
-                    .prepare_file_sections_for_task(file_id, item.lease_token, None)
+                    .prepare_file_sections_for_task(file_id, item.lease_token, item.task_id, None)
                     .await
                 {
                     Ok(sections) => {

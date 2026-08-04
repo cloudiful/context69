@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
@@ -12,8 +18,8 @@ use context69_translation::TranslationService;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::{
-    sync::Semaphore,
-    time::{interval, sleep},
+    sync::{Notify, OwnedSemaphorePermit, Semaphore},
+    time::sleep,
 };
 use uuid::Uuid;
 
@@ -27,6 +33,7 @@ use crate::{
     },
 };
 
+mod dispatcher;
 mod item_file_processors;
 mod item_lifecycle_processors;
 mod item_processors;
@@ -44,6 +51,9 @@ pub struct TaskService {
     source_folders: SourceFoldersService,
     translation: TranslationService,
     worker_slots: Arc<Semaphore>,
+    worker_capacity: usize,
+    dispatch_notify: Arc<Notify>,
+    dispatcher_started: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +78,7 @@ impl TaskService {
         translation: TranslationService,
         concurrency: usize,
     ) -> Self {
+        let worker_capacity = concurrency.max(1);
         Self {
             db,
             namespace,
@@ -76,22 +87,15 @@ impl TaskService {
             sync,
             source_folders,
             translation,
-            worker_slots: Arc::new(Semaphore::new(concurrency.max(1))),
+            worker_slots: Arc::new(Semaphore::new(worker_capacity)),
+            worker_capacity,
+            dispatch_notify: Arc::new(Notify::new()),
+            dispatcher_started: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn resume_pending(&self) {
-        let service = self.clone();
-        tokio::spawn(async move {
-            let mut ticker = interval(Duration::from_secs(30));
-            loop {
-                ticker.tick().await;
-                match service.db.pending_task_ids().await {
-                    Ok(ids) => ids.into_iter().for_each(|id| service.spawn(id)),
-                    Err(error) => tracing::warn!(%error, "failed to resume context69 tasks"),
-                }
-            }
-        });
+        dispatcher::start(self);
     }
 
     pub async fn submit(&self, request: TaskSubmission) -> Result<TaskRef> {
@@ -120,7 +124,7 @@ impl TaskService {
             )
             .await?;
         if !reused {
-            self.spawn(task_id);
+            self.notify_dispatch();
         }
         Ok(TaskRef { task_id, item_ids })
     }
@@ -207,7 +211,7 @@ impl TaskService {
             return Err(anyhow!("task has no retryable failed items"));
         }
         self.db.recompute_task(task_id).await?;
-        self.spawn(task_id);
+        self.notify_dispatch();
         Ok(TaskRetryResponse {
             task: TaskRef {
                 task_id,
@@ -323,17 +327,44 @@ impl TaskService {
         })
     }
 
-    fn spawn(&self, task_id: Uuid) {
+    fn notify_dispatch(&self) {
+        self.dispatch_notify.notify_one();
+    }
+
+    pub(super) fn dispatcher_started(&self) -> bool {
+        self.dispatcher_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub(super) fn dispatch_notify(&self) -> &Notify {
+        &self.dispatch_notify
+    }
+
+    pub(super) fn available_worker_slots(&self) -> usize {
+        self.worker_slots.available_permits()
+    }
+
+    pub(super) fn worker_slots(&self) -> Arc<Semaphore> {
+        Arc::clone(&self.worker_slots)
+    }
+
+    pub(super) fn worker_capacity(&self) -> usize {
+        self.worker_capacity
+    }
+
+    pub(super) fn spawn(&self, task_id: Uuid, permit: OwnedSemaphorePermit) {
         let service = self.clone();
         tokio::spawn(async move {
             if let Err(error) = service.run(task_id).await {
                 tracing::warn!(task_id = %task_id, %error, "context69 task worker failed");
             }
+            drop(permit);
+            service.notify_dispatch();
         });
     }
 
     async fn run(&self, task_id: Uuid) -> Result<()> {
-        let _worker_slot = self.worker_slots.acquire().await?;
         let lease = Uuid::new_v4();
         if !self.db.claim_task(task_id, lease).await? {
             return Ok(());

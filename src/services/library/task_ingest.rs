@@ -10,28 +10,44 @@ impl LibraryService {
         &self,
         file_id: Uuid,
         lease_token: Uuid,
+        task_id: Uuid,
         section_payload: Option<Value>,
     ) -> Result<Value, UnifiedIngestError> {
         let file = self.task_file(file_id).await?;
-        let bytes = self
-            .read_active_storage_for_lease(&file.storage_rel_path, lease_token)
-            .await
-            .map_err(|error| task_failure("storage", error, true))?
-            .with_context(|| format!("stored file not found for file {file_id}"))
-            .map_err(|error| task_failure("storage", error, false))?;
         let kind = storage::detect_file_kind(&file.filename, &file.media_type)
             .map_err(|error| task_failure("parsing", error, false))?;
         let uses_docling = matches!(
-            kind.clone(),
+            kind,
             LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx
         ) && section_payload.is_none();
+        let docling_permit = if uses_docling {
+            Some(
+                self.acquire_docling_permit()
+                    .await
+                    .map_err(|error| task_failure("docling", error, true))?,
+            )
+        } else {
+            None
+        };
         let sections = if let Some(payload) = section_payload {
             serde_json::from_value::<Vec<IngestSection>>(payload)
                 .map_err(|error| task_failure("parsing", error, false))?
         } else {
+            let bytes = self
+                .read_active_storage_for_lease(&file.storage_rel_path, lease_token)
+                .await
+                .map_err(|error| task_failure("storage", error, true))?
+                .with_context(|| format!("stored file not found for file {file_id}"))
+                .map_err(|error| task_failure("storage", error, false))?;
             match kind {
                 LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx => {
-                    self.convert_unified_docling(&file, &bytes).await
+                    self.convert_unified_docling(
+                        &file,
+                        bytes,
+                        task_id,
+                        docling_permit.expect("Docling file conversion has a permit"),
+                    )
+                    .await
                 }
                 LibraryFileKind::PlainText => self.ingest_text(&file, &bytes).await,
             }
@@ -88,7 +104,7 @@ impl LibraryService {
         &self,
         file_id: Uuid,
         lease_token: Uuid,
-        mut failure: UnifiedIngestError,
+        failure: UnifiedIngestError,
     ) -> UnifiedIngestError {
         if failure.retryable {
             if let Err(error) = self.cleanup_ingest_artifacts(file_id).await {

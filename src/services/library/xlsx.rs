@@ -1,4 +1,18 @@
+use std::io::{self, Write};
+
+use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
+
 use super::*;
+
+pub(super) fn ensure_json_output_size(value: &Value) -> Result<usize> {
+    json_output_size(value, MAX_DOCLING_OUTPUT_BYTES)
+}
+
+fn json_output_size(value: &Value, limit: usize) -> Result<usize> {
+    let mut writer = LimitedWriter { written: 0, limit };
+    serde_json::to_writer(&mut writer, value).context("Docling JSON output is too large")?;
+    Ok(writer.written)
+}
 
 pub(super) fn extract_json_text(value: &Value) -> Option<String> {
     let body = value.get("body")?;
@@ -6,7 +20,7 @@ pub(super) fn extract_json_text(value: &Value) -> Option<String> {
     let tables = value
         .get("tables")
         .and_then(Value::as_array)
-        .cloned()
+        .map(Vec::as_slice)
         .unwrap_or_default();
     let children = body.get("children")?.as_array()?;
     let mut parts = Vec::new();
@@ -16,7 +30,7 @@ pub(super) fn extract_json_text(value: &Value) -> Option<String> {
                 .strip_prefix("#/groups/")
                 .and_then(|s| s.parse::<usize>().ok())
             && let Some(group) = groups.get(index)
-            && let Some(text) = group_text(group, &tables)
+            && let Some(text) = group_text(group, tables)
             && !text.is_empty()
         {
             parts.push(text);
@@ -37,14 +51,14 @@ pub(super) fn extract_xlsx_sections(filename: &str, value: &Value) -> Result<Vec
     let tables = value
         .get("tables")
         .and_then(Value::as_array)
-        .cloned()
+        .map(Vec::as_slice)
         .unwrap_or_default();
     let mut sections = Vec::new();
 
     for (index, group) in groups.iter().enumerate() {
         let name = group.get("name").and_then(Value::as_str).unwrap_or("sheet");
         let label = name.strip_prefix("sheet: ").unwrap_or(name).to_string();
-        let body = group_text(group, &tables).unwrap_or_default();
+        let body = group_text(group, tables).unwrap_or_default();
         if body.trim().is_empty() {
             continue;
         }
@@ -114,4 +128,42 @@ fn table_to_text(table: &Value) -> String {
         }
     }
     lines.join("\n")
+}
+
+struct LimitedWriter {
+    written: usize,
+    limit: usize,
+}
+
+impl Write for LimitedWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let next = self.written.saturating_add(bytes.len());
+        if next > self.limit {
+            return Err(io::Error::other(format!(
+                "Docling output exceeds {} bytes",
+                self.limit
+            )));
+        }
+        self.written = next;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::json_output_size;
+
+    #[test]
+    fn rejects_json_output_before_copying_past_limit() {
+        let value = json!({"body": "123456"});
+
+        assert!(json_output_size(&value, 8).is_err());
+        assert!(json_output_size(&value, 64).is_ok());
+    }
 }
