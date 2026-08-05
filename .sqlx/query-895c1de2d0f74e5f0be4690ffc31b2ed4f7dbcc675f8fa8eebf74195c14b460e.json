@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id\nFROM context69.tasks\nWHERE status IN ('queued', 'waiting', 'running')\n  AND (next_attempt_at IS NULL OR next_attempt_at <= now())\n  AND (lease_until IS NULL OR lease_until < now())\nORDER BY created_at\nLIMIT $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "895c1de2d0f74e5f0be4690ffc31b2ed4f7dbcc675f8fa8eebf74195c14b460e"
+}
