@@ -36,7 +36,7 @@ export function resourceContextItems(options: {
     icon: entry.isSourceConfigFile ? "i-lucide-file-pen" : "i-lucide-eye",
     onSelect: () => options.open(entry),
   }];
-  if (entry.ingestStatus === "failed" && !options.unavailableFileIds.includes(entry.id)) {
+  if (["failed", "cancelled"].includes(entry.ingestStatus) && !options.unavailableFileIds.includes(entry.id)) {
     items.push({ label: options.retryingFileIds.includes(entry.id) ? t("library.retrying") : t("common.retry"), icon: "i-lucide-refresh-cw", onSelect: () => options.retry(entry.id) });
   }
   if (!entry.isSourceConfigFile && !entry.isSourceRecordFile) {

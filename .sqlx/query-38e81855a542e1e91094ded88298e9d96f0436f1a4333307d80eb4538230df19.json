@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_files\nSET ingest_status = 'pending',\n    error_message = NULL,\n    ingested_at = NULL,\n    updated_at = now()\nWHERE id = ANY($1)\n  AND ingest_status IN ('failed', 'cancelled')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38e81855a542e1e91094ded88298e9d96f0436f1a4333307d80eb4538230df19"
+}

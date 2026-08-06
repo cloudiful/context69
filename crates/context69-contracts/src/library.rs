@@ -14,6 +14,7 @@ pub enum LibraryIngestStatus {
     Running,
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 impl LibraryIngestStatus {
@@ -23,6 +24,7 @@ impl LibraryIngestStatus {
             Self::Running => "running",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
         }
     }
 }
@@ -36,6 +38,7 @@ impl std::str::FromStr for LibraryIngestStatus {
             "running" => Ok(Self::Running),
             "succeeded" => Ok(Self::Succeeded),
             "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
             other => Err(anyhow::anyhow!(
                 "unsupported library ingest status: {other}"
             )),

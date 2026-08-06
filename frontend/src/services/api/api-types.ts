@@ -90,6 +90,7 @@ export type TaskPageResponse = Schemas["TaskPageResponse"];
 export type TaskResponse = Schemas["TaskResponse"];
 export type TaskItemsResponse = Schemas["TaskItemsResponse"];
 export type TaskRetryResponse = Schemas["TaskRetryResponse"];
+export type RerunTaskResponse = Schemas["RerunTaskResponse"];
 export type TaskRef = Schemas["TaskRef"];
 export type UpdateRuntimeSettingsRequest = Schemas["UpdateRuntimeSettingsRequest"];
 export type UpdateRuntimeS3Settings = Schemas["UpdateRuntimeS3Settings"];

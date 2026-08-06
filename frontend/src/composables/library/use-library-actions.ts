@@ -59,6 +59,8 @@ export function useLibraryActions({
   const createFolderBusy = ref(false);
   const uploadBusy = ref(false);
   const actionBusy = ref(false);
+  const retryingFileIds = ref<string[]>([]);
+  const unavailableFileIds = ref<string[]>([]);
   const moveDialog = ref<MoveDialogState | null>(null);
   const createDialog = ref<CreateDialogState | null>(null);
 
@@ -132,6 +134,34 @@ export function useLibraryActions({
   async function revealPreviewForFile(fileId: string) {
     previewDialogVisible.value = !previewDocked.value;
     await selectFile(fileId);
+  }
+
+  async function retryFile(fileId: string) {
+    if (retryingFileIds.value.includes(fileId)) return;
+    retryingFileIds.value = [...retryingFileIds.value, fileId];
+    try {
+      const detail = await apiClient.getLibraryFile(fileId);
+      if (!detail.source_available) {
+        unavailableFileIds.value = [...new Set([...unavailableFileIds.value, fileId])];
+        throw new Error(t("library.sourceMissingMessage"));
+      }
+      await apiClient.submitTask({
+        kind: "file_batch",
+        group_path: detail.group_path,
+        items: [{ file_id: fileId }],
+      });
+      await loadTree();
+      toast.add({
+        color: "success",
+        title: t("library.retryAccepted"),
+        description: t("library.retryAcceptedMessage"),
+        duration: 2500,
+      });
+    } catch (error) {
+      showErrorToast(error, t("library.retryFailed"));
+    } finally {
+      retryingFileIds.value = retryingFileIds.value.filter((id) => id !== fileId);
+    }
   }
 
   function openMoveFolderDialog(folder: LibraryFolderNode) {
@@ -312,6 +342,9 @@ export function useLibraryActions({
     openMoveFolderDialog,
     resourceMenuItems,
     revealPreviewForFile,
+    retryFile,
+    retryingFileIds,
+    unavailableFileIds,
     uploadBusy,
   };
 }

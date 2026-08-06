@@ -122,12 +122,12 @@ const activeSection = computed(() => {
           :title="t('library.processingTitle')"
           :description="t('library.processingMessage')"
         />
-        <div v-else-if="detail.ingest_status === 'failed'" class="grid justify-items-start gap-3">
+        <div v-else-if="detail.ingest_status === 'failed' || detail.ingest_status === 'cancelled'" class="grid justify-items-start gap-3">
           <UAlert
-            color="error"
+            :color="detail.ingest_status === 'cancelled' ? 'neutral' : 'error'"
             variant="subtle"
-            :title="t('library.processingFailedTitle')"
-            :description="detail.error_message || t('library.failedMessage')"
+            :title="detail.ingest_status === 'cancelled' ? t('library.processingCancelledTitle') : t('library.processingFailedTitle')"
+            :description="detail.ingest_status === 'cancelled' ? t('library.processingCancelledMessage') : (detail.error_message || t('library.failedMessage'))"
           />
           <UAlert
             v-if="!detail.source_available"

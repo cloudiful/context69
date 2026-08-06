@@ -105,7 +105,7 @@ const resourceMenuItems = computed<ContextMenuItem[]>(() => {
     ];
   }
 
-  return [
+  const items = [
     {
       label: t("library.preview"),
       icon: "i-lucide-eye",
@@ -128,7 +128,19 @@ const resourceMenuItems = computed<ContextMenuItem[]>(() => {
         void actionsState.deleteFile(entry.file);
       },
     },
-  ];
+  ] as ContextMenuItem[];
+
+  if (["failed", "cancelled"].includes(entry.ingestStatus) && !actionsState.unavailableFileIds.includes(entry.id)) {
+    items.splice(1, 0, {
+      label: actionsState.retryingFileIds.includes(entry.id) ? t("library.retrying") : t("common.retry"),
+      icon: "i-lucide-refresh-cw",
+      onSelect: () => {
+        void actionsState.retryFile(entry.id);
+      },
+    });
+  }
+
+  return items;
 });
 
 function handleExplorerRowClick(event: { data: ExplorerEntry }) {
@@ -171,6 +183,12 @@ function moveExplorerEntry(entry: ExplorerEntry) {
 
 function deleteExplorerEntry(entry: ExplorerEntry) {
   actionsState.deleteExplorerEntry(entry);
+}
+
+function retryExplorerEntry(entry: ExplorerEntry) {
+  if (entry.kind === "file") {
+    void actionsState.retryFile(entry.id);
+  }
 }
 
 function handleExplorerRowContextMenu(event: { originalEvent: Event; data: ExplorerEntry }) {
@@ -266,8 +284,10 @@ defineExpose({
             :sort-field="pageState.sortBy"
             :sort-order="pageState.sortOrder"
             :status-filter="pageState.statusFilter"
+            :retrying-file-ids="actionsState.retryingFileIds"
             :table-context-selection="treeState.resourceContextEntry"
             :total-records="pageState.total"
+            :unavailable-file-ids="actionsState.unavailableFileIds"
             :upload-busy="actionsState.uploadBusy"
             @update:selection="treeState.selectedExplorerEntry = $event"
             @update:tableContextSelection="treeState.resourceContextEntry = $event"
@@ -280,6 +300,8 @@ defineExpose({
             @open-entry="openExplorerEntry"
             @move-entry="moveExplorerEntry"
             @delete-entry="deleteExplorerEntry"
+            @retry="refreshLibrary"
+            @retry-entry="retryExplorerEntry"
             @toggle-folder="treeState.toggleFolderExpansion($event.id)"
             @refresh="refreshLibrary"
             @create-folder="actionsState.openCreateFolderDialog()"

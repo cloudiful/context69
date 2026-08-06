@@ -47,7 +47,7 @@ type FileUploadController = {
 
 const { t } = useI18n();
 const { statusLabel } = createLibraryStatusHelpers();
-const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed");
+const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed" | "cancelled");
 const tree = useProjectLibraryTree({
   groupPath: () => props.groupPath,
   statusLabel: mapStatusLabel,

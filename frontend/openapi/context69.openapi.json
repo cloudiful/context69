@@ -6520,7 +6520,8 @@
           "pending",
           "running",
           "succeeded",
-          "failed"
+          "failed",
+          "cancelled"
         ]
       },
       "LibraryPreviewContentFormat": {

@@ -14,8 +14,16 @@ const EMPTY_PAGINATION: TaskPageResponse["pagination"] = {
 };
 
 interface UseProcessingQueueOptions {
-  t: (key: string) => string;
+  t: (key: string, params?: Record<string, unknown>) => string;
 }
+
+interface RecoverySummary {
+  succeeded: number;
+  skipped: number;
+  failed: number;
+}
+
+const ACTIVE_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
 
 export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const showErrorToast = useErrorToast();
@@ -34,14 +42,16 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const stageFilter = ref<string | null>(null);
   const waitingReasonFilter = ref<string | null>(null);
   const actionTaskIds = ref<string[]>([]);
-  const bulkAction = ref<"retry" | "cancel" | null>(null);
+  const bulkAction = ref<"recover" | "cancel" | null>(null);
   let requestController: AbortController | null = null;
   let requestId = 0;
 
-  const isRetryableTask = (task: TaskResponse) =>
-    task.status === "failed" || (task.status === "cancelled" && task.progress.failed > 0);
-  const failedCount = computed(() => items.value.filter(isRetryableTask).length);
-  const activeCount = computed(() => items.value.filter((task) => ["queued", "running", "waiting"].includes(task.status)).length);
+  const isRecoverableTask = (task: TaskResponse) =>
+    task.status === "failed" || task.status === "cancelled";
+  const recoverableCount = computed(() => items.value.filter(isRecoverableTask).length);
+  const activeCount = computed(() => items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).length);
+  const failedCount = computed(() => items.value.filter((task) => task.status === "failed").length);
+  const cancelledCount = computed(() => items.value.filter((task) => task.status === "cancelled").length);
 
   async function load(options: { resetPage?: boolean } = {}) {
     if (options.resetPage) page.value = 1;
@@ -103,22 +113,31 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     return actionTaskIds.value.includes(task.task_id);
   }
 
-  async function retryTask(task: TaskResponse) {
-    if (!isRetryableTask(task) || isActing(task)) return;
+  async function recoverTask(task: TaskResponse) {
+    if (!isRecoverableTask(task) || isActing(task)) return;
     actionTaskIds.value = [...actionTaskIds.value, task.task_id];
     try {
-      await apiClient.retryTask(task.task_id);
+      if (task.status === "cancelled") {
+        await apiClient.rerunTask(task.task_id);
+      } else {
+        await apiClient.retryTask(task.task_id);
+      }
       await load();
-      toast.add({ color: "success", title: t("processingQueue.retryAccepted"), description: task.task_id, duration: 2500 });
-    } catch (retryError) {
-      showErrorToast(retryError, t("processingQueue.retryFailed"));
+      toast.add({
+        color: "success",
+        title: t(task.status === "cancelled" ? "processingQueue.resubmitAccepted" : "processingQueue.retryAccepted"),
+        description: task.task_id,
+        duration: 2500,
+      });
+    } catch (recoverError) {
+      showErrorToast(recoverError, t(task.status === "cancelled" ? "processingQueue.resubmitFailed" : "processingQueue.retryFailed"));
     } finally {
       actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
     }
   }
 
   async function cancelTask(task: TaskResponse) {
-    if (!["queued", "running", "waiting"].includes(task.status) || isActing(task)) return;
+    if (!ACTIVE_STATUSES.includes(task.status) || isActing(task)) return;
     actionTaskIds.value = [...actionTaskIds.value, task.task_id];
     try {
       await apiClient.cancelTask(task.task_id);
@@ -131,15 +150,47 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   }
 
-  async function retryAllFailed() {
-    if (failedCount.value === 0 || bulkAction.value) return;
-    bulkAction.value = "retry";
+  async function submitRecovery(task: TaskResponse): Promise<void> {
+    if (task.status === "cancelled") {
+      await apiClient.rerunTask(task.task_id);
+    } else {
+      await apiClient.retryTask(task.task_id);
+    }
+  }
+
+  function summarizeResults(results: PromiseSettledResult<void>[], skippedMessagePattern?: RegExp): RecoverySummary {
+    const summary: RecoverySummary = { succeeded: 0, skipped: 0, failed: 0 };
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        summary.succeeded += 1;
+      } else if (skippedMessagePattern && result.reason instanceof Error && skippedMessagePattern.test(result.reason.message)) {
+        summary.skipped += 1;
+      } else {
+        summary.failed += 1;
+      }
+    }
+    return summary;
+  }
+
+  async function recoverAll() {
+    if (recoverableCount.value === 0 || bulkAction.value) return;
+    bulkAction.value = "recover";
     try {
-      await Promise.all(items.value.filter(isRetryableTask).map((task) => apiClient.retryTask(task.task_id)));
+      const tasks = items.value.filter(isRecoverableTask);
+      const results = await Promise.allSettled(tasks.map((task) => submitRecovery(task)));
+      const summary = summarizeResults(results, /no retryable/i);
       await load();
-      toast.add({ color: "success", title: t("processingQueue.bulkCompleted"), duration: 3000 });
-    } catch (retryError) {
-      showErrorToast(retryError, t("processingQueue.bulkRetryFailed"));
+      toast.add({
+        color: summary.failed === 0 ? "success" : "warning",
+        title: t("processingQueue.bulkSummary", {
+          succeeded: summary.succeeded,
+          skipped: summary.skipped,
+          failed: summary.failed,
+        }),
+        duration: 3500,
+      });
+    } catch (recoverError) {
+      showErrorToast(recoverError, t("processingQueue.bulkRetryFailed"));
     } finally {
       bulkAction.value = null;
     }
@@ -149,9 +200,18 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     if (activeCount.value === 0 || bulkAction.value) return;
     bulkAction.value = "cancel";
     try {
-      await Promise.all(items.value.filter((task) => ["queued", "running", "waiting"].includes(task.status)).map((task) => apiClient.cancelTask(task.task_id)));
+      const results = await Promise.allSettled(items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).map((task) => apiClient.cancelTask(task.task_id)));
+      const summary = summarizeResults(results);
       await load();
-      toast.add({ color: "success", title: t("processingQueue.bulkCompleted"), duration: 3000 });
+      toast.add({
+        color: summary.failed === 0 ? "success" : "warning",
+        title: t("processingQueue.bulkSummary", {
+          succeeded: summary.succeeded,
+          skipped: summary.skipped,
+          failed: summary.failed,
+        }),
+        duration: 3500,
+      });
     } catch (cancelError) {
       showErrorToast(cancelError, t("processingQueue.bulkCancelFailed"));
     } finally {
@@ -159,14 +219,17 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   }
 
-  function confirmRetryAllFailed() {
-    if (failedCount.value === 0 || bulkAction.value) return;
+  function confirmRecoverAll() {
+    if (recoverableCount.value === 0 || bulkAction.value) return;
     confirm.require({
       header: t("processingQueue.retryAll"),
-      message: t("processingQueue.retryAllConfirm"),
+      message: t("processingQueue.recoverAllConfirm", {
+        failed: failedCount.value,
+        cancelled: cancelledCount.value,
+      }),
       rejectLabel: t("common.cancel"),
       acceptLabel: t("processingQueue.retryAllAction"),
-      accept: () => void retryAllFailed(),
+      accept: () => void recoverAll(),
     });
   }
 
@@ -202,9 +265,11 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     waitingReasonFilter,
     actionTaskIds,
     bulkAction,
+    recoverableCount,
     failedCount,
+    cancelledCount,
     activeCount,
-    isRetryableTask,
+    isRecoverableTask,
     load,
     refresh: () => load(),
     submitSearch,
@@ -214,12 +279,12 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     setWaitingReasonFilter: (value: string | null) => setFilter(waitingReasonFilter, value),
     changePage,
     changePageSize,
-    retryTask,
+    recoverTask,
     cancelTask,
     isActing,
-    retryAllFailed,
+    recoverAll,
     cancelActive,
-    confirmRetryAllFailed,
+    confirmRecoverAll,
     confirmCancelActive,
   };
 }

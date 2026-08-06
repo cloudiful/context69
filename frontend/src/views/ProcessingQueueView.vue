@@ -91,7 +91,7 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
     <div class="flex flex-wrap items-start justify-between gap-3">
       <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
       <div class="flex flex-wrap items-center justify-end gap-2">
-        <UButton v-if="queue.failedCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'retry'" :disabled="!!queue.bulkAction" :label="t('processingQueue.retryAll') + ' (' + queue.failedCount + ')'" @click="queue.confirmRetryAllFailed" />
+        <UButton v-if="queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
         <UButton v-if="queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
         <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
       </div>
@@ -129,7 +129,7 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
           <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
           <template #actions-cell="{ row }">
             <div class="flex items-center gap-1">
-              <UButton v-if="queue.isRetryableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="queue.isActing(row.original)" :label="t('processingQueue.retry')" @click="queue.retryTask(row.original)" />
+              <UButton v-if="queue.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="queue.isActing(row.original)" :label="t(row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="queue.recoverTask(row.original)" />
               <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="queue.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="queue.cancelTask(row.original)" />
             </div>
           </template>

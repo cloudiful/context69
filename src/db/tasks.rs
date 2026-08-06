@@ -498,6 +498,9 @@ impl Database {
         sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query_file!("src/sql/db/tasks/cancel_file_status.sql", task_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
             .execute(&mut *tx)
             .await?;
@@ -729,6 +732,17 @@ impl Database {
             .fetch_all(&mut *tx)
             .await?;
         if !ids.is_empty() {
+            let file_ids = sqlx::query_file_scalar!("src/sql/db/tasks/item_file_ids.sql", &ids)
+                .fetch_all(&mut *tx)
+                .await?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            if !file_ids.is_empty() {
+                sqlx::query_file!("src/sql/db/tasks/set_files_pending.sql", &file_ids)
+                    .execute(&mut *tx)
+                    .await?;
+            }
             sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
                 .execute(&mut *tx)
                 .await?;
@@ -765,9 +779,15 @@ impl Database {
         .fetch_one(&mut *tx)
         .await?;
         let mut item_ids = Vec::with_capacity(items.len());
+        let mut file_ids = Vec::new();
         for (ordinal, item) in items.iter().enumerate() {
             let item_id = Uuid::new_v4();
             item_ids.push(item_id);
+            if let Some(file_id) = item.file_id {
+                if !file_ids.contains(&file_id) {
+                    file_ids.push(file_id);
+                }
+            }
             sqlx::query_file!(
                 "src/sql/db/tasks/insert_item.sql",
                 item_id,
@@ -779,6 +799,11 @@ impl Database {
             )
             .execute(&mut *tx)
             .await?;
+        }
+        if !file_ids.is_empty() {
+            sqlx::query_file!("src/sql/db/tasks/set_files_pending.sql", &file_ids)
+                .execute(&mut *tx)
+                .await?;
         }
         tx.commit().await?;
         Ok((new_task_id, item_ids))
@@ -853,6 +878,9 @@ impl Database {
                 .execute(&mut *tx)
                 .await?;
             sqlx::query_file!("src/sql/db/tasks/recompute_cancelled.sql")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query_file!("src/sql/db/tasks/cancel_active_file_status.sql")
                 .execute(&mut *tx)
                 .await?;
         }

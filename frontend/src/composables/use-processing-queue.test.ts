@@ -9,6 +9,7 @@ import { useProcessingQueue } from "./use-processing-queue";
 
 const listTasks = vi.spyOn(apiClient, "listTasks");
 const retryTask = vi.spyOn(apiClient, "retryTask");
+const rerunTask = vi.spyOn(apiClient, "rerunTask");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
 
 const failedTask: TaskResponse = {
@@ -28,6 +29,16 @@ const failedTask: TaskResponse = {
   started_at: "2026-07-20T00:01:00Z",
   finished_at: "2026-07-20T00:02:00Z",
   updated_at: "2026-07-20T00:02:00Z",
+};
+
+const cancelledTask: TaskResponse = {
+  ...failedTask,
+  task_id: "cancelled-task-id",
+  status: "cancelled",
+  progress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 0, cancelled: 1 },
+  failure_stage: null,
+  error_summary: null,
+  finished_at: "2026-07-20T00:03:00Z",
 };
 
 const waitingTask: TaskResponse = {
@@ -54,6 +65,7 @@ describe("useProcessingQueue", () => {
   beforeEach(() => {
     listTasks.mockReset().mockResolvedValue(page() as never);
     retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
+    rerunTask.mockReset().mockResolvedValue({ task: { task_id: "new-task-id", item_ids: [] } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
   });
 
@@ -112,18 +124,56 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("retries a failed task through the unified task endpoint", async () => {
+  it("retries a failed task through /retry", async () => {
     listTasks
       .mockResolvedValueOnce(page([failedTask]) as never)
       .mockResolvedValueOnce(page([waitingTask]) as never);
     const { state, wrapper } = mountState();
     await flushPromises();
 
-    await state.retryTask(failedTask);
+    await state.recoverTask(failedTask);
 
     expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(rerunTask).not.toHaveBeenCalled();
     expect(listTasks).toHaveBeenCalledTimes(2);
     expect(state.items.value[0].status).toBe("waiting");
+    wrapper.unmount();
+  });
+
+  it("resubmits a cancelled task through /rerun", async () => {
+    listTasks
+      .mockResolvedValueOnce(page([cancelledTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.recoverTask(cancelledTask);
+
+    expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
+    expect(retryTask).not.toHaveBeenCalled();
+    expect(listTasks).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("counts failed and cancelled tasks as recoverable, ignoring succeeded and active ones", async () => {
+    const succeededTask: TaskResponse = {
+      ...failedTask,
+      task_id: "succeeded-task-id",
+      status: "succeeded",
+      progress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 1, failed: 0, cancelled: 0 },
+    };
+    listTasks.mockResolvedValueOnce(page([failedTask, cancelledTask, waitingTask, succeededTask]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    expect(state.isRecoverableTask(failedTask)).toBe(true);
+    expect(state.isRecoverableTask(cancelledTask)).toBe(true);
+    expect(state.isRecoverableTask(waitingTask)).toBe(false);
+    expect(state.isRecoverableTask(succeededTask)).toBe(false);
+    expect(state.recoverableCount.value).toBe(2);
+    expect(state.failedCount.value).toBe(1);
+    expect(state.cancelledCount.value).toBe(1);
+    expect(state.activeCount.value).toBe(1);
     wrapper.unmount();
   });
 
@@ -141,19 +191,38 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("retries all visible failed tasks and refreshes once", async () => {
+  it("recovers every visible failed and cancelled task and refreshes once", async () => {
     const secondFailedTask = { ...failedTask, task_id: "task-id-2" };
     listTasks
-      .mockResolvedValueOnce(page([failedTask, secondFailedTask]) as never)
+      .mockResolvedValueOnce(page([failedTask, secondFailedTask, cancelledTask]) as never)
       .mockResolvedValueOnce(page([]) as never);
     const { state, wrapper } = mountState();
     await flushPromises();
 
-    await state.retryAllFailed();
+    expect(state.recoverableCount.value).toBe(3);
+    await state.recoverAll();
 
     expect(retryTask).toHaveBeenCalledTimes(2);
     expect(retryTask).toHaveBeenCalledWith("task-id");
     expect(retryTask).toHaveBeenCalledWith("task-id-2");
+    expect(rerunTask).toHaveBeenCalledTimes(1);
+    expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
+    expect(listTasks).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("keeps refreshing and reporting when one recovery fails", async () => {
+    listTasks
+      .mockResolvedValueOnce(page([failedTask, cancelledTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    retryTask.mockRejectedValueOnce(new Error("no retryable failed items"));
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.recoverAll();
+
+    expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
     expect(listTasks).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });

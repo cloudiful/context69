@@ -4,6 +4,7 @@ import type {
   PurgeTasksRequest,
   PurgeTasksResponse,
   RequestOptions,
+  RerunTaskResponse,
   TaskItemsResponse,
   TaskKind,
   TaskListQuery,
@@ -74,6 +75,12 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         params: { path: { task_id: taskId } },
         signal: options?.signal,
       })) as Promise<TaskRetryResponse>;
+    },
+    rerunTask(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/rerun", {
+        params: { path: { task_id: taskId } },
+        signal: options?.signal,
+      })) as Promise<RerunTaskResponse>;
     },
     cancelTask(taskId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/cancel", {

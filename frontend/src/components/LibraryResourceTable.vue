@@ -175,7 +175,7 @@ function handleSurfaceContextMenu(event: MouseEvent) {
             <UBadge v-if="row.original.kind === 'group'" :label="row.original.visibility" color="neutral" variant="subtle" />
             <span v-else-if="row.original.kind === 'file'" class="inline-flex items-center gap-1.5" :title="table.statusTooltip(row.original)">
               <UBadge :label="statusLabel(row.original.ingestStatus)" :color="statusSeverity(row.original.ingestStatus)" variant="subtle" />
-              <UButton v-if="row.original.ingestStatus === 'failed' && !props.unavailableFileIds.includes(row.original.id)" color="neutral" variant="ghost" size="xs" icon="i-lucide-refresh-cw" :loading="table.isRetrying(row.original)" :aria-label="t('common.retry')" @click.stop="emit('retry-entry', row.original)" />
+              <UButton v-if="['failed', 'cancelled'].includes(row.original.ingestStatus) && !props.unavailableFileIds.includes(row.original.id)" color="neutral" variant="ghost" size="xs" icon="i-lucide-refresh-cw" :loading="table.isRetrying(row.original)" :aria-label="t('common.retry')" @click.stop="emit('retry-entry', row.original)" />
             </span>
             <span v-else class="text-sm text-muted">{{ table.resourceStatusLabel(row.original) }}</span>
           </template>

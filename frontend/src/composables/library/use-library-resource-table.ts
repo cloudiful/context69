@@ -22,7 +22,7 @@ export function useLibraryResourceTable(
   const hasActiveResourceFilter = computed(() => !!props.resourceSearchQuery || !!props.statusFilter);
   const statusOptions = computed(() => [
     { label: t("library.allStatuses"), value: null },
-    ...(["pending", "running", "succeeded", "failed"] as const).map((value) => ({ label: statusLabel(value), value })),
+    ...(["pending", "running", "succeeded", "failed", "cancelled"] as const).map((value) => ({ label: statusLabel(value), value })),
   ]);
 
   return {

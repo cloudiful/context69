@@ -1706,7 +1706,7 @@ export interface components {
         /** @enum {string} */
         LibraryIngestFailureStage: "download" | "storage" | "docling" | "parsing" | "embedding" | "indexing" | "translation" | "other";
         /** @enum {string} */
-        LibraryIngestStatus: "pending" | "running" | "succeeded" | "failed";
+        LibraryIngestStatus: "pending" | "running" | "succeeded" | "failed" | "cancelled";
         /** @enum {string} */
         LibraryPreviewContentFormat: "plain_text" | "markdown";
         LibraryProcessingMetric: {

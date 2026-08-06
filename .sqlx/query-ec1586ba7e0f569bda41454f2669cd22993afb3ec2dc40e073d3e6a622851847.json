@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_files\nSET ingest_status = $2, error_message = $3, ingested_at = $4, updated_at = now()\nWHERE id = $1\n  AND ingest_status IN ('pending', 'running', 'failed')\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
+  "query": "UPDATE context69.library_files\nSET ingest_status = $2, error_message = $3, ingested_at = $4, updated_at = now()\nWHERE id = $1\n  AND ingest_status IN ('pending', 'running', 'failed', 'cancelled')\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
   "describe": {
     "columns": [
       {
@@ -245,5 +245,5 @@
       true
     ]
   },
-  "hash": "6a08090114fec6be9ebab9dad0e19ecc07d28fe8e09455a643baff7815622bce"
+  "hash": "ec1586ba7e0f569bda41454f2669cd22993afb3ec2dc40e073d3e6a622851847"
 }
