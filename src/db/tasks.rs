@@ -68,13 +68,6 @@ pub struct ClaimedTaskItem {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct StoredTaskPayload {
-    pub id: Uuid,
-    pub ordinal: i32,
-    pub payload: Value,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub struct RerunTaskItem {
     pub payload: Value,
     pub stage: Option<String>,
@@ -370,16 +363,6 @@ impl Database {
         .await?)
     }
 
-    pub async fn list_task_payloads(&self, task_id: Uuid) -> Result<Vec<StoredTaskPayload>> {
-        Ok(sqlx::query_file_as!(
-            StoredTaskPayload,
-            "src/sql/db/tasks/item_payloads.sql",
-            task_id
-        )
-        .fetch_all(self.pool())
-        .await?)
-    }
-
     pub async fn list_task_item_ids(&self, task_id: Uuid) -> Result<Vec<Uuid>> {
         Ok(
             sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", task_id)
@@ -420,13 +403,6 @@ impl Database {
         )
         .fetch_one(self.pool())
         .await?)
-    }
-
-    pub async fn claim_task_item(&self, item_id: Uuid) -> Result<bool> {
-        Ok(self
-            .claim_task_item_with_lease(item_id, Uuid::new_v4())
-            .await?
-            .is_some())
     }
 
     pub async fn claim_task_item_with_lease(

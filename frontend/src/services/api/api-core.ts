@@ -4,7 +4,6 @@ import { handleUnauthorized } from "../auth/session";
 import { API_BASE_URL, openapiClient } from "../openapi-client";
 import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";
-import { createLibraryApi } from "./api-library";
 import { createNamespacesApi } from "./api-namespaces";
 import { createPersonalAccessTokensApi } from "./api-personal-access-tokens";
 import { createGroupWorkspaceApi } from "./api-group-workspace";
@@ -91,13 +90,6 @@ export const apiClient = {
   ...createTasksApi({ openapiClient, unwrapResponse }),
   ...createSettingsApi({ openapiClient, unwrapResponse }),
   ...createSearchApi({ openapiClient, unwrapResponse }),
-  ...createLibraryApi({
-    authFetch,
-    openapiClient,
-    resolveApiUrl,
-    unwrapFetchResponse,
-    unwrapResponse,
-  }),
   health(options?: RequestOptions) {
     return unwrapResponse(
       openapiClient.GET("/healthz", {

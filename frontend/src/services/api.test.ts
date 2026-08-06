@@ -81,11 +81,11 @@ describe("apiClient", () => {
       },
     });
 
-    await expect(apiClient.deleteSource("gov_documents")).resolves.toBeUndefined();
-    expect(DELETE).toHaveBeenCalledWith("/v1/sources/{source_key}", {
+    await expect(apiClient.revokePersonalAccessToken("token-id")).resolves.toBeUndefined();
+    expect(DELETE).toHaveBeenCalledWith("/v1/auth/personal-access-tokens/{token_id}", {
       params: {
         path: {
-          source_key: "gov_documents",
+          token_id: "token-id",
         },
       },
       signal: undefined,
