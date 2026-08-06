@@ -14,7 +14,7 @@ async function mountView(path = "/documents/42") {
     history: createMemoryHistory(),
     routes: [
       { path: "/documents/:id", name: "document", component: DocumentView },
-      { path: "/library", name: "library", component: { template: "<div />" } },
+      { path: "/groups/:groupPath", name: "group-overview", component: { template: "<div />" } },
     ],
   });
 

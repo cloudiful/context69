@@ -10,7 +10,7 @@ WITH query_terms AS (
     FROM jsonb_array_elements($11::jsonb) AS filter
 ), searchable AS (
     SELECT c.id AS chunk_id, d.id AS document_id, d.group_id, g.group_key,
-           g.full_path AS group_path, d.visibility, d.source_key, d.external_id,
+           g.full_path AS group_path, g.visibility, d.source_key, d.external_id,
            d.title, d.summary, d.source_uri, d.published_at, c.chunk_index,
            c.chunk_text, d.metadata_json, 'original'::TEXT AS content_locale,
            tj.status AS translation_status
@@ -25,7 +25,7 @@ WITH query_terms AS (
         LIMIT 1
     ) tj ON $10::TEXT IS NOT NULL
     UNION ALL
-    SELECT c.id, d.id, d.group_id, g.group_key, g.full_path, d.visibility,
+    SELECT c.id, d.id, d.group_id, g.group_key, g.full_path, g.visibility,
            d.source_key, d.external_id, v.translated_title, v.translated_summary,
            d.source_uri, d.published_at, c.chunk_index, c.chunk_text,
            d.metadata_json, v.target_locale, 'succeeded'::TEXT

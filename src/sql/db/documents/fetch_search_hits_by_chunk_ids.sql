@@ -1,6 +1,6 @@
 WITH hits AS (
     SELECT c.id AS chunk_id, d.id AS document_id, d.group_id, g.group_key,
-           g.full_path AS group_path, d.visibility, d.source_key, d.external_id,
+           g.full_path AS group_path, g.visibility, d.source_key, d.external_id,
            d.title, d.summary, d.source_uri, d.published_at, c.chunk_index,
            c.chunk_text, d.metadata_json, 'original'::TEXT AS content_locale,
            tj.status AS translation_status
@@ -16,7 +16,7 @@ WITH hits AS (
     ) tj ON $4::TEXT IS NOT NULL
     WHERE c.id = ANY($1)
     UNION ALL
-    SELECT c.id, d.id, d.group_id, g.group_key, g.full_path, d.visibility,
+    SELECT c.id, d.id, d.group_id, g.group_key, g.full_path, g.visibility,
            d.source_key, d.external_id, v.translated_title, v.translated_summary,
            d.source_uri, d.published_at, c.chunk_index, c.chunk_text,
            d.metadata_json, v.target_locale, 'succeeded'::TEXT

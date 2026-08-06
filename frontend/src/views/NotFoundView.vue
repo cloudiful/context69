@@ -7,7 +7,7 @@ const router = useRouter();
 const { t } = useI18n();
 
 function returnToSearch() {
-  void router.push("/login");
+  void router.push("/search");
 }
 </script>
 

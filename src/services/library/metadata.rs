@@ -145,6 +145,7 @@ impl LibraryService {
                 include_public: true,
                 private_group_ids: vec![mapping.group_id],
                 group_path: None,
+                scoped_group_id: None,
             };
             if let Some(existing) = self.db.get_document(mapping.document_id, &scope).await? {
                 let external_id = file

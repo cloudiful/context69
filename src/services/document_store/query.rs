@@ -154,7 +154,7 @@ async fn list_page_candidates(
     query
         .push(" WHERE d.group_id = ")
         .push_bind(group_id)
-        .push(" AND (d.visibility = 'public' OR d.group_id = ANY(")
+        .push(" AND (g.visibility = 'public' OR d.group_id = ANY(")
         .push_bind(&scope.private_group_ids)
         .push("))");
     if let Some(group_path) = scope.group_path.as_deref() {

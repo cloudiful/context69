@@ -68,6 +68,7 @@ pub(super) fn to_search_scope(scope: &AccessScope) -> SearchAccessScope {
         include_public: scope.include_public,
         private_group_ids: scope.private_group_ids.clone(),
         group_path: scope.group_path.clone(),
+        scoped_group_id: scope.scoped_group_id,
     }
 }
 
@@ -77,6 +78,7 @@ fn to_root_scope(scope: &SearchAccessScope) -> AccessScope {
         include_public: scope.include_public,
         private_group_ids: scope.private_group_ids.clone(),
         group_path: scope.group_path.clone(),
+        scoped_group_id: scope.scoped_group_id,
     }
 }
 

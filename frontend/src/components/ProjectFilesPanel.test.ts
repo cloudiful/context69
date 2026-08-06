@@ -13,7 +13,7 @@ describe("ProjectFilesPanel", () => {
     document.body.innerHTML = '<div id="app-route-actions"></div>';
   });
 
-  it("keeps the file browser in one layout root", async () => {
+  function mockLibraryApis() {
     vi.spyOn(apiClient, "getGroupLibraryTree").mockResolvedValue({
       root: {
         group_key: "stock",
@@ -32,15 +32,10 @@ describe("ProjectFilesPanel", () => {
       items: [],
       pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 },
     });
+  }
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
-    });
-    await router.push("/groups/stock");
-    await router.isReady();
-
-    const wrapper = shallowMount(ProjectFilesPanel, {
+  async function mountPanel(router: ReturnType<typeof createRouter>) {
+    return shallowMount(ProjectFilesPanel, {
       attachTo: document.body,
       props: {
         childGroups: [],
@@ -58,10 +53,93 @@ describe("ProjectFilesPanel", () => {
         },
       },
     });
+  }
+
+  it("keeps the file browser in one layout root", async () => {
+    mockLibraryApis();
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock");
+    await router.isReady();
+
+    const wrapper = await mountPanel(router);
 
     await flushPromises();
 
     expect((wrapper.element as HTMLElement).classList.contains("project-files-panel")).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("opens the preview for a file deep link from the query", async () => {
+    mockLibraryApis();
+    const getFile = vi.spyOn(apiClient, "getGroupLibraryFile").mockResolvedValue({
+      file_id: "file-1",
+      filename: "doc.txt",
+      media_type: "text/plain",
+      size_bytes: 10,
+      ingest_status: "succeeded",
+      folder_id: null,
+      folder_path: "/",
+      group_key: "stock",
+      group_path: "stock",
+      sha256: "abc",
+      visibility: "private",
+      source_available: true,
+      created_at: "2025-01-01T00:00:00Z",
+      updated_at: "2025-01-01T00:00:00Z",
+      sections: [],
+      error_message: null,
+    });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock?file=file-1");
+    await router.isReady();
+
+    const wrapper = await mountPanel(router);
+    await flushPromises();
+
+    expect(getFile).toHaveBeenCalledWith("stock", "file-1", expect.anything());
+    wrapper.unmount();
+  });
+
+  it("keeps the deep link in the query after the initial reveal", async () => {
+    mockLibraryApis();
+    vi.spyOn(apiClient, "getGroupLibraryFile").mockResolvedValue({
+      file_id: "file-1",
+      filename: "doc.txt",
+      media_type: "text/plain",
+      size_bytes: 10,
+      ingest_status: "succeeded",
+      folder_id: null,
+      folder_path: "/",
+      group_key: "stock",
+      group_path: "stock",
+      sha256: "abc",
+      visibility: "private",
+      source_available: true,
+      created_at: "2025-01-01T00:00:00Z",
+      updated_at: "2025-01-01T00:00:00Z",
+      sections: [],
+      error_message: null,
+    });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock?file=file-1");
+    await router.isReady();
+
+    const wrapper = await mountPanel(router);
+    await flushPromises();
+
+    expect(router.currentRoute.value.query.file).toBe("file-1");
     wrapper.unmount();
   });
 });

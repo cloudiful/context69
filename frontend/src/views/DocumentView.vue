@@ -36,7 +36,10 @@ const libraryRoute = computed(() => {
   }
 
   return {
-    name: "library",
+    name: "group-overview",
+    params: {
+      groupPath: documentData.value.group_path,
+    },
     query: {
       file: documentData.value.library_file_id,
     },

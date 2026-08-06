@@ -240,8 +240,12 @@ impl QdrantIndex {
                 .filter_map(metadata_filter_condition),
         );
 
-        if let Some(group_path) = &scope.group_path {
-            conditions.push(Condition::matches("group_path", group_path.clone()));
+        if let Some(group_id) = scope.scoped_group_id {
+            conditions.push(Condition::matches("group_id", group_id));
+        } else if scope.group_path.is_some() {
+            // The request was scoped to a group path that no longer resolves.
+            // Returning nothing is safer than silently widening the scope.
+            return Ok(Vec::new());
         }
 
         let access_condition = if scope.private_group_ids.is_empty() {

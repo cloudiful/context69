@@ -517,12 +517,14 @@ impl Database {
         user_id: Option<i64>,
         group_path: Option<String>,
     ) -> Result<AccessScope> {
+        let scoped_group_id = self.resolve_group_id_by_path(group_path.as_deref()).await?;
         let Some(user_id) = user_id else {
             return Ok(AccessScope {
                 user_id: None,
                 include_public: true,
                 private_group_ids: Vec::new(),
                 group_path,
+                scoped_group_id,
             });
         };
 
@@ -540,7 +542,21 @@ impl Database {
             include_public: true,
             private_group_ids: rows.into_iter().map(|row| row.group_id).collect(),
             group_path,
+            scoped_group_id,
         })
+    }
+
+    async fn resolve_group_id_by_path(&self, group_path: Option<&str>) -> Result<Option<i64>> {
+        let Some(group_path) = group_path.map(str::trim).filter(|value| !value.is_empty()) else {
+            return Ok(None);
+        };
+        Ok(sqlx::query_file!(
+            "src/sql/db/namespaces/resolve_group_id_by_path.sql",
+            group_path
+        )
+        .fetch_optional(self.pool())
+        .await?
+        .map(|row| row.id))
     }
 }
 

@@ -91,7 +91,14 @@ async fn create_file_task(db: &Database, user_id: i64, file_id: Uuid, ordinal: i
     task_id
 }
 
-async fn file_status(db: &Database, file_id: Uuid) -> (String, Option<String>, Option<chrono::DateTime<chrono::Utc>>) {
+async fn file_status(
+    db: &Database,
+    file_id: Uuid,
+) -> (
+    String,
+    Option<String>,
+    Option<chrono::DateTime<chrono::Utc>>,
+) {
     let row = sqlx::query(
         "SELECT ingest_status, error_message, ingested_at FROM context69.library_files WHERE id = $1",
     )
@@ -132,7 +139,9 @@ async fn cancel_queued_file_task_marks_file_cancelled() {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping file status test");
         return;
     };
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (file_id, _group_id) = insert_file(&db, "pending").await;
     let task_id = create_file_task(&db, user_id, file_id, 0).await;
@@ -143,9 +152,15 @@ async fn cancel_queued_file_task_marks_file_cancelled() {
     );
 
     let (status, error_message, ingested_at) = file_status(&db, file_id).await;
-    assert_eq!(status, "cancelled", "cancelled task must mark its file cancelled");
+    assert_eq!(
+        status, "cancelled",
+        "cancelled task must mark its file cancelled"
+    );
     assert_eq!(error_message, None, "cancel must clear the file error");
-    assert_eq!(ingested_at, None, "cancel must clear the file completion time");
+    assert_eq!(
+        ingested_at, None,
+        "cancel must clear the file completion time"
+    );
 
     cleanup_task(&db, task_id).await;
     sqlx::query("DELETE FROM context69.library_files WHERE id = $1")
@@ -167,7 +182,9 @@ async fn cancel_running_file_task_allows_late_success() {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping file status test");
         return;
     };
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let store = LibraryStore::new(db.clone());
     let user_id = seed_test_user(&db).await;
     let (file_id, _group_id) = insert_file(&db, "running").await;
@@ -180,7 +197,10 @@ async fn cancel_running_file_task_allows_late_success() {
 
     assert!(db.cancel_task(task_id, user_id).await.expect("cancel task"));
     let (status, _, _) = file_status(&db, file_id).await;
-    assert_eq!(status, "cancelled", "cancel must mark a running file cancelled");
+    assert_eq!(
+        status, "cancelled",
+        "cancel must mark a running file cancelled"
+    );
 
     let updated = store
         .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)
@@ -192,7 +212,10 @@ async fn cancel_running_file_task_allows_late_success() {
     );
     let (status, _, ingested_at) = file_status(&db, file_id).await;
     assert_eq!(status, "succeeded");
-    assert!(ingested_at.is_some(), "late success must record completion time");
+    assert!(
+        ingested_at.is_some(),
+        "late success must record completion time"
+    );
 
     cleanup_task(&db, task_id).await;
     sqlx::query("DELETE FROM context69.library_files WHERE id = $1")
@@ -214,7 +237,9 @@ async fn cancel_does_not_overwrite_a_succeeded_file() {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping file status test");
         return;
     };
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (file_id, _group_id) = insert_file(&db, "succeeded").await;
     let task_id = create_file_task(&db, user_id, file_id, 0).await;
@@ -247,7 +272,9 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping file status test");
         return;
     };
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (succeeded_file, _group_id) = insert_file(&db, "succeeded").await;
     let (pending_file, _group_id) = insert_file(&db, "pending").await;
@@ -260,7 +287,10 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
             "file_batch",
             Some("test/file-status"),
             None,
-            &[json!({ "file_id": succeeded_file }), json!({ "file_id": pending_file })],
+            &[
+                json!({ "file_id": succeeded_file }),
+                json!({ "file_id": pending_file }),
+            ],
             None,
             "file-status-rerun-hash",
         )
@@ -313,7 +343,10 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
         .await
         .expect("load old task")
         .expect("old task exists");
-    assert_eq!(old.status, "cancelled", "old task history must stay cancelled");
+    assert_eq!(
+        old.status, "cancelled",
+        "old task history must stay cancelled"
+    );
     let new = db
         .get_task_internal(new_task_id)
         .await
@@ -343,7 +376,9 @@ async fn retry_failed_task_resets_file_to_pending() {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping file status test");
         return;
     };
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (file_id, _group_id) = insert_file(&db, "failed").await;
     sqlx::query(
@@ -371,9 +406,15 @@ async fn retry_failed_task_resets_file_to_pending() {
     assert_eq!(ids.len(), 1, "retry must requeue the failed item");
 
     let (status, error_message, ingested_at) = file_status(&db, file_id).await;
-    assert_eq!(status, "pending", "retry must reset the failed file to pending");
+    assert_eq!(
+        status, "pending",
+        "retry must reset the failed file to pending"
+    );
     assert_eq!(error_message, None, "retry must clear the file error");
-    assert_eq!(ingested_at, None, "retry must clear the file completion time");
+    assert_eq!(
+        ingested_at, None,
+        "retry must clear the file completion time"
+    );
 
     cleanup_task(&db, task_id).await;
     sqlx::query("DELETE FROM context69.library_files WHERE id = $1")
@@ -395,20 +436,30 @@ async fn cancel_keeps_file_pending_when_another_task_is_still_active() {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping file status test");
         return;
     };
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (file_id, _group_id) = insert_file(&db, "pending").await;
     let task_a = create_file_task(&db, user_id, file_id, 0).await;
     let task_b = create_file_task(&db, user_id, file_id, 1).await;
 
-    assert!(db.cancel_task(task_a, user_id).await.expect("cancel task a"));
+    assert!(
+        db.cancel_task(task_a, user_id)
+            .await
+            .expect("cancel task a")
+    );
     let (status, _, _) = file_status(&db, file_id).await;
     assert_eq!(
         status, "pending",
         "cancelling one task must not regress a file still queued in another task"
     );
 
-    assert!(db.cancel_task(task_b, user_id).await.expect("cancel task b"));
+    assert!(
+        db.cancel_task(task_b, user_id)
+            .await
+            .expect("cancel task b")
+    );
     let (status, _, _) = file_status(&db, file_id).await;
     assert_eq!(
         status, "cancelled",

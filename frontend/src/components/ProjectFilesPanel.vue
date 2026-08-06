@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, watch } from "vue";
 import { proxyRefs, ref } from "vue";
 import type { ContextMenuItem } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
+import { useRoute, useRouter } from "vue-router";
 
 import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
 import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
@@ -46,6 +47,8 @@ type FileUploadController = {
 };
 
 const { t } = useI18n();
+const route = useRoute();
+const router = useRouter();
 const { statusLabel } = createLibraryStatusHelpers();
 const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed" | "cancelled");
 const tree = useProjectLibraryTree({
@@ -231,6 +234,30 @@ watch(() => props.groupPath, async () => {
   await tree.loadTree();
   await page.loadPage();
 }, { immediate: true });
+
+watch(() => route.query.file, async (fileId) => {
+  if (typeof fileId !== "string" || !fileId) return;
+  if (treeState.selectedFileId === fileId) return;
+  try {
+    if (!treeState.tree) await treeState.loadTree();
+    await actionsState.revealPreviewForFile(fileId);
+  } catch {
+    // Load failures are surfaced through the tree error state and toasts.
+  }
+}, { immediate: true });
+
+watch(tree.selectedFileId, (fileId) => {
+  const current = typeof route.query.file === "string" ? route.query.file : null;
+  if (fileId === current) return;
+  if (fileId) {
+    void router.replace({ query: { ...route.query, file: fileId } });
+  } else if (current && treeState.tree) {
+    // Clear the deep link after the tree has settled so a pending deep-link
+    // navigation is not torn down by the reset triggered by a group change.
+    const { file: _file, ...rest } = route.query;
+    void router.replace({ query: rest });
+  }
+});
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 watch(page.query, () => {

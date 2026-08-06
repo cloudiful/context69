@@ -70,4 +70,7 @@ pub struct AccessScope {
     pub include_public: bool,
     pub private_group_ids: Vec<i64>,
     pub group_path: Option<String>,
+    /// Resolved id of the group that a scoped request is narrowed to.
+    /// `None` while `group_path` is `Some` means the group no longer exists.
+    pub scoped_group_id: Option<i64>,
 }

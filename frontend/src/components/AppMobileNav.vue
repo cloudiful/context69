@@ -15,7 +15,7 @@ function isActive(itemTo: string) {
 <template>
   <nav
     v-if="route.name !== 'login' && isAuthenticated()"
-    class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 gap-1 border-t border-surface bg-surface-0 dark:bg-surface-950 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0))] backdrop-blur-xl md:hidden"
+    class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-surface bg-surface-0 dark:bg-surface-950 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0))] backdrop-blur-xl md:hidden"
     aria-label="Primary"
   >
     <RouterLink

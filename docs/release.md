@@ -49,5 +49,5 @@ Behavior:
 - native `amd64` and `arm64` runners build the backend binary and frontend `dist` as per-arch artifacts
 - a runtime-only Docker assembly job builds from those artifacts using the root `Dockerfile`
 - the runtime image base is public `debian:trixie-slim`
-- Forgejo CI uses a separate `Dockerfile.forgejo` with Cloud1ful's Debian image and APT mirror
+- Forgejo CI uses a separate `forgejo.Dockerfile` with Cloud1ful's Debian image and APT mirror
 - separate native `amd64` and `arm64` image publishes are merged into a multi-arch manifest

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    d.id,\n    g.group_key,\n    g.full_path AS group_path,\n    d.visibility,\n    d.source_key,\n    d.external_id,\n    d.title,\n    d.summary,\n    d.source_uri,\n    d.published_at,\n    d.updated_at_source,\n    d.record_hash,\n    d.metadata_json\nFROM context69.documents d\nINNER JOIN context69.groups g ON g.id = d.group_id\nWHERE d.id = ANY($1)\n  AND (d.visibility = 'public' OR d.group_id = ANY($2))\n  AND ($3::text IS NULL OR g.full_path = $3)\n",
+  "query": "SELECT\n    d.id,\n    g.group_key,\n    g.full_path AS group_path,\n    g.visibility,\n    d.source_key,\n    d.external_id,\n    d.title,\n    d.summary,\n    d.source_uri,\n    d.published_at,\n    d.updated_at_source,\n    d.record_hash,\n    d.metadata_json\nFROM context69.documents d\nINNER JOIN context69.groups g ON g.id = d.group_id\nWHERE d.id = ANY($1)\n  AND (g.visibility = 'public' OR d.group_id = ANY($2))\n  AND ($3::text IS NULL OR g.full_path = $3)\n",
   "describe": {
     "columns": [
       {
@@ -42,7 +42,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "context69.documents",
+            "table": "context69.groups",
             "name": "visibility"
           }
         }
@@ -170,5 +170,5 @@
       false
     ]
   },
-  "hash": "d36062d1e91e34c89f870c5e3aad65063fee2ae96078298940193b12aa2ff3b9"
+  "hash": "f3895df3bd90e11ca41026fd4f291255d57ef523c80db0bb7a71b942e0abf650"
 }

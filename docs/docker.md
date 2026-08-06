@@ -28,7 +28,7 @@ Build:
 docker build -t context69:latest .
 ```
 
-Forgejo CI uses `Dockerfile.forgejo` instead. That file uses
+Forgejo CI uses `forgejo.Dockerfile` instead. That file uses
 `dockerhub.cloud1ful.com/library/debian:trixie-slim` and `apt.cloud1ful.com`; keep it out of
 GitHub Actions and local public builds.
 
