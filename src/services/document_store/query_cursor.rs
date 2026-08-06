@@ -18,7 +18,7 @@ pub(super) fn sort_expression(
     Ok(match &sort.field {
         DocumentSortField::PublishedAt => "d.published_at".to_string(),
         DocumentSortField::UpdatedAt => "d.updated_at_source".to_string(),
-        DocumentSortField::Metadata(path) => {
+        DocumentSortField::Metadata { path } => {
             let definition = definition_for_path(definitions, path)?;
             format!("sort_{index}.{}", typed_column(&definition.data_type))
         }
@@ -120,7 +120,7 @@ fn push_sort_bind(
 ) -> Result<()> {
     let data_type = match &sort.field {
         DocumentSortField::PublishedAt | DocumentSortField::UpdatedAt => "datetime",
-        DocumentSortField::Metadata(path) => &definition_for_path(definitions, path)?.data_type,
+        DocumentSortField::Metadata { path } => &definition_for_path(definitions, path)?.data_type,
     };
     match (data_type, value) {
         ("keyword", SortValue::Keyword(value)) => query.push_bind(value.clone()),

@@ -124,11 +124,15 @@ mod tests {
     fn mixed_directions_then_document_id_produce_stable_order() {
         let sort = [
             DocumentSort {
-                field: DocumentSortField::Metadata("score".to_string()),
+                field: DocumentSortField::Metadata {
+                    path: "score".to_string(),
+                },
                 order: SortOrder::Desc,
             },
             DocumentSort {
-                field: DocumentSortField::Metadata("name".to_string()),
+                field: DocumentSortField::Metadata {
+                    path: "name".to_string(),
+                },
                 order: SortOrder::Asc,
             },
         ];

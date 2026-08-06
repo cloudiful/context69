@@ -1313,7 +1313,11 @@ export interface components {
             user_id: number;
         };
         ApiErrorResponse: {
-            error: string;
+            /** @description Stable machine-readable error code for programmatic handling. */
+            code: string;
+            details?: unknown;
+            /** @description Human-readable error message. */
+            message: string;
         };
         AuthLoginRequest: {
             login_name: string;
@@ -1491,8 +1495,16 @@ export interface components {
             field: components["schemas"]["DocumentSortField"];
             order: components["schemas"]["SortOrder"];
         };
-        DocumentSortField: "published_at" | "updated_at" | {
-            metadata: string;
+        DocumentSortField: {
+            /** @enum {string} */
+            field: "published_at";
+        } | {
+            /** @enum {string} */
+            field: "updated_at";
+        } | {
+            /** @enum {string} */
+            field: "metadata";
+            path: string;
         };
         EnsureScopeResponse: {
             group: components["schemas"]["GroupResponse"];
@@ -1511,11 +1523,9 @@ export interface components {
         FileBatchRequest: {
             items: components["schemas"]["FileBatchItem"][];
         };
-        GenericTaskRequest: {
-            group_path?: string | null;
-            items?: unknown[];
-            kind: components["schemas"]["TaskKind"];
-            source_key?: string | null;
+        FileRetryItem: {
+            /** Format: uuid */
+            file_id: string;
         };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
@@ -2057,13 +2067,13 @@ export interface components {
             /** Format: int64 */
             batch_size: number;
             connection: string;
-            connector_type: string;
+            connector_type: components["schemas"]["SourceConnectorType"];
             database_url?: string | null;
             description?: string | null;
             display_name?: string | null;
             example_queries?: string[];
             source_key: string;
-            sync_strategy: string;
+            sync_strategy: components["schemas"]["SourceSyncStrategy"];
             visibility?: null | components["schemas"]["Visibility"];
         };
         SourceConnectionResponse: {
@@ -2072,6 +2082,8 @@ export interface components {
             origin_message?: string | null;
             origin_status: components["schemas"]["SourceOriginStatusKind"];
         };
+        /** @enum {string} */
+        SourceConnectorType: "postgres_sql";
         SourceFolderResponse: {
             /** Format: uuid */
             folder_id: string;
@@ -2099,7 +2111,7 @@ export interface components {
             /** Format: int64 */
             batch_size: number;
             connection: string;
-            connector_type: string;
+            connector_type: components["schemas"]["SourceConnectorType"];
             description?: string | null;
             display_name: string;
             example_queries?: string[];
@@ -2114,9 +2126,11 @@ export interface components {
             origin_message?: string | null;
             origin_status: components["schemas"]["SourceOriginStatusKind"];
             source_key: string;
-            sync_strategy: string;
+            sync_strategy: components["schemas"]["SourceSyncStrategy"];
             visibility: components["schemas"]["Visibility"];
         };
+        /** @enum {string} */
+        SourceSyncStrategy: "cursor" | "full_scan";
         SyncOutcome: {
             chunks_upserted: number;
             records_changed: number;
@@ -2262,6 +2276,45 @@ export interface components {
         };
         /** @enum {string} */
         TaskStatus: "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
+        TaskSubmitRequest: {
+            group_path?: string | null;
+            items: components["schemas"]["FileRetryItem"][];
+            /** @enum {string} */
+            kind: "retry_file_batch";
+        } | {
+            group_path?: string | null;
+            items: components["schemas"]["FileBatchItem"][];
+            /** @enum {string} */
+            kind: "file_batch";
+        } | {
+            group_path?: string | null;
+            items: components["schemas"]["UpsertLibraryTextRequest"][];
+            /** @enum {string} */
+            kind: "text_batch";
+        } | {
+            group_path?: string | null;
+            items: components["schemas"]["ImportLibraryFileFromUrlRequest"][];
+            /** @enum {string} */
+            kind: "url_batch";
+        } | {
+            group_path?: string | null;
+            items: components["schemas"]["DocumentKey"][];
+            /** @enum {string} */
+            kind: "delete_batch";
+        } | {
+            group_path?: string | null;
+            /** @enum {string} */
+            kind: "source_sync";
+            source_key: string;
+        } | {
+            group_path?: string | null;
+            items: components["schemas"]["TranslationSubmitItem"][];
+            /** @enum {string} */
+            kind: "translation_batch";
+        } | {
+            /** @enum {string} */
+            kind: "vector_rebuild";
+        };
         TestRuntimeValkeyRequest: {
             valkey_url: string;
         };
@@ -2349,6 +2402,11 @@ export interface components {
         };
         /** @enum {string} */
         TranslationStatus: "queued" | "running" | "succeeded" | "failed" | "skipped" | "quota_exceeded" | "unavailable";
+        TranslationSubmitItem: {
+            /** Format: int64 */
+            document_id: number;
+            target_locales?: string[];
+        };
         UpdateAdminUserRequest: {
             display_name?: string | null;
             is_admin?: boolean | null;
@@ -5969,7 +6027,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["GenericTaskRequest"];
+                "application/json": components["schemas"]["TaskSubmitRequest"];
             };
         };
         responses: {

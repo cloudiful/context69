@@ -81,9 +81,7 @@ pub(crate) async fn create_personal_access_token(
         }
         Err(error) => (
             StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                error: error.to_string(),
-            }),
+            Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
         )
             .into_response(),
     }
@@ -114,9 +112,7 @@ pub(crate) async fn revoke_personal_access_token(
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if error.to_string().contains("not found") => (
             StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                error: error.to_string(),
-            }),
+            Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
         )
             .into_response(),
         Err(error) => internal_error_response(error),

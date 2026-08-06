@@ -125,11 +125,11 @@ pub enum SortOrder {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "field", rename_all = "snake_case")]
 pub enum DocumentSortField {
     PublishedAt,
     UpdatedAt,
-    Metadata(String),
+    Metadata { path: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

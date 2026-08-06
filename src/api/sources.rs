@@ -219,9 +219,10 @@ pub(crate) async fn sync_source(
             None => {
                 return (
                     StatusCode::NOT_FOUND,
-                    Json(ApiErrorResponse {
-                        error: format!("unknown source {source_key}"),
-                    }),
+                    Json(ApiErrorResponse::new(
+                        "not_found",
+                        format!("unknown source {source_key}"),
+                    )),
                 )
                     .into_response();
             }

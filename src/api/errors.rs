@@ -12,7 +12,7 @@ pub(crate) fn internal_error_response(error: anyhow::Error) -> axum::response::R
     } else {
         runtime_aware_status(&message).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
     };
-    (status, Json(ApiErrorResponse { error: message })).into_response()
+    (status, Json(error_response(status, message))).into_response()
 }
 
 pub(crate) fn source_management_error_response(error: anyhow::Error) -> axum::response::Response {
@@ -35,7 +35,7 @@ pub(crate) fn source_management_error_response(error: anyhow::Error) -> axum::re
         StatusCode::INTERNAL_SERVER_ERROR
     };
 
-    (status, Json(ApiErrorResponse { error: message })).into_response()
+    (status, Json(error_response(status, message))).into_response()
 }
 
 pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::response::Response {
@@ -95,7 +95,7 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
         StatusCode::INTERNAL_SERVER_ERROR
     };
 
-    (status, Json(ApiErrorResponse { error: message })).into_response()
+    (status, Json(error_response(status, message))).into_response()
 }
 
 pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response::Response {
@@ -117,7 +117,11 @@ pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response:
         StatusCode::INTERNAL_SERVER_ERROR
     };
 
-    (status, Json(ApiErrorResponse { error: message })).into_response()
+    (status, Json(error_response(status, message))).into_response()
+}
+
+pub(crate) fn error_response(status: StatusCode, message: String) -> ApiErrorResponse {
+    ApiErrorResponse::new(ApiErrorResponse::code_for_status(status.as_u16()), message)
 }
 
 fn runtime_aware_status(message: &str) -> Option<StatusCode> {

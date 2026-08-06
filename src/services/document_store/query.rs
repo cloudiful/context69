@@ -134,7 +134,7 @@ async fn list_page_candidates(
     query.push(" FROM context69.documents d INNER JOIN context69.groups g ON g.id = d.group_id");
 
     for (index, sort) in request.sort.iter().enumerate() {
-        if let DocumentSortField::Metadata(path) = &sort.field {
+        if let DocumentSortField::Metadata { path } = &sort.field {
             let definition = definition_for_path(definitions, path)?;
             query
                 .push(" LEFT JOIN context69.document_metadata_values sort_")
@@ -243,7 +243,7 @@ fn sort_value_from_row(
             .try_get::<Option<DateTime<Utc>>, _>(alias.as_str())
             .map(|value| value.map(SortValue::Datetime).unwrap_or(SortValue::Null))
             .map_err(Into::into),
-        DocumentSortField::Metadata(path) => {
+        DocumentSortField::Metadata { path } => {
             let definition = definition_for_path(definitions, path)?;
             match definition.data_type.as_str() {
                 "keyword" => row

@@ -159,7 +159,7 @@ export function useProjectLibraryActions({
         throw new Error(t("library.sourceMissingMessage"));
       }
       await apiClient.submitTask({
-        kind: "file_batch",
+        kind: "retry_file_batch",
         group_path: toValue(groupPath),
         items: [{ file_id: fileId }],
       });

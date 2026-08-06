@@ -16,6 +16,36 @@ pub enum SourceOriginStatusKind {
     Misconfigured,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceSyncStrategy {
+    Cursor,
+    FullScan,
+}
+
+impl SourceSyncStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cursor => "cursor",
+            Self::FullScan => "full_scan",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceConnectorType {
+    PostgresSql,
+}
+
+impl SourceConnectorType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PostgresSql => "postgres_sql",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct SourceStatus {
     pub group_key: String,
@@ -32,8 +62,8 @@ pub struct SourceStatus {
     pub origin_status: SourceOriginStatusKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin_message: Option<String>,
-    pub sync_strategy: String,
-    pub connector_type: String,
+    pub sync_strategy: SourceSyncStrategy,
+    pub connector_type: SourceConnectorType,
     pub base_query: String,
     pub batch_size: i64,
     pub last_cursor_updated_at: Option<DateTime<Utc>>,
@@ -90,8 +120,8 @@ pub struct SourceConfigInput {
     pub connection: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_url: Option<String>,
-    pub sync_strategy: String,
-    pub connector_type: String,
+    pub sync_strategy: SourceSyncStrategy,
+    pub connector_type: SourceConnectorType,
     pub base_query: String,
     pub batch_size: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]

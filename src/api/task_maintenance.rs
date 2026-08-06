@@ -9,7 +9,7 @@ use context69_contracts::{
     UpdateTaskMaintenanceSettingsRequest,
 };
 
-use super::{ApiState, auth::CurrentUser};
+use super::{ApiState, auth::CurrentUser, errors::error_response};
 
 #[utoipa::path(
     get,
@@ -121,5 +121,5 @@ fn task_maintenance_error_response(error: anyhow::Error) -> Response {
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     };
-    (status, Json(ApiErrorResponse { error: message })).into_response()
+    (status, Json(error_response(status, message))).into_response()
 }

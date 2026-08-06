@@ -3,16 +3,16 @@ use std::time::{Duration, Instant};
 pub use context69_contracts::{
     AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
     CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse, DocumentKey,
-    DocumentResponse, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GenericTaskRequest,
-    GroupKind, GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
+    DocumentResponse, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GroupKind,
+    GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
     LibraryFileUploadMetadata as FileMetadata, LibraryTextContentFormat as TextContentFormat,
     MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind, PurgeTasksRequest,
     PurgeTasksResponse, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, SearchRequest,
     TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
     TaskMaintenanceOverview, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
-    TaskRetryResponse, TaskStatus, TextBatchRequest, TranslationDirective, TranslationStatus,
-    UpdateTaskMaintenanceSettingsRequest, UpsertLibraryTextRequest as TextBatchItem,
-    UrlBatchRequest, Visibility,
+    TaskRetryResponse, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationDirective,
+    TranslationStatus, UpdateTaskMaintenanceSettingsRequest,
+    UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -101,7 +101,7 @@ impl Context69Client {
             .await
     }
 
-    pub async fn submit_task(&self, request: &GenericTaskRequest) -> Result<TaskRef, Error> {
+    pub async fn submit_task(&self, request: &TaskSubmitRequest) -> Result<TaskRef, Error> {
         self.submit_batch("/v1/tasks".to_string(), request).await
     }
 

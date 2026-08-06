@@ -95,7 +95,7 @@ export async function login(credentials: AuthLoginRequest) {
   if (!response.ok) {
     const payload = await parseJson<ApiErrorResponse>(response);
     throw new AuthError(
-      payload?.error || `Request failed with status ${response.status}`,
+      payload?.message || `Request failed with status ${response.status}`,
       response.status,
       response.status === 401 ? "invalid_credentials" : response.status >= 500 ? "network" : "unknown",
     );

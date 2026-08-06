@@ -73,9 +73,10 @@ pub(crate) async fn update_translation_settings(
 fn admin_required() -> axum::response::Response {
     (
         StatusCode::FORBIDDEN,
-        Json(ApiErrorResponse {
-            error: "administrator access required".to_string(),
-        }),
+        Json(ApiErrorResponse::new(
+            "forbidden",
+            "administrator access required".to_string(),
+        )),
     )
         .into_response()
 }

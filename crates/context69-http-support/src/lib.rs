@@ -35,13 +35,8 @@ where
 }
 
 pub fn json_error_response(status: StatusCode, error: impl Into<String>) -> Response {
-    (
-        status,
-        Json(ApiErrorResponse {
-            error: error.into(),
-        }),
-    )
-        .into_response()
+    let code = ApiErrorResponse::code_for_status(status.as_u16());
+    (status, Json(ApiErrorResponse::new(code, error.into()))).into_response()
 }
 
 pub fn internal_error_response(error: Error) -> Response {

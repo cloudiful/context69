@@ -98,5 +98,5 @@ pub(crate) fn validate_personal_access_token(token: String) -> Result<String, Er
 pub(crate) fn parse_api_error_message(body: &str) -> Option<String> {
     serde_json::from_str::<ApiErrorResponse>(body)
         .ok()
-        .map(|response| response.error)
+        .map(|response| response.message)
 }

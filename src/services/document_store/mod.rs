@@ -163,7 +163,7 @@ impl DocumentStoreService {
             && request
                 .sort
                 .iter()
-                .all(|item| !matches!(item.field, DocumentSortField::Metadata(_)))
+                .all(|item| !matches!(item.field, DocumentSortField::Metadata { .. }))
         {
             Vec::new()
         } else {
@@ -481,7 +481,7 @@ fn validate_query_definitions(
         .iter()
         .map(|item| item.path.as_str())
         .chain(request.sort.iter().filter_map(|item| match &item.field {
-            DocumentSortField::Metadata(path) => Some(path.as_str()),
+            DocumentSortField::Metadata { path } => Some(path.as_str()),
             _ => None,
         }))
     {
@@ -495,7 +495,7 @@ fn validate_query_definitions(
         if request
             .sort
             .iter()
-            .any(|item| matches!(&item.field, DocumentSortField::Metadata(value) if value == path))
+            .any(|item| matches!(&item.field, DocumentSortField::Metadata { path: value } if value == path))
             && !definition.sortable
         {
             return Err(anyhow!("metadata field '{path}' is not sortable"));

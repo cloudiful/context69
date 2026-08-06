@@ -41,7 +41,14 @@ pub(crate) fn group_access_error_response(error: anyhow::Error) -> axum::respons
         StatusCode::INTERNAL_SERVER_ERROR
     };
 
-    (status, Json(ApiErrorResponse { error: message })).into_response()
+    (
+        status,
+        Json(ApiErrorResponse::new(
+            ApiErrorResponse::code_for_status(status.as_u16()),
+            message,
+        )),
+    )
+        .into_response()
 }
 
 #[cfg(test)]

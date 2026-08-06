@@ -5,8 +5,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use context69_contracts::{
-    ApiErrorResponse, DeleteBatchRequest, FileBatchRequest, GenericTaskRequest, ScopeSpec,
-    TaskItemsQuery, TaskListQuery, TaskRef, TextBatchRequest, UrlBatchRequest,
+    ApiErrorResponse, DeleteBatchRequest, FileBatchRequest, ScopeSpec, TaskItemsQuery,
+    TaskListQuery, TaskRef, TaskSubmitRequest, TextBatchRequest, UrlBatchRequest,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -14,6 +14,7 @@ use uuid::Uuid;
 use super::{
     ApiState,
     auth::CurrentUser,
+    errors::error_response,
     group_access::{group_access_error_response, group_for_user, require_group_role},
 };
 use crate::{contracts::TaskKind, services::tasks::TaskSubmission};
@@ -179,14 +180,80 @@ pub(crate) async fn submit_delete_batch(
     .await
 }
 
-#[utoipa::path(post, path = "/v1/tasks", request_body = GenericTaskRequest, responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks", request_body = TaskSubmitRequest, responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse)))]
 pub(crate) async fn submit_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
     headers: HeaderMap,
-    Json(request): Json<GenericTaskRequest>,
+    Json(request): Json<TaskSubmitRequest>,
 ) -> Response {
-    let group = if let Some(path) = request.group_path.as_deref() {
+    let (kind, group_path, source_key, payloads) = match request {
+        TaskSubmitRequest::RetryFileBatch { group_path, items } => (
+            TaskKind::FileBatch,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| json!({ "file_id": item.file_id }))
+                .collect(),
+        ),
+        TaskSubmitRequest::FileBatch { group_path, items } => (
+            TaskKind::FileBatch,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| serde_json::to_value(item).expect("FileBatchItem is serializable"))
+                .collect(),
+        ),
+        TaskSubmitRequest::TextBatch { group_path, items } => (
+            TaskKind::TextBatch,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| serde_json::to_value(item).expect("text item is serializable"))
+                .collect(),
+        ),
+        TaskSubmitRequest::UrlBatch { group_path, items } => (
+            TaskKind::UrlBatch,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| serde_json::to_value(item).expect("url item is serializable"))
+                .collect(),
+        ),
+        TaskSubmitRequest::DeleteBatch { group_path, items } => (
+            TaskKind::DeleteBatch,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| serde_json::to_value(item).expect("delete item is serializable"))
+                .collect(),
+        ),
+        TaskSubmitRequest::SourceSync {
+            group_path,
+            source_key,
+        } => (
+            TaskKind::SourceSync,
+            group_path,
+            Some(source_key),
+            vec![json!({})],
+        ),
+        TaskSubmitRequest::TranslationBatch { group_path, items } => (
+            TaskKind::Translation,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| serde_json::to_value(item).expect("translation item is serializable"))
+                .collect(),
+        ),
+        TaskSubmitRequest::VectorRebuild => (TaskKind::VectorRebuild, None, None, vec![json!({})]),
+    };
+    let group = if let Some(path) = group_path.as_deref() {
         match managed_group(&state, session.user.id, path).await {
             Ok(group) => Some(group),
             Err(response) => return response,
@@ -194,15 +261,14 @@ pub(crate) async fn submit_task(
     } else {
         None
     };
-    let payloads = request.items;
     submit(
         &state,
         TaskSubmission {
             user_id: session.user.id,
             group_id: group.as_ref().map(|value| value.id),
-            group_path: request.group_path,
-            source_key: request.source_key,
-            kind: request.kind,
+            group_path,
+            source_key,
+            kind,
             payloads,
             idempotency_key: idempotency_key(&headers),
         },
@@ -371,5 +437,5 @@ fn task_error(error: anyhow::Error) -> Response {
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     };
-    (status, Json(ApiErrorResponse { error: message })).into_response()
+    (status, Json(error_response(status, message))).into_response()
 }

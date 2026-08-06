@@ -55,7 +55,7 @@ describe("apiClient", () => {
   it("maps api errors with status code", async () => {
     GET.mockResolvedValue({
       error: {
-        error: "document not found",
+        message: "document not found",
       },
       response: {
         ok: false,

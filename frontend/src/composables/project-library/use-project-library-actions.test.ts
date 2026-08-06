@@ -60,7 +60,7 @@ describe("useProjectLibraryActions retry", () => {
     await state.retryFile("file-id");
     expect(submitTask).toHaveBeenCalledTimes(1);
     expect(submitTask).toHaveBeenCalledWith({
-      kind: "file_batch",
+      kind: "retry_file_batch",
       group_path: "group-b",
       items: [{ file_id: "file-id" }],
     });

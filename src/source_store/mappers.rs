@@ -4,7 +4,9 @@ use super::{
     PostgresSqlConnectorConfig, SourceConfig, SourceConfigRow, SourceStatus, SourceStatusRow,
     parse_sync_strategy,
 };
-use crate::contracts::{SourceOriginStatusKind, Visibility};
+use crate::contracts::{
+    SourceConnectorType, SourceOriginStatusKind, SourceSyncStrategy, Visibility,
+};
 
 pub(super) fn row_to_source_config(row: SourceConfigRow) -> Result<SourceConfig> {
     if row.connector_type != "postgres_sql" {
@@ -45,8 +47,12 @@ pub(super) fn row_to_source_status(row: SourceStatusRow) -> SourceStatus {
         has_database_url: false,
         origin_status: SourceOriginStatusKind::Unknown,
         origin_message: None,
-        sync_strategy: row.sync_strategy,
-        connector_type: row.connector_type,
+        sync_strategy: match row.sync_strategy.as_str() {
+            "cursor" => SourceSyncStrategy::Cursor,
+            "full_scan" => SourceSyncStrategy::FullScan,
+            _ => SourceSyncStrategy::Cursor,
+        },
+        connector_type: SourceConnectorType::PostgresSql,
         base_query: row.base_query,
         batch_size: row.batch_size,
         last_cursor_updated_at: row.last_cursor_updated_at,

@@ -1,6 +1,5 @@
 import type {
   CancelActiveTasksResponse,
-  GenericTaskRequest,
   PurgeTasksRequest,
   PurgeTasksResponse,
   RequestOptions,
@@ -13,6 +12,7 @@ import type {
   TaskRef,
   TaskRetryResponse,
   TaskStatus,
+  TaskSubmitRequest,
   UpdateTaskMaintenanceSettingsRequest,
 } from "./api-types";
 
@@ -23,7 +23,7 @@ type Deps = {
 
 export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
   return {
-    submitTask(payload: GenericTaskRequest, options?: RequestOptions) {
+    submitTask(payload: TaskSubmitRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks", {
         body: payload,
         signal: options?.signal,

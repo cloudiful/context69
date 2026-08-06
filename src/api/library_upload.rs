@@ -20,9 +20,7 @@ pub(crate) async fn read_library_uploads(
             Err(error) => {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(ApiErrorResponse {
-                        error: error.to_string(),
-                    }),
+                    Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
                 )
                     .into_response());
             }
@@ -40,9 +38,10 @@ pub(crate) async fn read_library_uploads(
                     Err(error) => {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            Json(ApiErrorResponse {
-                                error: format!("invalid folder_id: {error}"),
-                            }),
+                            Json(ApiErrorResponse::new(
+                                "invalid_argument",
+                                format!("invalid folder_id: {error}"),
+                            )),
                         )
                             .into_response());
                     }
@@ -50,9 +49,7 @@ pub(crate) async fn read_library_uploads(
                 Err(error) => {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            error: error.to_string(),
-                        }),
+                        Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
                     )
                         .into_response());
                 }
@@ -66,9 +63,7 @@ pub(crate) async fn read_library_uploads(
                 Err(error) => {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            error: error.to_string(),
-                        }),
+                        Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
                     )
                         .into_response());
                 }
@@ -83,18 +78,20 @@ pub(crate) async fn read_library_uploads(
                     Ok(_) => {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            Json(ApiErrorResponse {
-                                error: "metadata_json must be an object".into(),
-                            }),
+                            Json(ApiErrorResponse::new(
+                                "invalid_argument",
+                                "metadata_json must be an object".into(),
+                            )),
                         )
                             .into_response());
                     }
                     Err(error) => {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            Json(ApiErrorResponse {
-                                error: format!("invalid metadata JSON: {error}"),
-                            }),
+                            Json(ApiErrorResponse::new(
+                                "invalid_argument",
+                                format!("invalid metadata JSON: {error}"),
+                            )),
                         )
                             .into_response());
                     }
@@ -102,9 +99,7 @@ pub(crate) async fn read_library_uploads(
                 Err(error) => {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            error: error.to_string(),
-                        }),
+                        Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
                     )
                         .into_response());
                 }
@@ -129,9 +124,7 @@ pub(crate) async fn read_library_uploads(
             Err(error) => {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(ApiErrorResponse {
-                        error: error.to_string(),
-                    }),
+                    Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
                 )
                     .into_response());
             }
@@ -151,9 +144,10 @@ pub(crate) async fn read_library_uploads(
     if uploads.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                error: "at least one file is required".to_string(),
-            }),
+            Json(ApiErrorResponse::new(
+                "invalid_argument",
+                "at least one file is required".to_string(),
+            )),
         )
             .into_response());
     }

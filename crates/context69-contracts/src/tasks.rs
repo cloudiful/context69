@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
@@ -243,15 +242,59 @@ pub struct FileBatchRequest {
     pub items: Vec<FileBatchItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskSubmitRequest {
+    /// Re-process existing library files that already have a file id.
+    RetryFileBatch {
+        #[serde(default)]
+        group_path: Option<String>,
+        items: Vec<FileRetryItem>,
+    },
+    /// Ingest file contents uploaded inline as base64.
+    FileBatch {
+        #[serde(default)]
+        group_path: Option<String>,
+        items: Vec<FileBatchItem>,
+    },
+    TextBatch {
+        #[serde(default)]
+        group_path: Option<String>,
+        items: Vec<UpsertLibraryTextRequest>,
+    },
+    UrlBatch {
+        #[serde(default)]
+        group_path: Option<String>,
+        items: Vec<ImportLibraryFileFromUrlRequest>,
+    },
+    DeleteBatch {
+        #[serde(default)]
+        group_path: Option<String>,
+        items: Vec<crate::DocumentKey>,
+    },
+    SourceSync {
+        #[serde(default)]
+        group_path: Option<String>,
+        source_key: String,
+    },
+    TranslationBatch {
+        #[serde(default)]
+        group_path: Option<String>,
+        items: Vec<TranslationSubmitItem>,
+    },
+    VectorRebuild,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct GenericTaskRequest {
-    pub kind: TaskKind,
+pub struct FileRetryItem {
+    pub file_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TranslationSubmitItem {
+    pub document_id: i64,
     #[serde(default)]
-    pub group_path: Option<String>,
-    #[serde(default)]
-    pub source_key: Option<String>,
-    #[serde(default)]
-    pub items: Vec<Value>,
+    pub target_locales: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

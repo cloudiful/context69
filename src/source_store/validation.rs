@@ -6,6 +6,7 @@ use super::{
     MAX_SOURCE_EXAMPLE_QUERY_LEN, PostgresSqlConnectorConfig, SourceConfig, SourceConfigInput,
     SourceStore, parse_sync_strategy,
 };
+use crate::contracts::SourceConnectorType;
 
 pub const MAX_SOURCE_EXAMPLE_QUERIES: usize = 6;
 
@@ -57,10 +58,10 @@ impl SourceStore {
             return Err(anyhow!("unknown connection {connection}"));
         }
 
-        if input.connector_type != "postgres_sql" {
+        if input.connector_type != SourceConnectorType::PostgresSql {
             return Err(anyhow!(
                 "unsupported connector_type: {}",
-                input.connector_type
+                input.connector_type.as_str()
             ));
         }
 
@@ -92,7 +93,7 @@ impl SourceStore {
             description,
             example_queries,
             connection: connection.to_string(),
-            sync_strategy: parse_sync_strategy(&input.sync_strategy)?,
+            sync_strategy: parse_sync_strategy(input.sync_strategy.as_str())?,
             connector: PostgresSqlConnectorConfig {
                 base_query: base_query.to_string(),
                 batch_size: input.batch_size,

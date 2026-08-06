@@ -58,9 +58,10 @@ where
             Some(authenticated) => Ok(Self(authenticated.session)),
             None => Err((
                 StatusCode::UNAUTHORIZED,
-                Json(ApiErrorResponse {
-                    error: "missing authenticated session or personal access token".to_string(),
-                }),
+                Json(ApiErrorResponse::new(
+                    "unauthorized",
+                    "missing authenticated session or personal access token".to_string(),
+                )),
             )
                 .into_response()),
         }
@@ -90,12 +91,17 @@ pub(crate) async fn auth_middleware(
         }
         Ok(None) => (
             StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse {
-                error: "missing authenticated session or personal access token".to_string(),
-            }),
+            Json(ApiErrorResponse::new(
+                "unauthorized",
+                "missing authenticated session or personal access token".to_string(),
+            )),
         )
             .into_response(),
-        Err(error) => (StatusCode::UNAUTHORIZED, Json(ApiErrorResponse { error })).into_response(),
+        Err(error) => (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiErrorResponse::new("unauthorized", error)),
+        )
+            .into_response(),
     }
 }
 
@@ -124,7 +130,11 @@ pub(crate) async fn optional_auth_middleware(
             request.extensions_mut().insert(RequestAuth(None));
             next.run(request).await
         }
-        Err(error) => (StatusCode::UNAUTHORIZED, Json(ApiErrorResponse { error })).into_response(),
+        Err(error) => (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiErrorResponse::new("unauthorized", error)),
+        )
+            .into_response(),
     }
 }
 
@@ -149,9 +159,10 @@ pub(crate) async fn forbid_personal_access_token_middleware(
     {
         return (
             StatusCode::FORBIDDEN,
-            Json(ApiErrorResponse {
-                error: "personal access tokens cannot manage personal access tokens".to_string(),
-            }),
+            Json(ApiErrorResponse::new(
+                "forbidden",
+                "personal access tokens cannot manage personal access tokens".to_string(),
+            )),
         )
             .into_response();
     }
@@ -252,9 +263,10 @@ pub(crate) async fn login(
         },
         Ok(None) => (
             StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse {
-                error: "invalid login or password".to_string(),
-            }),
+            Json(ApiErrorResponse::new(
+                "unauthorized",
+                "invalid login or password".to_string(),
+            )),
         )
             .into_response(),
         Err(error) => internal_error_response(anyhow::anyhow!(error)),
@@ -352,9 +364,10 @@ async fn require_scope_middleware(
     let Some(RequestAuth(Some(authenticated))) = auth else {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse {
-                error: "missing authenticated session or personal access token".to_string(),
-            }),
+            Json(ApiErrorResponse::new(
+                "unauthorized",
+                "missing authenticated session or personal access token".to_string(),
+            )),
         )
             .into_response();
     };
@@ -363,12 +376,13 @@ async fn require_scope_middleware(
         if !scopes.contains(&required_scope) {
             return (
                 StatusCode::FORBIDDEN,
-                Json(ApiErrorResponse {
-                    error: format!(
+                Json(ApiErrorResponse::new(
+                    "forbidden",
+                    format!(
                         "personal access token missing {} scope",
                         scope_name(required_scope)
                     ),
-                }),
+                )),
             )
                 .into_response();
         }

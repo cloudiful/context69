@@ -70,5 +70,37 @@ pub struct HealthResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ApiErrorResponse {
-    pub error: String,
+    /// Stable machine-readable error code for programmatic handling.
+    pub code: String,
+    /// Human-readable error message.
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+impl ApiErrorResponse {
+    pub fn new(code: &str, message: String) -> Self {
+        Self {
+            code: code.to_string(),
+            message,
+            details: None,
+        }
+    }
+
+    pub fn code_for_status(status: u16) -> &'static str {
+        match status {
+            400 => "invalid_argument",
+            401 => "unauthorized",
+            403 => "forbidden",
+            404 => "not_found",
+            409 => "conflict",
+            413 => "payload_too_large",
+            422 => "unprocessable_entity",
+            429 => "rate_limited",
+            502 => "upstream_error",
+            503 => "unavailable",
+            504 => "upstream_timeout",
+            _ => "internal",
+        }
+    }
 }

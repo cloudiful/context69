@@ -4529,7 +4529,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenericTaskRequest"
+                "$ref": "#/components/schemas/TaskSubmitRequest"
               }
             }
           },
@@ -4903,11 +4903,18 @@
       "ApiErrorResponse": {
         "type": "object",
         "required": [
-          "error"
+          "code",
+          "message"
         ],
         "properties": {
-          "error": {
-            "type": "string"
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code for programmatic handling."
+          },
+          "details": {},
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message."
           }
         }
       },
@@ -5640,24 +5647,47 @@
       "DocumentSortField": {
         "oneOf": [
           {
-            "type": "string",
-            "enum": [
-              "published_at"
-            ]
-          },
-          {
-            "type": "string",
-            "enum": [
-              "updated_at"
-            ]
+            "type": "object",
+            "required": [
+              "field"
+            ],
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "published_at"
+                ]
+              }
+            }
           },
           {
             "type": "object",
             "required": [
-              "metadata"
+              "field"
             ],
             "properties": {
-              "metadata": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "updated_at"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "field"
+            ],
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "metadata"
+                ]
+              },
+              "path": {
                 "type": "string"
               }
             }
@@ -5748,30 +5778,15 @@
           }
         }
       },
-      "GenericTaskRequest": {
+      "FileRetryItem": {
         "type": "object",
         "required": [
-          "kind"
+          "file_id"
         ],
         "properties": {
-          "group_path": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "items": {
-            "type": "array",
-            "items": {}
-          },
-          "kind": {
-            "$ref": "#/components/schemas/TaskKind"
-          },
-          "source_key": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "file_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -7882,7 +7897,7 @@
             "type": "string"
           },
           "connector_type": {
-            "type": "string"
+            "$ref": "#/components/schemas/SourceConnectorType"
           },
           "database_url": {
             "type": [
@@ -7912,7 +7927,7 @@
             "type": "string"
           },
           "sync_strategy": {
-            "type": "string"
+            "$ref": "#/components/schemas/SourceSyncStrategy"
           },
           "visibility": {
             "oneOf": [
@@ -7950,6 +7965,12 @@
             "$ref": "#/components/schemas/SourceOriginStatusKind"
           }
         }
+      },
+      "SourceConnectorType": {
+        "type": "string",
+        "enum": [
+          "postgres_sql"
+        ]
       },
       "SourceFolderResponse": {
         "type": "object",
@@ -8053,7 +8074,7 @@
             "type": "string"
           },
           "connector_type": {
-            "type": "string"
+            "$ref": "#/components/schemas/SourceConnectorType"
           },
           "description": {
             "type": [
@@ -8112,12 +8133,19 @@
             "type": "string"
           },
           "sync_strategy": {
-            "type": "string"
+            "$ref": "#/components/schemas/SourceSyncStrategy"
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
           }
         }
+      },
+      "SourceSyncStrategy": {
+        "type": "string",
+        "enum": [
+          "cursor",
+          "full_scan"
+        ]
       },
       "SyncOutcome": {
         "type": "object",
@@ -8656,6 +8684,212 @@
           "cancelled"
         ]
       },
+      "TaskSubmitRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Re-process existing library files that already have a file id.",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FileRetryItem"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "retry_file_batch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Ingest file contents uploaded inline as base64.",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FileBatchItem"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file_batch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/UpsertLibraryTextRequest"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "text_batch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ImportLibraryFileFromUrlRequest"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "url_batch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DocumentKey"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete_batch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "source_key",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "source_sync"
+                ]
+              },
+              "source_key": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TranslationSubmitItem"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "translation_batch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vector_rebuild"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "TestRuntimeValkeyRequest": {
         "type": "object",
         "required": [
@@ -9014,6 +9248,24 @@
           "quota_exceeded",
           "unavailable"
         ]
+      },
+      "TranslationSubmitItem": {
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "target_locales": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "UpdateAdminUserRequest": {
         "type": "object",

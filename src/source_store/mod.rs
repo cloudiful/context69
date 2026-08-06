@@ -68,7 +68,7 @@ impl SourceStore {
 
 #[cfg(test)]
 mod tests {
-    use crate::contracts::SourceConfigInput;
+    use crate::contracts::{SourceConfigInput, SourceConnectorType, SourceSyncStrategy};
 
     use super::SourceStore;
 
@@ -85,8 +85,8 @@ mod tests {
             example_queries: Vec::new(),
             connection: "missing".to_string(),
             database_url: None,
-            sync_strategy: "cursor".to_string(),
-            connector_type: "postgres_sql".to_string(),
+            sync_strategy: SourceSyncStrategy::Cursor,
+            connector_type: SourceConnectorType::PostgresSql,
             base_query: "SELECT 1".to_string(),
             batch_size: 200,
             visibility: None,
@@ -106,8 +106,8 @@ mod tests {
             example_queries: Vec::new(),
             connection: "gov-info".to_string(),
             database_url: None,
-            sync_strategy: "cursor".to_string(),
-            connector_type: "postgres_sql".to_string(),
+            sync_strategy: SourceSyncStrategy::Cursor,
+            connector_type: SourceConnectorType::PostgresSql,
             base_query: "SELECT 1".to_string(),
             batch_size: 0,
             visibility: None,
@@ -132,8 +132,8 @@ mod tests {
             ],
             connection: "gov-info".to_string(),
             database_url: None,
-            sync_strategy: "cursor".to_string(),
-            connector_type: "postgres_sql".to_string(),
+            sync_strategy: SourceSyncStrategy::Cursor,
+            connector_type: SourceConnectorType::PostgresSql,
             base_query: "SELECT 1".to_string(),
             batch_size: 200,
             visibility: None,
@@ -169,8 +169,8 @@ mod tests {
             ],
             connection: "gov-info".to_string(),
             database_url: None,
-            sync_strategy: "cursor".to_string(),
-            connector_type: "postgres_sql".to_string(),
+            sync_strategy: SourceSyncStrategy::Cursor,
+            connector_type: SourceConnectorType::PostgresSql,
             base_query: "SELECT 1".to_string(),
             batch_size: 200,
             visibility: None,

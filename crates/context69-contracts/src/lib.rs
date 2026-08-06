@@ -62,16 +62,17 @@ pub use settings::{
 };
 pub use sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,
-    SourceFolderResponse, SourceOriginStatusKind, SourcePageQuery, SourcePageResponse,
-    SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
+    SourceConnectorType, SourceFolderResponse, SourceOriginStatusKind, SourcePageQuery,
+    SourcePageResponse, SourceStatus, SourceSyncStrategy, SyncOutcome,
+    UpsertSourceConnectionRequest,
 };
 pub use tasks::{
     CancelActiveTasksResponse, DeleteBatchRequest, EnsureScopeResponse, FileBatchItem,
-    FileBatchRequest, GenericTaskRequest, PurgeTasksRequest, PurgeTasksResponse, RerunTaskResponse,
+    FileBatchRequest, FileRetryItem, PurgeTasksRequest, PurgeTasksResponse, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview, TaskMaintenanceSettings,
     TaskMaintenanceStats, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef, TaskResponse,
-    TaskRetryResponse, TaskStatus, TextBatchRequest, UpdateTaskMaintenanceSettingsRequest,
-    UrlBatchRequest,
+    TaskRetryResponse, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem,
+    UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
 };
 pub use translation::*;

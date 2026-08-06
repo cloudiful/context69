@@ -25,8 +25,8 @@ export class ApiError extends Error {
 export type OpenApiClient = Client<paths>;
 
 function readErrorMessage(response: Response, error: unknown): string {
-  if (error && typeof error === "object" && "error" in error) {
-    const message = (error as ApiErrorResponse).error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as ApiErrorResponse).message;
     if (typeof message === "string" && message) {
       return message;
     }
