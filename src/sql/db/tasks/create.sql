@@ -1,5 +1,5 @@
 INSERT INTO context69.tasks (
-    id, user_id, group_id, kind, group_path, source_key, total_count, queued_count, stage
+    id, user_id, group_id, kind, group_path, source_key, origin, total_count, queued_count, stage
 )
 VALUES (
     $1,
@@ -9,7 +9,8 @@ VALUES (
     $5,
     $6,
     $7,
-    $7,
+    $8,
+    $8,
     CASE $4
         WHEN 'url_batch' THEN 'download'
         WHEN 'file_batch' THEN 'storage'

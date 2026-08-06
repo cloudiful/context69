@@ -18,6 +18,7 @@ const useToast = vi.spyOn(nuxtUiComposables, "useToast");
 const row: TaskResponse = {
   task_id: "task-id",
   kind: "file_batch",
+  origin: "manual",
   status: "waiting",
   group_path: "research",
   source_key: null,

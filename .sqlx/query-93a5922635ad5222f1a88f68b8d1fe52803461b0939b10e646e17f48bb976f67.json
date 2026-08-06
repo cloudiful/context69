@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks task\nWHERE (\n      task.user_id = $1\n      OR EXISTS (\n          WITH RECURSIVE inherited_groups AS (\n              SELECT gm.group_id\n              FROM context69.group_memberships gm\n              WHERE gm.user_id = $1\n              UNION ALL\n              SELECT child.id\n              FROM context69.groups child\n              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n          )\n          SELECT 1\n          FROM inherited_groups\n          WHERE inherited_groups.group_id = task.group_id\n      )\n  )\n  AND (\n      $2::text IS NULL\n      OR task.group_path ILIKE '%' || $2 || '%'\n      OR task.source_key ILIKE '%' || $2 || '%'\n      OR task.error_summary ILIKE '%' || $2 || '%'\n      OR EXISTS (\n          SELECT 1\n          FROM context69.task_items item\n          WHERE item.task_id = task.id\n            AND item.payload::text ILIKE '%' || $2 || '%'\n      )\n  )\n  AND ($3::text IS NULL OR task.kind = $3)\n  AND ($4::text IS NULL OR task.status = $4)\n  AND ($5::text IS NULL OR task.stage = $5)\n  AND ($6::text IS NULL OR task.waiting_reason = $6)\n  AND ($7::text IS NULL OR task.dependency_key = $7)\nORDER BY task.created_at DESC\nLIMIT $8 OFFSET $9\n",
+  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    origin,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks\nWHERE id = $1\n",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,17 @@
       },
       {
         "ordinal": 5,
+        "name": "origin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "group_path",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "source_key",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "total_count",
         "type_info": "Int8",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "queued_count",
         "type_info": "Int8",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "running_count",
         "type_info": "Int8",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "waiting_count",
         "type_info": "Int8",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "succeeded_count",
         "type_info": "Int8",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "failed_count",
         "type_info": "Int8",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "cancelled_count",
         "type_info": "Int8",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "failure_stage",
         "type_info": "Text",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "error_summary",
         "type_info": "Text",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "stage",
         "type_info": "Text",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "waiting_reason",
         "type_info": "Text",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "dependency_key",
         "type_info": "Text",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "next_attempt_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -224,7 +235,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -235,7 +246,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -246,7 +257,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "finished_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -257,7 +268,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -270,21 +281,14 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Int8",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       true,
       true,
+      false,
       false,
       false,
       true,
@@ -308,5 +312,5 @@
       false
     ]
   },
-  "hash": "1910383436e1835f0cc397eb327bed990767762d8e4e3a6f0df65c7f7d11890b"
+  "hash": "93a5922635ad5222f1a88f68b8d1fe52803461b0939b10e646e17f48bb976f67"
 }

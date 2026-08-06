@@ -15,6 +15,7 @@ const cancelTask = vi.spyOn(apiClient, "cancelTask");
 const failedTask: TaskResponse = {
   task_id: "task-id",
   kind: "file_batch",
+  origin: "manual",
   status: "failed",
   group_path: "research",
   source_key: null,

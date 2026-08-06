@@ -2218,6 +2218,8 @@ export interface components {
             /** Format: int64 */
             waiting: number;
         };
+        /** @enum {string} */
+        TaskOrigin: "manual" | "rerun";
         TaskPageResponse: {
             items: components["schemas"]["TaskResponse"][];
             pagination: components["schemas"]["Pagination"];
@@ -2257,6 +2259,7 @@ export interface components {
             finished_at?: string | null;
             group_path?: string | null;
             kind: components["schemas"]["TaskKind"];
+            origin: components["schemas"]["TaskOrigin"];
             progress: components["schemas"]["TaskProgress"];
             source_key?: string | null;
             stage?: string | null;

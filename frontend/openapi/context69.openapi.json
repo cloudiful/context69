@@ -8474,6 +8474,13 @@
           }
         }
       },
+      "TaskOrigin": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "rerun"
+        ]
+      },
       "TaskPageResponse": {
         "type": "object",
         "required": [
@@ -8566,6 +8573,7 @@
           "task_id",
           "kind",
           "status",
+          "origin",
           "progress",
           "created_at",
           "updated_at"
@@ -8615,6 +8623,9 @@
           },
           "kind": {
             "$ref": "#/components/schemas/TaskKind"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/TaskOrigin"
           },
           "progress": {
             "$ref": "#/components/schemas/TaskProgress"

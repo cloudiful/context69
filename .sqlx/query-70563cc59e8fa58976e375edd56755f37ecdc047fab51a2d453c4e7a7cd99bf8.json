@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks task\nWHERE task.id = $1\n  AND (\n      task.user_id = $2\n      OR EXISTS (\n          WITH RECURSIVE inherited_groups AS (\n              SELECT gm.group_id\n              FROM context69.group_memberships gm\n              WHERE gm.user_id = $2\n              UNION ALL\n              SELECT child.id\n              FROM context69.groups child\n              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n          )\n          SELECT 1\n          FROM inherited_groups\n          WHERE inherited_groups.group_id = task.group_id\n      )\n  )\n",
+  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    origin,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks task\nWHERE task.id = $1\n  AND (\n      task.user_id = $2\n      OR EXISTS (\n          WITH RECURSIVE inherited_groups AS (\n              SELECT gm.group_id\n              FROM context69.group_memberships gm\n              WHERE gm.user_id = $2\n              UNION ALL\n              SELECT child.id\n              FROM context69.groups child\n              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n          )\n          SELECT 1\n          FROM inherited_groups\n          WHERE inherited_groups.group_id = task.group_id\n      )\n  )\n",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,17 @@
       },
       {
         "ordinal": 5,
+        "name": "origin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "group_path",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "source_key",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "total_count",
         "type_info": "Int8",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "queued_count",
         "type_info": "Int8",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "running_count",
         "type_info": "Int8",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "waiting_count",
         "type_info": "Int8",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "succeeded_count",
         "type_info": "Int8",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "failed_count",
         "type_info": "Int8",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "cancelled_count",
         "type_info": "Int8",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "failure_stage",
         "type_info": "Text",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "error_summary",
         "type_info": "Text",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "stage",
         "type_info": "Text",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "waiting_reason",
         "type_info": "Text",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "dependency_key",
         "type_info": "Text",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "next_attempt_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -224,7 +235,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -235,7 +246,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -246,7 +257,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "finished_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -257,7 +268,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -278,6 +289,7 @@
       false,
       true,
       true,
+      false,
       false,
       false,
       true,
@@ -301,5 +313,5 @@
       false
     ]
   },
-  "hash": "dd68743d39e9633c70f8d12669d36a55b267adc6939bc18c109149b445c62813"
+  "hash": "70563cc59e8fa58976e375edd56755f37ecdc047fab51a2d453c4e7a7cd99bf8"
 }

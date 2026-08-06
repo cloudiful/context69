@@ -13,6 +13,7 @@ pub struct StoredTask {
     pub group_id: Option<i64>,
     pub kind: String,
     pub status: String,
+    pub origin: String,
     pub group_path: Option<String>,
     pub source_key: Option<String>,
     pub total_count: i64,
@@ -170,6 +171,7 @@ impl Database {
             kind,
             group_path,
             source_key,
+            "manual",
             payloads.len() as i64
         )
         .fetch_one(&mut *tx)
@@ -246,6 +248,7 @@ impl Database {
             kind,
             group_path,
             source_key,
+            "manual",
             item_count
         )
         .fetch_one(self.pool())
@@ -750,6 +753,7 @@ impl Database {
             source.kind,
             source.group_path,
             source.source_key,
+            "rerun",
             total
         )
         .fetch_one(&mut *tx)

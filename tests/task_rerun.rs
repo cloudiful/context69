@@ -90,6 +90,10 @@ async fn rerun_creates_a_fresh_task_with_only_unfinished_items() {
         .expect("rerun task exists");
     assert_eq!(new_task.status, "queued");
     assert_eq!(new_task.total_count, 1);
+    assert_eq!(
+        new_task.origin, "rerun",
+        "rerun must mark the fresh task with origin=rerun"
+    );
 
     let item =
         sqlx::query("SELECT payload, stage, file_id FROM context69.task_items WHERE id = $1")

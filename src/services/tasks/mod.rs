@@ -11,8 +11,8 @@ use chrono::Utc;
 use context69_contracts::{
     CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, GroupResponse,
     MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse, ScopeSpec, TaskItemResponse,
-    TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress,
-    TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
+    TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskOrigin, TaskPageResponse,
+    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
 };
 use context69_translation::TranslationService;
 use serde_json::Value;
@@ -576,6 +576,7 @@ fn task_response(task: StoredTask) -> TaskResponse {
         task_id: task.id,
         kind: parse_kind(&task.kind).unwrap_or(TaskKind::TextBatch),
         status: parse_status(&task.status).unwrap_or(TaskStatus::Failed),
+        origin: parse_origin(&task.origin).unwrap_or(TaskOrigin::Manual),
         group_path: task.group_path,
         source_key: task.source_key,
         progress: TaskProgress {
@@ -597,6 +598,14 @@ fn task_response(task: StoredTask) -> TaskResponse {
         started_at: task.started_at,
         finished_at: task.finished_at,
         updated_at: task.updated_at,
+    }
+}
+
+fn parse_origin(value: &str) -> Result<TaskOrigin> {
+    match value {
+        "manual" => Ok(TaskOrigin::Manual),
+        "rerun" => Ok(TaskOrigin::Rerun),
+        other => Err(anyhow!("unsupported task origin {other}")),
     }
 }
 

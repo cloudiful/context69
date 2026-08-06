@@ -4,6 +4,7 @@ SELECT
     group_id,
     kind,
     status,
+    origin,
     group_path,
     source_key,
     total_count,

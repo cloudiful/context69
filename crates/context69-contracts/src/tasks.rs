@@ -101,11 +101,28 @@ pub struct TaskProgress {
     pub cancelled: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskOrigin {
+    Manual,
+    Rerun,
+}
+
+impl TaskOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Rerun => "rerun",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskResponse {
     pub task_id: Uuid,
     pub kind: TaskKind,
     pub status: TaskStatus,
+    pub origin: TaskOrigin,
     pub group_path: Option<String>,
     pub source_key: Option<String>,
     pub stage: Option<String>,
