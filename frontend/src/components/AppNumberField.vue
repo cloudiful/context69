@@ -2,6 +2,7 @@
 import AppFormField from "./AppFormField.vue";
 
 const props = withDefaults(defineProps<{
+  disabled?: boolean;
   helper?: string;
   inputId: string;
   label: string;
@@ -12,6 +13,7 @@ const props = withDefaults(defineProps<{
   step?: number;
   testId?: string;
 }>(), {
+  disabled: false,
   helper: "",
   layout: "stacked",
   max: undefined,
@@ -37,6 +39,7 @@ const emit = defineEmits<{
       :id="props.inputId"
       :model-value="props.modelValue"
       :data-testid="props.testId || undefined"
+      :disabled="props.disabled"
       :min="props.min"
       :max="props.max"
       :step="props.step"

@@ -15,6 +15,7 @@ Context69 is a retrieval-focused knowledge base service for ingesting documents,
 - Normalize, chunk, embed, and store vectors in Qdrant
 - Support PDF, DOCX, and XLSX conversion through Docling
 - Provide multilingual translation and locale-aware retrieval
+- Auto-clean task history with an admin maintenance panel (retention window, cancel-active, purge)
 - Expose an HTTP API, MCP over HTTP or stdio, and an optional web UI
 
 ## Deployment

@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.8.1"
+    "version": "0.9.0"
   },
   "paths": {
     "/healthz": {
@@ -31,6 +31,166 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/tasks/cancel-active": {
+      "post": {
+        "tags": [],
+        "operationId": "cancel_active_tasks",
+        "responses": {
+          "200": {
+            "description": "Cancelled all active tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelActiveTasksResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/tasks/maintenance": {
+      "get": {
+        "tags": [],
+        "operationId": "get_task_maintenance",
+        "responses": {
+          "200": {
+            "description": "Task maintenance settings and statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskMaintenanceOverview"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "update_task_maintenance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskMaintenanceSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated task maintenance settings and statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskMaintenanceOverview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid settings payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/tasks/purge": {
+      "post": {
+        "tags": [],
+        "operationId": "purge_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeTasksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Purged task history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeTasksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid purge mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Active tasks block full history purge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -1264,11 +1424,8 @@
           }
         ],
         "responses": {
-          "404": {
-            "description": ""
-          },
           "202": {
-            "description": "Document delete task accepted",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1276,6 +1433,12 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
           }
         }
       }
@@ -1357,7 +1520,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskRef"
+                  "$ref": "#/components/schemas/TranslationJobsResponse"
                 }
               }
             }
@@ -1404,10 +1567,16 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TranslationJobsResponse"
+                  "$ref": "#/components/schemas/TaskRef"
                 }
               }
             }
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
           }
         }
       }
@@ -1438,7 +1607,7 @@
         },
         "responses": {
           "202": {
-            "description": "URL import task accepted",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1452,6 +1621,16 @@
           },
           "404": {
             "description": ""
+          },
+          "503": {
+            "description": "Library dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1464,7 +1643,6 @@
           {
             "name": "group_path",
             "in": "path",
-            "description": "URL-encoded group path",
             "required": true,
             "schema": {
               "type": "string"
@@ -1483,7 +1661,17 @@
         },
         "responses": {
           "200": {
-            "description": "Upload requirement or reused file",
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrepareLibraryUploadResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1493,17 +1681,17 @@
             }
           },
           "403": {
-            "description": "Insufficient permissions"
+            "description": ""
           },
           "404": {
-            "description": "Group or folder not found"
+            "description": ""
           },
-          "202": {
-            "description": "Reused file task accepted",
+          "409": {
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PrepareLibraryUploadResponse"
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -1537,11 +1725,31 @@
           "required": true
         },
         "responses": {
+          "202": {
+            "description": "File task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Insufficient permissions"
           },
           "404": {
             "description": "Group not found"
+          },
+          "503": {
+            "description": "Library dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1612,6 +1820,16 @@
           }
         ],
         "responses": {
+          "202": {
+            "description": "File delete task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Insufficient permissions"
           },
@@ -1943,11 +2161,31 @@
           "required": true
         },
         "responses": {
+          "202": {
+            "description": "Text task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Insufficient permissions"
           },
           "404": {
             "description": "Group not found"
+          },
+          "503": {
+            "description": "Library dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -1976,11 +2214,31 @@
           "required": true
         },
         "responses": {
+          "202": {
+            "description": "Text task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Insufficient permissions"
           },
           "404": {
             "description": "Group not found"
+          },
+          "503": {
+            "description": "Library dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2646,6 +2904,16 @@
           "required": true
         },
         "responses": {
+          "202": {
+            "description": "File task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Invalid upload",
             "content": {
@@ -2658,6 +2926,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Library dependency unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -2734,6 +3012,16 @@
           }
         ],
         "responses": {
+          "202": {
+            "description": "File delete task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
           "404": {
             "description": "File not found",
             "content": {
@@ -3097,6 +3385,16 @@
           "required": true
         },
         "responses": {
+          "202": {
+            "description": "Text task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Invalid text payload",
             "content": {
@@ -3109,6 +3407,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Library dependency unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -4153,6 +4461,14 @@
             }
           },
           {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "kind",
             "in": "query",
             "required": false,
@@ -4166,14 +4482,6 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/TaskStatus"
-            }
-          },
-          {
-            "name": "query",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
             }
           },
           {
@@ -4362,6 +4670,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskItemsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/rerun": {
+      "post": {
+        "tags": [],
+        "operationId": "rerun_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RerunTaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -4677,6 +5034,18 @@
             "items": {
               "$ref": "#/components/schemas/BatchDocumentItem"
             }
+          }
+        }
+      },
+      "CancelActiveTasksResponse": {
+        "type": "object",
+        "required": [
+          "cancelled_tasks"
+        ],
+        "properties": {
+          "cancelled_tasks": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -5324,6 +5693,12 @@
           "content_base64": {
             "type": "string"
           },
+          "declared_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "filename": {
             "type": "string"
           },
@@ -5336,12 +5711,6 @@
           },
           "media_type": {
             "type": "string"
-          },
-          "declared_sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "metadata": {
             "oneOf": [
@@ -5618,17 +5987,13 @@
             "minimum": 0
           },
           "library_dependency_gates": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/LibraryDependencyGateResponse"
-                }
-              }
-            ]
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LibraryDependencyGateResponse"
+            }
           },
           "library_processing_queue": {
             "oneOf": [
@@ -6165,39 +6530,55 @@
           "markdown"
         ]
       },
-        "LibraryProcessingQueueHealth": {
-          "type": "object",
-          "required": [
-            "pending_count",
-            "queued_count",
-            "recent_failure_count",
-            "status_counts",
-            "stage_counts",
-            "waiting_reason_counts",
-            "dependency_counts",
-            "processed_last_hour",
-            "failed_last_hour",
-            "processing_rate_per_minute",
-            "failure_rate_percent"
-          ],
-          "properties": {
-            "dependency_counts": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/LibraryProcessingMetric"
-              }
-            },
-            "failed_last_hour": {
-              "type": "integer",
-              "format": "int64",
-              "minimum": 0
-            },
-            "failure_rate_percent": {
-              "type": "number",
-              "format": "double",
-              "minimum": 0
-            },
-            "oldest_pending_age_seconds": {
+      "LibraryProcessingMetric": {
+        "type": "object",
+        "required": [
+          "key",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "key": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryProcessingQueueHealth": {
+        "type": "object",
+        "required": [
+          "pending_count",
+          "queued_count",
+          "recent_failure_count",
+          "status_counts",
+          "stage_counts",
+          "waiting_reason_counts",
+          "dependency_counts",
+          "processed_last_hour",
+          "failed_last_hour",
+          "processing_rate_per_minute",
+          "failure_rate_percent"
+        ],
+        "properties": {
+          "dependency_counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryProcessingMetric"
+            }
+          },
+          "failed_last_hour": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failure_rate_percent": {
+            "type": "number",
+            "format": "double"
+          },
+          "oldest_pending_age_seconds": {
             "type": [
               "integer",
               "null"
@@ -6213,65 +6594,47 @@
             "format": "int64",
             "minimum": 0
           },
-            "pending_count": {
+          "pending_count": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
           },
-            "queued_count": {
+          "processed_last_hour": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
           },
-            "recent_failure_count": {
+          "processing_rate_per_minute": {
+            "type": "number",
+            "format": "double"
+          },
+          "queued_count": {
             "type": "integer",
-              "format": "int64",
-              "minimum": 0
-            },
-            "processed_last_hour": {
-              "type": "integer",
-              "format": "int64",
-              "minimum": 0
-            },
-            "processing_rate_per_minute": {
-              "type": "number",
-              "format": "double",
-              "minimum": 0
-            },
-            "stage_counts": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/LibraryProcessingMetric"
-              }
-            },
-            "status_counts": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/LibraryProcessingMetric"
-              }
-            },
-            "waiting_reason_counts": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/LibraryProcessingMetric"
-              }
+            "format": "int64",
+            "minimum": 0
+          },
+          "recent_failure_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stage_counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryProcessingMetric"
             }
-          }
-        },
-      "LibraryProcessingMetric": {
-        "type": "object",
-        "required": [
-          "key",
-          "count"
-        ],
-        "properties": {
-          "count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
           },
-          "key": {
-            "type": "string"
+          "status_counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryProcessingMetric"
+            }
+          },
+          "waiting_reason_counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryProcessingMetric"
+            }
           }
         }
       },
@@ -6868,9 +7231,6 @@
               }
             ]
           },
-          "upload_required": {
-            "type": "boolean"
-          },
           "task": {
             "oneOf": [
               {
@@ -6880,6 +7240,32 @@
                 "$ref": "#/components/schemas/TaskRef"
               }
             ]
+          },
+          "upload_required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PurgeTasksRequest": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/TaskPurgeMode"
+          }
+        }
+      },
+      "PurgeTasksResponse": {
+        "type": "object",
+        "required": [
+          "deleted_tasks"
+        ],
+        "properties": {
+          "deleted_tasks": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -6891,6 +7277,17 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "RerunTaskResponse": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/TaskRef"
           }
         }
       },
@@ -7762,6 +8159,12 @@
             "type": "string",
             "format": "date-time"
           },
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "error_message": {
             "type": [
               "string",
@@ -7774,6 +8177,13 @@
               "null"
             ]
           },
+          "file_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "finished_at": {
             "type": [
               "string",
@@ -7784,6 +8194,13 @@
           "item_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "ordinal": {
             "type": "integer",
@@ -7798,6 +8215,12 @@
           "retryable": {
             "type": "boolean"
           },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "started_at": {
             "type": [
               "string",
@@ -7808,37 +8231,11 @@
           "status": {
             "$ref": "#/components/schemas/TaskItemStatus"
           },
-          "file_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "stage": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "waiting_reason": {
             "type": [
               "string",
               "null"
             ]
-          },
-          "dependency_key": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "next_attempt_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
           }
         }
       },
@@ -7847,10 +8244,10 @@
         "enum": [
           "queued",
           "running",
+          "waiting",
           "succeeded",
           "failed",
-          "cancelled",
-          "waiting"
+          "cancelled"
         ]
       },
       "TaskItemsQuery": {
@@ -7904,6 +8301,12 @@
       "TaskListQuery": {
         "type": "object",
         "properties": {
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "kind": {
             "oneOf": [
               {
@@ -7924,16 +8327,6 @@
             "format": "int32",
             "minimum": 0
           },
-          "status": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TaskStatus"
-              }
-            ]
-          },
           "query": {
             "type": [
               "string",
@@ -7946,17 +8339,109 @@
               "null"
             ]
           },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskStatus"
+              }
+            ]
+          },
           "waiting_reason": {
             "type": [
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "TaskMaintenanceOverview": {
+        "type": "object",
+        "required": [
+          "settings",
+          "stats"
+        ],
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/TaskMaintenanceSettings"
           },
-          "dependency_key": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "stats": {
+            "$ref": "#/components/schemas/TaskMaintenanceStats"
+          }
+        }
+      },
+      "TaskMaintenanceSettings": {
+        "type": "object",
+        "required": [
+          "cleanup_enabled",
+          "retention_days",
+          "updated_at"
+        ],
+        "properties": {
+          "cleanup_enabled": {
+            "type": "boolean"
+          },
+          "retention_days": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TaskMaintenanceStats": {
+        "type": "object",
+        "required": [
+          "total",
+          "queued",
+          "running",
+          "waiting",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "active",
+          "expired_terminal"
+        ],
+        "properties": {
+          "active": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cancelled": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expired_terminal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "running": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "succeeded": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "waiting": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -7984,10 +8469,10 @@
           "total",
           "queued",
           "running",
+          "waiting",
           "succeeded",
           "failed",
-          "cancelled",
-          "waiting"
+          "cancelled"
         ],
         "properties": {
           "cancelled": {
@@ -8020,23 +8505,29 @@
           }
         }
       },
+      "TaskPurgeMode": {
+        "type": "string",
+        "enum": [
+          "expired",
+          "all_terminal"
+        ]
+      },
       "TaskRef": {
         "type": "object",
         "required": [
-          "task_id",
-          "item_ids"
+          "task_id"
         ],
         "properties": {
-          "task_id": {
-            "type": "string",
-            "format": "uuid"
-          },
           "item_ids": {
             "type": "array",
             "items": {
               "type": "string",
               "format": "uuid"
             }
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -8054,6 +8545,12 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "error_summary": {
             "type": [
@@ -8099,6 +8596,12 @@
               "null"
             ]
           },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "started_at": {
             "type": [
               "string",
@@ -8117,19 +8620,7 @@
             "type": "string",
             "format": "date-time"
           },
-          "stage": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "waiting_reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "dependency_key": {
             "type": [
               "string",
               "null"
@@ -8158,10 +8649,10 @@
         "enum": [
           "queued",
           "running",
+          "waiting",
           "succeeded",
           "failed",
-          "cancelled",
-          "waiting"
+          "cancelled"
         ]
       },
       "TestRuntimeValkeyRequest": {
@@ -8876,6 +9367,22 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "UpdateTaskMaintenanceSettingsRequest": {
+        "type": "object",
+        "required": [
+          "cleanup_enabled",
+          "retention_days"
+        ],
+        "properties": {
+          "cleanup_enabled": {
+            "type": "boolean"
+          },
+          "retention_days": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

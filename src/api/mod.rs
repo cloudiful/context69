@@ -28,6 +28,7 @@ mod personal_access_tokens;
 mod router;
 mod sources;
 mod task_inputs;
+mod task_maintenance;
 mod tasks;
 mod translations;
 
@@ -127,8 +128,11 @@ pub(crate) use sources::{
     list_source_connections, list_sources, sync_source, update_source, update_source_connection,
 };
 pub(crate) use task_inputs::{create_text_payload, file_batch_payloads};
+pub(crate) use task_maintenance::{
+    cancel_active_tasks, get_task_maintenance, purge_tasks, update_task_maintenance,
+};
 pub(crate) use tasks::{
-    cancel_task, ensure_scope, get_task, list_task_items, list_tasks, retry_task,
+    cancel_task, ensure_scope, get_task, list_task_items, list_tasks, rerun_task, retry_task,
     submit_delete_batch, submit_file_batch, submit_task, submit_task_request, submit_text_batch,
     submit_url_batch, submit_vector_index_rebuild,
 };

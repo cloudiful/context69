@@ -13,11 +13,12 @@ pub use facade::{
     CompactSearchResponse, CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse,
     DocumentKey, DocumentResponse, EnsureScopeResponse, FileBatchItem, FileBatchRequest,
     FileMetadata, GenericTaskRequest, GroupKind, GroupResponse, HealthResponse, MetadataDataType,
-    MetadataFilter, MetadataFilterOperator, MetadataValueKind, ScopeMetadataIndex, ScopeSpec,
-    SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
-    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
-    TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective, TranslationStatus,
-    UrlBatchItem, UrlBatchRequest, Visibility, WaitOptions,
+    MetadataFilter, MetadataFilterOperator, MetadataValueKind, RerunTaskResponse,
+    ScopeMetadataIndex, ScopeSpec, SearchRequest, TaskItemResponse, TaskItemStatus,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress, TaskRef,
+    TaskResponse, TaskRetryResponse, TaskStatus, TextBatchItem, TextBatchRequest,
+    TextContentFormat, TranslationDirective, TranslationStatus, UrlBatchItem, UrlBatchRequest,
+    Visibility, WaitOptions,
 };
 
 pub(crate) const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";

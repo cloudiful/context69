@@ -74,6 +74,13 @@ pub struct StoredTaskPayload {
     pub payload: Value,
 }
 
+#[derive(Debug, Clone, FromRow)]
+pub struct RerunTaskItem {
+    pub payload: Value,
+    pub stage: Option<String>,
+    pub file_id: Option<Uuid>,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct StoredTaskItemId {
     pub id: Uuid,
@@ -104,6 +111,26 @@ pub struct TaskProcessingHealth {
     pub dependency_counts: Value,
     pub processed_last_hour: i64,
     pub failed_last_hour: i64,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredTaskMaintenanceSettings {
+    pub cleanup_enabled: bool,
+    pub retention_days: i64,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredTaskMaintenanceStats {
+    pub total_count: i64,
+    pub queued_count: i64,
+    pub running_count: i64,
+    pub waiting_count: i64,
+    pub succeeded_count: i64,
+    pub failed_count: i64,
+    pub cancelled_count: i64,
+    pub active_count: i64,
+    pub expired_terminal_count: i64,
 }
 
 impl Database {
@@ -708,6 +735,129 @@ impl Database {
         }
         tx.commit().await?;
         Ok(ids)
+    }
+
+    /// Creates a brand new task (new id, no idempotency-key binding) from a source
+    /// task, copying every item that did not already succeed. This is the escape
+    /// hatch for resubmitting a cancelled or failed task whose original
+    /// idempotency key remains permanently bound to the old task.
+    pub async fn rerun_task(&self, task_id: Uuid) -> Result<(Uuid, Vec<Uuid>)> {
+        let mut tx = self.pool().begin().await?;
+        let source = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let new_task_id = Uuid::new_v4();
+        let items =
+            sqlx::query_file_as!(RerunTaskItem, "src/sql/db/tasks/rerun_items.sql", task_id)
+                .fetch_all(&mut *tx)
+                .await?;
+        let total = items.len() as i64;
+        sqlx::query_file!(
+            "src/sql/db/tasks/create.sql",
+            new_task_id,
+            source.user_id,
+            source.group_id,
+            source.kind,
+            source.group_path,
+            source.source_key,
+            total
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let mut item_ids = Vec::with_capacity(items.len());
+        for (ordinal, item) in items.iter().enumerate() {
+            let item_id = Uuid::new_v4();
+            item_ids.push(item_id);
+            sqlx::query_file!(
+                "src/sql/db/tasks/insert_item.sql",
+                item_id,
+                new_task_id,
+                ordinal as i32,
+                item.payload,
+                item.stage,
+                item.file_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok((new_task_id, item_ids))
+    }
+
+    pub async fn get_task_maintenance_settings(
+        &self,
+    ) -> Result<Option<StoredTaskMaintenanceSettings>> {
+        Ok(sqlx::query_file_as!(
+            StoredTaskMaintenanceSettings,
+            "src/sql/db/tasks/maintenance_settings_get.sql"
+        )
+        .fetch_optional(self.pool())
+        .await?)
+    }
+
+    pub async fn update_task_maintenance_settings(
+        &self,
+        cleanup_enabled: bool,
+        retention_days: i64,
+    ) -> Result<StoredTaskMaintenanceSettings> {
+        Ok(sqlx::query_file_as!(
+            StoredTaskMaintenanceSettings,
+            "src/sql/db/tasks/maintenance_settings_update.sql",
+            cleanup_enabled,
+            retention_days
+        )
+        .fetch_one(self.pool())
+        .await?)
+    }
+
+    pub async fn task_maintenance_stats(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> Result<StoredTaskMaintenanceStats> {
+        Ok(sqlx::query_file_as!(
+            StoredTaskMaintenanceStats,
+            "src/sql/db/tasks/maintenance_stats.sql",
+            cutoff
+        )
+        .fetch_one(self.pool())
+        .await?)
+    }
+
+    pub async fn cleanup_expired_terminal_tasks(
+        &self,
+        cutoff: DateTime<Utc>,
+        batch_size: i64,
+    ) -> Result<Vec<Uuid>> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/cleanup_expired.sql", cutoff, batch_size)
+                .fetch_all(self.pool())
+                .await?,
+        )
+    }
+
+    pub async fn purge_terminal_tasks(&self, batch_size: i64) -> Result<Vec<Uuid>> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/purge_terminal.sql", batch_size)
+                .fetch_all(self.pool())
+                .await?,
+        )
+    }
+
+    pub async fn cancel_all_active_tasks(&self) -> Result<i64> {
+        let mut tx = self.pool().begin().await?;
+        let ids = sqlx::query_file_scalar!("src/sql/db/tasks/cancel_active.sql")
+            .fetch_all(&mut *tx)
+            .await?;
+        if !ids.is_empty() {
+            sqlx::query_file!("src/sql/db/tasks/cancel_active_items.sql")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query_file!("src/sql/db/tasks/recompute_cancelled.sql")
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(ids.len() as i64)
     }
 }
 

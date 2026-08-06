@@ -260,6 +260,65 @@ pub struct TaskRetryResponse {
     pub retried_items: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct RerunTaskResponse {
+    pub task: TaskRef,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPurgeMode {
+    Expired,
+    AllTerminal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskMaintenanceSettings {
+    pub cleanup_enabled: bool,
+    pub retention_days: i64,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskMaintenanceStats {
+    pub total: i64,
+    pub queued: i64,
+    pub running: i64,
+    pub waiting: i64,
+    pub succeeded: i64,
+    pub failed: i64,
+    pub cancelled: i64,
+    pub active: i64,
+    pub expired_terminal: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskMaintenanceOverview {
+    pub settings: TaskMaintenanceSettings,
+    pub stats: TaskMaintenanceStats,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct UpdateTaskMaintenanceSettingsRequest {
+    pub cleanup_enabled: bool,
+    pub retention_days: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct CancelActiveTasksResponse {
+    pub cancelled_tasks: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct PurgeTasksRequest {
+    pub mode: TaskPurgeMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct PurgeTasksResponse {
+    pub deleted_tasks: i64,
+}
+
 fn default_page() -> u32 {
     1
 }

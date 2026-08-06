@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.task_maintenance_settings (\n    singleton,\n    cleanup_enabled,\n    retention_days,\n    updated_at\n)\nVALUES (\n    TRUE,\n    $1,\n    $2,\n    now()\n)\nON CONFLICT (singleton) DO UPDATE\nSET cleanup_enabled = EXCLUDED.cleanup_enabled,\n    retention_days = EXCLUDED.retention_days,\n    updated_at = now()\nRETURNING cleanup_enabled, retention_days, updated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cleanup_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_maintenance_settings",
+            "name": "cleanup_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "retention_days",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_maintenance_settings",
+            "name": "retention_days"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_maintenance_settings",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "78d96e14bb40505ac24b9ffa71301c87e34e8ea2300cf7690d4c0d54213e0472"
+}

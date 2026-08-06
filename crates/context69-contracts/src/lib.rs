@@ -66,9 +66,12 @@ pub use sources::{
     SourceStatus, SyncOutcome, UpsertSourceConnectionRequest,
 };
 pub use tasks::{
-    DeleteBatchRequest, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GenericTaskRequest,
+    CancelActiveTasksResponse, DeleteBatchRequest, EnsureScopeResponse, FileBatchItem,
+    FileBatchRequest, GenericTaskRequest, PurgeTasksRequest, PurgeTasksResponse, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress, TaskRef,
-    TaskResponse, TaskRetryResponse, TaskStatus, TextBatchRequest, UrlBatchRequest,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview, TaskMaintenanceSettings,
+    TaskMaintenanceStats, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskStatus, TextBatchRequest, UpdateTaskMaintenanceSettingsRequest,
+    UrlBatchRequest,
 };
 pub use translation::*;

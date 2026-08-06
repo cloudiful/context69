@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH cancelled AS (\n    UPDATE context69.task_items item\n    SET status = 'cancelled',\n        lease_token = NULL,\n        lease_until = NULL,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        finished_at = now(),\n        updated_at = now()\n    WHERE item.task_id IN (\n        SELECT id\n        FROM context69.tasks\n        WHERE status = 'cancelled'\n    )\n      AND item.status IN ('queued', 'running', 'waiting')\n    RETURNING item.id\n)\nUPDATE context69.task_attempts attempt\nSET status = 'cancelled',\n    retryable = FALSE,\n    finished_at = now()\nWHERE attempt.item_id IN (SELECT id FROM cancelled)\n  AND attempt.finished_at IS NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a8c5fe0fe045eb6108175ee70b6f5f750e9b9029ececf1a6068075c1509e1b58"
+}

@@ -1,16 +1,39 @@
 <script setup lang="ts">
-import { computed, proxyRefs } from "vue";
+import { computed, onMounted, proxyRefs, ref, watch } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import TablePagination from "../components/TablePagination.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
+import { useTaskMaintenance } from "../composables/use-task-maintenance";
 import type { TaskKind, TaskResponse, TaskStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
+const maintenance = proxyRefs(useTaskMaintenance({ t }));
+
+const draftCleanup = ref(true);
+const draftRetentionDays = ref(30);
+watch(() => maintenance.settings, (settings) => {
+  if (!settings) return;
+  draftCleanup.value = settings.cleanup_enabled;
+  draftRetentionDays.value = settings.retention_days;
+}, { immediate: true });
+const settingsDirty = computed(() => {
+  const settings = maintenance.settings;
+  return !!settings && (settings.cleanup_enabled !== draftCleanup.value || settings.retention_days !== draftRetentionDays.value);
+});
+const retentionInvalid = computed(() => draftRetentionDays.value < 1 || draftRetentionDays.value > 3650);
+function saveSettings() {
+  if (!settingsDirty.value || retentionInvalid.value || maintenance.saving) return;
+  void maintenance.saveSettings(draftCleanup.value, draftRetentionDays.value);
+}
+
+onMounted(() => {
+  if (maintenance.isAdmin) void maintenance.load();
+});
 
 const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
 const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
@@ -115,5 +138,34 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
       </AsyncStateBlock>
     </div>
     <TablePagination :pagination="queue.pagination" @update:page="queue.changePage($event)" @update:page-size="queue.changePageSize($event)" />
+
+    <section v-if="maintenance.isAdmin" class="flex flex-col gap-3 rounded-lg border border-default/70 p-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold text-color">{{ t("taskMaintenance.title") }}</h2>
+        <div class="flex flex-wrap items-center gap-4 text-sm text-muted">
+          <span>{{ t("taskMaintenance.total") }}: {{ maintenance.stats?.total ?? "--" }}</span>
+          <span>{{ t("taskMaintenance.active") }}: {{ maintenance.activeCount }}</span>
+          <span>{{ t("taskMaintenance.expiredTerminal") }}: {{ maintenance.stats?.expired_terminal ?? "--" }}</span>
+        </div>
+      </div>
+      <UAlert v-if="maintenance.error" color="error" variant="subtle" :title="t('common.error')" :description="maintenance.error" />
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div class="flex flex-wrap items-end gap-4">
+          <label class="flex items-center gap-2 text-sm text-color">
+            <USwitch :model-value="draftCleanup" :disabled="!maintenance.settings || maintenance.saving" data-testid="maintenance-cleanup-toggle" @update:model-value="draftCleanup = $event as boolean" />
+            {{ t("taskMaintenance.autoCleanup") }}
+          </label>
+          <div class="w-36">
+            <AppNumberField :input-id="'maintenance-retention'" :label="t('taskMaintenance.retentionDays')" :model-value="draftRetentionDays" :min="1" :max="3650" :disabled="!maintenance.settings || maintenance.saving" :test-id="'maintenance-retention'" @update:model-value="draftRetentionDays = $event ?? 30" />
+          </div>
+          <UButton color="neutral" variant="outline" icon="i-lucide-save" :loading="maintenance.saving" :disabled="!settingsDirty || retentionInvalid" :label="t('common.save')" @click="saveSettings" />
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <UButton color="error" variant="outline" icon="i-lucide-ban" :loading="maintenance.action === 'cancel'" :disabled="maintenance.activeCount === 0 || !!maintenance.action" :label="t('taskMaintenance.cancelActiveAction') + ' (' + maintenance.activeCount + ')'" @click="maintenance.confirmCancelActive" />
+          <UButton color="neutral" variant="outline" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="!!maintenance.action" :label="t('taskMaintenance.purgeExpiredAction')" @click="maintenance.confirmPurge('expired')" />
+          <UButton color="error" variant="outline" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="maintenance.activeCount > 0 || !!maintenance.action" :label="t('taskMaintenance.purgeAllAction')" @click="maintenance.confirmPurge('all_terminal')" />
+        </div>
+      </div>
+    </section>
   </section>
 </template>

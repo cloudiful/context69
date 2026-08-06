@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.tasks\nWHERE id IN (\n    SELECT id\n    FROM context69.tasks\n    WHERE status IN ('succeeded', 'failed', 'cancelled')\n      AND COALESCE(finished_at, updated_at) < $1\n    LIMIT $2\n    FOR UPDATE SKIP LOCKED\n)\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5751588c5e77f369aecc739c10169858d698feaa8767608b77e50db1468c7d62"
+}

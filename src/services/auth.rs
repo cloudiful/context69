@@ -351,7 +351,7 @@ fn verify_password(password_hash: &str, password: &str) -> Result<()> {
         .map_err(|_| anyhow!("invalid login or password"))
 }
 
-fn require_admin(actor: &UserRecord) -> Result<()> {
+pub(crate) fn require_admin(actor: &UserRecord) -> Result<()> {
     if actor.is_admin {
         return Ok(());
     }

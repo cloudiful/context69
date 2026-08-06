@@ -10,9 +10,9 @@ use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use context69_contracts::{
     CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, GroupResponse,
-    MetadataIndexResponse, MetadataIndexStatus, ScopeSpec, TaskItemResponse, TaskItemStatus,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress, TaskRef,
-    TaskResponse, TaskRetryResponse, TaskStatus,
+    MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse, ScopeSpec, TaskItemResponse,
+    TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress,
+    TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
 };
 use context69_translation::TranslationService;
 use serde_json::Value;
@@ -39,6 +39,7 @@ mod item_lifecycle_processors;
 mod item_processors;
 mod item_translation_processors;
 mod item_url_processor;
+mod maintenance;
 mod runtime;
 
 #[derive(Clone)]
@@ -96,6 +97,10 @@ impl TaskService {
 
     pub fn resume_pending(&self) {
         dispatcher::start(self);
+    }
+
+    pub fn start_maintenance(&self) {
+        maintenance::start(self);
     }
 
     pub async fn submit(&self, request: TaskSubmission) -> Result<TaskRef> {
@@ -234,6 +239,42 @@ impl TaskService {
         } else {
             Err(anyhow!("task is already terminal or not found"))
         }
+    }
+
+    pub async fn rerun(&self, task_id: Uuid, user_id: i64) -> Result<RerunTaskResponse> {
+        self.db
+            .get_task(task_id, user_id)
+            .await?
+            .context("task not found")?;
+        if !self.db.can_manage_task(task_id, user_id).await? {
+            return Err(anyhow!("task management permission denied"));
+        }
+        let source = self
+            .db
+            .get_task_internal(task_id)
+            .await?
+            .context("task not found")?;
+        if !matches!(source.status.as_str(), "cancelled" | "failed") {
+            return Err(anyhow!(
+                "task must be cancelled or failed before it can be rerun"
+            ));
+        }
+        let (new_task_id, item_ids) = self.db.rerun_task(task_id).await?;
+        if !item_ids.is_empty() {
+            self.notify_dispatch();
+        }
+        tracing::info!(
+            source_task_id = %task_id,
+            rerun_task_id = %new_task_id,
+            item_count = item_ids.len(),
+            "context69 task rerun created"
+        );
+        Ok(RerunTaskResponse {
+            task: TaskRef {
+                task_id: new_task_id,
+                item_ids,
+            },
+        })
     }
 
     pub async fn ensure_scope(

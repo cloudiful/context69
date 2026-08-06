@@ -11,13 +11,12 @@ use context69_contracts::{
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{contracts::TaskKind, services::tasks::TaskSubmission};
-
 use super::{
     ApiState,
     auth::CurrentUser,
     group_access::{group_access_error_response, group_for_user, require_group_role},
 };
+use crate::{contracts::TaskKind, services::tasks::TaskSubmission};
 
 #[utoipa::path(
     post,
@@ -301,6 +300,18 @@ pub(crate) async fn retry_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     match state.app.tasks.retry(task_id, session.user.id).await {
+        Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/rerun", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::RerunTaskResponse), (status = 400, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+pub(crate) async fn rerun_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    match state.app.tasks.rerun(task_id, session.user.id).await {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
         Err(error) => task_error(error),
     }

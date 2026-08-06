@@ -237,8 +237,15 @@ async fn release_task_and_resume(
     task_id: Uuid,
     task_lease: Uuid,
 ) -> Result<()> {
-    service.db().release_task(task_id, task_lease).await?;
+    // Recompute the task status before dropping the worker lease. recompute.sql
+    // preserves an existing lease while the task is still active, so a queued or
+    // waiting parent task keeps its lease until release_task clears it below.
+    // Doing this in the reverse order would leave a brief window where the task
+    // is visible to pending.sql as running with no lease and could be reclaimed
+    // by another worker, which would then strand the task as queued/waiting with
+    // a future lease.
     service.db().recompute_task(task_id).await?;
+    service.db().release_task(task_id, task_lease).await?;
     let task = service.task(task_id).await?;
     let due = task
         .next_attempt_at

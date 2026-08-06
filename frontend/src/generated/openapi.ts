@@ -20,6 +20,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tasks/cancel-active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_active_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tasks/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_task_maintenance"];
+        put: operations["update_task_maintenance"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tasks/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["purge_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/users": {
         parameters: {
             query?: never;
@@ -1188,6 +1236,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/{task_id}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rerun_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/{task_id}/retry": {
         parameters: {
             query?: never;
@@ -1279,6 +1343,10 @@ export interface components {
         };
         BatchGetDocumentsResponse: {
             items: components["schemas"]["BatchDocumentItem"][];
+        };
+        CancelActiveTasksResponse: {
+            /** Format: int64 */
+            cancelled_tasks: number;
         };
         CreateAdminUserRequest: {
             display_name: string;
@@ -1432,11 +1500,11 @@ export interface components {
         };
         FileBatchItem: {
             content_base64: string;
+            declared_sha256?: string | null;
             filename: string;
             /** Format: uuid */
             folder_id?: string | null;
             media_type: string;
-            declared_sha256?: string | null;
             metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
             translation?: null | components["schemas"]["TranslationDirective"];
         };
@@ -1504,7 +1572,7 @@ export interface components {
             db_ok?: boolean | null;
             /** Format: int64 */
             indexed_chunks?: number | null;
-            library_dependency_gates?: null | components["schemas"]["LibraryDependencyGateResponse"][];
+            library_dependency_gates?: components["schemas"]["LibraryDependencyGateResponse"][] | null;
             library_processing_queue?: null | components["schemas"]["LibraryProcessingQueueHealth"];
             library_processing_ready?: boolean | null;
             qdrant_ok?: boolean | null;
@@ -1641,6 +1709,11 @@ export interface components {
         LibraryIngestStatus: "pending" | "running" | "succeeded" | "failed";
         /** @enum {string} */
         LibraryPreviewContentFormat: "plain_text" | "markdown";
+        LibraryProcessingMetric: {
+            /** Format: int64 */
+            count: number;
+            key: string;
+        };
         LibraryProcessingQueueHealth: {
             dependency_counts: components["schemas"]["LibraryProcessingMetric"][];
             /** Format: int64 */
@@ -1654,21 +1727,16 @@ export interface components {
             /** Format: int64 */
             pending_count: number;
             /** Format: int64 */
-            queued_count: number;
-            /** Format: int64 */
-            recent_failure_count: number;
-            /** Format: int64 */
             processed_last_hour: number;
             /** Format: double */
             processing_rate_per_minute: number;
+            /** Format: int64 */
+            queued_count: number;
+            /** Format: int64 */
+            recent_failure_count: number;
             stage_counts: components["schemas"]["LibraryProcessingMetric"][];
             status_counts: components["schemas"]["LibraryProcessingMetric"][];
             waiting_reason_counts: components["schemas"]["LibraryProcessingMetric"][];
-        };
-        LibraryProcessingMetric: {
-            /** Format: int64 */
-            count: number;
-            key: string;
         };
         LibraryResourceItem: {
             /** Format: int64 */
@@ -1829,11 +1897,21 @@ export interface components {
         };
         PrepareLibraryUploadResponse: {
             file?: null | components["schemas"]["LibraryFileSummary"];
-            upload_required: boolean;
             task?: null | components["schemas"]["TaskRef"];
+            upload_required: boolean;
+        };
+        PurgeTasksRequest: {
+            mode: components["schemas"]["TaskPurgeMode"];
+        };
+        PurgeTasksResponse: {
+            /** Format: int64 */
+            deleted_tasks: number;
         };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
+        };
+        RerunTaskResponse: {
+            task: components["schemas"]["TaskRef"];
         };
         ResetAdminUserPasswordRequest: {
             password: string;
@@ -2049,29 +2127,29 @@ export interface components {
             attempt_count: number;
             /** Format: date-time */
             created_at: string;
+            dependency_key?: string | null;
             error_message?: string | null;
             failure_stage?: string | null;
+            /** Format: uuid */
+            file_id?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
             /** Format: uuid */
             item_id: string;
+            /** Format: date-time */
+            next_attempt_at?: string | null;
             /** Format: int32 */
             ordinal: number;
             resource_id?: string | null;
             retryable: boolean;
+            stage?: string | null;
             /** Format: date-time */
             started_at?: string | null;
             status: components["schemas"]["TaskItemStatus"];
-            /** Format: uuid */
-            file_id?: string | null;
-            stage?: string | null;
             waiting_reason?: string | null;
-            dependency_key?: string | null;
-            /** Format: date-time */
-            next_attempt_at?: string | null;
         };
         /** @enum {string} */
-        TaskItemStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "waiting";
+        TaskItemStatus: "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
         TaskItemsQuery: {
             cursor?: string | null;
             /** Format: int32 */
@@ -2084,16 +2162,47 @@ export interface components {
         /** @enum {string} */
         TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild";
         TaskListQuery: {
+            dependency_key?: string | null;
             kind?: null | components["schemas"]["TaskKind"];
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
             page_size?: number;
-            status?: null | components["schemas"]["TaskStatus"];
             query?: string | null;
             stage?: string | null;
+            status?: null | components["schemas"]["TaskStatus"];
             waiting_reason?: string | null;
-            dependency_key?: string | null;
+        };
+        TaskMaintenanceOverview: {
+            settings: components["schemas"]["TaskMaintenanceSettings"];
+            stats: components["schemas"]["TaskMaintenanceStats"];
+        };
+        TaskMaintenanceSettings: {
+            cleanup_enabled: boolean;
+            /** Format: int64 */
+            retention_days: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TaskMaintenanceStats: {
+            /** Format: int64 */
+            active: number;
+            /** Format: int64 */
+            cancelled: number;
+            /** Format: int64 */
+            expired_terminal: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            running: number;
+            /** Format: int64 */
+            succeeded: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            waiting: number;
         };
         TaskPageResponse: {
             items: components["schemas"]["TaskResponse"][];
@@ -2115,14 +2224,17 @@ export interface components {
             /** Format: int64 */
             waiting: number;
         };
+        /** @enum {string} */
+        TaskPurgeMode: "expired" | "all_terminal";
         TaskRef: {
+            item_ids?: string[];
             /** Format: uuid */
             task_id: string;
-            item_ids: string[];
         };
         TaskResponse: {
             /** Format: date-time */
             created_at: string;
+            dependency_key?: string | null;
             error_summary?: string | null;
             /** Format: int64 */
             eta_seconds?: number | null;
@@ -2133,6 +2245,7 @@ export interface components {
             kind: components["schemas"]["TaskKind"];
             progress: components["schemas"]["TaskProgress"];
             source_key?: string | null;
+            stage?: string | null;
             /** Format: date-time */
             started_at?: string | null;
             status: components["schemas"]["TaskStatus"];
@@ -2140,9 +2253,7 @@ export interface components {
             task_id: string;
             /** Format: date-time */
             updated_at: string;
-            stage?: string | null;
             waiting_reason?: string | null;
-            dependency_key?: string | null;
         };
         TaskRetryResponse: {
             /** Format: int64 */
@@ -2150,7 +2261,7 @@ export interface components {
             task: components["schemas"]["TaskRef"];
         };
         /** @enum {string} */
-        TaskStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "waiting";
+        TaskStatus: "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
         TestRuntimeValkeyRequest: {
             valkey_url: string;
         };
@@ -2325,6 +2436,11 @@ export interface components {
             /** Format: int64 */
             timeout_secs: number;
         };
+        UpdateTaskMaintenanceSettingsRequest: {
+            cleanup_enabled: boolean;
+            /** Format: int64 */
+            retention_days: number;
+        };
         UpdateTranslationSettingsRequest: {
             providers: components["schemas"]["TranslationProviderInput"][];
         };
@@ -2395,6 +2511,157 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    cancel_active_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled all active tasks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelActiveTasksResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_task_maintenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task maintenance settings and statistics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskMaintenanceOverview"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_task_maintenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTaskMaintenanceSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated task maintenance settings and statistics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskMaintenanceOverview"];
+                };
+            };
+            /** @description Invalid settings payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    purge_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurgeTasksRequest"];
+            };
+        };
+        responses: {
+            /** @description Purged task history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurgeTasksResponse"];
+                };
+            };
+            /** @description Invalid purge mode */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Active tasks block full history purge */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };
@@ -3302,7 +3569,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Document delete task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -3310,6 +3576,12 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TaskRef"];
                 };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: {
                 headers: {
@@ -3369,7 +3641,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaskRef"];
+                    "application/json": components["schemas"]["TranslationJobsResponse"];
                 };
             };
         };
@@ -3395,8 +3667,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TranslationJobsResponse"];
+                    "application/json": components["schemas"]["TaskRef"];
                 };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3415,7 +3699,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description URL import task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -3436,6 +3719,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Library dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
         };
     };
     prepare_group_library_upload: {
@@ -3443,7 +3735,6 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description URL-encoded group path */
                 group_path: string;
             };
             cookie?: never;
@@ -3454,7 +3745,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Upload requirement or reused file */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3463,7 +3753,6 @@ export interface operations {
                     "application/json": components["schemas"]["PrepareLibraryUploadResponse"];
                 };
             };
-            /** @description Reused file task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -3472,19 +3761,25 @@ export interface operations {
                     "application/json": components["schemas"]["PrepareLibraryUploadResponse"];
                 };
             };
-            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Group or folder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };
@@ -3504,6 +3799,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description File task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
             /** @description Insufficient permissions */
             403: {
                 headers: {
@@ -3517,6 +3821,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Library dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };
@@ -3566,6 +3879,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description File delete task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
             /** @description Insufficient permissions */
             403: {
                 headers: {
@@ -3809,6 +4131,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Text task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
             /** @description Insufficient permissions */
             403: {
                 headers: {
@@ -3822,6 +4153,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Library dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };
@@ -3841,6 +4181,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Text task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
             /** @description Insufficient permissions */
             403: {
                 headers: {
@@ -3854,6 +4203,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Library dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };
@@ -4304,6 +4662,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description File task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
             /** @description Invalid upload */
             400: {
                 headers: {
@@ -4315,6 +4682,15 @@ export interface operations {
             };
             /** @description Internal error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Library dependency unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4377,6 +4753,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description File delete task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
             /** @description File not found */
             404: {
                 headers: {
@@ -4643,6 +5028,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Text task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
             /** @description Invalid text payload */
             400: {
                 headers: {
@@ -4654,6 +5048,15 @@ export interface operations {
             };
             /** @description Internal error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Library dependency unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5534,9 +5937,9 @@ export interface operations {
             query?: {
                 page?: number;
                 page_size?: number;
+                query?: string;
                 kind?: components["schemas"]["TaskKind"];
                 status?: components["schemas"]["TaskStatus"];
-                query?: string;
                 stage?: string;
                 waiting_reason?: string;
                 dependency_key?: string;
@@ -5664,6 +6067,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskItemsResponse"];
+                };
+            };
+        };
+    };
+    rerun_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RerunTaskResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };

@@ -1,16 +1,18 @@
 use std::time::{Duration, Instant};
 
 pub use context69_contracts::{
-    AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
+    AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
     CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse, DocumentKey,
     DocumentResponse, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GenericTaskRequest,
     GroupKind, GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
     LibraryFileUploadMetadata as FileMetadata, LibraryTextContentFormat as TextContentFormat,
-    MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind,
-    ScopeMetadataIndex, ScopeSpec, SearchRequest, TaskItemResponse, TaskItemStatus,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress, TaskRef,
-    TaskResponse, TaskRetryResponse, TaskStatus, TextBatchRequest, TranslationDirective,
-    TranslationStatus, UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
+    MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind, PurgeTasksRequest,
+    PurgeTasksResponse, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, SearchRequest,
+    TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
+    TaskMaintenanceOverview, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskStatus, TextBatchRequest, TranslationDirective, TranslationStatus,
+    UpdateTaskMaintenanceSettingsRequest, UpsertLibraryTextRequest as TextBatchItem,
+    UrlBatchRequest, Visibility,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -207,10 +209,56 @@ impl Context69Client {
             .await
     }
 
+    pub async fn rerun_task(&self, task_id: Uuid) -> Result<RerunTaskResponse, Error> {
+        let path = format!("/v1/tasks/{task_id}/rerun");
+        self.execute_json(self.authorized_request(Method::POST, &path).await?)
+            .await
+    }
+
     pub async fn cancel_task(&self, task_id: Uuid) -> Result<(), Error> {
         let path = format!("/v1/tasks/{task_id}/cancel");
         self.execute_empty(self.authorized_request(Method::POST, &path).await?)
             .await
+    }
+
+    pub async fn task_maintenance(&self) -> Result<TaskMaintenanceOverview, Error> {
+        self.execute_json(
+            self.authorized_request(Method::GET, "/v1/admin/tasks/maintenance")
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn update_task_maintenance(
+        &self,
+        request: &UpdateTaskMaintenanceSettingsRequest,
+    ) -> Result<TaskMaintenanceOverview, Error> {
+        self.execute_json(
+            self.authorized_request(Method::PUT, "/v1/admin/tasks/maintenance")
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
+    pub async fn cancel_active_tasks(&self) -> Result<CancelActiveTasksResponse, Error> {
+        self.execute_json(
+            self.authorized_request(Method::POST, "/v1/admin/tasks/cancel-active")
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn purge_tasks(
+        &self,
+        request: &PurgeTasksRequest,
+    ) -> Result<PurgeTasksResponse, Error> {
+        self.execute_json(
+            self.authorized_request(Method::POST, "/v1/admin/tasks/purge")
+                .await?
+                .json(request),
+        )
+        .await
     }
 
     pub async fn search_compact(

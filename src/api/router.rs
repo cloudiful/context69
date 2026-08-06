@@ -25,8 +25,8 @@ use tower_sessions_redis_store::{
 use crate::services::app::Context69App;
 
 use super::{
-    ApiState, auth_middleware, batch_get_group_documents, build_api_state, cancel_task,
-    create_admin_user, create_group_library_folder, create_group_library_text,
+    ApiState, auth_middleware, batch_get_group_documents, build_api_state, cancel_active_tasks,
+    cancel_task, create_admin_user, create_group_library_folder, create_group_library_text,
     create_group_source_folder, create_library_folder, create_library_text, create_metadata_index,
     create_personal_access_token, create_source, create_source_connection,
     delete_group_document_by_key, delete_group_library_file, delete_group_library_folder,
@@ -34,21 +34,22 @@ use super::{
     delete_source_connection, disable_admin_user, enable_admin_user, ensure_scope,
     forbid_personal_access_token_middleware, get_group_document_by_key, get_group_library_file,
     get_group_library_resources, get_group_library_tree, get_group_translation_settings,
-    get_library_file, get_library_resources, get_library_tree, get_task, get_translation_settings,
-    healthz, import_group_library_file_url, list_admin_users, list_document_translation_jobs,
-    list_metadata_indexes, list_personal_access_tokens, list_source_connections, list_sources,
-    list_task_items, list_tasks, list_translation_providers, login, logout, me,
-    move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
-    openapi_json, prepare_group_library_upload, query_group_documents,
-    rebuild_document_translations, require_admin_scope_middleware,
+    get_library_file, get_library_resources, get_library_tree, get_task, get_task_maintenance,
+    get_translation_settings, healthz, import_group_library_file_url, list_admin_users,
+    list_document_translation_jobs, list_metadata_indexes, list_personal_access_tokens,
+    list_source_connections, list_sources, list_task_items, list_tasks, list_translation_providers,
+    login, logout, me, move_group_library_file, move_group_library_folder, move_library_file,
+    move_library_folder, openapi_json, prepare_group_library_upload, purge_tasks,
+    query_group_documents, rebuild_document_translations, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, reset_admin_user_password, retry_metadata_index,
-    retry_task, revoke_personal_access_token, submit_delete_batch, submit_file_batch, submit_task,
-    submit_text_batch, submit_url_batch, submit_vector_index_rebuild, sync_group_source_folder,
-    sync_source, touch_personal_access_token_middleware, update_admin_user,
-    update_group_source_folder_config, update_group_translation_settings, update_metadata_index,
-    update_source, update_source_connection, update_translation_settings,
+    require_workspace_scope_middleware, rerun_task, reset_admin_user_password,
+    retry_metadata_index, retry_task, revoke_personal_access_token, submit_delete_batch,
+    submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
+    submit_vector_index_rebuild, sync_group_source_folder, sync_source,
+    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
+    update_group_translation_settings, update_metadata_index, update_source,
+    update_source_connection, update_task_maintenance, update_translation_settings,
     upload_group_library_files, upload_library_files, upsert_group_library_text,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
@@ -152,6 +153,7 @@ fn task_routes(api_state: ApiState) -> Router<ApiState> {
         .route("/v1/tasks/{task_id}", get(get_task))
         .route("/v1/tasks/{task_id}/items", get(list_task_items))
         .route("/v1/tasks/{task_id}/retry", post(retry_task))
+        .route("/v1/tasks/{task_id}/rerun", post(rerun_task))
         .route("/v1/tasks/{task_id}/cancel", post(cancel_task))
         .route(
             "/v1/groups/by-path/{group_path}/batch/text",
@@ -266,6 +268,12 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
             "/v1/admin/users/{login_name}/reset-password",
             post(reset_admin_user_password),
         )
+        .route(
+            "/v1/admin/tasks/maintenance",
+            get(get_task_maintenance).put(update_task_maintenance),
+        )
+        .route("/v1/admin/tasks/cancel-active", post(cancel_active_tasks))
+        .route("/v1/admin/tasks/purge", post(purge_tasks))
         .layer(from_fn_with_state(
             api_state,
             require_admin_scope_middleware,

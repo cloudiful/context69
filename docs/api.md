@@ -17,7 +17,11 @@
 - `GET /v1/tasks/{task_id}`
 - `GET /v1/tasks/{task_id}/items`
 - `POST /v1/tasks/{task_id}/retry`
+- `POST /v1/tasks/{task_id}/rerun` (admin-owned terminal task; creates a fresh task from the unfinished items, bypassing the idempotency binding)
 - `POST /v1/tasks/{task_id}/cancel`
+- `GET|PUT /v1/admin/tasks/maintenance` (admin; auto-cleanup settings and task statistics)
+- `POST /v1/admin/tasks/cancel-active` (admin; cancels every active task)
+- `POST /v1/admin/tasks/purge` (admin; purges expired or all terminal task history)
 - source and settings management endpoints under `/v1/*`
 
 ## Advanced SDK workflow
