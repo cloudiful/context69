@@ -97,6 +97,8 @@ impl SourceFoldersService {
                 },
             )
             .await?;
+        let mut persisted_config = request.source_config.clone();
+        persisted_config.source_id = Some(Uuid::new_v4());
         let source_config_file = self
             .library
             .upsert_named_text_file_in_project(
@@ -106,7 +108,7 @@ impl SourceFoldersService {
                     external_id: source_config_file_external_id(folder.folder_id),
                     filename: SOURCE_CONFIG_FILENAME.to_string(),
                     media_type: "application/json".to_string(),
-                    content: serialize_source_config(&request.source_config)?,
+                    content: serialize_source_config(&persisted_config)?,
                 },
             )
             .await?;
@@ -135,6 +137,16 @@ impl SourceFoldersService {
         )?;
 
         let descriptor = self.describe_source_folder(project, folder_id).await?;
+        let persisted = self
+            .read_source_config_input_with_lease(&descriptor, None)
+            .await?;
+        let mut next = request.clone();
+        next.source_id = Some(
+            request
+                .source_id
+                .or_else(|| persisted.as_ref().and_then(|input| input.source_id))
+                .unwrap_or_else(Uuid::new_v4),
+        );
         let source_config_file = self
             .library
             .upsert_named_text_file_in_project(
@@ -144,7 +156,7 @@ impl SourceFoldersService {
                     external_id: source_config_file_external_id(folder_id),
                     filename: SOURCE_CONFIG_FILENAME.to_string(),
                     media_type: "application/json".to_string(),
-                    content: serialize_source_config(request)?,
+                    content: serialize_source_config(&next)?,
                 },
             )
             .await?;
@@ -177,10 +189,14 @@ impl SourceFoldersService {
             &input,
             &self.sync.connection_names_for_source_folders().await?,
         )?;
+        let source_id = self
+            .persist_source_id_for_sync(project, &descriptor, &input, lease_token)
+            .await?;
         self.sync
             .sync_project_source_folder(
                 project,
                 &descriptor.path,
+                Some(source_id),
                 folder_id,
                 descriptor.records_folder.id,
                 &validated,
@@ -188,6 +204,37 @@ impl SourceFoldersService {
                 lease_token,
             )
             .await
+    }
+
+    /// Returns the stable source id for a source folder, persisting a fresh
+    /// one into source.json on first sync of a legacy config that lacks it.
+    async fn persist_source_id_for_sync(
+        &self,
+        project: &GroupRecord,
+        descriptor: &SourceFolderDescriptor,
+        input: &SourceConfigInput,
+        lease_token: Uuid,
+    ) -> Result<Uuid> {
+        let Some(source_id) = input.source_id else {
+            let source_id = Uuid::new_v4();
+            let mut next = input.clone();
+            next.source_id = Some(source_id);
+            self.library
+                .upsert_named_text_file_for_task(
+                    project,
+                    &UpsertNamedTextFileRequest {
+                        folder_id: Some(descriptor.folder.id),
+                        external_id: source_config_file_external_id(descriptor.folder.id),
+                        filename: SOURCE_CONFIG_FILENAME.to_string(),
+                        media_type: "application/json".to_string(),
+                        content: serialize_source_config(&next)?,
+                    },
+                    lease_token,
+                )
+                .await?;
+            return Ok(source_id);
+        };
+        Ok(source_id)
     }
 
     pub async fn move_source_aware_folder_in_project(
@@ -199,27 +246,39 @@ impl SourceFoldersService {
         let before = self
             .describe_source_folder_subtree(project, folder_id)
             .await?;
-        let old_identities = before
-            .iter()
-            .map(|descriptor| {
-                (
-                    descriptor.folder.id,
-                    source_folder_identity(project.id, &descriptor.path),
-                )
-            })
-            .collect::<HashMap<_, _>>();
+        let mut legacy_identities = HashMap::new();
+        let mut migrated_source_ids = Vec::new();
+        for descriptor in &before {
+            let Some(input) = self
+                .read_source_config_input_with_lease(descriptor, None)
+                .await?
+            else {
+                continue;
+            };
+            match input.source_id {
+                Some(source_id) => migrated_source_ids.push(source_id),
+                None => {
+                    legacy_identities.insert(
+                        descriptor.folder.id,
+                        source_folder_identity(project.id, &descriptor.path),
+                    );
+                }
+            }
+        }
 
         let moved = self
             .library
             .move_folder_in_project(project, folder_id, request)
             .await?;
 
-        if !old_identities.is_empty() {
+        if !legacy_identities.is_empty() {
+            // Folders synced before the source_id rollout still carry a
+            // path-based checkpoint; rename it so a later move keeps it.
             let after = self
                 .describe_source_folder_subtree(project, folder_id)
                 .await?;
             for descriptor in after {
-                if let Some(old_identity) = old_identities.get(&descriptor.folder.id) {
+                if let Some(old_identity) = legacy_identities.get(&descriptor.folder.id) {
                     let new_identity = source_folder_identity(project.id, &descriptor.path);
                     self.sync
                         .rename_project_source_folder_identity(
@@ -264,16 +323,18 @@ impl SourceFoldersService {
             .describe_source_folder_subtree(project, folder_id)
             .await?;
         for descriptor in descriptors {
-            let identity = source_folder_identity(project.id, &descriptor.path);
-            let legacy_source_key = self
+            let input = self
                 .read_source_config_input_with_lease(&descriptor, lease_token)
-                .await?
-                .map(|input| input.source_key);
+                .await?;
+            let identity = match input.as_ref().and_then(|input| input.source_id) {
+                Some(source_id) => source_folder_sync_identity(project.id, source_id),
+                None => source_folder_identity(project.id, &descriptor.path),
+            };
             self.sync
                 .delete_project_source_folder_state(
                     project.id,
                     &identity,
-                    legacy_source_key.as_deref(),
+                    input.as_ref().map(|input| input.source_key.as_str()),
                 )
                 .await?;
         }
@@ -306,6 +367,7 @@ impl SourceFoldersService {
         let _ = records_folder;
 
         let content = serialize_source_config(&SourceConfigInput {
+            source_id: Some(Uuid::new_v4()),
             source_key: source.source_key.clone(),
             display_name: if source.display_name == source.source_key {
                 None
@@ -508,6 +570,12 @@ fn folder_path_from_records(folders: &[LibraryFolderRecord], folder_id: Uuid) ->
 
 pub(crate) fn source_folder_identity(group_id: i64, folder_path: &str) -> String {
     format!("group:{group_id}:folder:{}", folder_path.trim())
+}
+
+/// Stable sync identity keyed by the source id persisted inside source.json.
+/// Unlike the path-based identity, this survives folder moves and renames.
+pub(crate) fn source_folder_sync_identity(group_id: i64, source_id: Uuid) -> String {
+    format!("group:{group_id}:source:{source_id}")
 }
 
 pub(crate) fn source_config_file_external_id(folder_id: Uuid) -> String {

@@ -2072,6 +2072,8 @@ export interface components {
             description?: string | null;
             display_name?: string | null;
             example_queries?: string[];
+            /** Format: uuid */
+            source_id?: string | null;
             source_key: string;
             sync_strategy: components["schemas"]["SourceSyncStrategy"];
             visibility?: null | components["schemas"]["Visibility"];

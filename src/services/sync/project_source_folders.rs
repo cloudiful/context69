@@ -11,8 +11,8 @@ use crate::{
     services::{
         library::{LibraryService, UpsertNamedTextFileRequest},
         source_folders::{
-            serialize_source_record, source_folder_identity, source_record_external_id,
-            source_record_filename,
+            serialize_source_record, source_folder_identity, source_folder_sync_identity,
+            source_record_external_id, source_record_filename,
         },
     },
     sources::{SourceConnector, postgres_sql::PostgresSqlSourceConnector},
@@ -36,24 +36,41 @@ impl SyncService {
         &self,
         project: &crate::domain::GroupRecord,
         folder_path: &str,
+        source_id: Option<Uuid>,
         folder_id: Uuid,
         records_folder_id: Uuid,
         source: &SourceConfig,
         library: &LibraryService,
         lease_token: Uuid,
     ) -> Result<SyncOutcome> {
-        let identity = source_folder_identity(project.id, folder_path);
+        let path_identity = source_folder_identity(project.id, folder_path);
+        let identity = source_id
+            .map(|source_id| source_folder_sync_identity(project.id, source_id))
+            .unwrap_or_else(|| path_identity.clone());
 
-        if source.sync_strategy == SyncStrategy::Cursor
-            && self
-                .db
-                .get_checkpoint(&identity)
-                .await?
-                .updated_at
-                .is_none()
-        {
-            self.try_migrate_legacy_checkpoint(project.id, &identity, &source.key)
-                .await?;
+        if source.sync_strategy == SyncStrategy::Cursor {
+            let checkpoint = self.db.get_checkpoint(&identity).await?;
+            let fresh = checkpoint.updated_at.is_none() && checkpoint.external_id.is_none();
+            if fresh && source_id.is_some() {
+                // Carry over a checkpoint written under the legacy path-based
+                // identity so the first sync after the source_id rollout does
+                // not restart from scratch.
+                let path_checkpoint = self.db.get_checkpoint(&path_identity).await?;
+                if path_checkpoint.updated_at.is_some() || path_checkpoint.external_id.is_some() {
+                    self.db
+                        .save_checkpoint_in_scope(
+                            project.id,
+                            project.visibility,
+                            &identity,
+                            &path_checkpoint,
+                        )
+                        .await?;
+                }
+            }
+            if fresh {
+                self.try_migrate_legacy_checkpoint(project.id, &identity, &source.key)
+                    .await?;
+            }
         }
 
         let connector = self.project_source_connector(source).await?;

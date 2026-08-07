@@ -7923,6 +7923,13 @@
               "type": "string"
             }
           },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "source_key": {
             "type": "string"
           },

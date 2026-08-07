@@ -79,6 +79,7 @@ mod tests {
     #[test]
     fn validates_source_input_against_known_connections() {
         let input = SourceConfigInput {
+            source_id: None,
             source_key: "gov_documents".to_string(),
             display_name: None,
             description: None,
@@ -100,6 +101,7 @@ mod tests {
     #[test]
     fn rejects_invalid_batch_size() {
         let input = SourceConfigInput {
+            source_id: None,
             source_key: "gov_documents".to_string(),
             display_name: None,
             description: None,
@@ -121,6 +123,7 @@ mod tests {
     #[test]
     fn normalizes_source_metadata_fields() {
         let input = SourceConfigInput {
+            source_id: None,
             source_key: " gov_documents ".to_string(),
             display_name: Some(" 国务院/部委政策公文 ".to_string()),
             description: Some(" 覆盖正式政策公文 ".to_string()),
@@ -155,6 +158,7 @@ mod tests {
     #[test]
     fn rejects_too_many_example_queries() {
         let input = SourceConfigInput {
+            source_id: None,
             source_key: "gov_documents".to_string(),
             display_name: None,
             description: None,

@@ -110,6 +110,8 @@ pub struct SyncOutcome {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SourceConfigInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<Uuid>,
     pub source_key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
