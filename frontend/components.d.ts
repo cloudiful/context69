@@ -52,6 +52,7 @@ declare module 'vue' {
     SettingsFileLibraryBlock: typeof import('./src/components/settings-sections/SettingsFileLibraryBlock.vue')['default']
     SettingsRuntimeSection: typeof import('./src/components/settings-sections/SettingsRuntimeSection.vue')['default']
     SettingsSearchSection: typeof import('./src/components/settings-sections/SettingsSearchSection.vue')['default']
+    SourceConfigEditor: typeof import('./src/components/SourceConfigEditor.vue')['default']
     TablePagination: typeof import('./src/components/TablePagination.vue')['default']
     UAlert: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Alert.vue')['default']
     UApp: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/App.vue')['default']
@@ -80,6 +81,7 @@ declare module 'vue' {
     USelect: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Select.vue')['default']
     USwitch: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Switch.vue')['default']
     UTable: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Table.vue')['default']
+    UTabs: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Tabs.vue')['default']
     UTextarea: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Textarea.vue')['default']
     VectorIndexRebuildControl: typeof import('./src/components/settings-sections/VectorIndexRebuildControl.vue')['default']
   }

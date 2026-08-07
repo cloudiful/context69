@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, provide, unref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
+import { authSessionState } from "../services/auth/session";
 import { settingsPageStateKey } from "../composables/settings-page-context";
 import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
 import { normalizeAppLocale, persistLocale, type AppLocale } from "../i18n/locale";
-import type { SettingsSectionKey } from "../settings/navigation";
+import { resolveSettingsSectionNav, type SettingsSectionKey } from "../settings/navigation";
 import SettingsAccessTokensPage from "./settings/SettingsAccessTokensPage.vue";
 import SettingsAdminUsersPage from "./settings/SettingsAdminUsersPage.vue";
 import SettingsAppearancePage from "./settings/SettingsAppearancePage.vue";
@@ -19,6 +20,7 @@ import SettingsTranslationPage from "./settings/SettingsTranslationPage.vue";
 
 const { t, locale } = useI18n({ useScope: "global" });
 const route = useRoute();
+const router = useRouter();
 const preferences = useUiPreferences();
 const state = useSettingsPage();
 
@@ -50,6 +52,17 @@ const saveMessage = computed(() => unref(state.saveMessage));
 const saving = computed(() => unref(state.saving));
 const currentLocale = computed<AppLocale>(() => normalizeAppLocale(String(locale.value)) ?? "en");
 
+const sectionItems = computed(() =>
+  resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true).map((section) => ({
+    label: section.label,
+    to: section.to,
+  })),
+);
+
+function switchSection(to: string) {
+  void router.push(to);
+}
+
 function switchLocale(nextLocale: AppLocale) {
   if (currentLocale.value === nextLocale) {
     return;
@@ -62,6 +75,14 @@ function switchLocale(nextLocale: AppLocale) {
 
 <template>
   <section class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-y-auto" data-testid="settings-page-scroll">
+    <UTabs
+      :model-value="currentSection"
+      class="md:hidden"
+      orientation="horizontal"
+      :items="sectionItems"
+      @update:model-value="switchSection(String($event))"
+    />
+
     <div class="flex flex-wrap justify-end gap-1.5">
       <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
       <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />

@@ -133,6 +133,11 @@ const groupMenuItems = computed(() => groupContextItems(groupContextEntry.value,
   else if (action === "move") emit("move-child-group", entry.group);
   else emit("delete-child-group", entry.group);
 }));
+const createMenuItems = computed(() => [
+  { label: t("library.newFolder"), icon: "i-lucide-folder-plus", onSelect: () => actionsState.openCreateFolderDialog() },
+  { label: t("library.newTextFile"), icon: "i-lucide-file-plus", onSelect: () => actionsState.openCreateTextDialog() },
+  { label: t("library.newSourceFolder"), icon: "i-lucide-database-plus", onSelect: () => sourceFolderState.openCreate() },
+]);
 const surfaceMenuItems = computed(() => surfaceContextItems(t, {
   createGroup: () => emit("create-child-group"), createFolder: () => actionsState.openCreateFolderDialog(),
   createText: () => actionsState.openCreateTextDialog(), createSource: () => sourceFolderState.openCreate(),
@@ -289,7 +294,41 @@ onBeforeUnmount(() => {
       accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
     />
     <Teleport to="#app-route-actions">
-      <UInput v-model="pageState.query" class="w-56" icon="i-lucide-search" :placeholder="t('nav.search')" />
+      <div class="flex items-center gap-2">
+        <UInput v-model="pageState.query" class="w-40 sm:w-56" icon="i-lucide-search" :placeholder="t('nav.search')" />
+        <UDropdownMenu :items="createMenuItems" :content="{ align: 'end' }">
+          <UButton icon="i-lucide-plus" :label="t('common.new')" class="hidden sm:inline-flex" />
+          <UButton icon="i-lucide-plus" aria-label="New" class="sm:hidden" />
+        </UDropdownMenu>
+        <UButton
+          icon="i-lucide-upload"
+          :label="t('common.upload')"
+          class="hidden sm:inline-flex"
+          :loading="actionsState.uploadBusy"
+          @click="fileUpload?.select()"
+        />
+        <UButton
+          icon="i-lucide-upload"
+          aria-label="Upload"
+          class="sm:hidden"
+          :loading="actionsState.uploadBusy"
+          @click="fileUpload?.select()"
+        />
+        <UButton
+          icon="i-lucide-refresh-cw"
+          :label="t('common.refresh')"
+          class="hidden sm:inline-flex"
+          :disabled="treeState.treeLoading || pageState.loading"
+          @click="refreshLibraryData"
+        />
+        <UButton
+          icon="i-lucide-refresh-cw"
+          aria-label="Refresh"
+          class="sm:hidden"
+          :disabled="treeState.treeLoading || pageState.loading"
+          @click="refreshLibraryData"
+        />
+      </div>
     </Teleport>
 
     <UContextMenu :items="activeContextMenuItems">

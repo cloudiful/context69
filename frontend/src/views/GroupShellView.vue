@@ -1,18 +1,46 @@
 <script setup lang="ts">
-import { provide, proxyRefs } from "vue";
+import { computed, provide, proxyRefs } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRoute, useRouter } from "vue-router";
 
 import EntityDialog from "../components/EntityDialog.vue";
 import MemberDialog from "../components/MemberDialog.vue";
 import { groupWorkspaceStateKey } from "../composables/group-workspace-context";
 import { useGroupWorkspace } from "../composables/use-group-workspace";
+import { resolveGroupSectionNav } from "../workspace/navigation";
 
 const state = proxyRefs(useGroupWorkspace());
 
 provide(groupWorkspaceStateKey, state);
+
+const { t } = useI18n();
+const route = useRoute();
+const router = useRouter();
+
+const groupPath = computed(() => String(route.params.groupPath ?? ""));
+const groupSectionItems = computed(() => {
+  const basePath = `/groups/${encodeURIComponent(groupPath.value)}`;
+  return [
+    { label: t("groups.overviewTitle"), to: basePath },
+    ...resolveGroupSectionNav(t, groupPath.value),
+  ];
+});
+
+function switchGroupSection(to: string) {
+  void router.push(to);
+}
 </script>
 
 <template>
   <div class="grid h-full min-h-0 grid-rows-[minmax(0,1fr)] gap-2">
+    <UTabs
+      v-if="groupPath"
+      :model-value="String(route.name ?? '')"
+      class="md:hidden"
+      :items="groupSectionItems"
+      @update:model-value="switchGroupSection(String($event))"
+    />
+
     <RouterView />
 
     <EntityDialog

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 
-import AppMonacoEditor from "./AppMonacoEditor.vue";
+import SourceConfigEditor from "./SourceConfigEditor.vue";
 
 const props = defineProps<{
   busy: boolean;
@@ -52,16 +52,11 @@ watch(
         />
       </label>
 
-      <label class="grid gap-2">
-        <span class="text-sm font-medium text-color">{{ $t("library.sourceConfigLabel") }}</span>
-        <div class="min-h-[26rem] overflow-hidden rounded-xl border border-surface">
-          <AppMonacoEditor
-            :model-value="value"
-            language="json"
-            @update:model-value="emit('update:value', $event)"
-          />
-        </div>
-      </label>
+      <SourceConfigEditor
+        :model-value="value"
+        :disabled="busy"
+        @update:model-value="emit('update:value', $event)"
+      />
 
     </div>
     </template>
