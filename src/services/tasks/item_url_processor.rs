@@ -13,7 +13,7 @@ pub(super) async fn process_url(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context("URL tasks require group_id")?;

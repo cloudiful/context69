@@ -9,9 +9,14 @@ use uuid::Uuid;
 use super::TaskService;
 use super::item_processors::{ProcessResult, process_item};
 
-pub(super) async fn run_task(service: &TaskService, task_id: Uuid, task_lease: Uuid) -> Result<()> {
-    let task = service.task(task_id).await?;
-    let group = match task.group_id {
+pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
+    let task = service.task(item.task_id).await?;
+    if task.status == "cancelled" {
+        // Cancelled while this worker was queued: the item lease was cleared
+        // by the cancel and the item is already terminal.
+        return Ok(());
+    }
+    let group = match item.group_id {
         Some(group_id) => Some(
             service
                 .db()
@@ -21,232 +26,171 @@ pub(super) async fn run_task(service: &TaskService, task_id: Uuid, task_lease: U
         ),
         None => None,
     };
-    let items = service.list_all_task_items(task_id).await?;
-    let kind = parse_kind(&task.kind)?;
-    let task_heartbeat = spawn_task_heartbeat(service.clone(), task_id, task_lease);
+    let kind = parse_kind(&item.kind)?;
+    let item_heartbeat = spawn_item_heartbeat(service.clone(), item.id, item.lease_token);
+    let result = process_item(service, kind, group.as_ref(), &task, &item).await;
+    item_heartbeat.abort();
 
-    for item in items {
-        let current = service.task(task_id).await?;
-        if current.status == "cancelled" {
-            break;
+    match result {
+        Ok(ProcessResult::Succeeded(resource_id)) => {
+            if !service
+                .db()
+                .finish_task_item(
+                    item.task_id,
+                    item.id,
+                    "succeeded",
+                    resource_id.as_deref(),
+                    None,
+                    None,
+                    true,
+                    item.lease_token,
+                    item.attempt_id,
+                )
+                .await?
+            {
+                return Ok(());
+            }
         }
-        let item_lease = Uuid::new_v4();
-        let Some(claimed) = service
-            .db()
-            .claim_task_item_with_lease(item.id, item_lease)
-            .await?
-        else {
-            continue;
-        };
-        let item_heartbeat = spawn_item_heartbeat(service.clone(), item.id, item_lease);
-        let result = process_item(service, kind, group.as_ref(), &task, &claimed).await;
-        item_heartbeat.abort();
-
-        match result {
-            Ok(ProcessResult::Succeeded(resource_id)) => {
-                if !service
-                    .db()
-                    .finish_task_item(
-                        task_id,
-                        item.id,
-                        "succeeded",
-                        resource_id.as_deref(),
-                        None,
-                        None,
-                        true,
-                        claimed.lease_token,
-                        claimed.attempt_id,
-                    )
-                    .await?
-                {
-                    task_heartbeat.abort();
-                    return Ok(());
-                }
-                release_task_and_resume(service, task_id, task_lease).await?;
-                task_heartbeat.abort();
+        Ok(ProcessResult::Progressed) => {
+            if !service
+                .db()
+                .progress_task_item(item.task_id, item.id, item.lease_token, item.attempt_id)
+                .await?
+            {
                 return Ok(());
             }
-            Ok(ProcessResult::Progressed) => {
-                if !service
-                    .db()
-                    .progress_task_item(task_id, item.id, claimed.lease_token, claimed.attempt_id)
-                    .await?
-                {
-                    task_heartbeat.abort();
-                    return Ok(());
-                }
-                release_task_and_resume(service, task_id, task_lease).await?;
-                task_heartbeat.abort();
+        }
+        Ok(ProcessResult::Waiting {
+            reason,
+            dependency_key,
+            next_attempt_at,
+            message,
+        }) => {
+            info!(
+                task_id = %item.task_id,
+                item_id = %item.id,
+                stage = item.stage.as_deref().unwrap_or("unknown"),
+                reason = %reason,
+                dependency_key = ?dependency_key,
+                next_attempt_at = %next_attempt_at,
+                message = ?message,
+                "task item waiting"
+            );
+            if !service
+                .db()
+                .wait_task_item(
+                    item.task_id,
+                    item.id,
+                    item.lease_token,
+                    &reason,
+                    dependency_key.as_deref(),
+                    next_attempt_at,
+                    message.as_deref(),
+                )
+                .await?
+            {
                 return Ok(());
             }
-            Ok(ProcessResult::Waiting {
-                reason,
-                dependency_key,
-                next_attempt_at,
-                message,
-            }) => {
-                info!(
-                    task_id = %task_id,
-                    item_id = %item.id,
-                    stage = claimed.stage.as_deref().unwrap_or("unknown"),
-                    reason = %reason,
-                    dependency_key = ?dependency_key,
-                    next_attempt_at = %next_attempt_at,
-                    message = ?message,
-                    "task item waiting"
-                );
+        }
+        Ok(ProcessResult::Failed {
+            stage,
+            message,
+            retryable,
+        }) => {
+            warn!(
+                task_id = %item.task_id,
+                item_id = %item.id,
+                stage = %stage,
+                retryable,
+                attempt = item.attempt_count,
+                error = %message,
+                "task item processing failed"
+            );
+            if retryable {
                 if !service
                     .db()
                     .wait_task_item(
-                        task_id,
+                        item.task_id,
                         item.id,
-                        claimed.lease_token,
-                        &reason,
-                        dependency_key.as_deref(),
-                        next_attempt_at,
-                        message.as_deref(),
+                        item.lease_token,
+                        "backoff",
+                        None,
+                        backoff_until(item.attempt_count),
+                        Some(&format!("{stage}: {message}")),
                     )
                     .await?
                 {
-                    task_heartbeat.abort();
                     return Ok(());
                 }
-                release_task_and_resume(service, task_id, task_lease).await?;
-                task_heartbeat.abort();
+            } else if !service
+                .db()
+                .finish_task_item(
+                    item.task_id,
+                    item.id,
+                    "failed",
+                    None,
+                    Some(&stage),
+                    Some(&message),
+                    false,
+                    item.lease_token,
+                    item.attempt_id,
+                )
+                .await?
+            {
                 return Ok(());
             }
-            Ok(ProcessResult::Failed {
-                stage,
-                message,
-                retryable,
-            }) => {
-                warn!(
-                    task_id = %task_id,
-                    item_id = %item.id,
-                    stage = %stage,
-                    retryable,
-                    attempt = claimed.attempt_count,
-                    error = %message,
-                    "task item processing failed"
-                );
-                if retryable {
-                    if !service
-                        .db()
-                        .wait_task_item(
-                            task_id,
-                            item.id,
-                            claimed.lease_token,
-                            "backoff",
-                            None,
-                            backoff_until(claimed.attempt_count),
-                            Some(&format!("{stage}: {message}")),
-                        )
-                        .await?
-                    {
-                        task_heartbeat.abort();
-                        return Ok(());
-                    }
-                    release_task_and_resume(service, task_id, task_lease).await?;
-                    task_heartbeat.abort();
-                    return Ok(());
-                }
+        }
+        Err(error) => {
+            let message = error.to_string();
+            warn!(
+                task_id = %item.task_id,
+                item_id = %item.id,
+                stage = item.stage.as_deref().unwrap_or("worker"),
+                attempt = item.attempt_count,
+                error = %message,
+                "task item worker error"
+            );
+            if is_retryable_error(&error) {
                 if !service
                     .db()
-                    .finish_task_item(
-                        task_id,
+                    .wait_task_item(
+                        item.task_id,
                         item.id,
-                        "failed",
+                        item.lease_token,
+                        "backoff",
                         None,
-                        Some(&stage),
+                        backoff_until(item.attempt_count),
                         Some(&message),
-                        false,
-                        claimed.lease_token,
-                        claimed.attempt_id,
                     )
                     .await?
                 {
-                    task_heartbeat.abort();
                     return Ok(());
                 }
-                release_task_and_resume(service, task_id, task_lease).await?;
-                task_heartbeat.abort();
-                return Ok(());
-            }
-            Err(error) => {
-                let message = error.to_string();
-                warn!(
-                    task_id = %task_id,
-                    item_id = %item.id,
-                    stage = claimed.stage.as_deref().unwrap_or("worker"),
-                    attempt = claimed.attempt_count,
-                    error = %message,
-                    "task item worker error"
-                );
-                if is_retryable_error(&error) {
-                    if !service
-                        .db()
-                        .wait_task_item(
-                            task_id,
-                            item.id,
-                            claimed.lease_token,
-                            "backoff",
-                            None,
-                            backoff_until(claimed.attempt_count),
-                            Some(&message),
-                        )
-                        .await?
-                    {
-                        task_heartbeat.abort();
-                        return Ok(());
-                    }
-                    release_task_and_resume(service, task_id, task_lease).await?;
-                    task_heartbeat.abort();
-                    return Ok(());
-                }
-                if !service
-                    .db()
-                    .finish_task_item(
-                        task_id,
-                        item.id,
-                        "failed",
-                        None,
-                        claimed.stage.as_deref().or(Some("worker")),
-                        Some(&message),
-                        false,
-                        claimed.lease_token,
-                        claimed.attempt_id,
-                    )
-                    .await?
-                {
-                    task_heartbeat.abort();
-                    return Ok(());
-                }
-                release_task_and_resume(service, task_id, task_lease).await?;
-                task_heartbeat.abort();
+            } else if !service
+                .db()
+                .finish_task_item(
+                    item.task_id,
+                    item.id,
+                    "failed",
+                    None,
+                    item.stage.as_deref().or(Some("worker")),
+                    Some(&message),
+                    false,
+                    item.lease_token,
+                    item.attempt_id,
+                )
+                .await?
+            {
                 return Ok(());
             }
         }
     }
-    release_task_and_resume(service, task_id, task_lease).await?;
-    task_heartbeat.abort();
-    Ok(())
-}
 
-async fn release_task_and_resume(
-    service: &TaskService,
-    task_id: Uuid,
-    task_lease: Uuid,
-) -> Result<()> {
-    // Recompute the task status before dropping the worker lease. recompute.sql
-    // preserves an existing lease while the task is still active, so a queued or
-    // waiting parent task keeps its lease until release_task clears it below.
-    // Doing this in the reverse order would leave a brief window where the task
-    // is visible to pending.sql as running with no lease and could be reclaimed
-    // by another worker, which would then strand the task as queued/waiting with
-    // a future lease.
-    service.db().recompute_task(task_id).await?;
-    service.db().release_task(task_id, task_lease).await?;
-    let task = service.task(task_id).await?;
+    // Recompute the parent task and wake the dispatcher when it still has due
+    // work. Parallel workers recompute independently; the aggregation is
+    // atomic, so transiently stale counters are corrected by the next update.
+    service.db().recompute_task(item.task_id).await?;
+    let task = service.task(item.task_id).await?;
     let due = task
         .next_attempt_at
         .map(|next_attempt_at| next_attempt_at <= Utc::now())
@@ -302,16 +246,6 @@ where
             }
         }
     }
-}
-
-fn spawn_task_heartbeat(service: TaskService, task_id: Uuid, lease_token: Uuid) -> HeartbeatGuard {
-    HeartbeatGuard(tokio::spawn(heartbeat_loop(
-        move || {
-            let service = service.clone();
-            async move { service.db().heartbeat_task(task_id, lease_token).await }
-        },
-        HEARTBEAT_INTERVAL,
-    )))
 }
 
 fn spawn_item_heartbeat(service: TaskService, item_id: Uuid, lease_token: Uuid) -> HeartbeatGuard {

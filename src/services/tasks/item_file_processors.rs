@@ -15,7 +15,7 @@ pub(super) async fn process_text(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context("text tasks require group_id")?;
@@ -57,7 +57,7 @@ pub(super) async fn process_file(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context("file tasks require group_id")?;
@@ -122,7 +122,7 @@ pub(super) async fn process_file_stage(
     service: &TaskService,
     group_id: i64,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let file_id = item.file_id.context("file task stage requires file_id")?;
@@ -247,7 +247,7 @@ pub(super) async fn process_file_stage(
 
 async fn ingest_error_result(
     service: &TaskService,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     file_id: Uuid,
     error: UnifiedIngestError,
 ) -> Result<ProcessResult> {

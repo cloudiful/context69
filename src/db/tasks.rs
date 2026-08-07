@@ -56,8 +56,9 @@ pub struct StoredTaskItem {
     pub finished_at: Option<DateTime<Utc>>,
 }
 
+/// An item claimed by the dispatcher together with its parent task context.
 #[derive(Debug, Clone, FromRow)]
-pub struct ClaimedTaskItem {
+pub struct ClaimedItem {
     pub id: Uuid,
     pub task_id: Uuid,
     pub attempt_count: i32,
@@ -66,6 +67,10 @@ pub struct ClaimedTaskItem {
     pub payload: Value,
     pub file_id: Option<Uuid>,
     pub stage: Option<String>,
+    pub kind: String,
+    pub group_id: Option<i64>,
+    pub group_path: Option<String>,
+    pub source_key: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -374,27 +379,13 @@ impl Database {
         )
     }
 
-    pub async fn claim_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
+    /// Atomically claims up to `limit` eligible items across tasks, activating
+    /// their parent tasks and recycling expired leases. Safe to call from
+    /// multiple dispatcher instances: rows are locked with SKIP LOCKED.
+    pub async fn claim_items(&self, limit: i64) -> Result<Vec<ClaimedItem>> {
         Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/claim.sql", task_id, lease_token)
-                .fetch_optional(self.pool())
-                .await?
-                .is_some(),
-        )
-    }
-
-    pub async fn pending_task_ids(&self, limit: i64) -> Result<Vec<Uuid>> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/pending.sql", limit)
+            sqlx::query_file_as!(ClaimedItem, "src/sql/db/tasks/claim_items.sql", limit)
                 .fetch_all(self.pool())
-                .await?,
-        )
-    }
-
-    pub async fn pending_task_count(&self) -> Result<i64> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/pending_count.sql")
-                .fetch_one(self.pool())
                 .await?,
         )
     }
@@ -405,21 +396,6 @@ impl Database {
             "src/sql/db/tasks/processing_health.sql"
         )
         .fetch_one(self.pool())
-        .await?)
-    }
-
-    pub async fn claim_task_item_with_lease(
-        &self,
-        item_id: Uuid,
-        lease_token: Uuid,
-    ) -> Result<Option<ClaimedTaskItem>> {
-        Ok(sqlx::query_file_as!(
-            ClaimedTaskItem,
-            "src/sql/db/tasks/claim_item.sql",
-            item_id,
-            lease_token
-        )
-        .fetch_optional(self.pool())
         .await?)
     }
 
@@ -456,14 +432,19 @@ impl Database {
         }
         Ok(updated)
     }
-
     pub async fn recompute_task(&self, task_id: Uuid) -> Result<()> {
         sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
             .execute(self.pool())
             .await?;
         Ok(())
     }
-
+    pub async fn can_manage_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/manage_access.sql", task_id, user_id)
+                .fetch_one(self.pool())
+                .await?,
+        )
+    }
     pub async fn cancel_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
         let updated = sqlx::query_file!("src/sql/db/tasks/cancel.sql", task_id, user_id)
@@ -486,38 +467,9 @@ impl Database {
         tx.commit().await?;
         Ok(true)
     }
-
-    pub async fn can_manage_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/manage_access.sql", task_id, user_id)
-                .fetch_one(self.pool())
-                .await?,
-        )
-    }
-
-    pub async fn heartbeat_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
-        Ok(
-            sqlx::query_file!("src/sql/db/tasks/heartbeat_task.sql", task_id, lease_token)
-                .execute(self.pool())
-                .await?
-                .rows_affected()
-                > 0,
-        )
-    }
-
     pub async fn heartbeat_task_item(&self, item_id: Uuid, lease_token: Uuid) -> Result<bool> {
         Ok(
             sqlx::query_file!("src/sql/db/tasks/heartbeat_item.sql", item_id, lease_token)
-                .execute(self.pool())
-                .await?
-                .rows_affected()
-                > 0,
-        )
-    }
-
-    pub async fn release_task(&self, task_id: Uuid, lease_token: Uuid) -> Result<bool> {
-        Ok(
-            sqlx::query_file!("src/sql/db/tasks/release.sql", task_id, lease_token)
                 .execute(self.pool())
                 .await?
                 .rows_affected()

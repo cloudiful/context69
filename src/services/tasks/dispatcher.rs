@@ -26,53 +26,39 @@ pub(super) fn start(service: &TaskService) {
 }
 
 async fn dispatch_available(service: &TaskService) {
-    let pending_count = match service.db().pending_task_count().await {
-        Ok(count) => count,
-        Err(error) => {
-            tracing::warn!(%error, "failed to count pending context69 tasks");
-            return;
-        }
-    };
-    let available_slots = service.available_worker_slots();
-    if available_slots == 0 {
-        tracing::info!(
-            target: "task_dispatch",
-            pending_count,
-            inflight_count = service.worker_capacity(),
-            available_slots,
-            "task dispatcher state"
-        );
-        return;
-    }
-
-    let limit = dispatch_limit(available_slots);
-    let task_ids = match service.db().pending_task_ids(limit).await {
-        Ok(task_ids) => task_ids,
-        Err(error) => {
-            tracing::warn!(%error, "failed to load pending context69 tasks");
-            return;
-        }
-    };
-
-    for task_id in task_ids {
-        let Ok(permit) = service.worker_slots().try_acquire_owned() else {
+    let mut claimed_total = 0usize;
+    loop {
+        let available_slots = service.available_worker_slots();
+        if available_slots == 0 {
             break;
+        }
+        let limit = i64::try_from(available_slots).unwrap_or(i64::MAX);
+        let items = match service.db().claim_items(limit).await {
+            Ok(items) => items,
+            Err(error) => {
+                tracing::warn!(%error, "failed to claim context69 task items");
+                break;
+            }
         };
-        service.spawn(task_id, permit);
+        if items.is_empty() {
+            break;
+        }
+        for item in items {
+            let Ok(permit) = service.worker_slots().try_acquire_owned() else {
+                break;
+            };
+            service.spawn_item(item, permit);
+            claimed_total += 1;
+        }
     }
 
-    let available_slots = service.available_worker_slots();
     tracing::info!(
         target: "task_dispatch",
-        pending_count,
-        inflight_count = service.worker_capacity().saturating_sub(available_slots),
-        available_slots,
+        claimed_total,
+        inflight_count = service.worker_capacity().saturating_sub(service.available_worker_slots()),
+        available_slots = service.available_worker_slots(),
         "task dispatcher state"
     );
-}
-
-fn dispatch_limit(available_slots: usize) -> i64 {
-    i64::try_from(available_slots).unwrap_or(i64::MAX)
 }
 
 #[cfg(test)]
@@ -89,15 +75,6 @@ mod tests {
         sync::{Notify, Semaphore},
         time::timeout,
     };
-
-    use super::dispatch_limit;
-
-    #[test]
-    fn dispatcher_query_limit_matches_available_slots() {
-        assert_eq!(dispatch_limit(1), 1);
-        assert_eq!(dispatch_limit(4), 4);
-        assert_eq!(dispatch_limit(usize::MAX), i64::MAX);
-    }
 
     #[tokio::test]
     async fn many_pending_tasks_never_create_more_workers_than_slots() {

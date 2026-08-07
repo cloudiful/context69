@@ -28,7 +28,7 @@ pub(super) async fn process_item(
     kind: TaskKind,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
 ) -> Result<ProcessResult> {
     let stage = item.stage.as_deref().unwrap_or("finalize");
     match kind {
@@ -84,7 +84,7 @@ pub(super) async fn dependency_wait(
 pub(super) async fn set_stage(
     service: &TaskService,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<()> {
     if !service
@@ -102,7 +102,7 @@ pub(super) async fn set_stage(
 pub(super) async fn set_file(
     service: &TaskService,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     file_id: Uuid,
 ) -> Result<()> {
     if !service
@@ -117,7 +117,7 @@ pub(super) async fn set_file(
 
 pub(super) async fn save_sections(
     service: &TaskService,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     sections: Value,
 ) -> Result<()> {
     let mut payload = item.payload.clone();
@@ -134,7 +134,7 @@ pub(super) async fn save_sections(
 
 pub(super) async fn save_payload(
     service: &TaskService,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     payload: Value,
 ) -> Result<()> {
     if !service
@@ -155,7 +155,7 @@ pub(super) fn persisted_section_payload(payload: &Value) -> Option<Value> {
 }
 
 pub(super) fn waiting_for_error(
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     error: UnifiedIngestError,
 ) -> ProcessResult {
     let attempt = item.attempt_count.clamp(1, 8) as u32;
@@ -182,7 +182,7 @@ pub(super) fn process_error(stage: &str, error: anyhow::Error) -> ProcessResult 
 }
 
 pub(super) fn process_source_sync_error(
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     error: anyhow::Error,
 ) -> ProcessResult {
     if let Some(ingest_error) = error.downcast_ref::<UnifiedIngestError>() {

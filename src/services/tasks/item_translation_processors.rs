@@ -11,7 +11,7 @@ pub(super) async fn process_translation(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     if stage == "finalize" {

@@ -394,29 +394,15 @@ impl TaskService {
         self.worker_capacity
     }
 
-    pub(super) fn spawn(&self, task_id: Uuid, permit: OwnedSemaphorePermit) {
+    pub(super) fn spawn_item(&self, item: crate::db::ClaimedItem, permit: OwnedSemaphorePermit) {
         let service = self.clone();
         tokio::spawn(async move {
-            if let Err(error) = service.run(task_id).await {
-                tracing::warn!(task_id = %task_id, %error, "context69 task worker failed");
+            if let Err(error) = runtime::run_item(&service, item).await {
+                tracing::warn!(%error, "context69 task item worker failed");
             }
             drop(permit);
             service.notify_dispatch();
         });
-    }
-
-    async fn run(&self, task_id: Uuid) -> Result<()> {
-        let lease = Uuid::new_v4();
-        if !self.db.claim_task(task_id, lease).await? {
-            return Ok(());
-        }
-        if let Err(error) = runtime::run_task(self, task_id, lease).await {
-            self.db
-                .fail_task(task_id, lease, "worker", &error.to_string())
-                .await?;
-            return Err(error);
-        }
-        Ok(())
     }
 
     pub(crate) async fn task(&self, task_id: Uuid) -> Result<StoredTask> {
@@ -445,21 +431,6 @@ impl TaskService {
     }
     pub(crate) fn translation(&self) -> &TranslationService {
         &self.translation
-    }
-
-    async fn list_all_task_items(&self, task_id: Uuid) -> Result<Vec<StoredTaskItem>> {
-        const PAGE_SIZE: i64 = 500;
-        let mut offset = 0;
-        let mut all = Vec::new();
-        loop {
-            let page = self.db.list_task_items(task_id, PAGE_SIZE, offset).await?;
-            let page_len = page.len() as i64;
-            all.extend(page);
-            if page_len < PAGE_SIZE {
-                return Ok(all);
-            }
-            offset += page_len;
-        }
     }
 }
 

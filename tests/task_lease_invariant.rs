@@ -1,17 +1,21 @@
-//! Regression test for the task lease release invariant.
+//! Regression tests for the item lease claim invariant.
 //!
-//! After a worker finishes one item of a multi-item task, the parent task must be
-//! immediately re-dispatchable. It must never be stranded as `queued`/`waiting`
-//! while still holding a future `lease_until`, because pending.sql filters out
-//! tasks whose lease has not expired.
+//! Items are claimed atomically by the dispatcher (claim_items) with an
+//! independent lease per item. A worker that dies without finishing must
+//! leave the item claimable again once its lease expires, and the next claim
+//! must recycle the orphaned attempt.
 //!
-//! This test runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch
-//! database (migrations are applied automatically). It is skipped otherwise.
+//! These tests run only when CONTEXT69_TEST_DATABASE_URL points to a scratch
+//! database (migrations are applied automatically). They are skipped otherwise.
 
 use context69::db::Database;
 use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
+
+/// claim_items is a global dispatcher primitive over the shared scratch
+/// database, so tests in this file must not run concurrently.
+static CLAIM_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn test_database_url() -> Option<String> {
     std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
@@ -32,80 +36,7 @@ async fn seed_test_user(db: &Database) -> i64 {
     id
 }
 
-#[tokio::test]
-async fn released_progressed_task_is_immediately_redispatchable() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping lease invariant test");
-        return;
-    };
-    let db = Database::connect(&url)
-        .await
-        .expect("connect test database");
-
-    let user_id = seed_test_user(&db).await;
-    let task_id = Uuid::new_v4();
-    let (task_id, reused, item_ids) = db
-        .create_task_submission(
-            task_id,
-            user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[json!({"external_id": "a"}), json!({"external_id": "b"})],
-            None,
-            "test-hash",
-        )
-        .await
-        .expect("create task");
-    assert!(!reused, "fresh idempotency key must create a new task");
-    assert_eq!(item_ids.len(), 2);
-
-    let task_lease = Uuid::new_v4();
-    assert!(
-        db.claim_task(task_id, task_lease)
-            .await
-            .expect("claim task"),
-        "task should be claimable"
-    );
-
-    let item_lease = Uuid::new_v4();
-    let claimed = db
-        .claim_task_item_with_lease(item_ids[0], item_lease)
-        .await
-        .expect("claim item")
-        .expect("item should be claimable");
-
-    assert!(
-        db.progress_task_item(task_id, item_ids[0], item_lease, claimed.attempt_id)
-            .await
-            .expect("progress item"),
-        "item should progress"
-    );
-
-    let task = db
-        .get_task_internal(task_id)
-        .await
-        .expect("load task")
-        .expect("task exists");
-    assert_eq!(
-        task.status, "queued",
-        "a task with a remaining queued item must be recomputed as queued"
-    );
-
-    assert!(
-        db.release_task(task_id, task_lease)
-            .await
-            .expect("release task"),
-        "release must clear the lease even after recompute already set the status to queued"
-    );
-
-    let pending = db.pending_task_ids(100).await.expect("list pending tasks");
-    assert!(
-        pending.contains(&task_id),
-        "released task with queued items must be picked up by pending.sql immediately"
-    );
-
+async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
     sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
         .bind(task_id)
         .execute(db.pool())
@@ -126,4 +57,177 @@ async fn released_progressed_task_is_immediately_redispatchable() {
         .execute(db.pool())
         .await
         .expect("clean up user");
+}
+
+#[tokio::test]
+async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping lease invariant test");
+        return;
+    };
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let _claim_guard = CLAIM_LOCK.lock().await;
+
+    let user_id = seed_test_user(&db).await;
+    let task_id = Uuid::new_v4();
+    let (task_id, reused, item_ids) = db
+        .create_task_submission(
+            task_id,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/lease"),
+            None,
+            &[json!({"external_id": "a"})],
+            None,
+            "test-hash",
+        )
+        .await
+        .expect("create task");
+    assert!(!reused, "fresh idempotency key must create a new task");
+    assert_eq!(item_ids.len(), 1);
+
+    let first = db
+        .claim_items(10)
+        .await
+        .expect("first claim")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("item must be claimed");
+    assert_eq!(first.attempt_count, 1, "first claim is attempt 1");
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(
+        task.status, "running",
+        "claiming an item must activate the parent task"
+    );
+
+    // Simulate a worker crash: the lease expires without any finish call.
+    sqlx::query(
+        "UPDATE context69.task_items SET lease_until = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(first.id)
+    .execute(db.pool())
+    .await
+    .expect("expire lease");
+
+    let second = db
+        .claim_items(10)
+        .await
+        .expect("second claim")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("expired item must be reclaimable");
+    assert_eq!(
+        second.attempt_count, 2,
+        "reclaiming an expired item increments the attempt count"
+    );
+    assert_ne!(
+        second.lease_token, first.lease_token,
+        "each claim must mint a fresh lease token"
+    );
+
+    let orphaned_attempt: i64 = sqlx::query(
+        "SELECT count(*) FROM context69.task_attempts \
+         WHERE item_id = $1 AND status = 'interrupted' AND finished_at IS NOT NULL",
+    )
+    .bind(first.id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count orphaned attempts")
+    .get("count");
+    assert_eq!(
+        orphaned_attempt, 1,
+        "the crashed worker's attempt must be marked interrupted"
+    );
+
+    assert!(
+        db.finish_task_item(
+            task_id,
+            second.id,
+            "succeeded",
+            None,
+            None,
+            None,
+            true,
+            second.lease_token,
+            second.attempt_id,
+        )
+        .await
+        .expect("finish item"),
+        "finishing with the current lease token must succeed"
+    );
+
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(
+        task.status, "succeeded",
+        "a task whose only item finished must be recomputed as succeeded"
+    );
+
+    cleanup_task(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
+async fn multiple_items_are_claimed_independently() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parallel claim test");
+        return;
+    };
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let _claim_guard = CLAIM_LOCK.lock().await;
+
+    let user_id = seed_test_user(&db).await;
+    let task_id = Uuid::new_v4();
+    let (task_id, _, item_ids) = db
+        .create_task_submission(
+            task_id,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/lease"),
+            None,
+            &[
+                json!({"external_id": "a"}),
+                json!({"external_id": "b"}),
+                json!({"external_id": "c"}),
+            ],
+            None,
+            "test-hash",
+        )
+        .await
+        .expect("create task");
+    assert_eq!(item_ids.len(), 3);
+
+    let claimed = db.claim_items(100).await.expect("claim items");
+    let claimed_for_task = claimed
+        .iter()
+        .filter(|item| item.task_id == task_id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        claimed_for_task.len(),
+        3,
+        "all items of the task must be claimable in one pass"
+    );
+    let distinct_tokens = claimed_for_task
+        .iter()
+        .map(|item| item.lease_token)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        distinct_tokens.len(),
+        3,
+        "each item must hold an independent lease"
+    );
+
+    cleanup_task(&db, task_id, user_id).await;
 }

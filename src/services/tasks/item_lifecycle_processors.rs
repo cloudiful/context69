@@ -13,7 +13,7 @@ pub(super) async fn process_delete(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context("delete tasks require group_id")?;
@@ -83,7 +83,7 @@ pub(super) async fn process_sync(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     if stage == "finalize" {
@@ -148,7 +148,7 @@ pub(super) async fn process_sync(
 pub(super) async fn process_vector_rebuild(
     service: &TaskService,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedTaskItem,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     if stage == "finalize" {
