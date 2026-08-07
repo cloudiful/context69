@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, proxyRefs, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, proxyRefs, ref, watch } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
@@ -7,12 +7,86 @@ import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import TablePagination from "../components/TablePagination.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
 import { useTaskMaintenance } from "../composables/use-task-maintenance";
-import type { TaskKind, TaskResponse, TaskStatus } from "../services/api";
+import { apiClient } from "../services/api";
+import type { TaskItemResponse, TaskKind, TaskResponse, TaskStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
 const maintenance = proxyRefs(useTaskMaintenance({ t }));
+
+const AUTO_REFRESH_INTERVAL = 20_000;
+
+const expandedRows = ref<Record<string, boolean>>({});
+const expandedItems = ref<Record<string, TaskItemResponse[] | null>>({});
+const expandedError = ref<Record<string, string | null>>({});
+const expandingTaskId = ref<string | null>(null);
+
+async function toggleExpand(row: { original: TaskResponse; id: string }) {
+  const taskId = row.original.task_id;
+  const next = !expandedRows.value[row.id];
+  expandedRows.value = { ...expandedRows.value, [row.id]: next };
+  if (!next || expandedItems.value[taskId] !== undefined) return;
+  expandingTaskId.value = taskId;
+  try {
+    const response = await apiClient.getTaskItems(taskId, { limit: 100 });
+    expandedItems.value = { ...expandedItems.value, [taskId]: response.items };
+    expandedError.value = { ...expandedError.value, [taskId]: null };
+  } catch (error) {
+    expandedError.value = {
+      ...expandedError.value,
+      [taskId]: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    expandingTaskId.value = null;
+  }
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  refreshTimer = setInterval(() => {
+    if (document.visibilityState === "visible") {
+      void queue.refresh();
+    }
+  }, AUTO_REFRESH_INTERVAL);
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+onMounted(() => {
+  if (maintenance.isAdmin) void maintenance.load();
+  startAutoRefresh();
+});
+
+onBeforeUnmount(stopAutoRefresh);
+
+watch(
+  () => queue.items.map((task) => task.updated_at).join(","),
+  () => {
+    // Refresh expanded item lists for tasks that are still active.
+    const visibleExpanded = Object.keys(expandedRows.value).filter(
+      (rowId) => expandedRows.value[rowId],
+    );
+    const taskIds = visibleExpanded.map((rowId) => queue.items[Number(rowId)]?.task_id).filter(Boolean);
+    for (const taskId of taskIds) {
+      const task = queue.items.find((candidate) => candidate.task_id === taskId);
+      if (!task || !["queued", "running", "waiting"].includes(task.status)) continue;
+      void apiClient
+        .getTaskItems(taskId, { limit: 100 })
+        .then((response) => {
+          expandedItems.value = { ...expandedItems.value, [taskId]: response.items };
+        })
+        .catch(() => undefined);
+    }
+  },
+);
 
 const draftCleanup = ref(true);
 const draftRetentionDays = ref(30);
@@ -57,6 +131,7 @@ const waitingReasonOptions = computed(() => [
   ...waitingReasons.map((value) => ({ label: t(`processingQueue.waitingReasons.${value}`), value })),
 ]);
 const columns = computed<TableColumn<TaskResponse>[]>(() => [
+  { id: "expand", enableHiding: false },
   { accessorKey: "task_id", header: t("processingQueue.task") },
   { accessorKey: "kind", header: t("processingQueue.type") },
   { accessorKey: "group_path", header: t("processingQueue.group") },
@@ -78,6 +153,14 @@ function waitingLabel(reason: string | null, dependency: string | null) {
   return dependency ? `${label}: ${dependency}` : label;
 }
 function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "neutral" | "primary" {
+  if (status === "succeeded") return "success";
+  if (status === "failed") return "error";
+  if (status === "waiting") return "warning";
+  if (status === "running") return "primary";
+  return "neutral";
+}
+
+function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" | "warning" | "neutral" | "primary" {
   if (status === "succeeded") return "success";
   if (status === "failed") return "error";
   if (status === "waiting") return "warning";
@@ -117,7 +200,26 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
             <UButton color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :label="t('common.retry')" @click="queue.refresh" />
           </div>
         </template>
-        <UTable class="min-w-[88rem]" :data="queue.items" :columns="columns" :loading="queue.loading">
+        <UTable
+          class="min-w-[88rem]"
+          v-model:expanded="expandedRows"
+          :data="queue.items"
+          :columns="columns"
+          :loading="queue.loading"
+        >
+          <template #expand-cell="{ row }">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              size="sm"
+              icon="i-lucide-chevron-right"
+              :class="{ 'rotate-90': row.getIsExpanded() }"
+              :aria-label="row.getIsExpanded() ? t('processingQueue.collapse') : t('processingQueue.expand')"
+              :aria-expanded="row.getIsExpanded()"
+              :disabled="expandingTaskId === row.original.task_id"
+              @click="toggleExpand(row)"
+            />
+          </template>
           <template #task_id-cell="{ row }"><span class="block max-w-64 truncate font-mono text-xs" :title="row.original.task_id">{{ row.original.task_id }}</span></template>
           <template #kind-cell="{ row }"><UBadge :label="taskKindLabel(row.original.kind)" color="neutral" variant="subtle" /></template>
           <template #group_path-cell="{ row }"><span class="block max-w-48 truncate" :title="row.original.group_path || undefined">{{ row.original.group_path || "--" }}</span></template>
@@ -134,6 +236,32 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
             </div>
           </template>
           <template #empty><div class="py-12 text-center text-sm text-muted">{{ t("processingQueue.noTasks") }}</div></template>
+          <template #expanded="{ row }">
+            <div class="p-3">
+              <template v-if="expandedItems[row.original.task_id] === undefined">
+                <div v-if="expandedError[row.original.task_id]" class="text-sm text-(--ui-error)">
+                  {{ t("processingQueue.itemsLoadFailed") }}
+                </div>
+                <div v-else class="text-sm text-muted">{{ t("common.loading") }}…</div>
+              </template>
+              <template v-else-if="(expandedItems[row.original.task_id]?.length ?? 0) === 0">
+                <div class="text-sm text-muted">{{ t("processingQueue.noItems") }}</div>
+              </template>
+              <div v-else class="grid gap-1">
+                <div
+                  v-for="item in expandedItems[row.original.task_id]"
+                  :key="item.item_id"
+                  class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
+                >
+                  <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
+                  <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
+                  <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage) }}</span>
+                  <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
+                  <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
         </UTable>
       </AsyncStateBlock>
     </div>

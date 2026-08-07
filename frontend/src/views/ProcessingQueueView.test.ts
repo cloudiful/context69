@@ -87,6 +87,36 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
+  it("expands a task row and loads its items", async () => {
+    const getTaskItems = vi.spyOn(apiClient, "getTaskItems").mockResolvedValue({
+      items: [
+        {
+          item_id: "item-id",
+          status: "failed",
+          stage: "indexing",
+          attempt_count: 3,
+          error_message: "Qdrant unavailable",
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    } as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    expect(expandButton).toBeDefined();
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    expect(getTaskItems).toHaveBeenCalledWith("task-id", expect.objectContaining({ limit: 100 }));
+    expect(wrapper.text()).toContain("item-id");
+    expect(wrapper.text()).toContain("Qdrant unavailable");
+    expect(wrapper.text()).toContain("3 attempts");
+    wrapper.unmount();
+  });
+
   it("retries a failed task through the unified endpoint", async () => {
     listTasks
       .mockResolvedValueOnce(response([failedRow]) as never)

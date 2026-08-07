@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, provide, unref } from "vue";
+import { onBeforeRouteLeave } from "vue-router";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
@@ -62,6 +63,14 @@ const sectionItems = computed(() =>
 function switchSection(to: string) {
   void router.push(to);
 }
+
+onBeforeRouteLeave(() => {
+  if (!unref(state.hasChanges)) {
+    return true;
+  }
+  const confirmed = window.confirm(t("settings.unsavedChanges"));
+  return confirmed;
+});
 
 function switchLocale(nextLocale: AppLocale) {
   if (currentLocale.value === nextLocale) {

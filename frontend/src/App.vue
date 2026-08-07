@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { en, zh_cn } from "@nuxt/ui/locale";
@@ -34,6 +34,10 @@ async function retrySessionRestore() {
 onMounted(() => {
   preferences.hydrate();
 });
+
+watch(locale, (value) => {
+  document.documentElement.lang = value === "zh-CN" ? "zh-CN" : "en";
+}, { immediate: true });
 </script>
 
 <template>
