@@ -28,6 +28,7 @@ WITH RECURSIVE inherited_groups AS (
         END,
         status = 'queued',
         stage = COALESCE(item.stage, item.failure_stage, 'finalize'),
+        attempt_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

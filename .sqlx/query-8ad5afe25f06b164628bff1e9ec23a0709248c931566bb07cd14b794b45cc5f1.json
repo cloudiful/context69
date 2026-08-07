@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT gm.group_id,\n           CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END AS role_rank\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $2\n    UNION ALL\n    SELECT child.id, inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n), allowed AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE task.id = $1\n      AND (\n          (task.group_id IS NULL AND task.user_id = $2)\n          OR EXISTS (\n              SELECT 1\n              FROM inherited_groups\n              WHERE inherited_groups.group_id = task.group_id\n                AND inherited_groups.role_rank >= 2\n          )\n      )\n), retried AS (\n    UPDATE context69.task_items item\n    SET payload = CASE\n            WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n            ELSE item.payload\n        END,\n        status = 'queued',\n        stage = COALESCE(item.stage, item.failure_stage, 'finalize'),\n        attempt_count = 0,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = now(),\n        failure_stage = NULL,\n        error_message = NULL,\n        retryable = TRUE,\n        lease_token = NULL,\n        lease_until = NULL,\n        finished_at = NULL,\n        updated_at = now()\n    FROM context69.tasks task\n    WHERE item.task_id IN (SELECT id FROM allowed)\n      AND item.task_id = task.id\n      AND item.status = 'failed'\n      AND item.retryable\n    RETURNING item.id\n)\nSELECT id FROM retried ORDER BY id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8ad5afe25f06b164628bff1e9ec23a0709248c931566bb07cd14b794b45cc5f1"
+}

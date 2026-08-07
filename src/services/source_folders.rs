@@ -247,7 +247,6 @@ impl SourceFoldersService {
             .describe_source_folder_subtree(project, folder_id)
             .await?;
         let mut legacy_identities = HashMap::new();
-        let mut migrated_source_ids = Vec::new();
         for descriptor in &before {
             let Some(input) = self
                 .read_source_config_input_with_lease(descriptor, None)
@@ -256,7 +255,7 @@ impl SourceFoldersService {
                 continue;
             };
             match input.source_id {
-                Some(source_id) => migrated_source_ids.push(source_id),
+                Some(_) => {}
                 None => {
                     legacy_identities.insert(
                         descriptor.folder.id,

@@ -205,7 +205,7 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const HEARTBEAT_MAX_CONSECUTIVE_ERRORS: u32 = 3;
 
 /// Aborts the wrapped heartbeat task when dropped so that early `?` returns
-/// from `run_task` cannot leave an orphaned heartbeat renewing a lease forever.
+/// from `run_item` cannot leave an orphaned heartbeat renewing a lease forever.
 struct HeartbeatGuard(tokio::task::JoinHandle<()>);
 
 impl HeartbeatGuard {

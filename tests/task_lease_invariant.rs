@@ -247,6 +247,67 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
 }
 
 #[tokio::test]
+async fn stage_progress_resets_the_attempt_count() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping progress reset test");
+        return;
+    };
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let _claim_guard = CLAIM_LOCK.lock().await;
+
+    let user_id = seed_test_user(&db).await;
+    let task_id = Uuid::new_v4();
+    let (task_id, _, item_ids) = db
+        .create_task_submission(
+            task_id,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/lease"),
+            None,
+            &[json!({"external_id": "a"})],
+            None,
+            "test-hash",
+        )
+        .await
+        .expect("create task");
+    assert_eq!(item_ids.len(), 1);
+
+    let first = db
+        .claim_items(10)
+        .await
+        .expect("first claim")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("item must be claimed");
+    assert_eq!(first.attempt_count, 1);
+
+    // Stage transitions are progress, not failures: they must not consume
+    // the failure-attempt budget.
+    assert!(
+        db.progress_task_item(task_id, first.id, first.lease_token, first.attempt_id)
+            .await
+            .expect("progress item")
+    );
+
+    let second = db
+        .claim_items(10)
+        .await
+        .expect("second claim")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("progressed item must be claimable again");
+    assert_eq!(
+        second.attempt_count, 1,
+        "progress must reset the attempt count for the next stage"
+    );
+
+    cleanup_task(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
 async fn multiple_items_are_claimed_independently() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parallel claim test");

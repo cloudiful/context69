@@ -1,6 +1,7 @@
 WITH waiting AS (
     UPDATE context69.task_items
     SET status = 'waiting',
+        attempt_count = CASE WHEN $3 = 'backoff' THEN attempt_count ELSE 0 END,
         waiting_reason = $3,
         dependency_key = $4,
         next_attempt_at = $5,

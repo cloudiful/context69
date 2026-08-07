@@ -35,7 +35,23 @@ WITH activated AS (
       AND item.status IN ('queued', 'waiting')
       AND item.attempt_count >= 5
       AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
-    RETURNING item.task_id
+    RETURNING item.task_id, item.id AS item_id, item.file_id
+), exhausted_files AS (
+    UPDATE context69.library_files AS file
+    SET ingest_status = 'failed',
+        error_message = 'exceeded maximum attempt count',
+        updated_at = now()
+    FROM exhausted
+    WHERE file.id = exhausted.file_id
+      AND exhausted.file_id IS NOT NULL
+      AND file.ingest_status IN ('pending', 'running')
+      AND NOT EXISTS (
+          SELECT 1
+          FROM context69.task_items other
+          WHERE other.file_id = file.id
+            AND other.id <> exhausted.item_id
+            AND other.status IN ('queued', 'running', 'waiting')
+      )
 ), exhausted_tasks AS (
     UPDATE context69.tasks AS task
     SET status = 'failed',
