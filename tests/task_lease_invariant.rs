@@ -177,6 +177,76 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
 }
 
 #[tokio::test]
+async fn exhausted_items_are_failed_and_never_claimed_again() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping attempt cap test");
+        return;
+    };
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let _claim_guard = CLAIM_LOCK.lock().await;
+
+    let user_id = seed_test_user(&db).await;
+    let task_id = Uuid::new_v4();
+    let (task_id, _, item_ids) = db
+        .create_task_submission(
+            task_id,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/lease"),
+            None,
+            &[json!({"external_id": "a"})],
+            None,
+            "test-hash",
+        )
+        .await
+        .expect("create task");
+    assert_eq!(item_ids.len(), 1);
+
+    // Simulate a task that has already burned its attempts.
+    sqlx::query("UPDATE context69.task_items SET attempt_count = 5 WHERE id = $1")
+        .bind(item_ids[0])
+        .execute(db.pool())
+        .await
+        .expect("set attempt count");
+
+    let claimed = db.claim_items(10).await.expect("claim items");
+    assert!(
+        claimed.iter().all(|item| item.task_id != task_id),
+        "an item at the attempt cap must never be claimed again"
+    );
+
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(
+        task.status, "failed",
+        "a task whose only item is exhausted must become failed"
+    );
+    let item_status: String = sqlx::query("SELECT status FROM context69.task_items WHERE id = $1")
+        .bind(item_ids[0])
+        .fetch_one(db.pool())
+        .await
+        .expect("load item status")
+        .get("status");
+    assert_eq!(item_status, "failed");
+    let item_stage: Option<String> =
+        sqlx::query("SELECT failure_stage FROM context69.task_items WHERE id = $1")
+            .bind(item_ids[0])
+            .fetch_one(db.pool())
+            .await
+            .expect("load item stage")
+            .get("failure_stage");
+    assert_eq!(item_stage.as_deref(), Some("attempts"));
+
+    cleanup_task(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
 async fn multiple_items_are_claimed_independently() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parallel claim test");

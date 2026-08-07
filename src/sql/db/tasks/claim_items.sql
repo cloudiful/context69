@@ -17,6 +17,47 @@ WITH activated AS (
             AND ti.status IN ('queued', 'waiting')
             AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
       )
+), exhausted AS (
+    UPDATE context69.task_items AS item
+    SET status = 'failed',
+        failure_stage = 'attempts',
+        error_message = 'exceeded maximum attempt count',
+        lease_token = NULL,
+        lease_until = NULL,
+        waiting_reason = NULL,
+        dependency_key = NULL,
+        next_attempt_at = NULL,
+        finished_at = now(),
+        updated_at = now()
+    FROM context69.tasks AS task
+    WHERE item.task_id = task.id
+      AND task.status IN ('queued', 'running')
+      AND item.status IN ('queued', 'waiting')
+      AND item.attempt_count >= 5
+      AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
+    RETURNING item.task_id
+), exhausted_tasks AS (
+    UPDATE context69.tasks AS task
+    SET status = 'failed',
+        failure_stage = 'attempts',
+        error_summary = 'task items exceeded the maximum attempt count',
+        finished_at = now(),
+        updated_at = now()
+    FROM exhausted
+    WHERE task.id = exhausted.task_id
+      AND NOT EXISTS (
+          SELECT 1
+          FROM context69.task_items ti
+          WHERE ti.task_id = task.id
+            AND ti.status IN ('queued', 'waiting')
+            AND ti.attempt_count < 5
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM context69.task_items ti
+          WHERE ti.task_id = task.id
+            AND ti.status = 'running'
+      )
 ), eligible AS (
     SELECT ti.id
     FROM context69.task_items ti
@@ -31,6 +72,7 @@ WITH activated AS (
       AND (
           (
               ti.status IN ('queued', 'waiting')
+              AND ti.attempt_count < 5
               AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
           )
           OR (
