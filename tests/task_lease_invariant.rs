@@ -362,3 +362,164 @@ async fn multiple_items_are_claimed_independently() {
 
     cleanup_task(&db, task_id, user_id).await;
 }
+
+#[tokio::test]
+async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping claim limit test");
+        return;
+    };
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let _claim_guard = CLAIM_LOCK.lock().await;
+
+    let user_id = seed_test_user(&db).await;
+    let (task_a, _, _) = db
+        .create_task_submission(
+            Uuid::new_v4(),
+            user_id,
+            None,
+            "text_batch",
+            Some("test/lease"),
+            None,
+            &[json!({"external_id": "a"})],
+            None,
+            "hash-a",
+        )
+        .await
+        .expect("create task a");
+    let (task_b, _, _) = db
+        .create_task_submission(
+            Uuid::new_v4(),
+            user_id,
+            None,
+            "text_batch",
+            Some("test/lease"),
+            None,
+            &[json!({"external_id": "b"})],
+            None,
+            "hash-b",
+        )
+        .await
+        .expect("create task b");
+
+    let claimed = db.claim_items(1).await.expect("claim one item");
+    assert_eq!(claimed.len(), 1, "a limit of one must claim exactly one item");
+    let claimed_task = claimed[0].task_id;
+    assert!(
+        claimed_task == task_a || claimed_task == task_b,
+        "the claimed item must belong to one of the two seeded tasks"
+    );
+    let unclaimed_task = if claimed_task == task_a {
+        task_b
+    } else {
+        task_a
+    };
+
+    let claimed_status: String = sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
+        .bind(claimed_task)
+        .fetch_one(db.pool())
+        .await
+        .expect("load claimed task status")
+        .get("status");
+    assert_eq!(
+        claimed_status, "running",
+        "claiming an item must activate only its own parent task"
+    );
+
+    let unclaimed_status: String =
+        sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
+            .bind(unclaimed_task)
+            .fetch_one(db.pool())
+            .await
+            .expect("load unclaimed task status")
+            .get("status");
+    assert_eq!(
+        unclaimed_status, "queued",
+        "an unclaimed parent task must stay queued instead of being pre-activated"
+    );
+
+    let item_status: String =
+        sqlx::query("SELECT status FROM context69.task_items WHERE task_id = $1")
+            .bind(unclaimed_task)
+            .fetch_one(db.pool())
+            .await
+            .expect("load unclaimed item status")
+            .get("status");
+    assert_eq!(
+        item_status, "queued",
+        "the unclaimed item must remain queued"
+    );
+
+    cleanup_task(&db, task_a, user_id).await;
+    cleanup_task(&db, task_b, user_id).await;
+}
+
+#[tokio::test]
+async fn claiming_a_due_waiting_item_activates_its_parent_task() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping waiting activation test");
+        return;
+    };
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let _claim_guard = CLAIM_LOCK.lock().await;
+
+    let user_id = seed_test_user(&db).await;
+    let (task_id, _, item_ids) = db
+        .create_task_submission(
+            Uuid::new_v4(),
+            user_id,
+            None,
+            "text_batch",
+            Some("test/lease"),
+            None,
+            &[json!({"external_id": "a"})],
+            None,
+            "waiting-hash",
+        )
+        .await
+        .expect("create task");
+    assert_eq!(item_ids.len(), 1);
+
+    // Park the task and its item on a dependency until a past deadline.
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'waiting', next_attempt_at = now() - interval '1 minute' \
+         WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("park task as waiting");
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'waiting', next_attempt_at = now() - interval '1 minute', \
+         attempt_count = 0 WHERE id = $1",
+    )
+    .bind(item_ids[0])
+    .execute(db.pool())
+    .await
+    .expect("park item as waiting");
+
+    let claimed = db
+        .claim_items(10)
+        .await
+        .expect("claim items")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("a due waiting item must be claimable");
+    assert_eq!(claimed.attempt_count, 1);
+
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(
+        task.status, "running",
+        "claiming a due waiting item must activate its waiting parent task"
+    );
+
+    cleanup_task(&db, task_id, user_id).await;
+}

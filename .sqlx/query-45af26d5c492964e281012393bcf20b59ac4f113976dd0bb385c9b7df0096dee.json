@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH eligible AS (\n    SELECT ti.id, ti.task_id\n    FROM context69.task_items ti\n    JOIN context69.tasks task ON task.id = ti.task_id\n    WHERE (\n            task.status IN ('queued', 'running')\n            OR (\n                task.status = 'waiting'\n                AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())\n            )\n        )\n      AND (\n          (\n              ti.status IN ('queued', 'waiting')\n              AND ti.attempt_count < 5\n              AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())\n          )\n          OR (\n              ti.status = 'running'\n              AND (ti.lease_until IS NULL OR ti.lease_until < now())\n          )\n      )\n    ORDER BY CASE\n                 WHEN ti.waiting_reason = 'external_job' THEN 0\n                 ELSE 1\n             END,\n             ti.created_at\n    LIMIT $1\n    FOR UPDATE OF ti SKIP LOCKED\n), activated AS (\n    UPDATE context69.tasks AS task\n    SET status = 'running',\n        started_at = coalesce(task.started_at, now()),\n        updated_at = now()\n    WHERE task.id IN (SELECT task_id FROM eligible)\n      AND (\n          task.status = 'queued'\n          OR (\n              task.status = 'waiting'\n              AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())\n          )\n      )\n), exhausted AS (\n    UPDATE context69.task_items AS item\n    SET status = 'failed',\n        failure_stage = 'attempts',\n        error_message = 'exceeded maximum attempt count',\n        lease_token = NULL,\n        lease_until = NULL,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        finished_at = now(),\n        updated_at = now()\n    FROM context69.tasks AS task\n    WHERE item.task_id = task.id\n      AND (\n          task.status IN ('queued', 'running')\n          OR (\n              task.status = 'waiting'\n              AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())\n          )\n      )\n      AND item.status IN ('queued', 'waiting')\n      AND item.attempt_count >= 5\n      AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())\n    RETURNING item.task_id, item.id AS item_id, item.file_id\n), exhausted_files AS (\n    UPDATE context69.library_files AS file\n    SET ingest_status = 'failed',\n        error_message = 'exceeded maximum attempt count',\n        updated_at = now()\n    FROM exhausted\n    WHERE file.id = exhausted.file_id\n      AND exhausted.file_id IS NOT NULL\n      AND file.ingest_status IN ('pending', 'running')\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items other\n          WHERE other.file_id = file.id\n            AND other.id <> exhausted.item_id\n            AND other.status IN ('queued', 'running', 'waiting')\n      )\n), exhausted_tasks AS (\n    UPDATE context69.tasks AS task\n    SET status = 'failed',\n        failure_stage = 'attempts',\n        error_summary = 'task items exceeded the maximum attempt count',\n        finished_at = now(),\n        updated_at = now()\n    FROM exhausted\n    WHERE task.id = exhausted.task_id\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items ti\n          WHERE ti.task_id = task.id\n            AND ti.status IN ('queued', 'waiting')\n            AND ti.attempt_count < 5\n      )\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items ti\n          WHERE ti.task_id = task.id\n            AND ti.status = 'running'\n      )\n), expired AS (\n    UPDATE context69.task_attempts AS attempt\n    SET status = 'interrupted',\n        failure_stage = 'lease',\n        error_message = 'worker lease expired before completion',\n        finished_at = now()\n    FROM eligible\n    JOIN context69.task_items item ON item.id = eligible.id\n    WHERE attempt.item_id = eligible.id\n      AND item.status = 'running'\n      AND (item.lease_until IS NULL OR item.lease_until < now())\n      AND attempt.finished_at IS NULL\n), claimed AS (\n    UPDATE context69.task_items AS item\n    SET status = 'running',\n        attempt_count = item.attempt_count + 1,\n        lease_token = gen_random_uuid(),\n        lease_until = now() + interval '5 minutes',\n        started_at = coalesce(item.started_at, now()),\n        finished_at = NULL,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        failure_stage = NULL,\n        error_message = NULL,\n        updated_at = now()\n    FROM eligible\n    WHERE item.id = eligible.id\n    RETURNING item.id, item.task_id, item.attempt_count, item.lease_token,\n              item.payload, item.file_id, item.stage\n), attempts AS (\n    INSERT INTO context69.task_attempts (task_id, item_id, attempt, status)\n    SELECT task_id, id, attempt_count, 'running'\n    FROM claimed\n    RETURNING item_id, id AS attempt_id\n)\nSELECT claimed.id,\n       claimed.task_id,\n       claimed.attempt_count,\n       claimed.lease_token AS \"lease_token!\",\n       claimed.payload,\n       claimed.file_id,\n       claimed.stage,\n       attempts.attempt_id,\n       task.kind,\n       task.group_id,\n       task.group_path,\n       task.source_key\nFROM claimed\nJOIN attempts ON attempts.item_id = claimed.id\nJOIN context69.tasks task ON task.id = claimed.task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "lease_token!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "payload",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "stage"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "attempt_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_path"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "source_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "45af26d5c492964e281012393bcf20b59ac4f113976dd0bb385c9b7df0096dee"
+}

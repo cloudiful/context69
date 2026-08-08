@@ -54,6 +54,7 @@ pub(super) fn is_configuration_error(error: &anyhow::Error) -> bool {
         || message.contains("missing configuration")
         || message.contains("configuration error")
         || message.contains("configuration:")
+        || message.contains("optional vlm runtime config is incomplete")
         || message.contains("configinvalid")
         || message.contains("kind=configinvalid")
         || message.contains("permissiondenied")
@@ -365,5 +366,19 @@ mod tests {
                 "expected configuration classification for {message}"
             );
         }
+    }
+
+    #[test]
+    fn classifies_incomplete_vlm_runtime_config_as_configuration_error() {
+        let error = anyhow!(
+            "Validation error for 'VLM runtime': optional VLM runtime config is incomplete; \
+             provide all of: OPENAI_BASE_URL, VLM_PIPELINE_MODEL, PICTURE_DESCRIPTION_MODEL, \
+             CODE_FORMULA_MODEL, OPENAI_API_KEY, or leave all unset"
+        );
+        assert!(is_configuration_error(&error));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Docling,
+            &error
+        ));
     }
 }

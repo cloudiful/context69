@@ -78,7 +78,9 @@ pub fn build_runtime_config(config: &DoclingConfig) -> Result<DoclingRuntimeConf
     runtime.vlm_pipeline_model = vlm.vlm_pipeline_model;
     runtime.picture_description_model = vlm.picture_description_model;
     runtime.code_formula_model = vlm.code_formula_model;
-    runtime.api_key = Some(vlm.api_key);
+    // The VLM provider key belongs to openai_api_key; api_key is the Docling
+    // Serve X-Api-Key and must stay empty when no Docling auth is configured.
+    runtime.openai_api_key = Some(vlm.api_key);
     Ok(runtime)
 }
 
@@ -194,6 +196,20 @@ mod tests {
         assert_eq!(runtime.docling_base_url, "http://localhost:5001/v1");
         assert!(runtime.openai_base_url.is_empty());
         assert!(runtime.api_key.is_none());
+    }
+
+    #[test]
+    fn runtime_config_maps_vlm_key_to_openai_api_key() {
+        let runtime = build_runtime_config(&sample_config()).expect("runtime");
+        assert_eq!(
+            runtime.openai_api_key.as_deref(),
+            Some("secret"),
+            "the VLM provider key must be sent as the OpenAI-compatible API key"
+        );
+        assert!(
+            runtime.api_key.is_none(),
+            "the VLM key must not leak into the Docling Serve X-Api-Key"
+        );
     }
 
     #[test]

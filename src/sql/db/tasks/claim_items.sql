@@ -1,21 +1,44 @@
-WITH activated AS (
-    UPDATE context69.tasks AS task
-    SET status = 'running',
-        started_at = coalesce(task.started_at, now()),
-        updated_at = now()
+WITH eligible AS (
+    SELECT ti.id, ti.task_id
+    FROM context69.task_items ti
+    JOIN context69.tasks task ON task.id = ti.task_id
     WHERE (
-            task.status = 'queued'
+            task.status IN ('queued', 'running')
             OR (
                 task.status = 'waiting'
                 AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
             )
         )
-      AND EXISTS (
-          SELECT 1
-          FROM context69.task_items ti
-          WHERE ti.task_id = task.id
-            AND ti.status IN ('queued', 'waiting')
-            AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
+      AND (
+          (
+              ti.status IN ('queued', 'waiting')
+              AND ti.attempt_count < 5
+              AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
+          )
+          OR (
+              ti.status = 'running'
+              AND (ti.lease_until IS NULL OR ti.lease_until < now())
+          )
+      )
+    ORDER BY CASE
+                 WHEN ti.waiting_reason = 'external_job' THEN 0
+                 ELSE 1
+             END,
+             ti.created_at
+    LIMIT $1
+    FOR UPDATE OF ti SKIP LOCKED
+), activated AS (
+    UPDATE context69.tasks AS task
+    SET status = 'running',
+        started_at = coalesce(task.started_at, now()),
+        updated_at = now()
+    WHERE task.id IN (SELECT task_id FROM eligible)
+      AND (
+          task.status = 'queued'
+          OR (
+              task.status = 'waiting'
+              AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
+          )
       )
 ), exhausted AS (
     UPDATE context69.task_items AS item
@@ -31,7 +54,13 @@ WITH activated AS (
         updated_at = now()
     FROM context69.tasks AS task
     WHERE item.task_id = task.id
-      AND task.status IN ('queued', 'running')
+      AND (
+          task.status IN ('queued', 'running')
+          OR (
+              task.status = 'waiting'
+              AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
+          )
+      )
       AND item.status IN ('queued', 'waiting')
       AND item.attempt_count >= 5
       AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
@@ -74,35 +103,6 @@ WITH activated AS (
           WHERE ti.task_id = task.id
             AND ti.status = 'running'
       )
-), eligible AS (
-    SELECT ti.id
-    FROM context69.task_items ti
-    JOIN context69.tasks task ON task.id = ti.task_id
-    WHERE (
-            task.status IN ('queued', 'running')
-            OR (
-                task.status = 'waiting'
-                AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
-            )
-        )
-      AND (
-          (
-              ti.status IN ('queued', 'waiting')
-              AND ti.attempt_count < 5
-              AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
-          )
-          OR (
-              ti.status = 'running'
-              AND (ti.lease_until IS NULL OR ti.lease_until < now())
-          )
-      )
-    ORDER BY CASE
-                 WHEN ti.waiting_reason = 'external_job' THEN 0
-                 ELSE 1
-             END,
-             ti.created_at
-    LIMIT $1
-    FOR UPDATE OF ti SKIP LOCKED
 ), expired AS (
     UPDATE context69.task_attempts AS attempt
     SET status = 'interrupted',
