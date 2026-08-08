@@ -70,7 +70,7 @@ impl LibraryService {
         ))
     }
 
-    pub(super) async fn refresh_dependency_configuration(&self) -> Result<()> {
+    pub(crate) async fn refresh_dependency_configuration(&self) -> Result<()> {
         if let Some(configuration_fingerprint) = &self.s3_configuration_fingerprint {
             self.configure_dependency_gate(
                 LibraryDependency::S3,

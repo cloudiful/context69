@@ -160,7 +160,7 @@ impl LibraryService {
     }
 }
 
-fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
+pub(crate) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
     let mut failure = failure;
     if failure.dependency.is_none() {
         failure.dependency = super::unified_ingest::infer_unified_dependency(&failure);
@@ -172,7 +172,7 @@ fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
     UnifiedIngestError::from_failure(failure)
 }
 
-fn task_failure(
+pub(crate) fn task_failure(
     stage: &str,
     error: impl Into<anyhow::Error>,
     retryable: bool,
@@ -185,7 +185,7 @@ fn task_failure(
     }
 }
 
-fn task_failure_with_dependency(
+pub(crate) fn task_failure_with_dependency(
     stage: &str,
     error: anyhow::Error,
     dependency_key: &str,

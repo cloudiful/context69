@@ -32,7 +32,6 @@ export type DraftRuntimeSettings = {
     max_upload_size_mb: number;
     max_upload_request_size_mb: number;
     ingest_concurrency: number;
-    pdf_pages_per_task: number;
     url_import_concurrency: number;
     url_import_min_interval_ms: number;
     trusted_proxy_enabled: boolean;

@@ -5712,6 +5712,63 @@
           }
         }
       },
+      "ExternalJobInfo": {
+        "type": "object",
+        "required": [
+          "provider",
+          "remote_task_id",
+          "status",
+          "submitted_at"
+        ],
+        "properties": {
+          "deadline_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_polled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "next_poll_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "remote_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remote_task_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "FileBatchItem": {
         "type": "object",
         "required": [
@@ -7372,7 +7429,6 @@
           "max_upload_size_mb",
           "max_upload_request_size_mb",
           "ingest_concurrency",
-          "pdf_pages_per_task",
           "url_import_concurrency",
           "url_import_min_interval_ms",
           "trusted_proxy_enabled"
@@ -7388,11 +7444,6 @@
           },
           "max_upload_size_mb": {
             "type": "integer",
-            "minimum": 0
-          },
-          "pdf_pages_per_task": {
-            "type": "integer",
-            "format": "int32",
             "minimum": 0
           },
           "s3": {
@@ -8205,6 +8256,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "external_job": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalJobInfo"
+              }
             ]
           },
           "failure_stage": {
@@ -9487,7 +9548,6 @@
           "max_upload_size_mb",
           "max_upload_request_size_mb",
           "ingest_concurrency",
-          "pdf_pages_per_task",
           "url_import_concurrency",
           "url_import_min_interval_ms"
         ],
@@ -9502,11 +9562,6 @@
           },
           "max_upload_size_mb": {
             "type": "integer",
-            "minimum": 0
-          },
-          "pdf_pages_per_task": {
-            "type": "integer",
-            "format": "int32",
             "minimum": 0
           },
           "s3": {

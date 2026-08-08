@@ -38,7 +38,7 @@ context69-search = { path = "crates/context69-search", version = "0.10.0" }
 context69-search-http = { path = "crates/context69-search-http", version = "0.10.0" }
 context69-settings-http = { path = "crates/context69-settings-http", version = "0.10.0" }
 context69-translation = { path = "crates/context69-translation", version = "0.10.0" }
-docling-convert = { package = "cloudiful-docling-convert", version = "0.2.5" }
+docling-convert = { package = "cloudiful-docling-convert", version = "0.3.2" }
 futures = "0.3.33"
 getrandom = "0.4.3"
 qdrant-client = "1.18.0"

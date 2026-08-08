@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
+use docling_convert::{InputDocument, OutputFormat, PdfConvert};
 use serde_json::json;
 use tokio::time::Duration;
 
@@ -25,10 +25,6 @@ impl LibraryService {
             .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
         let runtime = crate::docling::build_runtime_config(&config)?;
         PdfConvert::builder(runtime)
-            .behavior(ConversionBehavior {
-                pages_per_file: self.pdf_pages_per_task(),
-                ..ConversionBehavior::default()
-            })
             .output_formats(vec![
                 OutputFormat::Md,
                 OutputFormat::Text,
@@ -57,31 +53,11 @@ impl LibraryService {
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let input = InputDocument::new(&file.filename, &file.media_type, bytes);
-        let body_text = {
-            let converted = converter
-                .convert_input(input)
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-
-            converted
-                .markdown
-                .or(converted.text)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_default()
-        };
-        let body_text = limit_docling_text(body_text)?;
-
-        Ok(vec![IngestSection {
-            section_key: "document".to_string(),
-            section_label: file.filename.clone(),
-            title: file.filename.clone(),
-            summary: None,
-            body_text: normalize_body(&body_text),
-            source_uri: None,
-            external_id: None,
-            published_at: None,
-            metadata_json: json!({}),
-        }])
+        let converted = converter
+            .convert_input(input)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
+        sections_from_converted_document(file, converted)
     }
 
     pub(super) async fn ingest_docx(
@@ -94,29 +70,11 @@ impl LibraryService {
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let input = InputDocument::new(&file.filename, &file.media_type, bytes);
-        let text = {
-            let converted = converter
-                .convert_input(input)
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-            converted
-                .markdown
-                .or(converted.text)
-                .or_else(|| converted.json.as_ref().and_then(xlsx::extract_json_text))
-                .unwrap_or_default()
-        };
-        let text = limit_docling_text(text)?;
-        Ok(vec![IngestSection {
-            section_key: "document".to_string(),
-            section_label: file.filename.clone(),
-            title: file.filename.clone(),
-            summary: None,
-            body_text: normalize_body(&text),
-            source_uri: None,
-            external_id: None,
-            published_at: None,
-            metadata_json: json!({}),
-        }])
+        let converted = converter
+            .convert_input(input)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
+        sections_from_converted_document(file, converted)
     }
 
     pub(super) async fn ingest_xlsx(
@@ -211,6 +169,30 @@ impl LibraryService {
             metadata_json: json!({}),
         }])
     }
+}
+
+pub(super) fn sections_from_converted_document(
+    file: &crate::domain::LibraryFileRecord,
+    converted: docling_convert::ConvertedDocument,
+) -> IngestResult<Vec<IngestSection>> {
+    let text = converted
+        .markdown
+        .or(converted.text)
+        .or_else(|| converted.json.as_ref().and_then(xlsx::extract_json_text))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_default();
+    let text = limit_docling_text(text)?;
+    Ok(vec![IngestSection {
+        section_key: "document".to_string(),
+        section_label: file.filename.clone(),
+        title: file.filename.clone(),
+        summary: None,
+        body_text: normalize_body(&text),
+        source_uri: None,
+        external_id: None,
+        published_at: None,
+        metadata_json: json!({}),
+    }])
 }
 
 fn limit_docling_text(text: String) -> IngestResult<String> {

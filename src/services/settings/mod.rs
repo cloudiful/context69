@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result, anyhow};
 
 mod mappers;
@@ -29,11 +31,21 @@ use crate::{
 #[derive(Clone)]
 pub struct SettingsService {
     db: Database,
+    docling_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl SettingsService {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            docling_settings_observer: None,
+        }
+    }
+
+    /// Register a hook invoked after Docling settings are saved, so dependency
+    /// gates (e.g. docling readiness) refresh without a process restart.
+    pub fn set_docling_settings_observer(&mut self, observer: Option<Arc<dyn Fn() + Send + Sync>>) {
+        self.docling_settings_observer = observer;
     }
 
     pub async fn get_runtime_settings(&self) -> Result<RuntimeSettingsResponse> {
@@ -175,6 +187,9 @@ impl SettingsService {
         validate_docling_vlm_shape(&candidate)?;
 
         let settings = self.db.save_docling_settings(&candidate).await?;
+        if let Some(observer) = &self.docling_settings_observer {
+            observer();
+        }
         Ok(response_from_stored(
             DoclingSettingsSource::Database,
             true,
@@ -323,7 +338,7 @@ mod tests {
                 base_url: "http://docling:5001".to_string(),
                 timeout_secs: 120,
                 poll_interval_secs: 2,
-                task_timeout_secs: 600,
+                task_timeout_secs: 3600,
             },
             vlm: UpdateDoclingVlmSettings::default(),
         }
@@ -334,7 +349,7 @@ mod tests {
             base_url: "http://docling:5001".to_string(),
             timeout_secs: 120,
             poll_interval_secs: 2,
-            task_timeout_secs: 600,
+            task_timeout_secs: 3600,
             pdf_backend: None,
             images_scale: None,
             image_export_mode: None,
@@ -383,7 +398,6 @@ mod tests {
                 max_upload_size_mb: 64,
                 max_upload_request_size_mb: 128,
                 ingest_concurrency: 1,
-                pdf_pages_per_task: 5,
                 url_import_concurrency: 1,
                 url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,

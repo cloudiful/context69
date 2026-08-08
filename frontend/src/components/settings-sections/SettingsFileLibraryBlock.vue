@@ -67,13 +67,6 @@ function updateS3PathStyle(value: Record<string, boolean>) {
         :min="1"
         :step="1"
       />
-      <AppNumberField
-        input-id="runtime-file-library-pages"
-        v-model="runtimeDraft.file_library.pdf_pages_per_task"
-        :label="t('settings.runtime.fileLibraryPdfPagesPerTask')"
-        :min="1"
-        :step="1"
-      />
     </div>
     <div class="mt-3 grid gap-3">
       <AppToggleGroup

@@ -67,12 +67,12 @@ pub use sources::{
     UpsertSourceConnectionRequest,
 };
 pub use tasks::{
-    CancelActiveTasksResponse, DeleteBatchRequest, EnsureScopeResponse, FileBatchItem,
-    FileBatchRequest, FileRetryItem, PurgeTasksRequest, PurgeTasksResponse, RerunTaskResponse,
-    ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview, TaskMaintenanceSettings,
-    TaskMaintenanceStats, TaskOrigin, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef,
-    TaskResponse, TaskRetryResponse, TaskStatus, TaskSubmitRequest, TextBatchRequest,
-    TranslationSubmitItem, UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
+    CancelActiveTasksResponse, DeleteBatchRequest, EnsureScopeResponse, ExternalJobInfo,
+    FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest, PurgeTasksResponse,
+    RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus,
+    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview,
+    TaskMaintenanceSettings, TaskMaintenanceStats, TaskOrigin, TaskPageResponse, TaskProgress,
+    TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus, TaskSubmitRequest,
+    TextBatchRequest, TranslationSubmitItem, UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
 };
 pub use translation::*;

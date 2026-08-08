@@ -139,6 +139,19 @@ pub struct TaskResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct ExternalJobInfo {
+    pub provider: String,
+    pub remote_task_id: String,
+    pub status: String,
+    pub remote_status: Option<String>,
+    pub submitted_at: DateTime<Utc>,
+    pub last_polled_at: Option<DateTime<Utc>>,
+    pub next_poll_at: Option<DateTime<Utc>>,
+    pub deadline_at: Option<DateTime<Utc>>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskItemResponse {
     pub item_id: Uuid,
     pub ordinal: i32,
@@ -156,6 +169,8 @@ pub struct TaskItemResponse {
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_job: Option<ExternalJobInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]

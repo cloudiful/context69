@@ -13,6 +13,7 @@ use crate::domain::{LibraryFileRecord, LibraryFolderRecord};
 mod dependency_gates;
 mod detail;
 pub(crate) mod documents;
+mod external_jobs;
 mod files;
 mod folders;
 mod mappers;

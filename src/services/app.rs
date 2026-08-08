@@ -163,7 +163,7 @@ impl Context69App {
         auth.ensure_bootstrap_admin().await?;
         import_legacy_runtime_if_needed(&db, &config).await?;
 
-        let settings = SettingsService::new(db.clone());
+        let mut settings = SettingsService::new(db.clone());
         let runtime = load_runtime_settings(&db).await?;
         if let Some(runtime) = &runtime {
             apply_runtime_settings(&mut config, runtime);
@@ -297,6 +297,20 @@ impl Context69App {
         .await?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
         library.initialize_dependency_gates().await?;
+        settings.set_docling_settings_observer(Some(Arc::new({
+            let library = library.clone();
+            move || {
+                let library = library.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = library.refresh_dependency_configuration().await {
+                        warn!(
+                            %error,
+                            "failed to refresh dependency gates after docling settings change"
+                        );
+                    }
+                });
+            }
+        })));
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
         document_store.resume_pending();
         let tasks = TaskService::new(
@@ -386,7 +400,6 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             max_upload_size_mb: config.file_library.max_upload_size_mb,
             max_upload_request_size_mb: config.file_library.max_upload_request_size_mb,
             ingest_concurrency: config.file_library.ingest_concurrency,
-            pdf_pages_per_task: config.file_library.pdf_pages_per_task,
             url_import_concurrency: config.file_library.url_import_concurrency,
             url_import_min_interval_ms: config.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: config.file_library.trusted_proxy_enabled,
@@ -495,7 +508,6 @@ fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) 
         max_upload_size_mb: runtime.file_library.max_upload_size_mb,
         max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
         ingest_concurrency: runtime.file_library.ingest_concurrency,
-        pdf_pages_per_task: runtime.file_library.pdf_pages_per_task,
         url_import_concurrency: runtime.file_library.url_import_concurrency,
         url_import_min_interval_ms: runtime.file_library.url_import_min_interval_ms,
         trusted_proxy_enabled: runtime.file_library.trusted_proxy_enabled,

@@ -9,10 +9,10 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use context69_contracts::{
-    CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, GroupResponse,
-    MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse, ScopeSpec, TaskItemResponse,
-    TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskOrigin, TaskPageResponse,
-    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
+    CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, ExternalJobInfo,
+    GroupResponse, MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse, ScopeSpec,
+    TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskOrigin,
+    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
 };
 use context69_translation::TranslationService;
 use serde_json::Value;
@@ -24,7 +24,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::{Database, StoredTask, StoredTaskItem},
+    db::{Database, StoredTask, StoredTaskItemWithExternalJob},
     domain::GroupRecord,
     pagination::PageBounds,
     services::{
@@ -592,7 +592,7 @@ fn parse_status(value: &str) -> Result<TaskStatus> {
     }
 }
 
-fn task_item_response(item: StoredTaskItem) -> TaskItemResponse {
+fn task_item_response(item: StoredTaskItemWithExternalJob) -> TaskItemResponse {
     TaskItemResponse {
         item_id: item.id,
         ordinal: item.ordinal,
@@ -610,6 +610,17 @@ fn task_item_response(item: StoredTaskItem) -> TaskItemResponse {
         created_at: item.created_at,
         started_at: item.started_at,
         finished_at: item.finished_at,
+        external_job: item.external_job_provider.map(|provider| ExternalJobInfo {
+            provider,
+            remote_task_id: item.external_job_remote_task_id.unwrap_or_default(),
+            status: item.external_job_status.unwrap_or_default(),
+            remote_status: item.external_job_remote_status,
+            submitted_at: item.external_job_submitted_at.unwrap_or(item.created_at),
+            last_polled_at: item.external_job_last_polled_at,
+            next_poll_at: item.external_job_next_poll_at,
+            deadline_at: item.external_job_deadline_at,
+            error_message: item.external_job_error_message,
+        }),
     }
 }
 

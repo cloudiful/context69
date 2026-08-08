@@ -86,11 +86,6 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
             "runtime.file_library.url_import_min_interval_ms must be greater than 0"
         ));
     }
-    if request.file_library.pdf_pages_per_task == 0 {
-        return Err(anyhow!(
-            "runtime.file_library.pdf_pages_per_task must be greater than 0"
-        ));
-    }
     if let Some(s3) = &request.file_library.s3 {
         for (name, value) in [
             ("endpoint", s3.endpoint.as_str()),

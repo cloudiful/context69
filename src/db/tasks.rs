@@ -56,6 +56,38 @@ pub struct StoredTaskItem {
     pub finished_at: Option<DateTime<Utc>>,
 }
 
+/// A task item listed for inspection, optionally joined with its active
+/// external (e.g. Docling) job when one exists.
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredTaskItemWithExternalJob {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub ordinal: i32,
+    pub status: String,
+    pub resource_id: Option<String>,
+    pub file_id: Option<Uuid>,
+    pub stage: Option<String>,
+    pub waiting_reason: Option<String>,
+    pub dependency_key: Option<String>,
+    pub next_attempt_at: Option<DateTime<Utc>>,
+    pub failure_stage: Option<String>,
+    pub error_message: Option<String>,
+    pub attempt_count: i32,
+    pub retryable: bool,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub external_job_provider: Option<String>,
+    pub external_job_remote_task_id: Option<String>,
+    pub external_job_status: Option<String>,
+    pub external_job_remote_status: Option<String>,
+    pub external_job_submitted_at: Option<DateTime<Utc>>,
+    pub external_job_last_polled_at: Option<DateTime<Utc>>,
+    pub external_job_next_poll_at: Option<DateTime<Utc>>,
+    pub external_job_deadline_at: Option<DateTime<Utc>>,
+    pub external_job_error_message: Option<String>,
+}
+
 /// An item claimed by the dispatcher together with its parent task context.
 #[derive(Debug, Clone, FromRow)]
 pub struct ClaimedItem {
@@ -359,9 +391,9 @@ impl Database {
         task_id: Uuid,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<StoredTaskItem>> {
+    ) -> Result<Vec<StoredTaskItemWithExternalJob>> {
         Ok(sqlx::query_file_as!(
-            StoredTaskItem,
+            StoredTaskItemWithExternalJob,
             "src/sql/db/tasks/items.sql",
             task_id,
             limit,

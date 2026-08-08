@@ -111,7 +111,7 @@ onMounted(() => {
 
 const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
 const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
-const stages = ["download", "storage", "docling", "embedding", "indexing", "translation", "sync", "delete", "finalize"];
+const stages = ["download", "storage", "docling", "docling_poll", "embedding", "indexing", "translation", "sync", "delete", "finalize"];
 const waitingReasons = ["dependency", "backoff", "external_job"];
 
 const statusOptions = computed(() => [
@@ -166,6 +166,24 @@ function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" |
   if (status === "waiting") return "warning";
   if (status === "running") return "primary";
   return "neutral";
+}
+
+function externalJobLabel(job: TaskItemResponse["external_job"]): string {
+  if (!job) return "--";
+  return `${job.remote_task_id} · ${job.status}`;
+}
+
+function externalJobTitle(job: TaskItemResponse["external_job"]): string | undefined {
+  if (!job) return undefined;
+  const parts = [
+    `${job.provider} ${job.remote_task_id}`,
+    `status: ${job.remote_status ?? job.status}`,
+    `submitted: ${job.submitted_at}`,
+    job.last_polled_at ? `last polled: ${job.last_polled_at}` : null,
+    job.deadline_at ? `deadline: ${job.deadline_at}` : null,
+    job.error_message ? `error: ${job.error_message}` : null,
+  ];
+  return parts.filter(Boolean).join("\n");
 }
 </script>
 
@@ -251,12 +269,13 @@ function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" |
                 <div
                   v-for="item in expandedItems[row.original.task_id]"
                   :key="item.item_id"
-                  class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
+                  class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
                 >
                   <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
                   <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
                   <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage) }}</span>
                   <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
+                  <span class="block max-w-56 truncate text-xs text-muted" :title="externalJobTitle(item.external_job)">{{ externalJobLabel(item.external_job) }}</span>
                   <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
                 </div>
               </div>

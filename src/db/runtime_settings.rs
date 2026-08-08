@@ -95,8 +95,6 @@ impl Database {
                 .context("runtime file_library max_upload_request_size_mb must be non-negative")?,
                 ingest_concurrency: usize::try_from(file_library.ingest_concurrency)
                     .context("runtime file_library ingest_concurrency must be non-negative")?,
-                pdf_pages_per_task: u32::try_from(file_library.pdf_pages_per_task)
-                    .context("runtime file_library pdf_pages_per_task must be non-negative")?,
                 url_import_concurrency: usize::try_from(file_library.url_import_concurrency)
                     .context("runtime file_library url_import_concurrency must be non-negative")?,
                 url_import_min_interval_ms: u64::try_from(file_library.url_import_min_interval_ms)
@@ -210,7 +208,6 @@ impl Database {
             file_library_max_upload_size_mb,
             file_library_max_upload_request_size_mb,
             file_library_ingest_concurrency,
-            i64::from(settings.file_library.pdf_pages_per_task),
             file_library_url_import_concurrency,
             file_library_url_import_min_interval_ms,
             settings.file_library.trusted_proxy_enabled,

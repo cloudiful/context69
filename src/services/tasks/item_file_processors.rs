@@ -128,9 +128,11 @@ pub(super) async fn process_file_stage(
     let file_id = item.file_id.context("file task stage requires file_id")?;
     match stage {
         "docling" => {
-            if persisted_section_payload(&item.payload).is_none()
-                && let Some(waiting) = dependency_wait(service, "docling", item.lease_token).await?
-            {
+            if persisted_section_payload(&item.payload).is_some() {
+                set_stage(service, task, item, "embedding").await?;
+                return Ok(ProcessResult::Progressed);
+            }
+            if let Some(waiting) = dependency_wait(service, "docling", item.lease_token).await? {
                 return Ok(waiting);
             }
             let file = service
@@ -146,22 +148,64 @@ pub(super) async fn process_file_stage(
                 .mark_file_running_for_task(file_id)
                 .await
                 .map_err(anyhow::Error::msg)?;
-            let sections = match service
+            let submitted = match service
                 .library()
-                .prepare_file_sections_for_task(
-                    file_id,
-                    item.lease_token,
-                    item.task_id,
-                    persisted_section_payload(&item.payload),
-                )
+                .submit_docling_job_for_task(item.id, file_id, item.lease_token, item.task_id)
                 .await
             {
-                Ok(sections) => sections,
+                Ok(submitted) => submitted,
                 Err(error) => return ingest_error_result(service, item, file_id, error).await,
             };
-            save_sections(service, item, sections).await?;
-            set_stage(service, task, item, "embedding").await?;
-            Ok(ProcessResult::Progressed)
+            set_stage(service, task, item, "docling_poll").await?;
+            Ok(ProcessResult::Waiting {
+                reason: "external_job".to_string(),
+                dependency_key: None,
+                next_attempt_at: submitted.next_poll_at,
+                message: Some(format!(
+                    "docling task {} submitted; awaiting completion",
+                    submitted.remote_task_id
+                )),
+            })
+        }
+        "docling_poll" => {
+            let outcome = match service
+                .library()
+                .poll_docling_job_for_task(item.id, file_id, item.lease_token)
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(error) => return ingest_error_result(service, item, file_id, error).await,
+            };
+            match outcome {
+                crate::services::library::DoclingPollOutcome::Pending { next_poll_at } => {
+                    Ok(ProcessResult::Waiting {
+                        reason: "external_job".to_string(),
+                        dependency_key: None,
+                        next_attempt_at: next_poll_at,
+                        message: Some("docling conversion in progress".to_string()),
+                    })
+                }
+                crate::services::library::DoclingPollOutcome::Success { sections } => {
+                    save_sections(service, item, sections).await?;
+                    set_stage(service, task, item, "embedding").await?;
+                    Ok(ProcessResult::Progressed)
+                }
+                crate::services::library::DoclingPollOutcome::Failed { message } => {
+                    if message.contains("resubmit the item manually")
+                        || message.contains("retry the item manually")
+                    {
+                        // Terminal job states (timed out, failed, or missing)
+                        // require a fresh submission; restart at the docling stage.
+                        set_stage(service, task, item, "docling").await?;
+                        return Ok(ProcessResult::Progressed);
+                    }
+                    Ok(ProcessResult::Failed {
+                        stage: "docling_poll".to_string(),
+                        message,
+                        retryable: false,
+                    })
+                }
+            }
         }
         "embedding" => {
             if let Some(waiting) =

@@ -17,7 +17,7 @@ pub use client::DoclingXlsxClient;
 pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
-pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 600;
+pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 3600;
 pub(crate) const MAX_DOCLING_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,18 +63,19 @@ pub struct DoclingConfig {
 
 pub fn build_runtime_config(config: &DoclingConfig) -> Result<DoclingRuntimeConfig> {
     let docling_base_url = api_base_url(&config.connection.base_url);
+    let mut runtime = DoclingRuntimeConfig::without_vlm(docling_base_url);
+    runtime.request_timeout = Some(config.connection.timeout);
+    runtime.task_timeout = Some(config.connection.task_timeout);
     let Some(vlm) = resolve_vlm_runtime_config(&config.vlm)? else {
-        return Ok(DoclingRuntimeConfig::without_vlm(docling_base_url));
+        return Ok(runtime);
     };
 
-    Ok(DoclingRuntimeConfig {
-        docling_base_url,
-        openai_base_url: vlm.openai_base_url,
-        vlm_pipeline_model: vlm.vlm_pipeline_model,
-        picture_description_model: vlm.picture_description_model,
-        code_formula_model: vlm.code_formula_model,
-        api_key: Some(vlm.api_key),
-    })
+    runtime.openai_base_url = vlm.openai_base_url;
+    runtime.vlm_pipeline_model = vlm.vlm_pipeline_model;
+    runtime.picture_description_model = vlm.picture_description_model;
+    runtime.code_formula_model = vlm.code_formula_model;
+    runtime.api_key = Some(vlm.api_key);
+    Ok(runtime)
 }
 
 pub fn api_base_url(base_url: &str) -> String {
@@ -147,7 +148,7 @@ mod tests {
                 base_url: "http://localhost:5001".to_string(),
                 timeout: Duration::from_secs(120),
                 poll_interval: Duration::from_secs(2),
-                task_timeout: Duration::from_secs(600),
+                task_timeout: Duration::from_secs(3600),
             },
             vlm: DoclingVlmConfig {
                 openai_base_url: Some("https://example.com/v1".to_string()),
@@ -180,7 +181,7 @@ mod tests {
                 base_url: "http://localhost:5001".to_string(),
                 timeout: Duration::from_secs(120),
                 poll_interval: Duration::from_secs(2),
-                task_timeout: Duration::from_secs(600),
+                task_timeout: Duration::from_secs(3600),
             },
             vlm: DoclingVlmConfig::default(),
         };

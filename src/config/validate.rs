@@ -85,11 +85,6 @@ pub(super) fn validate_storage_config(
             "file_library.url_import_min_interval_ms must be greater than 0"
         ));
     }
-    if file_library.pdf_pages_per_task == 0 {
-        return Err(anyhow!(
-            "file_library.pdf_pages_per_task must be greater than 0"
-        ));
-    }
     if chunking.overlap_chars >= chunking.max_chars {
         return Err(anyhow!(
             "chunking.overlap_chars must be smaller than chunking.max_chars"

@@ -96,7 +96,11 @@ WITH activated AS (
               AND (ti.lease_until IS NULL OR ti.lease_until < now())
           )
       )
-    ORDER BY ti.created_at
+    ORDER BY CASE
+                 WHEN ti.waiting_reason = 'external_job' THEN 0
+                 ELSE 1
+             END,
+             ti.created_at
     LIMIT $1
     FOR UPDATE OF ti SKIP LOCKED
 ), expired AS (

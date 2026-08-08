@@ -49,7 +49,6 @@ export function normalizeRuntimePayload(
       max_upload_size_mb: Number(value.file_library.max_upload_size_mb),
       max_upload_request_size_mb: Number(value.file_library.max_upload_request_size_mb),
       ingest_concurrency: Number(value.file_library.ingest_concurrency),
-      pdf_pages_per_task: Number(value.file_library.pdf_pages_per_task),
       url_import_concurrency: Number(value.file_library.url_import_concurrency),
       url_import_min_interval_ms: Number(value.file_library.url_import_min_interval_ms),
       trusted_proxy_enabled: value.file_library.trusted_proxy_enabled,

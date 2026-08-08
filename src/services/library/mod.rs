@@ -39,6 +39,8 @@ pub(crate) use dependency_runtime::{
     log_dependency_transition, report_embedding_vector_processing_error_with_lease,
 };
 mod dependency_storage;
+mod docling_jobs;
+pub(crate) use docling_jobs::DoclingPollOutcome;
 mod filenames;
 mod files;
 mod folders;
@@ -92,7 +94,6 @@ pub struct LibraryService {
     storage: Arc<object_storage::LibraryObjectStorage>,
     max_upload_size_bytes: usize,
     max_upload_request_size_bytes: usize,
-    pdf_pages_per_task: u32,
     s3_configuration_fingerprint: Option<String>,
     embedding_vector_configured: bool,
     embedding_vector_configuration_fingerprint: String,
@@ -175,7 +176,6 @@ impl LibraryService {
             storage,
             max_upload_size_bytes: file_library.max_upload_size_mb * 1024 * 1024,
             max_upload_request_size_bytes: file_library.max_upload_request_size_mb * 1024 * 1024,
-            pdf_pages_per_task: file_library.pdf_pages_per_task,
             s3_configuration_fingerprint,
             embedding_vector_configured,
             embedding_vector_configuration_fingerprint,
@@ -191,10 +191,6 @@ impl LibraryService {
 
     pub fn max_upload_request_size_bytes(&self) -> usize {
         self.max_upload_request_size_bytes
-    }
-
-    fn pdf_pages_per_task(&self) -> u32 {
-        self.pdf_pages_per_task
     }
 
     fn runtime(&self) -> Result<&LibraryRuntime> {

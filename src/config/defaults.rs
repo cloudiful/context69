@@ -83,7 +83,6 @@ impl Default for FileConfig {
                 max_upload_size_mb: 64,
                 max_upload_request_size_mb: default_max_upload_request_size_mb(),
                 ingest_concurrency: 1,
-                pdf_pages_per_task: 5,
                 url_import_concurrency: DEFAULT_URL_IMPORT_CONCURRENCY,
                 url_import_min_interval_ms: DEFAULT_URL_IMPORT_MIN_INTERVAL_MS,
                 trusted_proxy_enabled: false,

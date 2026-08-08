@@ -1510,6 +1510,21 @@ export interface components {
             group: components["schemas"]["GroupResponse"];
             metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
         };
+        ExternalJobInfo: {
+            /** Format: date-time */
+            deadline_at?: string | null;
+            error_message?: string | null;
+            /** Format: date-time */
+            last_polled_at?: string | null;
+            /** Format: date-time */
+            next_poll_at?: string | null;
+            provider: string;
+            remote_status?: string | null;
+            remote_task_id: string;
+            status: string;
+            /** Format: date-time */
+            submitted_at: string;
+        };
         FileBatchItem: {
             content_base64: string;
             declared_sha256?: string | null;
@@ -1942,8 +1957,6 @@ export interface components {
             ingest_concurrency: number;
             max_upload_request_size_mb: number;
             max_upload_size_mb: number;
-            /** Format: int32 */
-            pdf_pages_per_task: number;
             s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
             storage_root: string;
             trusted_proxy_enabled: boolean;
@@ -2145,6 +2158,7 @@ export interface components {
             created_at: string;
             dependency_key?: string | null;
             error_message?: string | null;
+            external_job?: null | components["schemas"]["ExternalJobInfo"];
             failure_stage?: string | null;
             /** Format: uuid */
             file_id?: string | null;
@@ -2463,8 +2477,6 @@ export interface components {
             ingest_concurrency: number;
             max_upload_request_size_mb: number;
             max_upload_size_mb: number;
-            /** Format: int32 */
-            pdf_pages_per_task: number;
             s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
             storage_root: string;
             trusted_proxy_enabled?: boolean;
