@@ -18,16 +18,24 @@ SET state = 'closed',
 WHERE dependency_key = 'docling'
   AND state <> 'closed';
 
-UPDATE context69.task_items
-SET status = 'queued',
-    waiting_reason = NULL,
-    dependency_key = NULL,
-    next_attempt_at = NULL,
-    error_message = NULL,
+WITH requeued AS (
+    UPDATE context69.task_items
+    SET status = 'queued',
+        waiting_reason = NULL,
+        dependency_key = NULL,
+        next_attempt_at = NULL,
+        error_message = NULL,
+        updated_at = now()
+    WHERE status = 'waiting'
+      AND waiting_reason = 'dependency'
+      AND dependency_key = 'docling'
+    RETURNING task_id
+)
+UPDATE context69.tasks task
+SET next_attempt_at = NULL,
     updated_at = now()
-WHERE status = 'waiting'
-  AND waiting_reason = 'dependency'
-  AND dependency_key = 'docling';
+FROM (SELECT DISTINCT task_id FROM requeued) requeued_ids
+WHERE task.id = requeued_ids.task_id;
 
 UPDATE context69.docling_settings
 SET task_timeout_secs = 3600,

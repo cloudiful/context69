@@ -191,19 +191,22 @@ pub(super) async fn process_file_stage(
                     Ok(ProcessResult::Progressed)
                 }
                 crate::services::library::DoclingPollOutcome::Failed { message } => {
-                    if message.contains("resubmit the item manually")
-                        || message.contains("retry the item manually")
-                    {
-                        // Terminal job states (timed out, failed, or missing)
-                        // require a fresh submission; restart at the docling stage.
-                        set_stage(service, task, item, "docling").await?;
-                        return Ok(ProcessResult::Progressed);
-                    }
-                    Ok(ProcessResult::Failed {
+                    // A missed deadline or a remote failure fails only this
+                    // item (with the file marked failed) and never re-submits
+                    // automatically; recovery requires a manual task retry.
+                    let error = UnifiedIngestError {
                         stage: "docling_poll".to_string(),
-                        message,
+                        dependency_key: None,
                         retryable: false,
-                    })
+                        message,
+                    };
+                    ingest_error_result(service, item, file_id, error).await
+                }
+                crate::services::library::DoclingPollOutcome::ResubmitRequired { .. } => {
+                    // Only reachable after a manual retry or task recovery:
+                    // restart at the docling stage to submit a fresh job.
+                    set_stage(service, task, item, "docling").await?;
+                    Ok(ProcessResult::Progressed)
                 }
             }
         }

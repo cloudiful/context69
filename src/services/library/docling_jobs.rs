@@ -23,9 +23,21 @@ pub(crate) struct DoclingJobSubmitted {
 }
 
 pub(crate) enum DoclingPollOutcome {
-    Pending { next_poll_at: DateTime<Utc> },
-    Success { sections: Value },
-    Failed { message: String },
+    Pending {
+        next_poll_at: DateTime<Utc>,
+    },
+    Success {
+        sections: Value,
+    },
+    Failed {
+        message: String,
+    },
+    /// The persisted job is missing or in a terminal state (timed out, failed,
+    /// cancelled); the item must submit a fresh job. Only reached on manual
+    /// retry or task recovery, never as an automatic loop.
+    ResubmitRequired {
+        message: String,
+    },
 }
 
 impl LibraryService {
@@ -122,42 +134,28 @@ impl LibraryService {
         file_id: Uuid,
         lease_token: Uuid,
     ) -> Result<DoclingPollOutcome, UnifiedIngestError> {
-        let job = self
+        let job = match self
             .store
             .get_external_job(item_id, DOCLING_EXTERNAL_JOB_PROVIDER)
             .await
             .map_err(|error| task_failure("docling_poll", error, true))?
-            .with_context(|| format!("docling external job is missing for item {item_id}"))
-            .map_err(|error| task_failure("docling_poll", error, false))?;
+        {
+            Some(job) => job,
+            None => {
+                return Ok(DoclingPollOutcome::ResubmitRequired {
+                    message: format!(
+                        "docling external job is missing for item {item_id}; resubmitting"
+                    ),
+                });
+            }
+        };
         if !job.is_active() {
-            return Err(task_failure(
-                "docling_poll",
-                anyhow!(
-                    "docling job {} is in state {}; resubmit the item manually",
-                    job.remote_task_id,
-                    job.status
+            return Ok(DoclingPollOutcome::ResubmitRequired {
+                message: format!(
+                    "docling job {} is in state {}; resubmitting the item",
+                    job.remote_task_id, job.status
                 ),
-                false,
-            ));
-        }
-
-        let now = Utc::now();
-        if job.deadline_at.is_some_and(|deadline| now >= deadline) {
-            let message = format!(
-                "docling task {} did not finish before its deadline; retry the item manually",
-                job.remote_task_id
-            );
-            self.store
-                .update_external_job(
-                    job.id,
-                    "timed_out",
-                    job.remote_status.as_deref(),
-                    now + chrono::Duration::seconds(3600),
-                    Some(&message),
-                )
-                .await
-                .map_err(|error| task_failure("docling_poll", error, true))?;
-            return Ok(DoclingPollOutcome::Failed { message });
+            });
         }
 
         let config = self
@@ -184,9 +182,27 @@ impl LibraryService {
                     "docling",
                 )
             })?;
+        let now = Utc::now();
         let next_poll_at = now + poll_cadence(config.connection.poll_interval);
         match status.task_status {
             ConversionStatus::Pending | ConversionStatus::Started => {
+                if job.deadline_at.is_some_and(|deadline| now >= deadline) {
+                    let message = format!(
+                        "docling task {} did not finish before its deadline; resubmit the item manually",
+                        job.remote_task_id
+                    );
+                    self.store
+                        .update_external_job(
+                            job.id,
+                            "timed_out",
+                            Some(conversion_status_str(status.task_status)),
+                            now + chrono::Duration::seconds(3600),
+                            Some(&message),
+                        )
+                        .await
+                        .map_err(|error| task_failure("docling_poll", error, true))?;
+                    return Ok(DoclingPollOutcome::Failed { message });
+                }
                 self.store
                     .update_external_job(
                         job.id,
