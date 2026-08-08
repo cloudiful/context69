@@ -136,13 +136,11 @@ pub(super) async fn process_sync(
             .await
             .map(|_| source_key.to_string())
     };
-    match resource_id {
-        Ok(resource_id) => {
-            set_stage(service, task, item, "finalize").await?;
-            Ok(ProcessResult::Progressed)
-        }
-        Err(error) => Ok(process_source_sync_error(item, error)),
+    if let Err(error) = resource_id {
+        return Ok(process_source_sync_error(item, error));
     }
+    set_stage(service, task, item, "finalize").await?;
+    Ok(ProcessResult::Progressed)
 }
 
 pub(super) async fn process_vector_rebuild(

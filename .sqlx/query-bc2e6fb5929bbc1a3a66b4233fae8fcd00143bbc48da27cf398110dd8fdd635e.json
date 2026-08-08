@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id,\n       remote_task_id,\n       status,\n       remote_status,\n       next_poll_at,\n       deadline_at,\n       error_message\nFROM context69.task_external_jobs\nWHERE item_id = $1\n  AND provider = $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "remote_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "remote_status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "next_poll_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "next_poll_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "deadline_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "deadline_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "error_message"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "bc2e6fb5929bbc1a3a66b4233fae8fcd00143bbc48da27cf398110dd8fdd635e"
+}

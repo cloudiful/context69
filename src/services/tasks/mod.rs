@@ -414,9 +414,6 @@ impl TaskService {
     pub(crate) fn db(&self) -> &Database {
         &self.db
     }
-    pub(crate) fn namespace(&self) -> &NamespaceService {
-        &self.namespace
-    }
     pub(crate) fn library(&self) -> &LibraryService {
         &self.library
     }

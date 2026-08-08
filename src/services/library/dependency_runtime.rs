@@ -9,8 +9,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 pub(super) use super::dependency_errors::{
-    dependency_is_transient, is_configuration_error, is_s3_error, is_s3_transient_error,
-    is_transient_download_error, redact_dependency_error,
+    dependency_is_transient, is_configuration_error, is_s3_error, redact_dependency_error,
 };
 pub(super) use super::dependency_storage::bounded_s3_operation;
 use super::{LibraryDependency, LibraryService};
@@ -358,10 +357,6 @@ fn queue_age_seconds(timestamp: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Op
 
 fn parse_processing_metrics(value: Value) -> Result<Vec<LibraryProcessingMetric>> {
     serde_json::from_value(value).map_err(Into::into)
-}
-
-pub(super) const fn probe_lease_ttl_secs() -> i64 {
-    PROBE_LEASE_TTL_SECS
 }
 
 pub(super) fn s3_configuration_fingerprint(config: &crate::config::S3StorageConfig) -> String {

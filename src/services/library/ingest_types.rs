@@ -58,17 +58,6 @@ impl IngestFailure {
             retryable: false,
         }
     }
-
-    pub fn with_dependency(mut self, dependency: LibraryDependency) -> Self {
-        self.dependency = Some(dependency);
-        self.retryable = true;
-        self
-    }
-
-    pub fn retryable(mut self) -> Self {
-        self.retryable = true;
-        self
-    }
 }
 
 impl std::fmt::Display for IngestFailure {

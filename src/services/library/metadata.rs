@@ -242,15 +242,6 @@ impl LibraryService {
             .await
     }
 
-    pub(super) async fn delete_unreferenced_objects_for_task(
-        &self,
-        paths: Vec<crate::library_store::documents::StoragePathRow>,
-        lease_token: Uuid,
-    ) -> Result<()> {
-        self.delete_unreferenced_objects_with_lease(paths, Some(lease_token))
-            .await
-    }
-
     pub(super) async fn delete_unreferenced_objects_with_lease(
         &self,
         paths: Vec<crate::library_store::documents::StoragePathRow>,

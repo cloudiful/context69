@@ -202,9 +202,14 @@ pub(super) async fn process_file_stage(
                     };
                     ingest_error_result(service, item, file_id, error).await
                 }
-                crate::services::library::DoclingPollOutcome::ResubmitRequired { .. } => {
+                crate::services::library::DoclingPollOutcome::ResubmitRequired { message } => {
                     // Only reachable after a manual retry or task recovery:
                     // restart at the docling stage to submit a fresh job.
+                    tracing::info!(
+                        task_id = %item.task_id,
+                        item_id = %item.id,
+                        "restarting docling submission: {message}"
+                    );
                     set_stage(service, task, item, "docling").await?;
                     Ok(ProcessResult::Progressed)
                 }

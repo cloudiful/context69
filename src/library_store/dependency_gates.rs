@@ -71,23 +71,6 @@ impl LibraryStore {
         .await?)
     }
 
-    pub(crate) async fn renew_dependency_probe(
-        &self,
-        dependency_key: &str,
-        lease_token: Uuid,
-        lease_ttl_secs: i64,
-    ) -> Result<bool> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/library_store/dependency_gates/renew_probe.sql",
-            dependency_key,
-            lease_token,
-            lease_ttl_secs
-        )
-        .fetch_optional(self.db.pool())
-        .await?
-        .is_some())
-    }
-
     pub(crate) async fn record_dependency_success(
         &self,
         dependency_key: &str,

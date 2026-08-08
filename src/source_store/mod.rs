@@ -39,7 +39,6 @@ struct SourceStatusRow {
     example_queries: Json<Vec<String>>,
     connection: String,
     sync_strategy: String,
-    connector_type: String,
     base_query: String,
     batch_size: i64,
     last_cursor_updated_at: Option<DateTime<Utc>>,

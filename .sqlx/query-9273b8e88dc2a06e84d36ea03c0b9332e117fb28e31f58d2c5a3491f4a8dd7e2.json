@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    sc.group_id,\n    g.group_key,\n    g.full_path AS group_path,\n    sc.visibility,\n    sc.source_key,\n    sc.display_name,\n    sc.description,\n    sc.example_queries AS \"example_queries!: Json<Vec<String>>\",\n    sc.connection,\n    sc.sync_strategy,\n    sc.connector_type,\n    sc.base_query,\n    sc.batch_size,\n    cp.cursor_updated_at AS last_cursor_updated_at,\n    cp.cursor_external_id AS last_cursor_external_id,\n    cp.last_success_at\nFROM context69.source_configs sc\nJOIN context69.groups g ON g.id = sc.group_id\nLEFT JOIN context69.source_checkpoints cp\n    ON cp.source_key = sc.source_key\nORDER BY sc.source_key\n",
+  "query": "SELECT\n    sc.group_id,\n    g.group_key,\n    g.full_path AS group_path,\n    sc.visibility,\n    sc.source_key,\n    sc.display_name,\n    sc.description,\n    sc.example_queries AS \"example_queries!: Json<Vec<String>>\",\n    sc.connection,\n    sc.sync_strategy,\n    sc.base_query,\n    sc.batch_size,\n    cp.cursor_updated_at AS last_cursor_updated_at,\n    cp.cursor_external_id AS last_cursor_external_id,\n    cp.last_success_at\nFROM context69.source_configs sc\nJOIN context69.groups g ON g.id = sc.group_id\nLEFT JOIN context69.source_checkpoints cp\n    ON cp.source_key = sc.source_key\nWHERE $1::TEXT IS NULL\n   OR sc.source_key ILIKE '%' || $1 || '%'\n   OR COALESCE(sc.display_name, '') ILIKE '%' || $1 || '%'\n   OR COALESCE(sc.description, '') ILIKE '%' || $1 || '%'\nORDER BY sc.source_key\nLIMIT $2 OFFSET $3\n",
   "describe": {
     "columns": [
       {
@@ -115,17 +115,6 @@
       },
       {
         "ordinal": 10,
-        "name": "connector_type",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "context69.source_configs",
-            "name": "connector_type"
-          }
-        }
-      },
-      {
-        "ordinal": 11,
         "name": "base_query",
         "type_info": "Text",
         "origin": {
@@ -136,7 +125,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 11,
         "name": "batch_size",
         "type_info": "Int8",
         "origin": {
@@ -147,7 +136,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 12,
         "name": "last_cursor_updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +147,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "last_cursor_external_id",
         "type_info": "Text",
         "origin": {
@@ -169,7 +158,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "last_success_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -181,7 +170,11 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
     },
     "nullable": [
       false,
@@ -196,11 +189,10 @@
       false,
       false,
       false,
-      false,
       true,
       true,
       true
     ]
   },
-  "hash": "a35ce32210f6eff5ad90b10c0f727144f9be558bad4f3b4dd7fc71932e6bf21f"
+  "hash": "9273b8e88dc2a06e84d36ea03c0b9332e117fb28e31f58d2c5a3491f4a8dd7e2"
 }

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_external_jobs\nSET status = $2,\n    remote_status = $3,\n    last_polled_at = now(),\n    next_poll_at = $4,\n    error_message = $5,\n    updated_at = now()\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c065cca4b52e0cf42dd8a899d6fa5842835ebf5a6383391a07b41ae4eeb13389"
+}

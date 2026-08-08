@@ -7,17 +7,12 @@ use super::LibraryStore;
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct StoredExternalJob {
     pub id: Uuid,
-    pub item_id: Uuid,
-    pub provider: String,
     pub remote_task_id: String,
     pub status: String,
     pub remote_status: Option<String>,
-    pub submitted_at: DateTime<Utc>,
-    pub last_polled_at: Option<DateTime<Utc>>,
     pub next_poll_at: DateTime<Utc>,
     pub deadline_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
-    pub updated_at: DateTime<Utc>,
 }
 
 impl StoredExternalJob {

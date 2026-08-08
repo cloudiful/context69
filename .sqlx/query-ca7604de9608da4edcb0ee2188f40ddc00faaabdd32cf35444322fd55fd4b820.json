@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    id,\n    task_id,\n    ordinal,\n    status,\n    resource_id,\n    file_id,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    failure_stage,\n    error_message,\n    attempt_count,\n    retryable,\n    created_at,\n    started_at,\n    finished_at\nFROM context69.task_items\nWHERE task_id = $1\nORDER BY ordinal\nLIMIT $2 OFFSET $3\n",
+  "query": "SELECT item.id,\n       item.task_id,\n       item.ordinal,\n       item.status,\n       item.resource_id,\n       item.file_id,\n       item.stage,\n       item.waiting_reason,\n       item.dependency_key,\n       item.next_attempt_at,\n       item.failure_stage,\n       item.error_message,\n       item.attempt_count,\n       item.retryable,\n       item.created_at,\n       item.started_at,\n       item.finished_at,\n       job.provider AS external_job_provider,\n       job.remote_task_id AS external_job_remote_task_id,\n       job.status AS external_job_status,\n       job.remote_status AS external_job_remote_status,\n       job.submitted_at AS external_job_submitted_at,\n       job.last_polled_at AS external_job_last_polled_at,\n       job.next_poll_at AS external_job_next_poll_at,\n       job.deadline_at AS external_job_deadline_at,\n       job.error_message AS external_job_error_message\nFROM context69.task_items item\nLEFT JOIN context69.task_external_jobs job\n       ON job.item_id = item.id\n      AND job.provider = 'docling'\nWHERE item.task_id = $1\nORDER BY item.ordinal\nLIMIT $2 OFFSET $3\n",
   "describe": {
     "columns": [
       {
@@ -189,6 +189,105 @@
             "name": "finished_at"
           }
         }
+      },
+      {
+        "ordinal": 17,
+        "name": "external_job_provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "external_job_remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "external_job_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "external_job_remote_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "remote_status"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "external_job_submitted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "submitted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "external_job_last_polled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "last_polled_at"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "external_job_next_poll_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "next_poll_at"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "external_job_deadline_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "deadline_at"
+          }
+        }
+      },
+      {
+        "ordinal": 25,
+        "name": "external_job_error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "error_message"
+          }
+        }
       }
     ],
     "parameters": {
@@ -215,8 +314,17 @@
       false,
       false,
       true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
       true
     ]
   },
-  "hash": "c4d3c36bd237c2b3e111d81959347ffd92ae095ff59c74c141a9c907b11dca22"
+  "hash": "ca7604de9608da4edcb0ee2188f40ddc00faaabdd32cf35444322fd55fd4b820"
 }

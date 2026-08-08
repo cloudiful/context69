@@ -244,15 +244,6 @@ impl LibraryService {
         .await;
     }
 
-    pub(super) async fn finalize_uploaded_file(&self, rollback: UploadedLibraryFileRollback) {
-        if let Err(error) = self
-            .delete_unreferenced_objects(rollback.old_storage_paths)
-            .await
-        {
-            warn!(%error, "failed to remove replaced library storage object");
-        }
-    }
-
     pub(super) async fn finalize_uploaded_file_for_task(
         &self,
         rollback: UploadedLibraryFileRollback,

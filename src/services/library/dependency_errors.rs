@@ -65,16 +65,6 @@ pub(super) fn is_configuration_error(error: &anyhow::Error) -> bool {
         || status_is_authentication_error(&message)
 }
 
-pub(super) fn is_transient_download_error(error: &anyhow::Error) -> bool {
-    let message = error_chain_message(error);
-    message.contains("remote_download_failed")
-        || message.contains("remote_dns_failed")
-        || message.contains("status_429")
-        || message.contains("status_5")
-        || message.contains("timeout")
-        || message.contains("timed out")
-}
-
 pub(super) fn is_s3_error(error: &anyhow::Error) -> bool {
     let message = error_chain_message(error);
     message.contains("s3 dependency unavailable")

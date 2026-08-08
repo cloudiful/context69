@@ -112,16 +112,6 @@ pub struct RerunTaskItem {
     pub file_id: Option<Uuid>,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct StoredTaskItemId {
-    pub id: Uuid,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct RetriedTaskItem {
-    pub id: Uuid,
-}
-
 #[derive(Debug, Clone, FromRow)]
 pub struct StoredIdempotencyKey {
     pub task_id: Uuid,

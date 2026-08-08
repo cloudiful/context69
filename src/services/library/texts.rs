@@ -459,7 +459,7 @@ impl LibraryService {
                 return Err(error);
             }
         }
-        let section_payload = match serde_json::to_value(vec![IngestSection {
+        if let Err(error) = serde_json::to_value(vec![IngestSection {
             section_key: "document".to_string(),
             section_label: filename.to_string(),
             title: filename.to_string(),
@@ -470,22 +470,19 @@ impl LibraryService {
             published_at: None,
             metadata_json: json!({}),
         }]) {
-            Ok(payload) => payload,
-            Err(error) => {
-                self.rollback_project_file_change(
-                    project.id,
-                    file_id,
-                    previous_file.as_ref(),
-                    None,
-                    previous_translation.as_ref(),
-                    &storage_key,
-                    None,
-                    lease_token,
-                )
-                .await;
-                return Err(error.into());
-            }
-        };
+            self.rollback_project_file_change(
+                project.id,
+                file_id,
+                previous_file.as_ref(),
+                None,
+                previous_translation.as_ref(),
+                &storage_key,
+                None,
+                lease_token,
+            )
+            .await;
+            return Err(error.into());
+        }
         if let Some(previous_file) = previous_file.as_ref() {
             let result = match lease_token {
                 Some(lease_token) => {

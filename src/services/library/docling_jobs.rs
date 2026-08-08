@@ -151,10 +151,23 @@ impl LibraryService {
         };
         if !job.is_active() {
             return Ok(DoclingPollOutcome::ResubmitRequired {
-                message: format!(
-                    "docling job {} is in state {}; resubmitting the item",
-                    job.remote_task_id, job.status
-                ),
+                message: match job.error_message {
+                    Some(error) => format!(
+                        "docling job {} is in state {} ({error}); resubmitting the item",
+                        job.remote_task_id, job.status
+                    ),
+                    None => format!(
+                        "docling job {} is in state {}; resubmitting the item",
+                        job.remote_task_id, job.status
+                    ),
+                },
+            });
+        }
+        if Utc::now() < job.next_poll_at {
+            // A concurrent worker may have claimed this item early; respect the
+            // stored cadence instead of hitting Docling ahead of schedule.
+            return Ok(DoclingPollOutcome::Pending {
+                next_poll_at: job.next_poll_at,
             });
         }
 
@@ -187,10 +200,16 @@ impl LibraryService {
         match status.task_status {
             ConversionStatus::Pending | ConversionStatus::Started => {
                 if job.deadline_at.is_some_and(|deadline| now >= deadline) {
-                    let message = format!(
-                        "docling task {} did not finish before its deadline; resubmit the item manually",
-                        job.remote_task_id
-                    );
+                    let message = match job.remote_status {
+                        Some(remote_status) => format!(
+                            "docling task {} did not finish before its deadline (still {}); resubmit the item manually",
+                            job.remote_task_id, remote_status
+                        ),
+                        None => format!(
+                            "docling task {} did not finish before its deadline; resubmit the item manually",
+                            job.remote_task_id
+                        ),
+                    };
                     self.store
                         .update_external_job(
                             job.id,

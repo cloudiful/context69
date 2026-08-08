@@ -9,7 +9,6 @@ SELECT
     sc.example_queries AS "example_queries!: Json<Vec<String>>",
     sc.connection,
     sc.sync_strategy,
-    sc.connector_type,
     sc.base_query,
     sc.batch_size,
     cp.cursor_updated_at AS last_cursor_updated_at,
