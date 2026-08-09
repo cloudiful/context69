@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 import { apiClient, type CreateMetadataIndexRequest, type MetadataIndexResponse, type Pagination } from "../services/api";
@@ -29,6 +29,44 @@ const columns = computed<TableColumn<MetadataIndexResponse>[]>(() => [
   ...(props.canManage ? [{ id: "actions", header: t("common.actions") }] : []),
 ]);
 
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+const settlingIndexIds = new Set<string>();
+const MAX_SETTLING_POLLS = 20;
+
+function isUnsettled(row: MetadataIndexResponse) {
+  return row.status === "building" || row.status === "deleting";
+}
+
+async function pollTick(attempts: number) {
+  clearTimeout(pollTimer);
+  pollTimer = undefined;
+  let unsettled = false;
+  try {
+    await load();
+    unsettled = rows.value.some((row) => settlingIndexIds.has(row.index_id) && isUnsettled(row));
+  } catch {
+    unsettled = true;
+  }
+  if (unsettled && attempts + 1 < MAX_SETTLING_POLLS) {
+    pollTimer = setTimeout(() => { void pollTick(attempts + 1); }, 2000);
+  } else {
+    settlingIndexIds.clear();
+  }
+}
+
+function trackSettling(indexId: string) {
+  settlingIndexIds.add(indexId);
+  if (pollTimer === undefined) {
+    pollTimer = setTimeout(() => { void pollTick(0); }, 2000);
+  }
+}
+
+function maybeTrackSettling(indexId: string) {
+  if (rows.value.some((row) => row.index_id === indexId && isUnsettled(row))) {
+    trackSettling(indexId);
+  }
+}
+
 async function load() {
   if (!sourceKey.value.trim()) return;
   loading.value = true;
@@ -57,16 +95,27 @@ function changePageSize(value: number) {
 
 async function create() {
   if (!canSubmit.value) return;
-  await apiClient.createMetadataIndex(props.groupPath, sourceKey.value.trim(), {
+  const created = await apiClient.createMetadataIndex(props.groupPath, sourceKey.value.trim(), {
     path: path.value.trim(), data_type: dataType.value, value_kind: valueKind.value, sortable: sortable.value,
   });
   dialogVisible.value = false;
   path.value = "";
   await load();
+  maybeTrackSettling(created.index_id);
 }
 
-async function retry(row: MetadataIndexResponse) { await apiClient.retryMetadataIndex(props.groupPath, row.index_id); await load(); }
-async function remove(row: MetadataIndexResponse) { await apiClient.deleteMetadataIndex(props.groupPath, row.index_id); await load(); }
+async function retry(row: MetadataIndexResponse) {
+  await apiClient.retryMetadataIndex(props.groupPath, row.index_id);
+  await load();
+  maybeTrackSettling(row.index_id);
+}
+async function remove(row: MetadataIndexResponse) {
+  await apiClient.deleteMetadataIndex(props.groupPath, row.index_id);
+  await load();
+  maybeTrackSettling(row.index_id);
+}
+
+onBeforeUnmount(() => clearTimeout(pollTimer));
 </script>
 
 <template>

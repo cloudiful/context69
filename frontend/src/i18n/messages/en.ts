@@ -404,7 +404,7 @@ export const en = {
     emptyFolderMessage: "Upload a file or create subfolders under the current directory.",
     noSelectionTitle: "No File Selected",
     noSelectionMessage: "Choose a file from the list to inspect parsed sections and ingest status.",
-    processingMessage: "This file is still being parsed and indexed. Refresh manually to check its status.",
+    processingMessage: "This file is still being parsed and indexed. Its status updates automatically.",
     failedMessage: "Parsing failed. Review the job status and error message above.",
     deleteFolderConfirm: "Delete {name} and recursively remove all files plus embeddings?",
     deleteFileConfirm: "Delete {name} and remove its embeddings?",

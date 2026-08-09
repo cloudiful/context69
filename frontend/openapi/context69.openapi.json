@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.10.0"
+    "version": "0.11.1"
   },
   "paths": {
     "/healthz": {
@@ -1491,6 +1491,90 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions": {
+      "get": {
+        "tags": [],
+        "operationId": "list_document_extraction_jobs",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionJobsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild": {
+      "post": {
+        "tags": [],
+        "operationId": "rebuild_document_extractions",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildDocumentExtractionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionJobsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/documents/{document_id}/translations": {
       "get": {
         "tags": [],
@@ -1577,6 +1661,73 @@
           },
           "404": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/extraction-templates": {
+      "get": {
+        "tags": [],
+        "operationId": "list_extraction_templates",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExtractionTemplateResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "upsert_extraction_template",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionTemplateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionTemplateResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -5769,6 +5920,249 @@
           }
         }
       },
+      "ExtractionDirective": {
+        "type": "object",
+        "required": [
+          "template_key"
+        ],
+        "properties": {
+          "parameters": {
+            "type": "object"
+          },
+          "template_key": {
+            "type": "string"
+          }
+        }
+      },
+      "ExtractionJobResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "document_id",
+          "template_key",
+          "template_version",
+          "source_record_hash",
+          "status",
+          "attempt_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_record_hash": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExtractionJobStatus"
+          },
+          "template_key": {
+            "type": "string"
+          },
+          "template_version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ExtractionJobStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "skipped"
+        ]
+      },
+      "ExtractionJobsResponse": {
+        "type": "object",
+        "required": [
+          "jobs",
+          "latest_results"
+        ],
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionJobResponse"
+            }
+          },
+          "latest_results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionResultResponse"
+            }
+          }
+        }
+      },
+      "ExtractionResultResponse": {
+        "type": "object",
+        "required": [
+          "version_id",
+          "document_id",
+          "template_key",
+          "template_version",
+          "source_record_hash",
+          "result_json",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_json": {
+            "type": "object"
+          },
+          "source_record_hash": {
+            "type": "string"
+          },
+          "template_key": {
+            "type": "string"
+          },
+          "template_version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ExtractionTemplateInput": {
+        "type": "object",
+        "required": [
+          "template_key",
+          "system_prompt",
+          "output_schema"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "max_output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "output_schema": {
+            "type": "object"
+          },
+          "system_prompt": {
+            "type": "string"
+          },
+          "template_key": {
+            "type": "string"
+          }
+        }
+      },
+      "ExtractionTemplateResponse": {
+        "type": "object",
+        "required": [
+          "template_key",
+          "version",
+          "system_prompt",
+          "output_schema",
+          "max_output_tokens",
+          "enabled",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "output_schema": {
+            "type": "object"
+          },
+          "system_prompt": {
+            "type": "string"
+          },
+          "template_key": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "FileBatchItem": {
         "type": "object",
         "required": [
@@ -5784,6 +6178,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "extraction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionDirective"
+              }
             ]
           },
           "filename": {
@@ -6107,6 +6511,16 @@
           "url"
         ],
         "properties": {
+          "extraction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionDirective"
+              }
+            ]
+          },
           "filename": {
             "type": [
               "string",
@@ -6330,6 +6744,16 @@
           {
             "type": "object",
             "properties": {
+              "extraction": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ExtractionDirective"
+                  }
+                ]
+              },
               "translation": {
                 "oneOf": [
                   {
@@ -7246,6 +7670,16 @@
           "sha256"
         ],
         "properties": {
+          "extraction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionDirective"
+              }
+            ]
+          },
           "filename": {
             "type": "string"
           },
@@ -7339,6 +7773,17 @@
           "deleted_tasks": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "RebuildDocumentExtractionsRequest": {
+        "type": "object",
+        "properties": {
+          "template_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -9742,6 +10187,16 @@
           },
           "external_id": {
             "type": "string"
+          },
+          "extraction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionDirective"
+              }
+            ]
           },
           "folder_id": {
             "type": [

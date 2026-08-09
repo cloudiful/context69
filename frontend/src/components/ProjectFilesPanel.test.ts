@@ -1,4 +1,4 @@
-import { flushPromises, shallowMount } from "@vue/test-utils";
+import { flushPromises, mount, shallowMount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -140,6 +140,51 @@ describe("ProjectFilesPanel", () => {
     await flushPromises();
 
     expect(router.currentRoute.value.query.file).toBe("file-1");
+    wrapper.unmount();
+  });
+
+  it("refreshes the tree and the current folder page from the table refresh event", async () => {
+    mockLibraryApis();
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock");
+    await router.isReady();
+
+    const wrapper = mount(ProjectFilesPanel, {
+      attachTo: document.body,
+      props: {
+        childGroups: [],
+        childGroupPage: { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } },
+        childGroupSearch: "",
+        groupPath: "stock",
+      },
+      global: {
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
+        stubs: {
+          UContextMenu: { template: "<div><slot /></div>" },
+          UFileUpload: { template: "<input />" },
+          UInput: { template: "<input />" },
+          UModal: { template: "<div><slot name=\"body\" /></div>" },
+          LibraryToolbar: { template: "<div />" },
+          LibraryResourceTable: {
+            template: "<button class=\"table-refresh\" @click=\"$emit('refresh')\">refresh</button>",
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    const getTree = vi.spyOn(apiClient, "getGroupLibraryTree").mockClear();
+    const getResources = vi.spyOn(apiClient, "getGroupLibraryResources").mockClear();
+
+    await wrapper.get("button.table-refresh").trigger("click");
+    await flushPromises();
+
+    expect(getTree).toHaveBeenCalledTimes(1);
+    expect(getResources).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
 });

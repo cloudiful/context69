@@ -224,11 +224,6 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
     }
   }
 
-  async function refreshLibrary(loadDetail: (fileId: string | null) => Promise<void>) {
-    await loadTree();
-    await loadDetail(selectedFileId.value);
-  }
-
   function syncSelectedExplorerEntry(entries: ExplorerEntry[]) {
     if (selectedFileId.value) {
       selectedExplorerEntry.value = entries.find((entry) => entry.kind === "file" && entry.id === selectedFileId.value) ?? null;
@@ -246,7 +241,6 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
     filteredResourceCountLabel,
     loadTree,
     moveOptions,
-    refreshLibrary,
     replaceSelection,
     resetTree,
     resourceContextEntry,

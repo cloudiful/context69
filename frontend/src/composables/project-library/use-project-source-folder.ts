@@ -1,9 +1,10 @@
-import { ref, toValue, type MaybeRefOrGetter } from "vue";
+import { onBeforeUnmount, ref, toValue, type MaybeRefOrGetter } from "vue";
 import { useToast } from "@nuxt/ui/composables";
 
 import { apiClient } from "../../services/api";
 import type { FileExplorerEntry } from "../../types/library";
 import { useErrorToast } from "../use-error-toast";
+import { createTaskSettler } from "../use-task-settling";
 
 interface ProjectSourceFolderOptions {
   groupPath: MaybeRefOrGetter<string>;
@@ -21,6 +22,7 @@ export function useProjectSourceFolder(options: ProjectSourceFolderOptions) {
   const folderId = ref<string | null>(null);
   const folderName = ref("");
   const value = ref("");
+  const settler = createTaskSettler(() => options.refreshLibrary());
 
   function defaultTemplate(name = "") {
     return JSON.stringify({
@@ -91,13 +93,18 @@ export function useProjectSourceFolder(options: ProjectSourceFolderOptions) {
   async function sync(id: string | null) {
     if (!id) return;
     try {
-      await apiClient.syncGroupSourceFolder(toValue(options.groupPath), id);
-      await options.refreshLibrary();
+      const task = await apiClient.syncGroupSourceFolder(toValue(options.groupPath), id);
       toast.add({ color: "success", title: options.t("sources.sync"), description: options.t("sources.syncing"), duration: 2500 });
+      const results = await settler.settle([task]);
+      if (results.some((result) => result.status === "failed")) {
+        showErrorToast(null, options.t("sources.syncFailed"));
+      }
     } catch (error) {
       showErrorToast(error, options.t("sources.syncFailed"));
     }
   }
 
-  return { busy, open, title, folderId, folderName, value, openCreate, openEditor, save, sync };
+  onBeforeUnmount(() => settler.dispose());
+
+  return { busy, open, title, folderId, folderName, value, openCreate, openEditor, save, sync, dispose: settler.dispose };
 }

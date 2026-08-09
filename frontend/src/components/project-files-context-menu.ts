@@ -15,12 +15,14 @@ export function resourceContextItems(options: {
   syncFolder: (id: string | null) => void;
   move: (entry: ExplorerEntry) => void;
   remove: (entry: ExplorerEntry) => void;
+  refresh: (entry: ExplorerEntry) => void;
   retry: (id: string) => void;
 }): ContextMenuItem[] {
   const { entry, t } = options;
   if (!entry) return [];
   if (entry.kind === "folder") {
     const items: ContextMenuItem[] = [
+      { label: t("sources.refresh"), icon: "i-lucide-refresh-cw", onSelect: () => options.refresh(entry) },
       { label: t("library.openFolder"), icon: "i-lucide-folder-open", onSelect: () => options.selectFolder(entry.id) },
       { label: t("library.newFolder"), icon: "i-lucide-folder-plus", onSelect: () => options.createFolder(entry) },
     ];
@@ -31,11 +33,14 @@ export function resourceContextItems(options: {
     }
     return items;
   }
-  const items: ContextMenuItem[] = [{
-    label: entry.isSourceConfigFile ? t("library.editSourceConfig") : t("library.preview"),
-    icon: entry.isSourceConfigFile ? "i-lucide-file-pen" : "i-lucide-eye",
-    onSelect: () => options.open(entry),
-  }];
+  const items: ContextMenuItem[] = [
+    { label: t("sources.refresh"), icon: "i-lucide-refresh-cw", onSelect: () => options.refresh(entry) },
+    {
+      label: entry.isSourceConfigFile ? t("library.editSourceConfig") : t("library.preview"),
+      icon: entry.isSourceConfigFile ? "i-lucide-file-pen" : "i-lucide-eye",
+      onSelect: () => options.open(entry),
+    },
+  ];
   if (["failed", "cancelled"].includes(entry.ingestStatus) && !options.unavailableFileIds.includes(entry.id)) {
     items.push({ label: options.retryingFileIds.includes(entry.id) ? t("library.retrying") : t("common.retry"), icon: "i-lucide-refresh-cw", onSelect: () => options.retry(entry.id) });
   }

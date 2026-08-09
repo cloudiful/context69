@@ -145,7 +145,6 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 
     <div v-if="props.paginated || table.statusOptions.value.length" class="flex flex-wrap items-center justify-between gap-2">
       <USelect :model-value="props.statusFilter" :items="table.statusOptions.value" value-key="value" class="w-48" :aria-label="t('library.filterByStatus')" @update:model-value="emit('status-filter', $event as LibraryIngestStatus | null)" />
-      <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :label="t('common.refresh')" @click="emit('refresh')" />
     </div>
 
     <div class="flex min-h-0 flex-1 flex-col overflow-auto" @contextmenu.self.prevent="handleSurfaceContextMenu">

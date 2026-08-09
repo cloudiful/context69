@@ -66,6 +66,7 @@ const pageState = proxyRefs(page);
 async function refreshLibraryData() {
   await tree.loadTree();
   await page.loadPage();
+  await detail.loadDetail(tree.selectedFileId.value);
 }
 const detail = useProjectLibraryDetail({
   groupPath: () => props.groupPath,
@@ -75,7 +76,7 @@ const detailState = proxyRefs(detail);
 const sourceFolderState = proxyRefs(useProjectSourceFolder({
   groupPath: () => props.groupPath,
   selectedFolder: tree.selectedFolder,
-  refreshLibrary: () => treeState.refreshLibrary(detailState.loadDetail),
+  refreshLibrary: refreshLibraryData,
   t,
 }));
 const preview = useProjectLibraryPreview({
@@ -125,6 +126,7 @@ const resourceMenuItems = computed(() => resourceContextItems({
   syncFolder: (id) => { void sourceFolderState.sync(id); },
   move: (entry) => entry.kind === "folder" ? actionsState.openMoveFolderDialog(entry.folder) : entry.kind === "file" && actionsState.openMoveFileDialog(entry.file),
   remove: (entry) => entry.kind === "folder" ? void actionsState.deleteFolder(entry.folder) : entry.kind === "file" && void actionsState.deleteFile(entry.file),
+  refresh: () => { void refreshLibraryData(); },
   retry: (id) => { void actionsState.retryFile(id); },
 }));
 const groupMenuItems = computed(() => groupContextItems(groupContextEntry.value, t, (action, entry) => {
@@ -141,7 +143,7 @@ const createMenuItems = computed(() => [
 const surfaceMenuItems = computed(() => surfaceContextItems(t, {
   createGroup: () => emit("create-child-group"), createFolder: () => actionsState.openCreateFolderDialog(),
   createText: () => actionsState.openCreateTextDialog(), createSource: () => sourceFolderState.openCreate(),
-  upload: () => fileUpload.value?.inputRef?.click(), refresh: () => { void treeState.refreshLibrary(detailState.loadDetail); },
+  upload: () => fileUpload.value?.inputRef?.click(), refresh: () => { void refreshLibraryData(); },
 }));
 const activeContextMenuItems = computed<ContextMenuItem[][]>(() => [
   (treeState.resourceContextEntry ? resourceMenuItems.value : groupContextEntry.value ? groupMenuItems.value : surfaceMenuItems.value) as ContextMenuItem[],
@@ -278,6 +280,8 @@ watch(page.query, () => {
 
 onBeforeUnmount(() => {
   clearTimeout(searchTimer);
+  actionsState.dispose();
+  sourceFolderState.dispose();
   detail.dispose();
 });
 </script>
@@ -313,20 +317,6 @@ onBeforeUnmount(() => {
           class="sm:hidden"
           :loading="actionsState.uploadBusy"
           @click="fileUpload?.select()"
-        />
-        <UButton
-          icon="i-lucide-refresh-cw"
-          :label="t('common.refresh')"
-          class="hidden sm:inline-flex"
-          :disabled="treeState.treeLoading || pageState.loading"
-          @click="refreshLibraryData"
-        />
-        <UButton
-          icon="i-lucide-refresh-cw"
-          aria-label="Refresh"
-          class="sm:hidden"
-          :disabled="treeState.treeLoading || pageState.loading"
-          @click="refreshLibraryData"
         />
       </div>
     </Teleport>
@@ -393,7 +383,7 @@ onBeforeUnmount(() => {
           @move-group="emit('move-child-group', $event.group)"
           @delete-group="emit('delete-child-group', $event.group)"
           @toggle-folder="treeState.toggleFolderExpansion($event.id)"
-          @refresh="treeState.refreshLibrary(detailState.loadDetail)"
+          @refresh="refreshLibraryData"
           @retry="refreshLibraryData"
           @retry-entry="retryExplorerEntry"
           @create-folder="actionsState.openCreateFolderDialog()"

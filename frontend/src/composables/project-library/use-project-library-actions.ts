@@ -2,10 +2,11 @@ import { computed, ref, toValue, type MaybeRefOrGetter, type Ref } from "vue";
 import { useToast } from "@nuxt/ui/composables";
 import { useAppConfirm } from "../use-app-confirm";
 
-import { apiClient, type LibraryFileSummary, type LibraryFolderNode } from "../../services/api";
+import { apiClient, type LibraryFileSummary, type LibraryFolderNode, type TaskRef } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
 import { collectDescendantFolderIds } from "../../utils/library-tree";
 import { useErrorToast } from "../use-error-toast";
+import { createTaskSettler } from "../use-task-settling";
 
 interface MoveDialogState {
   kind: "file" | "folder";
@@ -63,6 +64,13 @@ export function useProjectLibraryActions({
   const moveDialog = ref<MoveDialogState | null>(null);
   const createDialog = ref<CreateDialogState | null>(null);
   const createTextDialog = ref<CreateTextDialogState | null>(null);
+  const settler = createTaskSettler(() => loadTree());
+
+  function notifySettledFailures(results: Array<{ status: string }>, messageKey: string) {
+    if (results.some((result) => result.status === "failed")) {
+      showErrorToast(null, t(messageKey));
+    }
+  }
 
   function openCreateFolderDialog(folder: LibraryFolderNode | null = selectedFolder.value) {
     if (!folder) return;
@@ -106,15 +114,15 @@ export function useProjectLibraryActions({
     if (!createTextDialog.value) return;
     createFolderBusy.value = true;
     try {
-      await apiClient.upsertGroupLibraryText(toValue(groupPath), {
+      const task = await apiClient.upsertGroupLibraryText(toValue(groupPath), {
         title: payload.title,
         content: payload.content,
         external_id: crypto.randomUUID(),
         folder_id: createTextDialog.value.parentFolderId,
       });
       createTextDialog.value = null;
-      await loadTree();
       toast.add({ color: "success", title: t("library.newTextFile"), description: payload.title, duration: 2500 });
+      notifySettledFailures(await settler.settle([task]), "library.createTextFileFailed");
     } catch (error) {
       showErrorToast(error, t("library.createTextFileFailed"));
     } finally {
@@ -132,11 +140,11 @@ export function useProjectLibraryActions({
         selectedFolder.value?.folder_id ?? null,
         files,
       );
-      await loadTree();
       if (response.files.length > 0) {
         await replaceSelection(response.files[0].folder_id ?? selectedFolder.value?.folder_id ?? null, response.files[0].file_id);
       }
       toast.add({ color: "success", title: t("common.upload"), description: t("library.uploadSuccess"), duration: 2500 });
+      notifySettledFailures(await settler.settle(response.tasks ?? []), "library.uploadFailed");
     } catch (error) {
       showErrorToast(error, t("library.uploadFailed"));
     } finally {
@@ -158,18 +166,18 @@ export function useProjectLibraryActions({
         unavailableFileIds.value = [...new Set([...unavailableFileIds.value, fileId])];
         throw new Error(t("library.sourceMissingMessage"));
       }
-      await apiClient.submitTask({
+      const task = await apiClient.submitTask({
         kind: "retry_file_batch",
         group_path: toValue(groupPath),
         items: [{ file_id: fileId }],
       });
-      await loadTree();
       toast.add({
         color: "success",
         title: t("library.retryAccepted"),
         description: t("library.retryAcceptedMessage"),
         duration: 2500,
       });
+      notifySettledFailures(await settler.settle([task]), "library.retryFailed");
     } catch (error) {
       showErrorToast(error, t("library.retryFailed"));
     } finally {
@@ -234,10 +242,10 @@ export function useProjectLibraryActions({
   async function deleteFolderConfirmed(folder: LibraryFolderNode) {
     actionBusy.value = true;
     try {
-      await apiClient.deleteGroupLibraryFolder(toValue(groupPath), folder.folder_id!);
-      await loadTree();
+      const task = await apiClient.deleteGroupLibraryFolder(toValue(groupPath), folder.folder_id!);
       await replaceSelection(null, null);
       toast.add({ color: "success", title: t("common.delete"), description: folder.name, duration: 2500 });
+      notifySettledFailures(await settler.settle([task]), "library.deleteFolderFailed");
     } catch (error) {
       showErrorToast(error, t("library.deleteFolderFailed"));
     } finally {
@@ -258,12 +266,12 @@ export function useProjectLibraryActions({
   async function deleteFileConfirmed(file: LibraryFileSummary) {
     actionBusy.value = true;
     try {
-      await apiClient.deleteGroupLibraryFile(toValue(groupPath), file.file_id);
-      await loadTree();
+      const task = await apiClient.deleteGroupLibraryFile(toValue(groupPath), file.file_id);
       if (selectedFileId.value === file.file_id) {
         await replaceSelection(selectedFolder.value?.folder_id ?? null, null);
       }
       toast.add({ color: "success", title: t("common.delete"), description: file.filename, duration: 2500 });
+      notifySettledFailures(await settler.settle([task]), "library.deleteFileFailed");
     } catch (error) {
       showErrorToast(error, t("library.deleteFileFailed"));
     } finally {
@@ -303,6 +311,7 @@ export function useProjectLibraryActions({
     deleteExplorerEntry,
     deleteFile,
     deleteFolder,
+    dispose: settler.dispose,
     filteredMoveOptions,
     handleFileSelection,
     moveDialog,

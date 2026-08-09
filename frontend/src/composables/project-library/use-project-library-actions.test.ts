@@ -9,6 +9,7 @@ import { useProjectLibraryActions } from "./use-project-library-actions";
 
 const getGroupLibraryFile = vi.spyOn(apiClient, "getGroupLibraryFile");
 const submitTask = vi.spyOn(apiClient, "submitTask");
+const getTask = vi.spyOn(apiClient, "getTask");
 
 const root: LibraryFolderNode = {
   children: [],
@@ -28,6 +29,8 @@ describe("useProjectLibraryActions retry", () => {
     getGroupLibraryFile.mockReset();
     getGroupLibraryFile.mockResolvedValue({ source_available: true } as never);
     submitTask.mockReset();
+    getTask.mockReset();
+    getTask.mockResolvedValue({ task_id: "task-id", status: "succeeded" } as never);
   });
 
   it("prevents duplicate retry requests and refreshes the tree once", async () => {
@@ -69,6 +72,83 @@ describe("useProjectLibraryActions retry", () => {
     await first;
 
     expect(loadTree).toHaveBeenCalledOnce();
+    expect(getTask).toHaveBeenCalledWith("task-id");
+    expect(state.retryingFileIds.value).toEqual([]);
+    wrapper.unmount();
+  });
+
+  it("keeps refreshing the tree until the submitted retry task settles", async () => {
+    submitTask.mockResolvedValue({ task_id: "task-id", item_ids: ["item-id"] } as never);
+    getTask
+      .mockResolvedValueOnce({ task_id: "task-id", status: "running" } as never)
+      .mockResolvedValueOnce({ task_id: "task-id", status: "succeeded" } as never);
+    const loadTree = vi.fn().mockResolvedValue(undefined);
+    let state!: ReturnType<typeof useProjectLibraryActions>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryActions({
+          groupPath: ref("group-a"),
+          loadTree,
+          moveOptions: ref([]),
+          replaceSelection: vi.fn().mockResolvedValue(undefined),
+          selectFile: vi.fn().mockResolvedValue(undefined),
+          selectedFolder: ref(root),
+          selectedFileId: ref("file-id"),
+          t: (key) => key,
+          updateExpandedForFolder: vi.fn(),
+          previewDocked: ref(false),
+          previewDialogVisible: ref(false),
+        });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
+
+    vi.useFakeTimers();
+    const pending = state.retryFile("file-id");
+    await vi.advanceTimersByTimeAsync(1500);
+    await pending;
+    vi.useRealTimers();
+
+    expect(getTask).toHaveBeenCalledTimes(2);
+    expect(loadTree).toHaveBeenCalledTimes(2);
+    expect(state.retryingFileIds.value).toEqual([]);
+    wrapper.unmount();
+  });
+
+  it("stops refreshing after dispose even if the task is still active", async () => {
+    submitTask.mockResolvedValue({ task_id: "task-id", item_ids: ["item-id"] } as never);
+    getTask.mockResolvedValue({ task_id: "task-id", status: "running" } as never);
+    const loadTree = vi.fn().mockResolvedValue(undefined);
+    let state!: ReturnType<typeof useProjectLibraryActions>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryActions({
+          groupPath: ref("group-a"),
+          loadTree,
+          moveOptions: ref([]),
+          replaceSelection: vi.fn().mockResolvedValue(undefined),
+          selectFile: vi.fn().mockResolvedValue(undefined),
+          selectedFolder: ref(root),
+          selectedFileId: ref("file-id"),
+          t: (key) => key,
+          updateExpandedForFolder: vi.fn(),
+          previewDocked: ref(false),
+          previewDialogVisible: ref(false),
+        });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
+
+    vi.useFakeTimers();
+    const pending = state.retryFile("file-id");
+    state.dispose();
+    await vi.advanceTimersByTimeAsync(3000);
+    await pending;
+    vi.useRealTimers();
+
+    expect(loadTree).toHaveBeenCalledTimes(0);
     expect(state.retryingFileIds.value).toEqual([]);
     wrapper.unmount();
   });

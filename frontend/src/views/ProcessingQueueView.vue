@@ -13,7 +13,10 @@ import { formatTimestamp } from "../utils/format";
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
-const maintenance = proxyRefs(useTaskMaintenance({ t }));
+const maintenance = proxyRefs(useTaskMaintenance({
+  t,
+  onTasksChanged: () => { void queue.refresh(); },
+}));
 
 const AUTO_REFRESH_INTERVAL = 20_000;
 
@@ -104,10 +107,6 @@ function saveSettings() {
   if (!settingsDirty.value || retentionInvalid.value || maintenance.saving) return;
   void maintenance.saveSettings(draftCleanup.value, draftRetentionDays.value);
 }
-
-onMounted(() => {
-  if (maintenance.isAdmin) void maintenance.load();
-});
 
 const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
 const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];

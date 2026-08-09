@@ -13,9 +13,10 @@ import { errorMessage, useErrorToast } from "./use-error-toast";
 
 interface UseTaskMaintenanceOptions {
   t: (key: string) => string;
+  onTasksChanged?: () => void;
 }
 
-export function useTaskMaintenance({ t }: UseTaskMaintenanceOptions) {
+export function useTaskMaintenance({ t, onTasksChanged }: UseTaskMaintenanceOptions) {
   const showErrorToast = useErrorToast();
   const toast = useToast();
   const confirm = useAppConfirm();
@@ -65,6 +66,7 @@ export function useTaskMaintenance({ t }: UseTaskMaintenanceOptions) {
     try {
       const response = await apiClient.cancelActiveTasks();
       await load();
+      onTasksChanged?.();
       toast.add({
         color: "success",
         title: t("taskMaintenance.cancelAccepted"),
@@ -97,6 +99,7 @@ export function useTaskMaintenance({ t }: UseTaskMaintenanceOptions) {
     try {
       const response = await apiClient.purgeTasks({ mode });
       await load();
+      onTasksChanged?.();
       toast.add({
         color: "success",
         title: mode === "all_terminal" ? t("taskMaintenance.purgeAllCompleted") : t("taskMaintenance.purgeExpiredCompleted"),

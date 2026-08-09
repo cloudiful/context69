@@ -404,7 +404,7 @@ export const zhCN = {
     emptyFolderMessage: "当前目录还没有文件，可以上传文件或继续创建子目录。",
     noSelectionTitle: "未选择文件",
     noSelectionMessage: "请从中间列表选择文件，查看解析结果和入库状态。",
-    processingMessage: "文件仍在解析和索引中，可手动刷新查看最新状态。",
+    processingMessage: "文件仍在解析和索引中，状态会自动更新。",
     failedMessage: "文件解析失败，请查看上方任务状态和错误信息。",
     deleteFolderConfirm: "删除 {name}，并递归移除全部文件及嵌入数据？",
     deleteFileConfirm: "删除 {name}，并移除对应嵌入数据？",

@@ -41,11 +41,11 @@ describe("useTaskMaintenance", () => {
     purgeTasks.mockReset().mockResolvedValue({ deleted_tasks: 12 } as never);
   });
 
-  function mountState() {
+  function mountState(options: { onTasksChanged?: () => void } = {}) {
     let state!: ReturnType<typeof useTaskMaintenance>;
     const wrapper = mount(defineComponent({
       setup() {
-        state = useTaskMaintenance({ t: (key) => key });
+        state = useTaskMaintenance({ t: (key) => key, ...options });
         return {};
       },
       template: "<div />",
@@ -101,6 +101,17 @@ describe("useTaskMaintenance", () => {
     await state.purge("expired");
     expect(purgeTasks).toHaveBeenCalledWith({ mode: "expired" });
     expect(getTaskMaintenance).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("notifies task list changes after cancel and purge", async () => {
+    const onTasksChanged = vi.fn();
+    const { state, wrapper } = mountState({ onTasksChanged });
+    await state.load();
+    await state.cancelActive();
+    expect(onTasksChanged).toHaveBeenCalledOnce();
+    await state.purge("expired");
+    expect(onTasksChanged).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 

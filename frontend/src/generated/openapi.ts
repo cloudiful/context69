@@ -404,6 +404,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_document_extraction_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rebuild_document_extractions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/documents/{document_id}/translations": {
         parameters: {
             query?: never;
@@ -430,6 +462,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["rebuild_document_translations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/extraction-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_extraction_templates"];
+        put: operations["upsert_extraction_template"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1525,9 +1573,80 @@ export interface components {
             /** Format: date-time */
             submitted_at: string;
         };
+        ExtractionDirective: {
+            parameters?: Record<string, never>;
+            template_key: string;
+        };
+        ExtractionJobResponse: {
+            /** Format: int32 */
+            attempt_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            document_id: number;
+            error_message?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            job_id: string;
+            source_record_hash: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["ExtractionJobStatus"];
+            template_key: string;
+            /** Format: int32 */
+            template_version: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @enum {string} */
+        ExtractionJobStatus: "queued" | "running" | "succeeded" | "failed" | "skipped";
+        ExtractionJobsResponse: {
+            jobs: components["schemas"]["ExtractionJobResponse"][];
+            latest_results: components["schemas"]["ExtractionResultResponse"][];
+        };
+        ExtractionResultResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            document_id: number;
+            model_name?: string | null;
+            result_json: Record<string, never>;
+            source_record_hash: string;
+            template_key: string;
+            /** Format: int32 */
+            template_version: number;
+            /** Format: uuid */
+            version_id: string;
+        };
+        ExtractionTemplateInput: {
+            description?: string | null;
+            enabled?: boolean;
+            /** Format: int32 */
+            max_output_tokens?: number | null;
+            output_schema: Record<string, never>;
+            system_prompt: string;
+            template_key: string;
+        };
+        ExtractionTemplateResponse: {
+            /** Format: date-time */
+            created_at: string;
+            description?: string | null;
+            enabled: boolean;
+            /** Format: int32 */
+            max_output_tokens: number;
+            output_schema: Record<string, never>;
+            system_prompt: string;
+            template_key: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int32 */
+            version: number;
+        };
         FileBatchItem: {
             content_base64: string;
             declared_sha256?: string | null;
+            extraction?: null | components["schemas"]["ExtractionDirective"];
             filename: string;
             /** Format: uuid */
             folder_id?: string | null;
@@ -1606,6 +1725,7 @@ export interface components {
         /** @enum {string} */
         HealthStatus: "ok" | "degraded";
         ImportLibraryFileFromUrlRequest: {
+            extraction?: null | components["schemas"]["ExtractionDirective"];
             filename?: string | null;
             /** Format: uuid */
             folder_id?: string | null;
@@ -1664,6 +1784,7 @@ export interface components {
             visibility: components["schemas"]["Visibility"];
         };
         LibraryFileIngestOptions: components["schemas"]["LibraryFileUploadMetadata"] & {
+            extraction?: null | components["schemas"]["ExtractionDirective"];
             translation?: null | components["schemas"]["TranslationDirective"];
         };
         LibraryFileSummary: {
@@ -1910,6 +2031,7 @@ export interface components {
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
         PrepareLibraryUploadRequest: {
+            extraction?: null | components["schemas"]["ExtractionDirective"];
             filename: string;
             /** Format: uuid */
             folder_id?: string | null;
@@ -1931,6 +2053,9 @@ export interface components {
         PurgeTasksResponse: {
             /** Format: int64 */
             deleted_tasks: number;
+        };
+        RebuildDocumentExtractionsRequest: {
+            template_keys?: string[];
         };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
@@ -2523,6 +2648,7 @@ export interface components {
             content: string;
             content_format?: components["schemas"]["LibraryTextContentFormat"];
             external_id: string;
+            extraction?: null | components["schemas"]["ExtractionDirective"];
             /** Format: uuid */
             folder_id?: string | null;
             metadata_json?: Record<string, never>;
@@ -3699,6 +3825,54 @@ export interface operations {
             };
         };
     };
+    list_document_extraction_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionJobsResponse"];
+                };
+            };
+        };
+    };
+    rebuild_document_extractions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebuildDocumentExtractionsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionJobsResponse"];
+                };
+            };
+        };
+    };
     list_document_translation_jobs: {
         parameters: {
             query?: never;
@@ -3756,6 +3930,52 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_extraction_templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionTemplateResponse"][];
+                };
+            };
+        };
+    };
+    upsert_extraction_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractionTemplateInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionTemplateResponse"];
+                };
             };
         };
     };
