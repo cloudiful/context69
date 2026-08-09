@@ -1,0 +1,130 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.extraction_templates (\n    template_key, version, description, system_prompt, output_schema, max_output_tokens, enabled\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7)\nON CONFLICT (template_key) DO UPDATE\nSET description = EXCLUDED.description,\n    system_prompt = EXCLUDED.system_prompt,\n    output_schema = EXCLUDED.output_schema,\n    max_output_tokens = EXCLUDED.max_output_tokens,\n    enabled = EXCLUDED.enabled,\n    version = EXCLUDED.version,\n    updated_at = now()\nRETURNING template_key, version, description, system_prompt, output_schema,\n          max_output_tokens, enabled, created_at, updated_at\n\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "template_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "template_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "system_prompt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "system_prompt"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "output_schema",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "output_schema"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "max_output_tokens",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "max_output_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "95519b9f352fee97487043a80f6bca3ce6cbc6a6c174b68d2435d66cf85f0698"
+}

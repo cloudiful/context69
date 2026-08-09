@@ -147,6 +147,10 @@ impl LibraryService {
         self.enqueue_file_translations(file_id).await
     }
 
+    pub(crate) async fn enqueue_file_extractions_for_task(&self, file_id: Uuid) -> Result<()> {
+        self.enqueue_file_extractions(file_id).await
+    }
+
     async fn task_file(
         &self,
         file_id: Uuid,

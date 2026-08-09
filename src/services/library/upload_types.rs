@@ -12,6 +12,7 @@ pub struct UploadedLibraryFile {
     pub declared_sha256: Option<String>,
     pub metadata: Option<LibraryFileUploadMetadata>,
     pub translation: Option<crate::contracts::TranslationDirective>,
+    pub extraction: Option<crate::contracts::ExtractionDirective>,
 }
 
 #[derive(Debug, Clone)]

@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.id, v.document_id, v.template_key, v.template_version,\n       v.source_record_hash, v.model_name, v.result_json, v.created_at\nFROM context69.document_extraction_versions v\nWHERE v.document_id = $1\nORDER BY v.created_at DESC\n\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "template_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "template_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "template_version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "template_version"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "source_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "source_record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "model_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "model_name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "result_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "result_json"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_versions",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "49f579e4c655e593d01ae38a79b2e5b5a519813964f9c1cdb537c184b8972691"
+}

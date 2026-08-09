@@ -267,6 +267,8 @@ pub struct FileBatchItem {
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default)]
     pub translation: Option<crate::TranslationDirective>,
+    #[serde(default)]
+    pub extraction: Option<crate::ExtractionDirective>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

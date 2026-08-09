@@ -10,6 +10,12 @@ struct FileTranslationDirectiveRow {
     translation_target_locales: Vec<String>,
 }
 
+#[derive(Debug, FromRow)]
+struct FileExtractionDirectiveRow {
+    extraction_template_key: Option<String>,
+    extraction_parameters: serde_json::Value,
+}
+
 use super::mappers::file_from_row;
 use super::{
     FileRow, LibraryFileRecord, LibraryIngestStatus, LibraryStore, NewLibraryFile,
@@ -55,6 +61,45 @@ impl LibraryStore {
                 })
         }))
     }
+
+    pub async fn set_file_extraction_directive(
+        &self,
+        file_id: Uuid,
+        directive: Option<&crate::contracts::ExtractionDirective>,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/files/set_extraction_directive.sql",
+            file_id,
+            directive.map(|value| value.template_key.as_str()),
+            directive
+                .map(|value| value.parameters.clone())
+                .unwrap_or_else(|| serde_json::json!({}))
+        )
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn file_extraction_directive(
+        &self,
+        file_id: Uuid,
+    ) -> Result<Option<crate::contracts::ExtractionDirective>> {
+        let row = sqlx::query_file_as!(
+            FileExtractionDirectiveRow,
+            "src/sql/library_store/files/get_extraction_directive.sql",
+            file_id
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+        Ok(row.and_then(|row| {
+            let template_key = row.extraction_template_key?;
+            Some(crate::contracts::ExtractionDirective {
+                template_key,
+                parameters: row.extraction_parameters,
+            })
+        }))
+    }
+
     pub async fn update_business_metadata(
         &self,
         group_id: i64,

@@ -2,6 +2,42 @@ use super::*;
 use crate::domain::{AccessScope, ChunkPayload, SourceRecord};
 
 impl LibraryService {
+    pub(super) async fn apply_file_extraction_directive(
+        &self,
+        file_id: Uuid,
+        directive: &crate::contracts::ExtractionDirective,
+    ) -> Result<()> {
+        self.store
+            .set_file_extraction_directive(file_id, Some(directive))
+            .await?;
+        let should_enqueue = self
+            .store
+            .get_file(file_id)
+            .await?
+            .with_context(|| format!("unknown file {file_id}"))?
+            .ingest_status
+            == crate::contracts::LibraryIngestStatus::Succeeded;
+        if should_enqueue {
+            self.enqueue_file_extractions(file_id).await?;
+        }
+        Ok(())
+    }
+
+    pub(super) async fn enqueue_file_extractions(&self, file_id: Uuid) -> Result<()> {
+        let Some(directive) = self.store.file_extraction_directive(file_id).await? else {
+            return Ok(());
+        };
+        for mapping in self.store.list_file_documents(file_id).await? {
+            self.extraction
+                .enqueue(context69_extraction::EnqueueExtraction {
+                    document_id: mapping.document_id,
+                    directive: directive.clone(),
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn apply_file_translation_directive(
         &self,
         file_id: Uuid,

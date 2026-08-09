@@ -405,7 +405,11 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
         .expect("create task b");
 
     let claimed = db.claim_items(1).await.expect("claim one item");
-    assert_eq!(claimed.len(), 1, "a limit of one must claim exactly one item");
+    assert_eq!(
+        claimed.len(),
+        1,
+        "a limit of one must claim exactly one item"
+    );
     let claimed_task = claimed[0].task_id;
     assert!(
         claimed_task == task_a || claimed_task == task_b,
@@ -428,13 +432,12 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
         "claiming an item must activate only its own parent task"
     );
 
-    let unclaimed_status: String =
-        sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
-            .bind(unclaimed_task)
-            .fetch_one(db.pool())
-            .await
-            .expect("load unclaimed task status")
-            .get("status");
+    let unclaimed_status: String = sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
+        .bind(unclaimed_task)
+        .fetch_one(db.pool())
+        .await
+        .expect("load unclaimed task status")
+        .get("status");
     assert_eq!(
         unclaimed_status, "queued",
         "an unclaimed parent task must stay queued instead of being pre-activated"

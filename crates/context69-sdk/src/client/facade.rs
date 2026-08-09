@@ -3,13 +3,14 @@ use std::time::{Duration, Instant};
 pub use context69_contracts::{
     AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
     CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse, DocumentKey,
-    DocumentResponse, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GroupKind,
-    GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
+    DocumentResponse, EnsureScopeResponse, ExtractionDirective, ExtractionJobsResponse,
+    ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
+    GroupKind, GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
     LibraryFileUploadMetadata as FileMetadata, LibraryTextContentFormat as TextContentFormat,
     MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind, PurgeTasksRequest,
-    PurgeTasksResponse, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, SearchRequest,
-    TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
-    TaskMaintenanceOverview, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
+    PurgeTasksResponse, RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex,
+    ScopeSpec, SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
+    TaskListQuery, TaskMaintenanceOverview, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
     TaskRetryResponse, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationDirective,
     TranslationStatus, UpdateTaskMaintenanceSettingsRequest,
     UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
@@ -326,6 +327,60 @@ impl Context69Client {
         request: &BatchGetDocumentsRequest,
     ) -> Result<BatchGetDocumentsResponse, Error> {
         let path = group_path(group_path_value, "/documents/batch-get");
+        self.execute_json(
+            self.authorized_request(Method::POST, &path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
+    pub async fn list_extraction_templates(
+        &self,
+        group_path_value: &str,
+    ) -> Result<Vec<ExtractionTemplateResponse>, Error> {
+        let path = group_path(group_path_value, "/extraction-templates");
+        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+            .await
+    }
+
+    pub async fn upsert_extraction_template(
+        &self,
+        group_path_value: &str,
+        request: &ExtractionTemplateInput,
+    ) -> Result<ExtractionTemplateResponse, Error> {
+        let path = group_path(group_path_value, "/extraction-templates");
+        self.execute_json(
+            self.authorized_request(Method::PUT, &path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
+    pub async fn document_extractions(
+        &self,
+        group_path_value: &str,
+        document_id: i64,
+    ) -> Result<ExtractionJobsResponse, Error> {
+        let path = format!(
+            "{}/documents/{document_id}/extractions",
+            group_path(group_path_value, "")
+        );
+        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+            .await
+    }
+
+    pub async fn rebuild_document_extractions(
+        &self,
+        group_path_value: &str,
+        document_id: i64,
+        request: &RebuildDocumentExtractionsRequest,
+    ) -> Result<ExtractionJobsResponse, Error> {
+        let path = format!(
+            "{}/documents/{document_id}/extractions/rebuild",
+            group_path(group_path_value, "")
+        );
         self.execute_json(
             self.authorized_request(Method::POST, &path)
                 .await?

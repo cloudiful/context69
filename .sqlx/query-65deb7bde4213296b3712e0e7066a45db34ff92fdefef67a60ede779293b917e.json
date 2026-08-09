@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.document_extraction_jobs\nSET status = 'queued', finished_at = NULL, error_message = NULL, updated_at = now()\nWHERE id = $1 AND status = 'running'\n\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65deb7bde4213296b3712e0e7066a45db34ff92fdefef67a60ede779293b917e"
+}

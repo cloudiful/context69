@@ -3,6 +3,7 @@ members = [
     ".",
     "crates/context69-contracts",
     "crates/context69-db-schema",
+    "crates/context69-extraction",
     "crates/context69-http-support",
     "crates/context69-namespace",
     "crates/context69-namespace-http",
@@ -31,6 +32,7 @@ chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.2" }
 context69-contracts = { path = "crates/context69-contracts", version = "0.10.0" }
 context69-db-schema = { path = "crates/context69-db-schema", version = "0.10.0" }
+context69-extraction = { path = "crates/context69-extraction", version = "0.10.0" }
 context69-http-support = { path = "crates/context69-http-support", version = "0.10.0" }
 context69-namespace = { path = "crates/context69-namespace", version = "0.10.0" }
 context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.10.0" }
@@ -87,6 +89,7 @@ chrono = { workspace = true, features = ["serde"] }
 config.workspace = true
 context69-contracts.workspace = true
 context69-db-schema.workspace = true
+context69-extraction.workspace = true
 context69-http-support.workspace = true
 context69-namespace.workspace = true
 context69-namespace-http.workspace = true

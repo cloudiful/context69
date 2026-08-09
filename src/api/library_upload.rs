@@ -137,7 +137,8 @@ pub(crate) async fn read_library_uploads(
             bytes,
             declared_sha256: declared_sha256.take(),
             metadata: options.as_ref().map(|value| value.metadata.clone()),
-            translation: options.take().and_then(|value| value.translation),
+            translation: options.as_ref().and_then(|value| value.translation.clone()),
+            extraction: options.as_ref().and_then(|value| value.extraction.clone()),
         });
     }
 

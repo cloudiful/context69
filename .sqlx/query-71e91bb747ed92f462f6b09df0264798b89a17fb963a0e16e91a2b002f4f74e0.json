@@ -1,0 +1,201 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.document_extraction_jobs (\n    id, document_id, template_key, template_version, source_record_hash, parameters\n)\nVALUES ($1, $2, $3, $4, $5, $6)\nON CONFLICT (document_id, template_key, source_record_hash)\n    WHERE status IN ('queued', 'running')\nDO UPDATE SET updated_at = context69.document_extraction_jobs.updated_at\nRETURNING *\n\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "template_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "template_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "template_version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "template_version"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "source_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "source_record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "parameters",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "parameters"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "provider_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "provider_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "provider_config_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "provider_config_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Text",
+        "Int4",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "71e91bb747ed92f462f6b09df0264798b89a17fb963a0e16e91a2b002f4f74e0"
+}

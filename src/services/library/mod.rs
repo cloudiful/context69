@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use bytes::Bytes;
 use chrono::Utc;
+use context69_extraction::{ExtractionCoordinator, ExtractionService};
 use context69_translation::{TranslationCoordinator, TranslationService};
 use serde_json::{Value, json};
 use std::{
@@ -99,6 +100,7 @@ pub struct LibraryService {
     embedding_vector_configuration_fingerprint: String,
     url_import_runtime: Arc<url_import_runtime::UrlImportRuntime>,
     translation: TranslationService,
+    extraction: ExtractionService,
     docling_slots: Arc<Semaphore>,
 }
 
@@ -140,6 +142,7 @@ impl LibraryService {
         service_config: LibraryServiceConfig,
         settings: SettingsService,
         translation: TranslationService,
+        extraction: ExtractionService,
     ) -> Result<Self> {
         let LibraryServiceConfig {
             chunking,
@@ -181,6 +184,7 @@ impl LibraryService {
             embedding_vector_configuration_fingerprint,
             url_import_runtime,
             translation,
+            extraction,
             docling_slots: Arc::new(Semaphore::new(1)),
         })
     }

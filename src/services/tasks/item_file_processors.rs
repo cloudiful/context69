@@ -95,6 +95,7 @@ pub(super) async fn process_file(
                         declared_sha256: request.declared_sha256,
                         metadata: request.metadata,
                         translation: request.translation,
+                        extraction: request.extraction,
                     },
                     item.lease_token,
                 )
@@ -282,6 +283,17 @@ pub(super) async fn process_file_stage(
             if let Err(error) = service
                 .library()
                 .enqueue_file_translations_for_task(file_id)
+                .await
+            {
+                return Ok(process_error(stage, error));
+            }
+            set_stage(service, task, item, "extraction").await?;
+            Ok(ProcessResult::Progressed)
+        }
+        "extraction" => {
+            if let Err(error) = service
+                .library()
+                .enqueue_file_extractions_for_task(file_id)
                 .await
             {
                 return Ok(process_error(stage, error));

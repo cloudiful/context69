@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT template_key, version, description, system_prompt, output_schema, max_output_tokens,\n       enabled, created_at, updated_at\nFROM context69.extraction_templates\nORDER BY template_key\n\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "template_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "template_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "system_prompt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "system_prompt"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "output_schema",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "output_schema"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "max_output_tokens",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "max_output_tokens"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "08ca13b1150d1c3ce51cfe0d4baa9846cbb5bb3dd56046e18b3930e6d9bc9e10"
+}

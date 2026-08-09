@@ -36,11 +36,12 @@ use super::{
     get_group_library_resources, get_group_library_tree, get_group_translation_settings,
     get_library_file, get_library_resources, get_library_tree, get_task, get_task_maintenance,
     get_translation_settings, healthz, import_group_library_file_url, list_admin_users,
-    list_document_translation_jobs, list_metadata_indexes, list_personal_access_tokens,
-    list_source_connections, list_sources, list_task_items, list_tasks, list_translation_providers,
-    login, logout, me, move_group_library_file, move_group_library_folder, move_library_file,
-    move_library_folder, openapi_json, prepare_group_library_upload, purge_tasks,
-    query_group_documents, rebuild_document_translations, require_admin_scope_middleware,
+    list_document_extraction_jobs, list_document_translation_jobs, list_extraction_templates,
+    list_metadata_indexes, list_personal_access_tokens, list_source_connections, list_sources,
+    list_task_items, list_tasks, list_translation_providers, login, logout, me,
+    move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
+    openapi_json, prepare_group_library_upload, purge_tasks, query_group_documents,
+    rebuild_document_extractions, rebuild_document_translations, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, rerun_task, reset_admin_user_password,
@@ -50,7 +51,8 @@ use super::{
     touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
     update_group_translation_settings, update_metadata_index, update_source,
     update_source_connection, update_task_maintenance, update_translation_settings,
-    upload_group_library_files, upload_library_files, upsert_group_library_text,
+    upload_group_library_files, upload_library_files, upsert_extraction_template,
+    upsert_group_library_text,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -214,6 +216,18 @@ fn document_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild",
             post(rebuild_document_translations),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/extraction-templates",
+            get(list_extraction_templates).put(upsert_extraction_template),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions",
+            get(list_document_extraction_jobs),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild",
+            post(rebuild_document_extractions),
         )
         .layer(from_fn_with_state(
             api_state,

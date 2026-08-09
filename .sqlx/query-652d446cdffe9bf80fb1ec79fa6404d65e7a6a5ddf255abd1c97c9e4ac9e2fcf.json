@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id\nFROM context69.document_extraction_jobs\nWHERE status = 'queued'\nORDER BY created_at, id\n\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "652d446cdffe9bf80fb1ec79fa6404d65e7a6a5ddf255abd1c97c9e4ac9e2fcf"
+}

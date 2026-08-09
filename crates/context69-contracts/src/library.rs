@@ -188,6 +188,8 @@ pub struct UpsertLibraryTextRequest {
     pub metadata_json: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<crate::TranslationDirective>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<crate::ExtractionDirective>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -438,6 +440,8 @@ pub struct LibraryFileIngestOptions {
     pub metadata: LibraryFileUploadMetadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<crate::TranslationDirective>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<crate::ExtractionDirective>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -452,6 +456,8 @@ pub struct PrepareLibraryUploadRequest {
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<crate::TranslationDirective>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<crate::ExtractionDirective>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -476,6 +482,8 @@ pub struct ImportLibraryFileFromUrlRequest {
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<crate::TranslationDirective>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<crate::ExtractionDirective>,
 }
 
 fn default_preview_content_format() -> LibraryPreviewContentFormat {

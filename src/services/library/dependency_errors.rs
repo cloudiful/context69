@@ -376,9 +376,6 @@ mod tests {
              CODE_FORMULA_MODEL, OPENAI_API_KEY, or leave all unset"
         );
         assert!(is_configuration_error(&error));
-        assert!(!dependency_is_transient(
-            LibraryDependency::Docling,
-            &error
-        ));
+        assert!(!dependency_is_transient(LibraryDependency::Docling, &error));
     }
 }

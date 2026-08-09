@@ -97,6 +97,7 @@ pub(super) async fn process_url(
                         declared_sha256: Some(artifact.sha256),
                         metadata,
                         translation: request.translation,
+                        extraction: request.extraction,
                     },
                     item.lease_token,
                 )

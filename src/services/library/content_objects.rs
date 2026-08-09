@@ -33,6 +33,7 @@ impl LibraryService {
                         existing,
                         request.metadata.as_ref(),
                         request.translation.as_ref(),
+                        request.extraction.as_ref(),
                     )
                     .await;
             }
@@ -58,6 +59,7 @@ impl LibraryService {
                     existing,
                     request.metadata.as_ref(),
                     request.translation.as_ref(),
+                    request.extraction.as_ref(),
                 )
                 .await;
         }
@@ -139,6 +141,21 @@ impl LibraryService {
                 return Err(error);
             }
         }
+        if let Some(directive) = request.extraction.as_ref() {
+            if let Err(error) = self
+                .apply_file_extraction_directive(file_id, directive)
+                .await
+            {
+                self.rollback_new_file_record(
+                    Some(project.id),
+                    file_id,
+                    Some(&object_key),
+                    Some(object_id),
+                )
+                .await;
+                return Err(error);
+            }
+        }
         Ok(PrepareLibraryUploadResponse {
             upload_required: false,
             file: Some(file_to_summary(&created)),
@@ -151,6 +168,7 @@ impl LibraryService {
         file: crate::domain::LibraryFileRecord,
         metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
         translation: Option<&crate::contracts::TranslationDirective>,
+        extraction: Option<&crate::contracts::ExtractionDirective>,
     ) -> Result<PrepareLibraryUploadResponse> {
         let file = if let Some(metadata) = metadata {
             self.apply_file_business_metadata(file.id, metadata).await?
@@ -159,6 +177,10 @@ impl LibraryService {
         };
         if let Some(directive) = translation {
             self.apply_file_translation_directive(file.id, directive)
+                .await?;
+        }
+        if let Some(directive) = extraction {
+            self.apply_file_extraction_directive(file.id, directive)
                 .await?;
         }
         Ok(PrepareLibraryUploadResponse {

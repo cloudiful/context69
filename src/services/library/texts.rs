@@ -244,6 +244,24 @@ impl LibraryService {
             .await;
             return Err(error);
         }
+        if let Some(directive) = request.extraction.as_ref()
+            && let Err(error) = self
+                .apply_file_extraction_directive(file_id, directive)
+                .await
+        {
+            self.rollback_project_file_change(
+                project.id,
+                file_id,
+                previous_file.as_ref(),
+                None,
+                previous_translation.as_ref(),
+                &storage_key,
+                None,
+                lease_token,
+            )
+            .await;
+            return Err(error);
+        }
         let section_payload = match serde_json::to_value(vec![IngestSection {
             section_key: "document".to_string(),
             section_label: title.clone(),

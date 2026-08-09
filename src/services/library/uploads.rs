@@ -45,6 +45,7 @@ impl LibraryService {
                         existing,
                         upload.metadata.as_ref(),
                         upload.translation.as_ref(),
+                        upload.extraction.as_ref(),
                     )
                     .await?;
                 return Ok(UploadedLibraryFileResult {
@@ -76,6 +77,7 @@ impl LibraryService {
                     existing,
                     upload.metadata.as_ref(),
                     upload.translation.as_ref(),
+                    upload.extraction.as_ref(),
                 )
                 .await?;
             return Ok(UploadedLibraryFileResult {
@@ -154,6 +156,21 @@ impl LibraryService {
             .await;
             return Err(error);
         }
+        if let Some(directive) = upload.extraction.as_ref()
+            && let Err(error) = self
+                .apply_file_extraction_directive(file_id, directive)
+                .await
+        {
+            self.rollback_new_file_record_for_task(
+                Some(group_id),
+                file_id,
+                Some(&object.object_key),
+                Some(object.id),
+                lease_token,
+            )
+            .await;
+            return Err(error);
+        }
 
         Ok(UploadedLibraryFileResult {
             file: file_to_summary(&created),
@@ -166,8 +183,10 @@ impl LibraryService {
         file: crate::domain::LibraryFileRecord,
         metadata: Option<&LibraryFileUploadMetadata>,
         translation: Option<&crate::contracts::TranslationDirective>,
+        extraction: Option<&crate::contracts::ExtractionDirective>,
     ) -> Result<crate::domain::LibraryFileRecord> {
         let previous_translation = self.store.file_translation_directive(file.id).await?;
+        let previous_extraction = self.store.file_extraction_directive(file.id).await?;
         let result = async {
             let file = if let Some(metadata) = metadata {
                 self.apply_file_business_metadata(file.id, metadata).await?
@@ -178,10 +197,15 @@ impl LibraryService {
                 self.apply_file_translation_directive(file.id, directive)
                     .await?;
             }
+            if let Some(directive) = extraction {
+                self.apply_file_extraction_directive(file.id, directive)
+                    .await?;
+            }
             Ok::<_, anyhow::Error>(file)
         }
         .await;
-        if result.is_err() && (metadata.is_some() || translation.is_some()) {
+        if result.is_err() && (metadata.is_some() || translation.is_some() || extraction.is_some())
+        {
             if let Err(error) = self
                 .restore_project_file_snapshot(
                     &file,
@@ -197,6 +221,10 @@ impl LibraryService {
             {
                 warn!(file_id = %file.id, %error, "failed to restore reused file after update failure");
             }
+            let _ = self
+                .store
+                .set_file_extraction_directive(file.id, previous_extraction.as_ref())
+                .await;
         }
         result
     }
@@ -218,6 +246,7 @@ impl LibraryService {
             .find(|path| path.id == existing.id)
             .and_then(|path| path.storage_object_id);
         let old_translation = self.store.file_translation_directive(existing.id).await?;
+        let old_extraction = self.store.file_extraction_directive(existing.id).await?;
         let object = self
             .store_project_content_with_optional_lease(
                 group_id,
@@ -282,6 +311,29 @@ impl LibraryService {
                 old_translation.as_ref(),
             )
             .await?;
+            let _ = self
+                .store
+                .set_file_extraction_directive(existing.id, old_extraction.as_ref())
+                .await;
+            self.delete_unreferenced_storage_object_for_lease(object.id, lease_token)
+                .await;
+            return Err(error);
+        }
+        if let Some(directive) = upload.extraction.as_ref()
+            && let Err(error) = self
+                .apply_file_extraction_directive(existing.id, directive)
+                .await
+        {
+            self.restore_project_file_snapshot(
+                &existing,
+                old_storage_object_id,
+                old_translation.as_ref(),
+            )
+            .await?;
+            let _ = self
+                .store
+                .set_file_extraction_directive(existing.id, old_extraction.as_ref())
+                .await;
             self.delete_unreferenced_storage_object_for_lease(object.id, lease_token)
                 .await;
             return Err(error);

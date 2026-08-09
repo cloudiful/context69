@@ -18,6 +18,7 @@ pub(crate) fn file_batch_payloads(files: Vec<UploadedLibraryFile>) -> Result<Vec
                 declared_sha256: file.declared_sha256,
                 metadata: file.metadata,
                 translation: file.translation,
+                extraction: None,
             })
             .map_err(Into::into)
         })
@@ -36,6 +37,7 @@ pub(crate) fn create_text_payload(request: CreateTextRequest) -> Result<Value> {
         published_at: None,
         metadata_json: serde_json::json!({}),
         translation: request.translation,
+        extraction: None,
     })
     .map_err(Into::into)
 }

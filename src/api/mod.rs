@@ -18,6 +18,7 @@ mod auth;
 mod docs;
 mod documents;
 mod errors;
+mod extractions;
 mod group_access;
 mod group_library;
 mod group_source_folders;
@@ -103,6 +104,10 @@ pub(crate) use documents::{
     batch_get_group_documents, create_metadata_index, delete_group_document_by_key,
     delete_metadata_index, get_group_document_by_key, list_metadata_indexes, query_group_documents,
     retry_metadata_index, update_metadata_index,
+};
+pub(crate) use extractions::{
+    list_document_extraction_jobs, list_extraction_templates, rebuild_document_extractions,
+    upsert_extraction_template,
 };
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,

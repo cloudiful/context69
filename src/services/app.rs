@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use context69_extraction::{ExtractionDependencies, ExtractionReadiness, ExtractionService};
 use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
 use tracing::warn;
 use uuid::Uuid;
@@ -22,6 +23,7 @@ use crate::{
     services::{
         auth::AuthService,
         document_store::DocumentStoreService,
+        extraction::ExtractionPublisherAdapter,
         library::{
             LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS, LibraryDependency, LibraryService,
             log_dependency_transition, report_embedding_vector_processing_error_with_lease,
@@ -47,6 +49,16 @@ struct LibraryEmbeddingVectorReadiness {
     pool: sqlx::PgPool,
     store: LibraryStore,
     configuration_fingerprint: String,
+}
+#[async_trait]
+impl ExtractionReadiness for LibraryEmbeddingVectorReadiness {
+    async fn is_ready(&self) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/dependency_gates/embedding_vector_ready.sql"
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
 }
 
 #[async_trait]
@@ -150,6 +162,7 @@ pub struct Context69App {
     pub source_folders: SourceFoldersService,
     pub document_store: DocumentStoreService,
     pub translation: TranslationService,
+    pub extraction: ExtractionService,
     pub tasks: TaskService,
     pub browser_sessions: BrowserSessionConfig,
 }
@@ -241,6 +254,19 @@ impl Context69App {
                 configuration_fingerprint: vector_identity::configuration_fingerprint(&config),
             }),
         });
+        let extraction = ExtractionService::new(ExtractionDependencies {
+            pool: db.pool().clone(),
+            http_client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()?,
+            publisher: Arc::new(ExtractionPublisherAdapter::new(db.clone(), index.clone())),
+            concurrency: config.scheduler.max_concurrency,
+            readiness: Arc::new(LibraryEmbeddingVectorReadiness {
+                pool: db.pool().clone(),
+                store: LibraryStore::new(db.clone()),
+                configuration_fingerprint: vector_identity::configuration_fingerprint(&config),
+            }),
+        });
         let sync = SyncService::new(
             db.clone(),
             embedding.clone(),
@@ -293,6 +319,7 @@ impl Context69App {
             },
             settings.clone(),
             translation.clone(),
+            extraction.clone(),
         )
         .await?;
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
@@ -330,6 +357,7 @@ impl Context69App {
         tasks.resume_pending();
         tasks.start_maintenance();
         translation.resume().await?;
+        extraction.resume().await?;
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
             warn!(error = %error, "failed to prune expired rerank item scores during startup");
         }
@@ -360,6 +388,7 @@ impl Context69App {
             source_folders,
             document_store,
             translation,
+            extraction,
             tasks,
             browser_sessions,
         })

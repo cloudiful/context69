@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod common;
 pub mod documents;
+pub mod extraction;
 pub mod library;
 pub mod mcp;
 pub mod namespace;
@@ -25,6 +26,11 @@ pub use documents::{
     MetadataFilterOperator, MetadataIndexPageQuery, MetadataIndexPageResponse,
     MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
     UpdateMetadataIndexRequest,
+};
+pub use extraction::{
+    ExtractionDirective, ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse,
+    ExtractionResultResponse, ExtractionTemplateInput, ExtractionTemplateResponse,
+    RebuildDocumentExtractionsRequest,
 };
 pub use library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
