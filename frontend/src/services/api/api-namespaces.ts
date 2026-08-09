@@ -24,6 +24,8 @@ export function createNamespacesApi({ openapiClient, unwrapResponse }: Deps) {
       query: params.query ?? undefined,
       sort_by: params.sort_by ?? undefined,
       sort_direction: params.sort_direction ?? undefined,
+      visibility: params.visibility ?? undefined,
+      kind: params.kind ?? undefined,
     };
   }
 

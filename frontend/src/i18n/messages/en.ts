@@ -202,6 +202,12 @@ export const en = {
     kind: "Kind",
     currentRole: "Current Role",
     createdAt: "Created At",
+    allVisibilities: "All visibilities",
+    allKinds: "All group kinds",
+    kindOptions: {
+      shared: "Shared",
+      personal: "Personal",
+    },
     create: "Create Group",
     editGroup: "Edit Group",
     createFailed: "Failed to create group.",

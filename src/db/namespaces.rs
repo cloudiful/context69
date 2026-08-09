@@ -110,7 +110,9 @@ impl Database {
         let total = sqlx::query_file_scalar!(
             "src/sql/db/namespaces/count_groups_for_user.sql",
             user_id,
-            &request.query
+            &request.query,
+            request.visibility.map(Visibility::as_str),
+            request.kind.map(GroupKind::as_str)
         )
         .fetch_one(self.pool())
         .await?;
@@ -122,7 +124,9 @@ impl Database {
             i64::from(request.page_size),
             page_offset(request)?,
             request.sort.map(|sort| sort.column),
-            request.sort.map(|sort| sort.direction.as_str())
+            request.sort.map(|sort| sort.direction.as_str()),
+            request.visibility.map(Visibility::as_str),
+            request.kind.map(GroupKind::as_str)
         )
         .fetch_all(self.pool())
         .await?;
@@ -492,7 +496,9 @@ impl Database {
             "src/sql/db/namespaces/count_child_groups_for_user.sql",
             user_id,
             group_path,
-            &request.query
+            &request.query,
+            request.visibility.map(Visibility::as_str),
+            request.kind.map(GroupKind::as_str)
         )
         .fetch_one(self.pool())
         .await?;
@@ -505,7 +511,9 @@ impl Database {
             i64::from(request.page_size),
             page_offset(request)?,
             request.sort.map(|sort| sort.column),
-            request.sort.map(|sort| sort.direction.as_str())
+            request.sort.map(|sort| sort.direction.as_str()),
+            request.visibility.map(Visibility::as_str),
+            request.kind.map(GroupKind::as_str)
         )
         .fetch_all(self.pool())
         .await?;

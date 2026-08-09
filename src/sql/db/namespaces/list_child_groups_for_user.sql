@@ -47,6 +47,8 @@ WHERE parent.full_path = $2
     OR g.name ILIKE '%' || BTRIM($3::TEXT) || '%'
     OR g.full_path ILIKE '%' || BTRIM($3::TEXT) || '%'
   )
+  AND ($8::TEXT IS NULL OR g.visibility = $8::TEXT)
+  AND ($9::TEXT IS NULL OR g.kind = $9::TEXT)
 ORDER BY
     CASE WHEN $6::TEXT = 'name' AND $7::TEXT = 'asc' THEN LOWER(g.name) END ASC NULLS LAST,
     CASE WHEN $6::TEXT = 'name' AND $7::TEXT = 'desc' THEN LOWER(g.name) END DESC NULLS LAST,

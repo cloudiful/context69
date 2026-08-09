@@ -14,7 +14,18 @@ type Deps = {
 export function createAdminUsersApi({ openapiClient, unwrapResponse }: Deps) {
   return {
     listAdminUsers(params: AdminUserPageQuery, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/admin/users", { params: { query: { ...params, query: params.query ?? undefined } }, signal: options?.signal }));
+      return unwrapResponse(openapiClient.GET("/v1/admin/users", {
+        params: {
+          query: {
+            page: params.page,
+            page_size: params.page_size,
+            query: params.query ?? undefined,
+            sort_by: params.sort_by ?? undefined,
+            sort_direction: params.sort_direction ?? undefined,
+          },
+        },
+        signal: options?.signal,
+      }));
     },
     createAdminUser(payload: CreateAdminUserRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/admin/users", { body: payload, signal: options?.signal }));

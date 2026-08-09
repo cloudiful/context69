@@ -27,5 +27,6 @@ const adminUsersQuery = computed(() => unref(state.adminUsersQuery));
     @update:query="state.adminUsersQuery.value = $event"
     @page="state.changeAdminUsersPage"
     @page-size="state.changeAdminUsersPageSize"
+    @sort-change="state.changeAdminUsersSort"
   />
 </template>

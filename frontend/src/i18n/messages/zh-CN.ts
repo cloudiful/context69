@@ -202,6 +202,12 @@ export const zhCN = {
     kind: "类型",
     currentRole: "当前角色",
     createdAt: "创建时间",
+    allVisibilities: "全部可见性",
+    allKinds: "全部群组类型",
+    kindOptions: {
+      shared: "共享",
+      personal: "个人",
+    },
     create: "创建群组",
     editGroup: "编辑群组",
     createFailed: "创建群组失败。",

@@ -128,6 +128,8 @@ impl AuthService {
         page: u32,
         page_size: u32,
         query: &str,
+        sort_by: Option<&str>,
+        sort_direction: Option<&str>,
     ) -> Result<AdminUserPage> {
         require_admin(actor)?;
         let bounds = PageBounds::new(page, page_size)?;
@@ -135,7 +137,13 @@ impl AuthService {
         Ok(AdminUserPage {
             users: self
                 .db
-                .list_users(query, i64::from(bounds.page_size), bounds.offset)
+                .list_users(
+                    query,
+                    sort_by,
+                    sort_direction,
+                    i64::from(bounds.page_size),
+                    bounds.offset,
+                )
                 .await?,
             pagination: bounds.pagination(total)?,
         })

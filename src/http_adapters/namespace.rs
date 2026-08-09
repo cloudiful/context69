@@ -238,6 +238,8 @@ fn page_request(query: &NamespacePageQuery) -> PageRequest {
             column: sort_by.as_str(),
             direction: query.sort_direction.unwrap_or(SortDirection::Desc),
         }),
+        visibility: query.visibility,
+        kind: query.kind,
     }
 }
 
@@ -250,6 +252,8 @@ fn member_page_request(query: &MemberPageQuery) -> PageRequest {
             column: sort_by.as_str(),
             direction: query.sort_direction.unwrap_or(SortDirection::Desc),
         }),
+        visibility: None,
+        kind: None,
     }
 }
 

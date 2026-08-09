@@ -23,3 +23,5 @@ WHERE parent.full_path = $2
     OR g.name ILIKE '%' || BTRIM($3::TEXT) || '%'
     OR g.full_path ILIKE '%' || BTRIM($3::TEXT) || '%'
   )
+  AND ($4::TEXT IS NULL OR g.visibility = $4::TEXT)
+  AND ($5::TEXT IS NULL OR g.kind = $5::TEXT)

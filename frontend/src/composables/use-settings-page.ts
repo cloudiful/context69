@@ -8,6 +8,7 @@ import {
   apiClient,
   type AdminUserResponse,
   type AdminUserPageResponse,
+  type AdminUserSortBy,
   type DoclingSettingsResponse,
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
@@ -64,6 +65,7 @@ export function useSettingsPage() {
   const adminUsersPageNumber = ref(1);
   const adminUsersPageSize = ref(50);
   const adminUsersQuery = ref("");
+  const adminUsersSort = ref<{ field: AdminUserSortBy; direction: "asc" | "desc" } | null>(null);
   const adminUsersBusy = ref(false);
   const adminUsersCreateBusy = ref(false);
   const rerankApiKeyDraft = ref("");
@@ -153,6 +155,8 @@ export function useSettingsPage() {
         page: adminUsersPageNumber.value,
         page_size: adminUsersPageSize.value,
         query: adminUsersQuery.value.trim() || undefined,
+        sort_by: adminUsersSort.value?.field,
+        sort_direction: adminUsersSort.value?.direction,
       });
       adminUsersPage.value = response;
       adminUsers.value = response.items;
@@ -173,6 +177,13 @@ export function useSettingsPage() {
   function changeAdminUsersPageSize(value: number) {
     if (adminUsersPageSize.value === value) return;
     adminUsersPageSize.value = value;
+    adminUsersPageNumber.value = 1;
+    void loadAdminUsers();
+  }
+
+  function changeAdminUsersSort(sort: { field: AdminUserSortBy; direction: "asc" | "desc" } | null) {
+    if (adminUsersSort.value?.field === sort?.field && adminUsersSort.value?.direction === sort?.direction) return;
+    adminUsersSort.value = sort;
     adminUsersPageNumber.value = 1;
     void loadAdminUsers();
   }
@@ -482,6 +493,7 @@ export function useSettingsPage() {
     adminUsersQuery,
     changeAdminUsersPage,
     changeAdminUsersPageSize,
+    changeAdminUsersSort,
     createAdminUser,
     doclingDraft,
     disableAdminUser,

@@ -67,6 +67,8 @@ impl Database {
     pub async fn list_users(
         &self,
         query: &str,
+        sort_by: Option<&str>,
+        sort_direction: Option<&str>,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<UserRecord>> {
@@ -74,6 +76,8 @@ impl Database {
             UserRow,
             "src/sql/db/auth/list_users.sql",
             query,
+            sort_by,
+            sort_direction,
             limit,
             offset
         )

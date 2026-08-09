@@ -5,7 +5,7 @@ use crate::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
     NamespaceMemberRecord, UpdateGroupInput, UpsertMembershipInput,
 };
-use context69_contracts::{Pagination, SortDirection};
+use context69_contracts::{GroupKind, Pagination, SortDirection, Visibility};
 
 #[derive(Debug, Clone)]
 pub struct PageRequest {
@@ -13,6 +13,8 @@ pub struct PageRequest {
     pub page_size: u32,
     pub query: String,
     pub sort: Option<PageSort>,
+    pub visibility: Option<Visibility>,
+    pub kind: Option<GroupKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

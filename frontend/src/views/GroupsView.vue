@@ -15,6 +15,8 @@ const router = useRouter();
 const { t } = useI18n();
 const showErrorToast = useErrorToast();
 const query = ref("");
+const visibilityFilter = ref<Visibility | null>(null);
+const kindFilter = ref<"shared" | "personal" | null>(null);
 const createDialogVisible = ref(false);
 const createBusy = ref(false);
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -25,6 +27,8 @@ const pageState = useServerPagination<GroupResponse>((request, options) => apiCl
   query: query.value.trim() || undefined,
   sort_by: request.sort?.field as GroupSortBy | undefined,
   sort_direction: request.sort?.direction as "asc" | "desc" | undefined,
+  visibility: visibilityFilter.value ?? undefined,
+  kind: kindFilter.value ?? undefined,
 }, options));
 const error = pageState.error;
 const groups = pageState.items;
@@ -67,6 +71,18 @@ function roleSeverity(role?: string | null) {
   return "neutral";
 }
 
+const visibilityOptions = computed(() => [
+  { label: t("groups.allVisibilities"), value: null },
+  { label: t("groups.visibilityOptions.private"), value: "private" },
+  { label: t("groups.visibilityOptions.public"), value: "public" },
+]);
+
+const kindOptions = computed(() => [
+  { label: t("groups.allKinds"), value: null },
+  { label: t("groups.kindOptions.shared"), value: "shared" },
+  { label: t("groups.kindOptions.personal"), value: "personal" },
+]);
+
 const columns = computed<TableColumn<GroupResponse>[]>(() => [
   { accessorKey: "group_key", header: t("groups.groupKey"), enableSorting: true },
   { accessorKey: "name", header: t("groups.groupName"), enableSorting: true },
@@ -103,6 +119,10 @@ watch(query, () => {
   }, 250);
 });
 
+watch([visibilityFilter, kindFilter], () => {
+  void pageState.load(1);
+});
+
 onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 
@@ -116,7 +136,11 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
   >
     <template #toolbar>
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <UInput v-model="query" class="w-64 max-w-full" icon="i-lucide-search" :placeholder="t('groups.groupName')" />
+        <div class="flex flex-wrap items-center gap-2">
+          <UInput v-model="query" class="w-64 max-w-full" icon="i-lucide-search" :placeholder="t('groups.groupName')" />
+          <USelect :model-value="visibilityFilter" :items="visibilityOptions" value-key="value" class="w-40" :aria-label="t('groups.visibility')" @update:model-value="visibilityFilter = $event as Visibility | null" />
+          <USelect :model-value="kindFilter" :items="kindOptions" value-key="value" class="w-40" :aria-label="t('groups.kind')" @update:model-value="kindFilter = $event as 'shared' | 'personal' | null" />
+        </div>
         <UButton @click="createDialogVisible = true">
           {{ t("groups.create") }}
         </UButton>

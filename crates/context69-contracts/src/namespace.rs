@@ -223,6 +223,10 @@ pub struct NamespacePageQuery {
     pub sort_by: Option<GroupSortBy>,
     #[serde(default)]
     pub sort_direction: Option<crate::SortDirection>,
+    #[serde(default)]
+    pub visibility: Option<Visibility>,
+    #[serde(default)]
+    pub kind: Option<GroupKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 import { useAppConfirm } from "../../composables/use-app-confirm";
@@ -7,7 +7,7 @@ import { useAppConfirm } from "../../composables/use-app-confirm";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
 import TablePagination from "../TablePagination.vue";
 
-import type { AdminUserResponse, Pagination } from "../../services/api";
+import type { AdminUserResponse, AdminUserSortBy, Pagination } from "../../services/api";
 
 const props = defineProps<{
   busy?: boolean;
@@ -26,6 +26,7 @@ const emit = defineEmits<{
   "update:query": [string];
   page: [number];
   "page-size": [number];
+  "sort-change": [{ field: AdminUserSortBy; direction: "asc" | "desc" } | null];
 }>();
 
 const { t } = useI18n();
@@ -43,13 +44,25 @@ const resetUser = ref<AdminUserResponse | null>(null);
 
 const statusLabel = computed(() => (user: AdminUserResponse) => user.disabled_at ? t("adminUsers.disabled") : t("adminUsers.active"));
 const columns = computed<TableColumn<AdminUserResponse>[]>(() => [
-  { accessorKey: "login_name", header: t("adminUsers.loginName") },
-  { accessorKey: "display_name", header: t("adminUsers.displayName") },
+  { accessorKey: "login_name", header: t("adminUsers.loginName"), enableSorting: true },
+  { accessorKey: "display_name", header: t("adminUsers.displayName"), enableSorting: true },
   { id: "is_admin", header: t("adminUsers.isAdmin") },
   { id: "status", header: t("adminUsers.status") },
-  { accessorKey: "created_at", header: t("adminUsers.createdAt") },
+  { accessorKey: "created_at", header: t("adminUsers.createdAt"), enableSorting: true },
   { id: "actions", header: t("common.edit") },
 ]);
+
+const sorting = ref<{ id: string; desc: boolean }[]>([]);
+
+watch(sorting, (value) => {
+  const next = value[0];
+  if (!next) {
+    emit("sort-change", null);
+    return;
+  }
+  if (!["login_name", "display_name", "created_at"].includes(next.id)) return;
+  emit("sort-change", { field: next.id as AdminUserSortBy, direction: next.desc ? "desc" : "asc" });
+});
 function resetCreateForm() {
   loginName.value = "";
   displayName.value = "";
@@ -134,9 +147,11 @@ function confirmEnable(loginNameValue: string) {
 
     <UTable
       class="min-w-0 max-w-full"
+      v-model:sorting="sorting"
       :data="users"
       :columns="columns"
       :loading="busy"
+      :sorting-options="{ manualSorting: true }"
     >
       <template #is_admin-cell="{ row }">
           <UBadge

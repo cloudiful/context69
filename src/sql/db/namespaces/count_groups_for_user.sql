@@ -22,3 +22,5 @@ WHERE (g.visibility = 'public' OR gr.role_rank IS NOT NULL)
     OR g.name ILIKE '%' || BTRIM($2::TEXT) || '%'
     OR g.full_path ILIKE '%' || BTRIM($2::TEXT) || '%'
   )
+  AND ($3::TEXT IS NULL OR g.visibility = $3::TEXT)
+  AND ($4::TEXT IS NULL OR g.kind = $4::TEXT)

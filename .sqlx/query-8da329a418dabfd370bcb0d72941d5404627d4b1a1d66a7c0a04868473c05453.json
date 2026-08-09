@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at\nFROM context69.users\nWHERE (\n       NULLIF(BTRIM($1::TEXT), '') IS NULL\n    OR login_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n    OR display_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n)\nORDER BY login_name\nLIMIT $2 OFFSET $3\n",
+  "query": "SELECT id, login_name, display_name, password_hash, is_admin, disabled_at, created_at, updated_at\nFROM context69.users\nWHERE (\n       NULLIF(BTRIM($1::TEXT), '') IS NULL\n    OR login_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n    OR display_name ILIKE '%' || BTRIM($1::TEXT) || '%'\n)\nORDER BY\n    CASE WHEN $2::TEXT = 'login_name' AND $3::TEXT = 'asc' THEN login_name END ASC NULLS LAST,\n    CASE WHEN $2::TEXT = 'login_name' AND $3::TEXT = 'desc' THEN login_name END DESC NULLS LAST,\n    CASE WHEN $2::TEXT = 'display_name' AND $3::TEXT = 'asc' THEN display_name END ASC NULLS LAST,\n    CASE WHEN $2::TEXT = 'display_name' AND $3::TEXT = 'desc' THEN display_name END DESC NULLS LAST,\n    CASE WHEN $2::TEXT = 'created_at' AND $3::TEXT = 'asc' THEN created_at END ASC NULLS LAST,\n    CASE WHEN $2::TEXT = 'created_at' AND $3::TEXT = 'desc' THEN created_at END DESC NULLS LAST,\n    login_name ASC,\n    id ASC\nLIMIT $4 OFFSET $5\n",
   "describe": {
     "columns": [
       {
@@ -95,6 +95,8 @@
     "parameters": {
       "Left": [
         "Text",
+        "Text",
+        "Text",
         "Int8",
         "Int8"
       ]
@@ -110,5 +112,5 @@
       false
     ]
   },
-  "hash": "743f955a6973c3f04e3591bc5e4eaee75fccbc83f28887700f83589849482a8b"
+  "hash": "8da329a418dabfd370bcb0d72941d5404627d4b1a1d66a7c0a04868473c05453"
 }

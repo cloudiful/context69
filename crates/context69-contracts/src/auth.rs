@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -102,6 +103,24 @@ pub struct AdminUserPageResponse {
     pub pagination: Pagination,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdminUserSortBy {
+    LoginName,
+    DisplayName,
+    CreatedAt,
+}
+
+impl AdminUserSortBy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::LoginName => "login_name",
+            Self::DisplayName => "display_name",
+            Self::CreatedAt => "created_at",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
 #[into_params(parameter_in = Query)]
 pub struct AdminUserPageQuery {
@@ -111,6 +130,10 @@ pub struct AdminUserPageQuery {
     pub page_size: u32,
     #[serde(default)]
     pub query: Option<String>,
+    #[serde(default)]
+    pub sort_by: Option<AdminUserSortBy>,
+    #[serde(default)]
+    pub sort_direction: Option<crate::SortDirection>,
 }
 
 const fn default_page() -> u32 {

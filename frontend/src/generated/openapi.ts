@@ -1342,6 +1342,8 @@ export interface components {
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
+            sort_by?: null | components["schemas"]["AdminUserSortBy"];
+            sort_direction?: null | components["schemas"]["SortDirection"];
         };
         AdminUserPageResponse: {
             items: components["schemas"]["AdminUserResponse"][];
@@ -1360,6 +1362,8 @@ export interface components {
             /** Format: int64 */
             user_id: number;
         };
+        /** @enum {string} */
+        AdminUserSortBy: "login_name" | "display_name" | "created_at";
         ApiErrorResponse: {
             /** @description Stable machine-readable error code for programmatic handling. */
             code: string;
@@ -1998,6 +2002,7 @@ export interface components {
             target_parent_group_path?: string | null;
         };
         NamespacePageQuery: {
+            kind?: null | components["schemas"]["GroupKind"];
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
@@ -2005,6 +2010,7 @@ export interface components {
             query?: string | null;
             sort_by?: null | components["schemas"]["GroupSortBy"];
             sort_direction?: null | components["schemas"]["SortDirection"];
+            visibility?: null | components["schemas"]["Visibility"];
         };
         Pagination: {
             /** Format: int32 */
@@ -2892,6 +2898,8 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 query?: string;
+                sort_by?: components["schemas"]["AdminUserSortBy"];
+                sort_direction?: components["schemas"]["SortDirection"];
             };
             header?: never;
             path?: never;
@@ -3432,6 +3440,8 @@ export interface operations {
                 query?: string;
                 sort_by?: components["schemas"]["GroupSortBy"];
                 sort_direction?: components["schemas"]["SortDirection"];
+                visibility?: components["schemas"]["Visibility"];
+                kind?: components["schemas"]["GroupKind"];
             };
             header?: never;
             path?: never;
@@ -3701,6 +3711,8 @@ export interface operations {
                 query?: string;
                 sort_by?: components["schemas"]["GroupSortBy"];
                 sort_direction?: components["schemas"]["SortDirection"];
+                visibility?: components["schemas"]["Visibility"];
+                kind?: components["schemas"]["GroupKind"];
             };
             header?: never;
             path: {

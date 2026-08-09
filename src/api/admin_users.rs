@@ -7,8 +7,9 @@ use axum::{
 
 use crate::{
     contracts::{
-        AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, ApiErrorResponse,
-        CreateAdminUserRequest, ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
+        AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AdminUserSortBy,
+        ApiErrorResponse, CreateAdminUserRequest, ResetAdminUserPasswordRequest,
+        SortDirection, UpdateAdminUserRequest,
     },
     domain::UserRecord,
 };
@@ -37,6 +38,8 @@ pub(crate) async fn list_admin_users(
             query.page,
             query.page_size,
             query.query.as_deref().unwrap_or_default(),
+            query.sort_by.map(AdminUserSortBy::as_str),
+            query.sort_direction.map(SortDirection::as_str),
         )
         .await
     {

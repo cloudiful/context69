@@ -47,6 +47,8 @@ WHERE (g.visibility = 'public' OR gr.role_rank IS NOT NULL)
     OR g.name ILIKE '%' || BTRIM($2::TEXT) || '%'
     OR g.full_path ILIKE '%' || BTRIM($2::TEXT) || '%'
   )
+  AND ($7::TEXT IS NULL OR g.visibility = $7::TEXT)
+  AND ($8::TEXT IS NULL OR g.kind = $8::TEXT)
 ORDER BY
     CASE WHEN $5::TEXT = 'name' AND $6::TEXT = 'asc' THEN LOWER(g.name) END ASC NULLS LAST,
     CASE WHEN $5::TEXT = 'name' AND $6::TEXT = 'desc' THEN LOWER(g.name) END DESC NULLS LAST,

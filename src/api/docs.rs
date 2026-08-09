@@ -68,7 +68,11 @@ use crate::api::{
     },
 };
 use crate::contracts::{
-    AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, ApiErrorResponse,
+    AdminUserPageQuery,
+    AdminUserPageResponse,
+    AdminUserResponse,
+    AdminUserSortBy,
+    ApiErrorResponse,
     AuthLoginRequest, AuthMeResponse, AuthUserResponse, BatchDocumentItem,
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
     CreateAdminUserRequest, CreateFolderRequest, CreateMetadataIndexRequest,
@@ -208,6 +212,7 @@ use crate::contracts::{
         AdminUserResponse,
         AdminUserPageResponse,
         AdminUserPageQuery,
+        AdminUserSortBy,
         CreateAdminUserRequest,
         UpdateAdminUserRequest,
         ResetAdminUserPasswordRequest,

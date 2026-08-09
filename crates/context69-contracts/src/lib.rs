@@ -12,7 +12,8 @@ pub mod tasks;
 pub mod translation;
 
 pub use auth::{
-    AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AuthLoginRequest, AuthMeResponse,
+    AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AdminUserSortBy, AuthLoginRequest,
+    AuthMeResponse,
     AuthUserResponse, CreateAdminUserRequest, CreatePersonalAccessTokenRequest,
     CreatePersonalAccessTokenResponse, PersonalAccessTokenPageQuery,
     PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,

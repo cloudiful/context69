@@ -6,6 +6,7 @@ export type ApiErrorResponse = Schemas["ApiErrorResponse"];
 export type AdminUserResponse = Schemas["AdminUserResponse"];
 export type AdminUserPageQuery = Schemas["AdminUserPageQuery"];
 export type AdminUserPageResponse = Schemas["AdminUserPageResponse"];
+export type AdminUserSortBy = Schemas["AdminUserSortBy"];
 export type Pagination = Schemas["Pagination"];
 export type AuthLoginRequest = Schemas["AuthLoginRequest"];
 export type AuthMeResponse = Schemas["AuthMeResponse"];

@@ -230,6 +230,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AdminUserSortBy"
+            }
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection"
+            }
           }
         ],
         "responses": {
@@ -894,6 +910,22 @@
             "schema": {
               "$ref": "#/components/schemas/SortDirection"
             }
+          },
+          {
+            "name": "visibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Visibility"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GroupKind"
+            }
           }
         ],
         "responses": {
@@ -1296,6 +1328,22 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/SortDirection"
+            }
+          },
+          {
+            "name": "visibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Visibility"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GroupKind"
             }
           }
         ],
@@ -5053,6 +5101,26 @@
               "string",
               "null"
             ]
+          },
+          "sort_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AdminUserSortBy"
+              }
+            ]
+          },
+          "sort_direction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SortDirection"
+              }
+            ]
           }
         }
       },
@@ -5114,6 +5182,14 @@
             "format": "int64"
           }
         }
+      },
+      "AdminUserSortBy": {
+        "type": "string",
+        "enum": [
+          "login_name",
+          "display_name",
+          "created_at"
+        ]
       },
       "ApiErrorResponse": {
         "type": "object",
@@ -7635,6 +7711,16 @@
       "NamespacePageQuery": {
         "type": "object",
         "properties": {
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GroupKind"
+              }
+            ]
+          },
           "page": {
             "type": "integer",
             "format": "int32",
@@ -7668,6 +7754,16 @@
               },
               {
                 "$ref": "#/components/schemas/SortDirection"
+              }
+            ]
+          },
+          "visibility": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Visibility"
               }
             ]
           }
