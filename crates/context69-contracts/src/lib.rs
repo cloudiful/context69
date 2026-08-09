@@ -50,8 +50,9 @@ pub use mcp::{
 };
 pub use namespace::{
     CreateGroupRequest, GroupKind, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
-    GroupResponse, GroupSearchQuery, MembershipRole, MoveGroupRequest, NamespacePageQuery,
-    UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse, Visibility,
+    GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy, MembershipRole,
+    MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest, UpsertMembershipRequest,
+    UserDirectoryEntryResponse, Visibility,
 };
 pub use search::{
     DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse,
@@ -78,7 +79,8 @@ pub use tasks::{
     RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus,
     TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview,
     TaskMaintenanceSettings, TaskMaintenanceStats, TaskOrigin, TaskPageResponse, TaskProgress,
-    TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus, TaskSubmitRequest,
-    TextBatchRequest, TranslationSubmitItem, UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
+    TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
+    TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem,
+    UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
 };
 pub use translation::*;

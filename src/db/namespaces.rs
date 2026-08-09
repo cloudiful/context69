@@ -120,7 +120,9 @@ impl Database {
             user_id,
             &request.query,
             i64::from(request.page_size),
-            page_offset(request)?
+            page_offset(request)?,
+            request.sort.map(|sort| sort.column),
+            request.sort.map(|sort| sort.direction.as_str())
         )
         .fetch_all(self.pool())
         .await?;
@@ -411,7 +413,9 @@ impl Database {
             group_path,
             &request.query,
             i64::from(request.page_size),
-            page_offset(request)?
+            page_offset(request)?,
+            request.sort.map(|sort| sort.column),
+            request.sort.map(|sort| sort.direction.as_str())
         )
         .fetch_all(self.pool())
         .await?;
@@ -499,7 +503,9 @@ impl Database {
             group_path,
             &request.query,
             i64::from(request.page_size),
-            page_offset(request)?
+            page_offset(request)?,
+            request.sort.map(|sort| sort.column),
+            request.sort.map(|sort| sort.direction.as_str())
         )
         .fetch_all(self.pool())
         .await?;

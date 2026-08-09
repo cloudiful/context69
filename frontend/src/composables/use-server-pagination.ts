@@ -2,8 +2,17 @@ import { onBeforeUnmount, ref } from "vue";
 
 import type { PageRequest, PaginatedResponse, RequestOptions } from "../services/api";
 
+export type ServerListSort = {
+  field: string;
+  direction: "asc" | "desc";
+};
+
+export type ServerListQueryRequest = PageRequest & {
+  sort?: ServerListSort;
+};
+
 export type ServerPageLoader<T> = (
-  request: PageRequest,
+  request: ServerListQueryRequest,
   options?: RequestOptions,
 ) => Promise<PaginatedResponse<T>>;
 
@@ -18,6 +27,7 @@ export function useServerPagination<T>(loader: ServerPageLoader<T>, initialPageS
   const pageSize = ref(initialPageSize);
   const total = ref(0);
   const totalPages = ref(0);
+  const sort = ref<ServerListSort | null>(null);
   const loading = ref(false);
   const error = ref<unknown>(null);
   let requestController: AbortController | null = null;
@@ -32,7 +42,7 @@ export function useServerPagination<T>(loader: ServerPageLoader<T>, initialPageS
 
     try {
       const response = await loader(
-        { page: requestPage, page_size: requestPageSize },
+        { page: requestPage, page_size: requestPageSize, sort: sort.value ?? undefined },
         { signal: requestController.signal },
       );
       if (currentRequest !== requestId) return;
@@ -64,6 +74,20 @@ export function useServerPagination<T>(loader: ServerPageLoader<T>, initialPageS
     void load();
   }
 
+  function changeSort(field: string, direction: "asc" | "desc") {
+    if (sort.value?.field === field && sort.value?.direction === direction) return;
+    sort.value = { field, direction };
+    page.value = 1;
+    void load();
+  }
+
+  function clearSort() {
+    if (!sort.value) return;
+    sort.value = null;
+    page.value = 1;
+    void load();
+  }
+
   function reset() {
     requestController?.abort();
     requestId += 1;
@@ -84,6 +108,8 @@ export function useServerPagination<T>(loader: ServerPageLoader<T>, initialPageS
   return {
     changePage,
     changePageSize,
+    changeSort,
+    clearSort,
     error,
     items,
     load,
@@ -92,6 +118,7 @@ export function useServerPagination<T>(loader: ServerPageLoader<T>, initialPageS
     pageSize,
     pagination,
     reset,
+    sort,
     total,
     totalPages,
   };

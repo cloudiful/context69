@@ -201,6 +201,7 @@ export const en = {
     visibility: "Visibility",
     kind: "Kind",
     currentRole: "Current Role",
+    createdAt: "Created At",
     create: "Create Group",
     editGroup: "Edit Group",
     createFailed: "Failed to create group.",

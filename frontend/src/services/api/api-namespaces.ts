@@ -1,8 +1,12 @@
 import type {
   CreateGroupRequest,
-  NamespacePageQuery,
+  GroupSortBy,
+  MemberPageQuery,
+  MemberSortBy,
   MoveGroupRequest,
+  NamespacePageQuery,
   RequestOptions,
+  SortDirection,
   UpdateGroupRequest,
   UpsertMembershipRequest,
 } from "./api-types";
@@ -13,9 +17,29 @@ type Deps = {
 };
 
 export function createNamespacesApi({ openapiClient, unwrapResponse }: Deps) {
+  function groupQuery(params: NamespacePageQuery) {
+    return {
+      page: params.page,
+      page_size: params.page_size,
+      query: params.query ?? undefined,
+      sort_by: params.sort_by ?? undefined,
+      sort_direction: params.sort_direction ?? undefined,
+    };
+  }
+
+  function memberQuery(params: MemberPageQuery) {
+    return {
+      page: params.page,
+      page_size: params.page_size,
+      query: params.query ?? undefined,
+      sort_by: params.sort_by ?? undefined,
+      sort_direction: params.sort_direction ?? undefined,
+    };
+  }
+
   return {
     listGroups(params: NamespacePageQuery, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/groups", { params: { query: { ...params, query: params.query ?? undefined } }, signal: options?.signal }));
+      return unwrapResponse(openapiClient.GET("/v1/groups", { params: { query: groupQuery(params) }, signal: options?.signal }));
     },
     searchGroups(query: string, limit = 20, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/search", {
@@ -54,13 +78,13 @@ export function createNamespacesApi({ openapiClient, unwrapResponse }: Deps) {
     },
     listChildGroups(groupPath: string, params: NamespacePageQuery, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/children", {
-        params: { path: { group_path: groupPath }, query: { ...params, query: params.query ?? undefined } },
+        params: { path: { group_path: groupPath }, query: groupQuery(params) },
         signal: options?.signal,
       }));
     },
-    listGroupMembers(groupPath: string, params: NamespacePageQuery, options?: RequestOptions) {
+    listGroupMembers(groupPath: string, params: MemberPageQuery, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/members", {
-        params: { path: { group_path: groupPath }, query: { ...params, query: params.query ?? undefined } },
+        params: { path: { group_path: groupPath }, query: memberQuery(params) },
         signal: options?.signal,
       }));
     },

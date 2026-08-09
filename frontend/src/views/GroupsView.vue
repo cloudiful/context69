@@ -4,11 +4,12 @@ import type { TableColumn } from "@nuxt/ui";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
+import AppServerList from "../components/AppServerList.vue";
 import EntityDialog from "../components/EntityDialog.vue";
-import TablePagination from "../components/TablePagination.vue";
-import { apiClient, type GroupResponse, type Visibility } from "../services/api";
+import { apiClient, type GroupResponse, type GroupSortBy, type Visibility } from "../services/api";
 import { useErrorToast } from "../composables/use-error-toast";
 import { useServerPagination } from "../composables/use-server-pagination";
+import { formatTimestamp } from "../utils/format";
 
 const router = useRouter();
 const { t } = useI18n();
@@ -18,9 +19,12 @@ const createDialogVisible = ref(false);
 const createBusy = ref(false);
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
-const pageState = useServerPagination<GroupResponse>((params, options) => apiClient.listGroups({
-  ...params,
+const pageState = useServerPagination<GroupResponse>((request, options) => apiClient.listGroups({
+  page: request.page,
+  page_size: request.page_size,
   query: query.value.trim() || undefined,
+  sort_by: request.sort?.field as GroupSortBy | undefined,
+  sort_direction: request.sort?.direction as "asc" | "desc" | undefined,
 }, options));
 const error = pageState.error;
 const groups = pageState.items;
@@ -57,14 +61,6 @@ function handleGroupSelect(_event: Event, row: { original: GroupResponse }) {
   openGroup(row.original);
 }
 
-function changePage(value: number) {
-  pageState.changePage(value);
-}
-
-function changePageSize(value: number) {
-  pageState.changePageSize(value);
-}
-
 function roleSeverity(role?: string | null) {
   if (role === "owner") return "success";
   if (role === "maintainer") return "info";
@@ -72,12 +68,25 @@ function roleSeverity(role?: string | null) {
 }
 
 const columns = computed<TableColumn<GroupResponse>[]>(() => [
-  { accessorKey: "group_key", header: t("groups.groupKey") },
-  { accessorKey: "name", header: t("groups.groupName") },
+  { accessorKey: "group_key", header: t("groups.groupKey"), enableSorting: true },
+  { accessorKey: "name", header: t("groups.groupName"), enableSorting: true },
   { accessorKey: "visibility", header: t("groups.visibility") },
   { accessorKey: "kind", header: t("groups.kind") },
   { accessorKey: "current_role", header: t("groups.currentRole") },
+  { accessorKey: "created_at", header: t("groups.createdAt"), enableSorting: true },
 ]);
+
+const sorting = ref<{ id: string; desc: boolean }[]>([]);
+
+watch(sorting, (value) => {
+  const next = value[0];
+  if (!next) {
+    pageState.clearSort();
+    return;
+  }
+  if (!["group_key", "name", "created_at"].includes(next.id)) return;
+  pageState.changeSort(next.id, next.desc ? "desc" : "asc");
+});
 
 onMounted(() => {
   void loadGroups();
@@ -98,19 +107,29 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 
 <template>
-  <div class="grid min-w-0 gap-2">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <UInput v-model="query" class="w-64 max-w-full" icon="i-lucide-search" :placeholder="t('groups.groupName')" />
-      <UButton @click="createDialogVisible = true">
-        {{ t("groups.create") }}
-      </UButton>
-    </div>
+  <AppServerList
+    :loading="loading"
+    :pagination="pagination"
+    @retry="loadGroups"
+    @update:page="pageState.changePage"
+    @update:page-size="pageState.changePageSize"
+  >
+    <template #toolbar>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <UInput v-model="query" class="w-64 max-w-full" icon="i-lucide-search" :placeholder="t('groups.groupName')" />
+        <UButton @click="createDialogVisible = true">
+          {{ t("groups.create") }}
+        </UButton>
+      </div>
+    </template>
 
     <UTable
+      v-model:sorting="sorting"
       class="min-w-0 max-w-full"
       :data="groups"
       :columns="columns"
       :loading="loading"
+      :sorting-options="{ manualSorting: true }"
       @select="handleGroupSelect"
     >
       <template #empty>
@@ -120,13 +139,8 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
       <template #visibility-cell="{ row }"><UBadge :label="row.original.visibility" color="neutral" variant="subtle" /></template>
       <template #kind-cell="{ row }"><UBadge :label="row.original.kind" color="neutral" variant="subtle" /></template>
       <template #current_role-cell="{ row }"><UBadge :label="row.original.current_role || '--'" :color="roleSeverity(row.original.current_role)" variant="subtle" /></template>
+      <template #created_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.created_at) }}</span></template>
     </UTable>
-
-    <TablePagination
-      :pagination="pagination"
-      @update:page="changePage"
-      @update:page-size="changePageSize"
-    />
 
     <EntityDialog
       v-model:visible="createDialogVisible"
@@ -138,5 +152,5 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
       :submit-label="t('groups.create')"
       @submit="createGroup"
     />
-  </div>
+  </AppServerList>
 </template>

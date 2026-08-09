@@ -878,6 +878,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GroupSortBy"
+            }
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection"
+            }
           }
         ],
         "responses": {
@@ -1264,6 +1280,22 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GroupSortBy"
+            }
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection"
             }
           }
         ],
@@ -2465,6 +2497,22 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemberSortBy"
+            }
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection"
             }
           }
         ],
@@ -4658,6 +4706,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskSortBy"
+            }
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection"
+            }
           }
         ],
         "responses": {
@@ -6391,6 +6455,16 @@
           }
         }
       },
+      "GroupSortBy": {
+        "type": "string",
+        "enum": [
+          "group_path",
+          "group_key",
+          "name",
+          "created_at",
+          "updated_at"
+        ]
+      },
       "GroupTranslationSettingsResponse": {
         "type": "object",
         "required": [
@@ -7292,6 +7366,55 @@
           }
         }
       },
+      "MemberPageQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sort_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MemberSortBy"
+              }
+            ]
+          },
+          "sort_direction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SortDirection"
+              }
+            ]
+          }
+        }
+      },
+      "MemberSortBy": {
+        "type": "string",
+        "enum": [
+          "login_name",
+          "display_name",
+          "role"
+        ]
+      },
       "MembershipRole": {
         "type": "string",
         "enum": [
@@ -7526,6 +7649,26 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "sort_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GroupSortBy"
+              }
+            ]
+          },
+          "sort_direction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SortDirection"
+              }
             ]
           }
         }
@@ -8875,6 +9018,26 @@
               "null"
             ]
           },
+          "sort_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskSortBy"
+              }
+            ]
+          },
+          "sort_direction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SortDirection"
+              }
+            ]
+          },
           "stage": {
             "type": [
               "string",
@@ -9196,6 +9359,17 @@
             "$ref": "#/components/schemas/TaskRef"
           }
         }
+      },
+      "TaskSortBy": {
+        "type": "string",
+        "enum": [
+          "created_at",
+          "updated_at",
+          "status",
+          "kind",
+          "stage",
+          "group_path"
+        ]
       },
       "TaskStatus": {
         "type": "string",

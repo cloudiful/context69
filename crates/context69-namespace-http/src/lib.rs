@@ -11,8 +11,9 @@ use axum::{
 };
 use context69_contracts::{
     ApiErrorResponse, CreateGroupRequest, GroupMemberPageResponse, GroupMemberResponse,
-    GroupPageResponse, GroupResponse, GroupSearchQuery, MoveGroupRequest, NamespacePageQuery,
-    UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
+    GroupPageResponse, GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery,
+    MemberSortBy, MoveGroupRequest, NamespacePageQuery, SortDirection, UpdateGroupRequest,
+    UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use context69_http_support::{
     AuthenticatedUser, CurrentUser, internal_error_response, json_error_response,
@@ -65,7 +66,7 @@ pub trait NamespaceApi: Send + Sync {
         &self,
         actor: &AuthenticatedUser,
         group_path: &str,
-        query: &NamespacePageQuery,
+        query: &MemberPageQuery,
     ) -> Result<GroupMemberPageResponse>;
     async fn upsert_group_member(
         &self,
@@ -153,6 +154,10 @@ where
             GroupPageResponse,
             GroupMemberPageResponse,
             NamespacePageQuery,
+            MemberPageQuery,
+            GroupSortBy,
+            MemberSortBy,
+            SortDirection,
             GroupSearchQuery,
             CreateGroupRequest,
             UpdateGroupRequest,
@@ -331,12 +336,12 @@ async fn list_child_groups(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path), NamespacePageQuery), responses((status = 200, body = GroupMemberPageResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path), MemberPageQuery), responses((status = 200, body = GroupMemberPageResponse)))]
 async fn list_group_members(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
     Path(group_path): Path<String>,
-    Query(query): Query<NamespacePageQuery>,
+    Query(query): Query<MemberPageQuery>,
 ) -> impl IntoResponse {
     match state
         .namespace

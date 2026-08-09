@@ -5,7 +5,7 @@ import type { TableColumn } from "@nuxt/ui";
 
 import type { Pagination, SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
-import TablePagination from "./TablePagination.vue";
+import AppServerList from "./AppServerList.vue";
 
 const props = defineProps<{
   hits: SearchHit[];
@@ -33,7 +33,12 @@ function selectRow(_event: Event, row: { original: SearchHit }) {
 </script>
 
 <template>
-  <div data-testid="search-results-list">
+  <AppServerList
+    data-testid="search-results-list"
+    :pagination="pagination"
+    @update:page="emit('page', $event)"
+    @update:page-size="emit('page-size', $event)"
+  >
     <UTable
       :data="hits"
       :columns="columns"
@@ -82,12 +87,5 @@ function selectRow(_event: Event, row: { original: SearchHit }) {
           </UButton>
       </template>
     </UTable>
-
-    <TablePagination
-      :pagination="pagination"
-      @update:page="emit('page', $event)"
-      @update:page-size="emit('page-size', $event)"
-    />
-
-  </div>
+  </AppServerList>
 </template>

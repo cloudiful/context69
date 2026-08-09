@@ -156,6 +156,46 @@ pub struct GroupMemberResponse {
     pub role: MembershipRole,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupSortBy {
+    GroupPath,
+    GroupKey,
+    Name,
+    CreatedAt,
+    UpdatedAt,
+}
+
+impl GroupSortBy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GroupPath => "group_path",
+            Self::GroupKey => "group_key",
+            Self::Name => "name",
+            Self::CreatedAt => "created_at",
+            Self::UpdatedAt => "updated_at",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MemberSortBy {
+    LoginName,
+    DisplayName,
+    Role,
+}
+
+impl MemberSortBy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::LoginName => "login_name",
+            Self::DisplayName => "display_name",
+            Self::Role => "role",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserDirectoryEntryResponse {
     pub user_id: i64,
@@ -179,6 +219,25 @@ pub struct NamespacePageQuery {
     pub page_size: u32,
     #[serde(default)]
     pub query: Option<String>,
+    #[serde(default)]
+    pub sort_by: Option<GroupSortBy>,
+    #[serde(default)]
+    pub sort_direction: Option<crate::SortDirection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct MemberPageQuery {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub sort_by: Option<MemberSortBy>,
+    #[serde(default)]
+    pub sort_direction: Option<crate::SortDirection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

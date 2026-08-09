@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT\n        g.id,\n        CASE gm.role\n            WHEN 'owner' THEN 3\n            WHEN 'maintainer' THEN 2\n            ELSE 1\n        END::smallint AS role_rank\n    FROM context69.group_memberships gm\n    JOIN context69.groups g ON g.id = gm.group_id\n    WHERE gm.user_id = $1\n\n    UNION ALL\n\n    SELECT\n        child.id,\n        inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.id\n),\ngroup_roles AS (\n    SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank\n    FROM inherited_groups\n    GROUP BY id\n)\nSELECT\n    g.id AS \"id!\",\n    g.parent_group_id AS \"parent_group_id?\",\n    g.full_path AS \"group_path!\",\n    parent.full_path AS \"parent_group_path?\",\n    g.group_key AS \"group_key!\",\n    g.name AS \"name!\",\n    g.visibility AS \"visibility!\",\n    g.kind AS \"kind!\",\n    g.owner_user_id AS \"owner_user_id?\",\n    g.created_at AS \"created_at!\",\n    g.updated_at AS \"updated_at!\",\n    gr.role_rank AS \"current_role_rank?\"\nFROM context69.groups g\nLEFT JOIN context69.groups parent ON parent.id = g.parent_group_id\nLEFT JOIN group_roles gr ON gr.group_id = g.id\nWHERE (g.visibility = 'public' OR gr.role_rank IS NOT NULL)\n  AND g.parent_group_id IS NULL\n  AND (\n       NULLIF(BTRIM($2::TEXT), '') IS NULL\n    OR g.group_key ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR g.name ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR g.full_path ILIKE '%' || BTRIM($2::TEXT) || '%'\n  )\nORDER BY g.full_path\nLIMIT $3 OFFSET $4\n",
+  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT\n        g.id,\n        CASE gm.role\n            WHEN 'owner' THEN 3\n            WHEN 'maintainer' THEN 2\n            ELSE 1\n        END::smallint AS role_rank\n    FROM context69.group_memberships gm\n    JOIN context69.groups g ON g.id = gm.group_id\n    WHERE gm.user_id = $1\n\n    UNION ALL\n\n    SELECT\n        child.id,\n        inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.id\n),\ngroup_roles AS (\n    SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank\n    FROM inherited_groups\n    GROUP BY id\n)\nSELECT\n    g.id AS \"id!\",\n    g.parent_group_id AS \"parent_group_id?\",\n    g.full_path AS \"group_path!\",\n    parent.full_path AS \"parent_group_path?\",\n    g.group_key AS \"group_key!\",\n    g.name AS \"name!\",\n    g.visibility AS \"visibility!\",\n    g.kind AS \"kind!\",\n    g.owner_user_id AS \"owner_user_id?\",\n    g.created_at AS \"created_at!\",\n    g.updated_at AS \"updated_at!\",\n    gr.role_rank AS \"current_role_rank?\"\nFROM context69.groups g\nLEFT JOIN context69.groups parent ON parent.id = g.parent_group_id\nLEFT JOIN group_roles gr ON gr.group_id = g.id\nWHERE (g.visibility = 'public' OR gr.role_rank IS NOT NULL)\n  AND g.parent_group_id IS NULL\n  AND (\n       NULLIF(BTRIM($2::TEXT), '') IS NULL\n    OR g.group_key ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR g.name ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR g.full_path ILIKE '%' || BTRIM($2::TEXT) || '%'\n  )\nORDER BY\n    CASE WHEN $5::TEXT = 'name' AND $6::TEXT = 'asc' THEN LOWER(g.name) END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'name' AND $6::TEXT = 'desc' THEN LOWER(g.name) END DESC NULLS LAST,\n    CASE WHEN $5::TEXT = 'group_key' AND $6::TEXT = 'asc' THEN g.group_key END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'group_key' AND $6::TEXT = 'desc' THEN g.group_key END DESC NULLS LAST,\n    CASE WHEN $5::TEXT = 'group_path' AND $6::TEXT = 'asc' THEN g.full_path END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'group_path' AND $6::TEXT = 'desc' THEN g.full_path END DESC NULLS LAST,\n    CASE WHEN $5::TEXT = 'created_at' AND $6::TEXT = 'asc' THEN g.created_at END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'created_at' AND $6::TEXT = 'desc' THEN g.created_at END DESC NULLS LAST,\n    CASE WHEN $5::TEXT = 'updated_at' AND $6::TEXT = 'asc' THEN g.updated_at END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'updated_at' AND $6::TEXT = 'desc' THEN g.updated_at END DESC NULLS LAST,\n    g.full_path ASC,\n    g.id ASC\nLIMIT $3 OFFSET $4\n",
   "describe": {
     "columns": [
       {
@@ -136,7 +136,9 @@
         "Int8",
         "Text",
         "Int8",
-        "Int8"
+        "Int8",
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -154,5 +156,5 @@
       null
     ]
   },
-  "hash": "cdc079d40165451153d56711d0d608a3db5885726b8a5e806ae294d0a66ccc45"
+  "hash": "b66b0b035d319a6d458f99bf1a9c164663d0fac036e36c4061822cb11a1c0f10"
 }

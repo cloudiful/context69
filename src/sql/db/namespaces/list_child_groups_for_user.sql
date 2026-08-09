@@ -47,5 +47,17 @@ WHERE parent.full_path = $2
     OR g.name ILIKE '%' || BTRIM($3::TEXT) || '%'
     OR g.full_path ILIKE '%' || BTRIM($3::TEXT) || '%'
   )
-ORDER BY g.group_key
+ORDER BY
+    CASE WHEN $6::TEXT = 'name' AND $7::TEXT = 'asc' THEN LOWER(g.name) END ASC NULLS LAST,
+    CASE WHEN $6::TEXT = 'name' AND $7::TEXT = 'desc' THEN LOWER(g.name) END DESC NULLS LAST,
+    CASE WHEN $6::TEXT = 'group_key' AND $7::TEXT = 'asc' THEN g.group_key END ASC NULLS LAST,
+    CASE WHEN $6::TEXT = 'group_key' AND $7::TEXT = 'desc' THEN g.group_key END DESC NULLS LAST,
+    CASE WHEN $6::TEXT = 'group_path' AND $7::TEXT = 'asc' THEN g.full_path END ASC NULLS LAST,
+    CASE WHEN $6::TEXT = 'group_path' AND $7::TEXT = 'desc' THEN g.full_path END DESC NULLS LAST,
+    CASE WHEN $6::TEXT = 'created_at' AND $7::TEXT = 'asc' THEN g.created_at END ASC NULLS LAST,
+    CASE WHEN $6::TEXT = 'created_at' AND $7::TEXT = 'desc' THEN g.created_at END DESC NULLS LAST,
+    CASE WHEN $6::TEXT = 'updated_at' AND $7::TEXT = 'asc' THEN g.updated_at END ASC NULLS LAST,
+    CASE WHEN $6::TEXT = 'updated_at' AND $7::TEXT = 'desc' THEN g.updated_at END DESC NULLS LAST,
+    g.group_key ASC,
+    g.id ASC
 LIMIT $4 OFFSET $5

@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { apiClient, type TaskKind, type TaskPageResponse, type TaskResponse, type TaskStatus } from "../services/api";
+import { apiClient, type TaskKind, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
 import { useToast } from "@nuxt/ui/composables";
@@ -41,6 +41,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const kindFilter = ref<TaskKind | null>(null);
   const stageFilter = ref<string | null>(null);
   const waitingReasonFilter = ref<string | null>(null);
+  const sort = ref<{ field: TaskSortBy; direction: "asc" | "desc" } | null>(null);
   const actionTaskIds = ref<string[]>([]);
   const bulkAction = ref<"recover" | "cancel" | null>(null);
   let requestController: AbortController | null = null;
@@ -70,6 +71,8 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         status: statusFilter.value,
         stage: stageFilter.value,
         waitingReason: waitingReasonFilter.value,
+        sortBy: sort.value?.field,
+        sortDirection: sort.value?.direction,
       }, { signal: requestController.signal });
       if (currentRequest !== requestId) return;
       items.value = response.items;
@@ -105,6 +108,20 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   function changePageSize(value: number) {
     if (pageSize.value === value) return;
     pageSize.value = value;
+    page.value = 1;
+    void load();
+  }
+
+  function changeSort(field: TaskSortBy, direction: "asc" | "desc") {
+    if (sort.value?.field === field && sort.value?.direction === direction) return;
+    sort.value = { field, direction };
+    page.value = 1;
+    void load();
+  }
+
+  function clearSort() {
+    if (!sort.value) return;
+    sort.value = null;
     page.value = 1;
     void load();
   }
@@ -259,6 +276,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     pageSize,
     searchInput,
     query,
+    sort,
     statusFilter,
     kindFilter,
     stageFilter,
@@ -279,6 +297,8 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     setWaitingReasonFilter: (value: string | null) => setFilter(waitingReasonFilter, value),
     changePage,
     changePageSize,
+    changeSort,
+    clearSort,
     recoverTask,
     cancelTask,
     isActing,

@@ -11,8 +11,9 @@ use chrono::Utc;
 use context69_contracts::{
     CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, ExternalJobInfo,
     GroupResponse, MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse, ScopeSpec,
-    TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskOrigin,
-    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
+    SortDirection, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
+    TaskOrigin, TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse,
+    TaskSortBy, TaskStatus,
 };
 use context69_translation::TranslationService;
 use serde_json::Value;
@@ -168,6 +169,8 @@ impl TaskService {
                 query.stage.as_deref(),
                 query.waiting_reason.as_deref(),
                 query.dependency_key.as_deref(),
+                query.sort_by.map(TaskSortBy::as_str),
+                query.sort_direction.map(SortDirection::as_str),
                 i64::from(bounds.page_size),
                 bounds.offset,
             )

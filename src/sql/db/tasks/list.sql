@@ -59,5 +59,19 @@ WHERE (
   AND ($5::text IS NULL OR task.stage = $5)
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
-ORDER BY task.created_at DESC
-LIMIT $8 OFFSET $9
+ORDER BY
+    CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,
+    CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
+    CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'asc' THEN task.kind END ASC NULLS LAST,
+    CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'desc' THEN task.kind END DESC NULLS LAST,
+    CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'asc' THEN COALESCE(task.stage, '') END ASC NULLS LAST,
+    CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'desc' THEN COALESCE(task.stage, '') END DESC NULLS LAST,
+    CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'asc' THEN COALESCE(task.group_path, '') END ASC NULLS LAST,
+    CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'desc' THEN COALESCE(task.group_path, '') END DESC NULLS LAST,
+    CASE WHEN $8::TEXT = 'created_at' AND $9::TEXT = 'asc' THEN task.created_at END ASC NULLS LAST,
+    CASE WHEN $8::TEXT = 'created_at' AND $9::TEXT = 'desc' THEN task.created_at END DESC NULLS LAST,
+    CASE WHEN $8::TEXT = 'updated_at' AND $9::TEXT = 'asc' THEN task.updated_at END ASC NULLS LAST,
+    CASE WHEN $8::TEXT = 'updated_at' AND $9::TEXT = 'desc' THEN task.updated_at END DESC NULLS LAST,
+    task.created_at DESC,
+    task.id DESC
+LIMIT $10 OFFSET $11

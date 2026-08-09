@@ -331,6 +331,8 @@ impl Database {
         stage: Option<&str>,
         waiting_reason: Option<&str>,
         dependency_key: Option<&str>,
+        sort_by: Option<&str>,
+        sort_direction: Option<&str>,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<StoredTask>> {
@@ -344,6 +346,8 @@ impl Database {
             stage,
             waiting_reason,
             dependency_key,
+            sort_by,
+            sort_direction,
             limit,
             offset
         )

@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use chrono::Utc;
 use context69_contracts::{
     CreateGroupRequest, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
-    GroupResponse, GroupSearchQuery, MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest,
-    UpsertMembershipRequest, UserDirectoryEntryResponse,
+    GroupResponse, GroupSearchQuery, MemberPageQuery, MoveGroupRequest, NamespacePageQuery,
+    SortDirection, UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use context69_http_support::AuthenticatedUser;
-use context69_namespace::PageRequest;
+use context69_namespace::{PageRequest, PageSort};
 use context69_namespace_http::{NamespaceApi, UserDirectoryApi};
 
 use crate::{
@@ -127,11 +127,11 @@ impl NamespaceApi for NamespaceApiAdapter {
         &self,
         actor: &AuthenticatedUser,
         group_path: &str,
-        query: &NamespacePageQuery,
+        query: &MemberPageQuery,
     ) -> anyhow::Result<GroupMemberPageResponse> {
         let page = self
             .service
-            .list_group_members(&to_user_record(actor), group_path, &page_request(query))
+            .list_group_members(&to_user_record(actor), group_path, &member_page_request(query))
             .await?;
         Ok(group_member_page_response(page))
     }
@@ -234,6 +234,22 @@ fn page_request(query: &NamespacePageQuery) -> PageRequest {
         page: query.page,
         page_size: query.page_size,
         query: query.query.clone().unwrap_or_default(),
+        sort: query.sort_by.map(|sort_by| PageSort {
+            column: sort_by.as_str(),
+            direction: query.sort_direction.unwrap_or(SortDirection::Desc),
+        }),
+    }
+}
+
+fn member_page_request(query: &MemberPageQuery) -> PageRequest {
+    PageRequest {
+        page: query.page,
+        page_size: query.page_size,
+        query: query.query.clone().unwrap_or_default(),
+        sort: query.sort_by.map(|sort_by| PageSort {
+            column: sort_by.as_str(),
+            direction: query.sort_direction.unwrap_or(SortDirection::Desc),
+        }),
     }
 }
 

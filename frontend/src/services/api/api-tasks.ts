@@ -11,6 +11,7 @@ import type {
   TaskPageResponse,
   TaskRef,
   TaskRetryResponse,
+  TaskSortBy,
   TaskStatus,
   TaskSubmitRequest,
   UpdateTaskMaintenanceSettingsRequest,
@@ -38,6 +39,8 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
       stage?: string | null;
       waitingReason?: string | null;
       dependencyKey?: string | null;
+      sortBy?: TaskSortBy | null;
+      sortDirection?: "asc" | "desc" | null;
     }, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/tasks", {
         params: {
@@ -50,6 +53,8 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
             stage: params.stage || undefined,
             waiting_reason: params.waitingReason || undefined,
             dependency_key: params.dependencyKey || undefined,
+            sort_by: params.sortBy ?? undefined,
+            sort_direction: params.sortDirection ?? undefined,
           },
         },
         signal: options?.signal,

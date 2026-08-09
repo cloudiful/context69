@@ -1698,6 +1698,8 @@ export interface components {
             limit?: number;
             query?: string;
         };
+        /** @enum {string} */
+        GroupSortBy: "group_path" | "group_key" | "name" | "created_at" | "updated_at";
         GroupTranslationSettingsResponse: {
             default_target_locales: string[];
             enabled: boolean;
@@ -1925,6 +1927,17 @@ export interface components {
         LibraryTreeResponse: {
             root: components["schemas"]["LibraryFolderNode"];
         };
+        MemberPageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+            query?: string | null;
+            sort_by?: null | components["schemas"]["MemberSortBy"];
+            sort_direction?: null | components["schemas"]["SortDirection"];
+        };
+        /** @enum {string} */
+        MemberSortBy: "login_name" | "display_name" | "role";
         /** @enum {string} */
         MembershipRole: "owner" | "maintainer" | "viewer";
         /** @enum {string} */
@@ -1990,6 +2003,8 @@ export interface components {
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
+            sort_by?: null | components["schemas"]["GroupSortBy"];
+            sort_direction?: null | components["schemas"]["SortDirection"];
         };
         Pagination: {
             /** Format: int32 */
@@ -2324,6 +2339,8 @@ export interface components {
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
+            sort_by?: null | components["schemas"]["TaskSortBy"];
+            sort_direction?: null | components["schemas"]["SortDirection"];
             stage?: string | null;
             status?: null | components["schemas"]["TaskStatus"];
             waiting_reason?: string | null;
@@ -2418,6 +2435,8 @@ export interface components {
             retried_items: number;
             task: components["schemas"]["TaskRef"];
         };
+        /** @enum {string} */
+        TaskSortBy: "created_at" | "updated_at" | "status" | "kind" | "stage" | "group_path";
         /** @enum {string} */
         TaskStatus: "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
         TaskSubmitRequest: {
@@ -3411,6 +3430,8 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 query?: string;
+                sort_by?: components["schemas"]["GroupSortBy"];
+                sort_direction?: components["schemas"]["SortDirection"];
             };
             header?: never;
             path?: never;
@@ -3678,6 +3699,8 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 query?: string;
+                sort_by?: components["schemas"]["GroupSortBy"];
+                sort_direction?: components["schemas"]["SortDirection"];
             };
             header?: never;
             path: {
@@ -4546,6 +4569,8 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 query?: string;
+                sort_by?: components["schemas"]["MemberSortBy"];
+                sort_direction?: components["schemas"]["SortDirection"];
             };
             header?: never;
             path: {
@@ -6238,6 +6263,8 @@ export interface operations {
                 stage?: string;
                 waiting_reason?: string;
                 dependency_key?: string;
+                sort_by?: components["schemas"]["TaskSortBy"];
+                sort_direction?: components["schemas"]["SortDirection"];
             };
             header?: never;
             path?: never;

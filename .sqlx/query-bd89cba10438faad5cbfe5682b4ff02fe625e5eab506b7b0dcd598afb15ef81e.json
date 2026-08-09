@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    u.id AS \"user_id!\",\n    u.login_name,\n    u.display_name,\n    gm.role\nFROM context69.group_memberships gm\nJOIN context69.users u ON u.id = gm.user_id\nJOIN context69.groups g ON g.id = gm.group_id\nWHERE g.full_path = $1\n  AND (\n       NULLIF(BTRIM($2::TEXT), '') IS NULL\n    OR u.login_name ILIKE '%' || BTRIM($2::TEXT) || '%'\n    OR u.display_name ILIKE '%' || BTRIM($2::TEXT) || '%'\n  )\nORDER BY\n    CASE WHEN $5::TEXT = 'login_name' AND $6::TEXT = 'asc' THEN u.login_name END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'login_name' AND $6::TEXT = 'desc' THEN u.login_name END DESC NULLS LAST,\n    CASE WHEN $5::TEXT = 'display_name' AND $6::TEXT = 'asc' THEN u.display_name END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'display_name' AND $6::TEXT = 'desc' THEN u.display_name END DESC NULLS LAST,\n    CASE WHEN $5::TEXT = 'role' AND $6::TEXT = 'asc'\n        THEN CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END\n    END ASC NULLS LAST,\n    CASE WHEN $5::TEXT = 'role' AND $6::TEXT = 'desc'\n        THEN CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END\n    END DESC NULLS LAST,\n    u.login_name ASC,\n    u.id ASC\nLIMIT $3 OFFSET $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "login_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.users",
+            "name": "login_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.group_memberships",
+            "name": "role"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bd89cba10438faad5cbfe5682b4ff02fe625e5eab506b7b0dcd598afb15ef81e"
+}

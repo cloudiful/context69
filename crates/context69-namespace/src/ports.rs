@@ -5,13 +5,20 @@ use crate::{
     AccessScope, CreateGroupInput, GroupRecord, MoveGroupInput, NamespaceActor,
     NamespaceMemberRecord, UpdateGroupInput, UpsertMembershipInput,
 };
-use context69_contracts::Pagination;
+use context69_contracts::{Pagination, SortDirection};
 
 #[derive(Debug, Clone)]
 pub struct PageRequest {
     pub page: u32,
     pub page_size: u32,
     pub query: String,
+    pub sort: Option<PageSort>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageSort {
+    pub column: &'static str,
+    pub direction: SortDirection,
 }
 
 #[derive(Debug, Clone)]

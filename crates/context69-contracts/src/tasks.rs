@@ -173,6 +173,30 @@ pub struct TaskItemResponse {
     pub external_job: Option<ExternalJobInfo>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskSortBy {
+    CreatedAt,
+    UpdatedAt,
+    Status,
+    Kind,
+    Stage,
+    GroupPath,
+}
+
+impl TaskSortBy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CreatedAt => "created_at",
+            Self::UpdatedAt => "updated_at",
+            Self::Status => "status",
+            Self::Kind => "kind",
+            Self::Stage => "stage",
+            Self::GroupPath => "group_path",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
 #[into_params(parameter_in = Query)]
 pub struct TaskListQuery {
@@ -192,6 +216,10 @@ pub struct TaskListQuery {
     pub waiting_reason: Option<String>,
     #[serde(default)]
     pub dependency_key: Option<String>,
+    #[serde(default)]
+    pub sort_by: Option<TaskSortBy>,
+    #[serde(default)]
+    pub sort_direction: Option<crate::SortDirection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

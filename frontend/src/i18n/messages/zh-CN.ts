@@ -201,6 +201,7 @@ export const zhCN = {
     visibility: "可见性",
     kind: "类型",
     currentRole: "当前角色",
+    createdAt: "创建时间",
     create: "创建群组",
     editGroup: "编辑群组",
     createFailed: "创建群组失败。",

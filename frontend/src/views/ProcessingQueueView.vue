@@ -3,12 +3,11 @@ import { computed, onBeforeUnmount, onMounted, proxyRefs, ref, watch } from "vue
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
-import AsyncStateBlock from "../components/AsyncStateBlock.vue";
-import TablePagination from "../components/TablePagination.vue";
+import AppServerList from "../components/AppServerList.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
 import { useTaskMaintenance } from "../composables/use-task-maintenance";
 import { apiClient } from "../services/api";
-import type { TaskItemResponse, TaskKind, TaskResponse, TaskStatus } from "../services/api";
+import type { TaskItemResponse, TaskKind, TaskResponse, TaskSortBy, TaskStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
 
 const { t } = useI18n();
@@ -24,6 +23,18 @@ const expandedRows = ref<Record<string, boolean>>({});
 const expandedItems = ref<Record<string, TaskItemResponse[] | null>>({});
 const expandedError = ref<Record<string, string | null>>({});
 const expandingTaskId = ref<string | null>(null);
+
+const sorting = ref<{ id: string; desc: boolean }[]>([]);
+
+watch(sorting, (value) => {
+  const next = value[0];
+  if (!next) {
+    queue.clearSort();
+    return;
+  }
+  if (!["kind", "group_path", "status", "stage", "updated_at"].includes(next.id)) return;
+  queue.changeSort(next.id as TaskSortBy, next.desc ? "desc" : "asc");
+});
 
 async function toggleExpand(row: { original: TaskResponse; id: string }) {
   const taskId = row.original.task_id;
@@ -132,14 +143,14 @@ const waitingReasonOptions = computed(() => [
 const columns = computed<TableColumn<TaskResponse>[]>(() => [
   { id: "expand", enableHiding: false },
   { accessorKey: "task_id", header: t("processingQueue.task") },
-  { accessorKey: "kind", header: t("processingQueue.type") },
-  { accessorKey: "group_path", header: t("processingQueue.group") },
-  { accessorKey: "status", header: t("processingQueue.status") },
-  { accessorKey: "stage", header: t("processingQueue.stage") },
+  { accessorKey: "kind", header: t("processingQueue.type"), enableSorting: true },
+  { accessorKey: "group_path", header: t("processingQueue.group"), enableSorting: true },
+  { accessorKey: "status", header: t("processingQueue.status"), enableSorting: true },
+  { accessorKey: "stage", header: t("processingQueue.stage"), enableSorting: true },
   { id: "waiting", header: t("processingQueue.waiting") },
   { id: "progress", header: t("processingQueue.progress") },
   { id: "error", header: t("processingQueue.error") },
-  { accessorKey: "updated_at", header: t("processingQueue.updatedAt") },
+  { accessorKey: "updated_at", header: t("processingQueue.updatedAt"), enableSorting: true },
   { id: "actions", header: t("processingQueue.actions") },
 ]);
 
@@ -188,42 +199,48 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
 
 <template>
   <section class="flex h-full min-h-0 min-w-0 flex-col gap-3">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
-      <div class="flex flex-wrap items-center justify-end gap-2">
-        <UButton v-if="queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
-        <UButton v-if="queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
-        <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
-      </div>
-    </div>
-
-    <div class="flex flex-wrap items-center gap-2">
-      <form class="flex min-w-64 max-w-full flex-1 gap-2" @submit.prevent="queue.submitSearch">
-        <UInput v-model="queue.searchInput" class="min-w-0 flex-1" icon="i-lucide-search" :placeholder="t('processingQueue.searchPlaceholder')" />
-        <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-search" :aria-label="t('processingQueue.searchHint')" />
-      </form>
-      <USelect :model-value="queue.statusFilter" :items="statusOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.statusFilter')" @update:model-value="queue.setStatusFilter($event as TaskStatus | null)" />
-      <USelect :model-value="queue.kindFilter" :items="kindOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.kindFilter')" @update:model-value="queue.setKindFilter($event as TaskKind | null)" />
-      <USelect :model-value="queue.stageFilter" :items="stageOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.stageFilter')" @update:model-value="queue.setStageFilter($event as string | null)" />
-      <USelect :model-value="queue.waitingReasonFilter" :items="waitingReasonOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.waitingReasonFilter')" @update:model-value="queue.setWaitingReasonFilter($event as string | null)" />
-    </div>
-
-    <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />
-    <div class="min-h-0 flex-1 overflow-auto">
-      <AsyncStateBlock :loading="queue.loading && !queue.items.length" :error="queue.items.length ? null : queue.error" :loading-title="t('common.loading')">
-        <template #error>
-          <div class="grid justify-items-center gap-3 py-12 text-center">
-            <UAlert color="error" variant="subtle" :title="t('processingQueue.loadFailed')" :description="queue.error || undefined" />
-            <UButton color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :label="t('common.retry')" @click="queue.refresh" />
+    <AppServerList
+      class="min-h-0 flex-1 overflow-auto"
+      :loading="queue.loading && !queue.items.length"
+      :error="queue.items.length ? null : queue.error"
+      :pagination="queue.pagination"
+      @retry="queue.refresh"
+      @update:page="queue.changePage($event)"
+      @update:page-size="queue.changePageSize($event)"
+    >
+      <template #toolbar>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <UButton v-if="queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
+            <UButton v-if="queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
+            <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
           </div>
-        </template>
-        <UTable
-          class="min-w-[88rem]"
-          v-model:expanded="expandedRows"
-          :data="queue.items"
-          :columns="columns"
-          :loading="queue.loading"
-        >
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <form class="flex min-w-64 max-w-full flex-1 gap-2" @submit.prevent="queue.submitSearch">
+            <UInput v-model="queue.searchInput" class="min-w-0 flex-1" icon="i-lucide-search" :placeholder="t('processingQueue.searchPlaceholder')" />
+            <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-search" :aria-label="t('processingQueue.searchHint')" />
+          </form>
+          <USelect :model-value="queue.statusFilter" :items="statusOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.statusFilter')" @update:model-value="queue.setStatusFilter($event as TaskStatus | null)" />
+          <USelect :model-value="queue.kindFilter" :items="kindOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.kindFilter')" @update:model-value="queue.setKindFilter($event as TaskKind | null)" />
+          <USelect :model-value="queue.stageFilter" :items="stageOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.stageFilter')" @update:model-value="queue.setStageFilter($event as string | null)" />
+          <USelect :model-value="queue.waitingReasonFilter" :items="waitingReasonOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.waitingReasonFilter')" @update:model-value="queue.setWaitingReasonFilter($event as string | null)" />
+        </div>
+
+        <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />
+      </template>
+
+      <UTable
+        v-model:sorting="sorting"
+        class="min-w-[88rem]"
+        v-model:expanded="expandedRows"
+        :data="queue.items"
+        :columns="columns"
+        :loading="queue.loading"
+        :sorting-options="{ manualSorting: true }"
+      >
           <template #expand-cell="{ row }">
             <UButton
               variant="ghost"
@@ -281,9 +298,7 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
             </div>
           </template>
         </UTable>
-      </AsyncStateBlock>
-    </div>
-    <TablePagination :pagination="queue.pagination" @update:page="queue.changePage($event)" @update:page-size="queue.changePageSize($event)" />
+      </AppServerList>
 
     <section v-if="maintenance.isAdmin" class="flex flex-col gap-3 rounded-lg border border-default/70 p-3">
       <div class="flex flex-wrap items-center justify-between gap-2">

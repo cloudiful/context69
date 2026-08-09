@@ -7,6 +7,8 @@ import {
   type GroupMemberResponse,
   type GroupPageResponse,
   type GroupResponse,
+  type MemberPageQuery,
+  type MemberSortBy,
   type NamespacePageQuery,
 } from "../services/api";
 
@@ -34,9 +36,20 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
   const pageSize = ref(50);
   const membersSearch = ref("");
   const childrenSearch = ref("");
+  const membersSort = ref<{ field: MemberSortBy; direction: "asc" | "desc" } | null>(null);
 
   function pageQuery(page: number, query: string): NamespacePageQuery {
     return { page, page_size: pageSize.value, query: query.trim() || undefined };
+  }
+
+  function membersPageQuery(page: number, query: string): MemberPageQuery {
+    return {
+      page,
+      page_size: pageSize.value,
+      query: query.trim() || undefined,
+      sort_by: membersSort.value?.field,
+      sort_direction: membersSort.value?.direction,
+    };
   }
 
   async function loadChildrenPage() {
@@ -51,7 +64,7 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
   async function loadMembersPage() {
     const response = await apiClient.listGroupMembers(
       groupPath.value,
-      pageQuery(membersPageNumber.value, membersSearch.value),
+      membersPageQuery(membersPageNumber.value, membersSearch.value),
     );
     membersPage.value = response;
     members.value = response.items;
@@ -62,6 +75,7 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
     membersPageNumber.value = 1;
     childrenSearch.value = "";
     membersSearch.value = "";
+    membersSort.value = null;
     childrenPage.value = emptyGroupPage();
     membersPage.value = emptyMemberPage();
     childGroups.value = [];
@@ -75,6 +89,20 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
 
   function changeMembersPage(page: number) {
     membersPageNumber.value = page;
+    void loadMembersPage().catch((error) => showErrorToast(error, t("groups.membersFailed")));
+  }
+
+  function changeMembersSort(field: MemberSortBy, direction: "asc" | "desc") {
+    if (membersSort.value?.field === field && membersSort.value?.direction === direction) return;
+    membersSort.value = { field, direction };
+    membersPageNumber.value = 1;
+    void loadMembersPage().catch((error) => showErrorToast(error, t("groups.membersFailed")));
+  }
+
+  function clearMembersSort() {
+    if (!membersSort.value) return;
+    membersSort.value = null;
+    membersPageNumber.value = 1;
     void loadMembersPage().catch((error) => showErrorToast(error, t("groups.membersFailed")));
   }
 
@@ -99,6 +127,8 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
   return {
     changeChildrenPage,
     changeMembersPage,
+    changeMembersSort,
+    clearMembersSort,
     changePageSize,
     childGroups,
     childrenPage,
@@ -110,6 +140,7 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
     membersPage,
     membersPageNumber,
     membersSearch,
+    membersSort,
     pageSize,
     reset,
   };

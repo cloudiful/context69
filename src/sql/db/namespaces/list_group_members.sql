@@ -12,5 +12,17 @@ WHERE g.full_path = $1
     OR u.login_name ILIKE '%' || BTRIM($2::TEXT) || '%'
     OR u.display_name ILIKE '%' || BTRIM($2::TEXT) || '%'
   )
-ORDER BY u.login_name
+ORDER BY
+    CASE WHEN $5::TEXT = 'login_name' AND $6::TEXT = 'asc' THEN u.login_name END ASC NULLS LAST,
+    CASE WHEN $5::TEXT = 'login_name' AND $6::TEXT = 'desc' THEN u.login_name END DESC NULLS LAST,
+    CASE WHEN $5::TEXT = 'display_name' AND $6::TEXT = 'asc' THEN u.display_name END ASC NULLS LAST,
+    CASE WHEN $5::TEXT = 'display_name' AND $6::TEXT = 'desc' THEN u.display_name END DESC NULLS LAST,
+    CASE WHEN $5::TEXT = 'role' AND $6::TEXT = 'asc'
+        THEN CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END
+    END ASC NULLS LAST,
+    CASE WHEN $5::TEXT = 'role' AND $6::TEXT = 'desc'
+        THEN CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END
+    END DESC NULLS LAST,
+    u.login_name ASC,
+    u.id ASC
 LIMIT $3 OFFSET $4

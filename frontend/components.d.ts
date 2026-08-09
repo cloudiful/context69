@@ -18,6 +18,7 @@ declare module 'vue' {
     AppNumberField: typeof import('./src/components/AppNumberField.vue')['default']
     AppRouteBreadcrumbs: typeof import('./src/components/AppRouteBreadcrumbs.vue')['default']
     AppSelectField: typeof import('./src/components/AppSelectField.vue')['default']
+    AppServerList: typeof import('./src/components/AppServerList.vue')['default']
     AppSettingsBlock: typeof import('./src/components/AppSettingsBlock.vue')['default']
     AppSettingsSection: typeof import('./src/components/AppSettingsSection.vue')['default']
     AppSidebar: typeof import('./src/components/AppSidebar.vue')['default']

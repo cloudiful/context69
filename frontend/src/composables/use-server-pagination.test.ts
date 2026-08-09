@@ -63,7 +63,7 @@ describe("useServerPagination", () => {
     state.changePage(2);
     await flushPromises();
     expect(loader).toHaveBeenLastCalledWith(
-      { page: 2, page_size: 50 },
+      { page: 2, page_size: 50, sort: undefined },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -72,9 +72,90 @@ describe("useServerPagination", () => {
     expect(state.page.value).toBe(1);
     expect(state.pageSize.value).toBe(25);
     expect(loader).toHaveBeenLastCalledWith(
-      { page: 1, page_size: 25 },
+      { page: 1, page_size: 25, sort: undefined },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    wrapper.unmount();
+  });
+
+  it("resets to the first page and reloads when the sort changes", async () => {
+    const loader = vi.fn<ServerPageLoader<number>>()
+      .mockResolvedValueOnce(response(1, 50, [1, 2], 102))
+      .mockResolvedValueOnce(response(1, 50, [2, 1], 102));
+    let state!: ReturnType<typeof useServerPagination<number>>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useServerPagination(loader);
+        return {};
+      },
+      template: "<div />",
+    }));
+
+    await state.load();
+    state.changePage(2);
+    await flushPromises();
+    state.changeSort("name", "asc");
+    await flushPromises();
+
+    expect(state.page.value).toBe(1);
+    expect(state.sort.value).toEqual({ field: "name", direction: "asc" });
+    expect(loader).toHaveBeenLastCalledWith(
+      { page: 1, page_size: 50, sort: { field: "name", direction: "asc" } },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("ignores a duplicate sort change", async () => {
+    const loader = vi.fn<ServerPageLoader<number>>()
+      .mockResolvedValue(response(1, 50, [1]));
+    let state!: ReturnType<typeof useServerPagination<number>>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useServerPagination(loader);
+        return {};
+      },
+      template: "<div />",
+    }));
+
+    await state.load();
+    state.changeSort("name", "asc");
+    await flushPromises();
+    const callsAfterFirstSort = loader.mock.calls.length;
+    state.changeSort("name", "asc");
+    await flushPromises();
+    expect(loader.mock.calls.length).toBe(callsAfterFirstSort);
+    wrapper.unmount();
+  });
+
+  it("clears the sort back to the server default", async () => {
+    const loader = vi.fn<ServerPageLoader<number>>()
+      .mockResolvedValue(response(1, 50, [2, 1]));
+    let state!: ReturnType<typeof useServerPagination<number>>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useServerPagination(loader);
+        return {};
+      },
+      template: "<div />",
+    }));
+
+    await state.load();
+    state.changeSort("name", "asc");
+    await flushPromises();
+    state.clearSort();
+    await flushPromises();
+
+    expect(state.sort.value).toBeNull();
+    expect(state.page.value).toBe(1);
+    expect(loader).toHaveBeenLastCalledWith(
+      { page: 1, page_size: 50, sort: undefined },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    state.clearSort();
+    await flushPromises();
+    const callsAfterClear = loader.mock.calls.length;
+    expect(loader.mock.calls.length).toBe(callsAfterClear);
     wrapper.unmount();
   });
 
