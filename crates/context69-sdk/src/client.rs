@@ -11,13 +11,15 @@ use crate::Error;
 pub use facade::{
     AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CompactSearchHit,
     CompactSearchResponse, CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse,
-    DocumentKey, DocumentResponse, EnsureScopeResponse, FileBatchItem, FileBatchRequest,
+    DocumentKey, DocumentResponse, EnsureScopeResponse, ExtractionDirective, ExtractionJobsResponse,
+    ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
     FileMetadata, GroupKind, GroupResponse, HealthResponse, MetadataDataType, MetadataFilter,
-    MetadataFilterOperator, MetadataValueKind, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec,
-    SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
-    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskStatus,
-    TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective, TranslationStatus,
-    UrlBatchItem, UrlBatchRequest, Visibility, WaitOptions,
+    MetadataFilterOperator, MetadataValueKind, RebuildDocumentExtractionsRequest, RerunTaskResponse,
+    ScopeMetadataIndex, ScopeSpec, SearchRequest, TaskItemResponse, TaskItemStatus,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskPageResponse, TaskProgress, TaskRef,
+    TaskResponse, TaskRetryResponse, TaskStatus, TextBatchItem, TextBatchRequest,
+    TextContentFormat, TranslationDirective, TranslationStatus, UrlBatchItem, UrlBatchRequest,
+    Visibility, WaitOptions,
 };
 
 pub(crate) const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";
