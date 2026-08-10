@@ -6,7 +6,7 @@ import { useI18n } from "vue-i18n";
 
 import AppServerList from "../components/AppServerList.vue";
 import EntityDialog from "../components/EntityDialog.vue";
-import { apiClient, type GroupResponse, type GroupSortBy, type Visibility } from "../services/api";
+import { apiClient, type GroupKind, type GroupResponse, type GroupSortBy, type Visibility } from "../services/api";
 import { useErrorToast } from "../composables/use-error-toast";
 import { useServerPagination } from "../composables/use-server-pagination";
 import { formatTimestamp } from "../utils/format";
@@ -16,7 +16,7 @@ const { t } = useI18n();
 const showErrorToast = useErrorToast();
 const query = ref("");
 const visibilityFilter = ref<Visibility | null>(null);
-const kindFilter = ref<"shared" | "personal" | null>(null);
+const kindFilter = ref<GroupKind | null>(null);
 const createDialogVisible = ref(false);
 const createBusy = ref(false);
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -115,11 +115,13 @@ watch(error, (cause) => {
 watch(query, () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
+    pageState.page.value = 1;
     void pageState.load(1);
   }, 250);
 });
 
 watch([visibilityFilter, kindFilter], () => {
+  pageState.page.value = 1;
   void pageState.load(1);
 });
 
@@ -139,7 +141,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
         <div class="flex flex-wrap items-center gap-2">
           <UInput v-model="query" class="w-64 max-w-full" icon="i-lucide-search" :placeholder="t('groups.groupName')" />
           <USelect :model-value="visibilityFilter" :items="visibilityOptions" value-key="value" class="w-40" :aria-label="t('groups.visibility')" @update:model-value="visibilityFilter = $event as Visibility | null" />
-          <USelect :model-value="kindFilter" :items="kindOptions" value-key="value" class="w-40" :aria-label="t('groups.kind')" @update:model-value="kindFilter = $event as 'shared' | 'personal' | null" />
+          <USelect :model-value="kindFilter" :items="kindOptions" value-key="value" class="w-40" :aria-label="t('groups.kind')" @update:model-value="kindFilter = $event as GroupKind | null" />
         </div>
         <UButton @click="createDialogVisible = true">
           {{ t("groups.create") }}
