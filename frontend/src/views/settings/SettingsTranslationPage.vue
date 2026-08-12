@@ -118,7 +118,10 @@ function usageLabel(provider: ProviderDraft) {
 </script>
 
 <template>
-  <AppSettingsSection :legend="t('settings.translation.title')">
+  <AppSettingsSection
+    :legend="t('settings.translation.title')"
+    :description="t('settings.translation.description')"
+  >
     <UTable class="min-w-0 max-w-full" :data="visibleProviders" :columns="columns" :loading="providerLoading">
       <template #provider-cell="{ row }"><strong>{{ providerLabels[row.original.provider as keyof typeof providerLabels] }}</strong></template>
       <template #enabled-cell="{ row }"><USwitch :id="`translation-${row.original.provider}-enabled`" v-model="row.original.enabled" /></template>
@@ -140,9 +143,12 @@ function usageLabel(provider: ProviderDraft) {
       @update:page-size="changeProviderPageSize"
     />
 
-    <UModal v-model:open="dialogVisible"  :title="editing ? providerLabels[editing.provider] : ''" class="w-[38rem] max-w-[96vw]">
+    <UModal v-model:open="dialogVisible" :title="editing ? providerLabels[editing.provider] : ''" class="w-[38rem] max-w-[96vw]">
     <template #body>
 <div v-if="editing" class="grid gap-3">
+        <p v-if="editing.provider === 'llm'" class="text-sm leading-6 text-muted-color">
+          {{ t('settings.translation.llmDescription') }}
+        </p>
         <AppTextField v-model="editing.endpoint" :input-id="`translation-${editing.provider}-endpoint`" :label="t('settings.translation.endpoint')" type="url" />
         <AppTextField v-model="editing.api_key" :input-id="`translation-${editing.provider}-api-key`" :label="t('settings.translation.apiKey')" type="password" autocomplete="new-password" :placeholder="editing.has_api_key ? t('settings.translation.keyStored') : ''" />
         <AppTextField v-if="editing.provider === 'llm'" v-model="editing.model" input-id="translation-llm-model" :label="t('settings.translation.model')" />

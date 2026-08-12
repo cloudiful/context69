@@ -21,7 +21,7 @@ use crate::contracts::{
 };
 use crate::services::tasks::TaskSubmission;
 
-#[utoipa::path(get, path = "/v1/settings/translation", responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/settings/translation", description = "Get translation providers. The LLM provider is also used by document extraction and enrichment jobs.", responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
 pub(crate) async fn get_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -55,7 +55,7 @@ pub(crate) async fn list_translation_providers(
     }
 }
 
-#[utoipa::path(put, path = "/v1/settings/translation", request_body = UpdateTranslationSettingsRequest, responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
+#[utoipa::path(put, path = "/v1/settings/translation", description = "Update translation providers. The LLM provider settings apply to document extraction and enrichment jobs as well as translation.", request_body = UpdateTranslationSettingsRequest, responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
 pub(crate) async fn update_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,

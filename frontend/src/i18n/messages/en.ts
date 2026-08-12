@@ -98,7 +98,7 @@ export const en = {
       file_batch: "File",
       url_batch: "URL",
       delete_batch: "Delete",
-      translation: "Translation",
+      translation: "Translation and enrichment",
       vector_rebuild: "Vector rebuild",
     },
     waitingReasons: {
@@ -546,7 +546,7 @@ export const en = {
       runtime: "Runtime",
       docling: "Docling",
       docling_poll: "Docling Poll",
-      translation: "Translation",
+      translation: "Translation and enrichment",
       adminUsers: "Admin Users",
     },
     hints: {
@@ -632,7 +632,9 @@ export const en = {
       clearApiKey: "Clear stored rerank key on save",
     },
     translation: {
-      title: "Translation",
+      title: "Translation and document enrichment",
+      description: "The LLM configuration here is shared by document translation, news enrichment, and disclosure enrichment. New jobs use the updated endpoint, model, and API kind.",
+      llmDescription: "This LLM provider is shared by translation and document enrichment, including news summaries, tags, impact judgments, and structured disclosure extraction.",
       enabled: "Enabled",
       endpoint: "Endpoint",
       apiKey: "API Key",

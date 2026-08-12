@@ -98,7 +98,7 @@ export const zhCN = {
       file_batch: "文件",
       url_batch: "URL",
       delete_batch: "删除",
-      translation: "翻译",
+      translation: "翻译与富化",
       vector_rebuild: "向量重建",
     },
     waitingReasons: {
@@ -546,7 +546,7 @@ export const zhCN = {
       runtime: "运行时",
       docling: "Docling",
       docling_poll: "Docling 轮询",
-      translation: "翻译",
+      translation: "翻译与富化",
       adminUsers: "管理员用户",
     },
     hints: {
@@ -632,7 +632,9 @@ export const zhCN = {
       clearApiKey: "保存时清空已保存重排 key",
     },
     translation: {
-      title: "翻译",
+      title: "翻译与文档富化",
+      description: "这里的 LLM 配置同时用于文档翻译、新闻富化和信息披露富化。修改后，新任务会使用新的服务地址、模型和 API 类型。",
+      llmDescription: "LLM Provider 同时服务翻译和文档富化，包括新闻摘要、标签、影响判断及信息披露结构化抽取。",
       enabled: "启用",
       endpoint: "服务地址",
       apiKey: "API Key",
