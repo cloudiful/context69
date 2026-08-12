@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT CASE\n           WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n           ELSE item.payload\n       END AS payload,\n       item.stage,\n       item.file_id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.task_id = $1\n  AND item.status <> 'succeeded'\nORDER BY item.ordinal\n",
+  "query": "SELECT CASE\n           WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n           ELSE item.payload\n       END AS payload,\n       item.stage,\n       item.file_id,\n       item.input_storage_object_id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.task_id = $1\n  AND item.status <> 'succeeded'\nORDER BY item.ordinal\n",
   "describe": {
     "columns": [
       {
@@ -30,6 +30,17 @@
             "name": "file_id"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "input_storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "input_storage_object_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -40,8 +51,9 @@
     "nullable": [
       null,
       true,
+      true,
       true
     ]
   },
-  "hash": "6e4fbffbd0509dca333cfa754321e53b71e50dcb1138ad6f860295b4db477190"
+  "hash": "d340e0a8b40d926397f586e684781aba4a8f947d9b45a411d5a4f2998d976074"
 }

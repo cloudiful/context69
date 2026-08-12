@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_storage_objects\nSET staging_lease_until = now() + interval '24 hours',\n    updated_at = now()\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4ae415d236e8dc76745f8f13a8f3006c0d1aa9a773403603862ea33f384e118"
+}

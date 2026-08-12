@@ -139,6 +139,7 @@ pub(crate) async fn read_library_uploads(
             metadata: options.as_ref().map(|value| value.metadata.clone()),
             translation: options.as_ref().and_then(|value| value.translation.clone()),
             extraction: options.as_ref().and_then(|value| value.extraction.clone()),
+            staged_storage_object_id: None,
         });
     }
 

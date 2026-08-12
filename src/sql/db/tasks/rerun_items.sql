@@ -3,7 +3,8 @@ SELECT CASE
            ELSE item.payload
        END AS payload,
        item.stage,
-       item.file_id
+       item.file_id,
+       item.input_storage_object_id
 FROM context69.task_items item
 JOIN context69.tasks task ON task.id = item.task_id
 WHERE item.task_id = $1

@@ -52,6 +52,7 @@ pub(crate) async fn import_group_library_file_url(
                 Ok(payload) => payload,
                 Err(error) => return library_management_error_response(error.into()),
             }],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )
@@ -123,6 +124,7 @@ pub(crate) async fn prepare_group_library_upload(
             source_key: None,
             kind: TaskKind::FileBatch,
             payloads: vec![json!({"file_id": file.file_id})],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         })
         .await
@@ -273,6 +275,7 @@ pub(crate) async fn create_group_library_text(
             source_key: None,
             kind: TaskKind::TextBatch,
             payloads: vec![payload],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )
@@ -317,6 +320,7 @@ pub(crate) async fn upsert_group_library_text(
             source_key: None,
             kind: TaskKind::TextBatch,
             payloads: vec![payload],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )
@@ -403,6 +407,7 @@ pub(crate) async fn delete_group_library_folder(
             source_key: None,
             kind: TaskKind::DeleteBatch,
             payloads: vec![json!({"folder_id": folder_id})],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )
@@ -451,6 +456,7 @@ pub(crate) async fn upload_group_library_files(
             source_key: None,
             kind: TaskKind::FileBatch,
             payloads,
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )
@@ -556,6 +562,7 @@ pub(crate) async fn delete_group_library_file(
             source_key: None,
             kind: TaskKind::DeleteBatch,
             payloads: vec![json!({"file_id": file_id})],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )

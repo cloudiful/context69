@@ -5,23 +5,6 @@ use uuid::Uuid;
 use super::*;
 
 impl LibraryService {
-    pub(super) async fn rollback_new_file_record(
-        &self,
-        project_id: Option<i64>,
-        file_id: Uuid,
-        storage_key: Option<&str>,
-        storage_object_id: Option<Uuid>,
-    ) {
-        self.rollback_new_file_record_with_lease(
-            project_id,
-            file_id,
-            storage_key,
-            storage_object_id,
-            None,
-        )
-        .await;
-    }
-
     pub(super) async fn rollback_new_file_record_for_task(
         &self,
         project_id: Option<i64>,

@@ -245,6 +245,7 @@ pub(crate) async fn sync_source(
             source_key: Some(source_key),
             kind: TaskKind::SourceSync,
             payloads: vec![json!({})],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )

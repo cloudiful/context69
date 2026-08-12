@@ -7,13 +7,14 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use context69_contracts::{
     CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, ExternalJobInfo,
-    GroupResponse, MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse, ScopeSpec,
-    SortDirection, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
-    TaskOrigin, TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse,
-    TaskSortBy, TaskStatus,
+    FileBatchItem, GroupResponse, MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse,
+    ScopeSpec, SortDirection, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
+    TaskListQuery, TaskOrigin, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskSortBy, TaskStatus,
 };
 use context69_translation::TranslationService;
 use serde_json::Value;
@@ -66,6 +67,7 @@ pub struct TaskSubmission {
     pub source_key: Option<String>,
     pub kind: TaskKind,
     pub payloads: Vec<Value>,
+    pub input_storage_object_ids: Vec<Option<Uuid>>,
     pub idempotency_key: Option<String>,
 }
 
@@ -109,30 +111,109 @@ impl TaskService {
             return Err(anyhow!("a task must contain at least one item"));
         }
         let request_hash = hash_payload(&request);
+        let mut payloads = request.payloads.clone();
+        let mut input_storage_object_ids = if request.input_storage_object_ids.is_empty() {
+            vec![None; payloads.len()]
+        } else {
+            request.input_storage_object_ids.clone()
+        };
+        if input_storage_object_ids.len() != payloads.len() {
+            return Err(anyhow!("task payload and input object counts do not match"));
+        }
+        let mut newly_staged_object_ids = Vec::new();
+        if request.kind == TaskKind::FileBatch {
+            let group_id = request.group_id.context("file tasks require group_id")?;
+            let result = async {
+                for (index, payload) in payloads.iter_mut().enumerate() {
+                    if payload.get("file_id").is_some() || payload.get("content_base64").is_none() {
+                        continue;
+                    }
+                    let file: FileBatchItem = serde_json::from_value(payload.clone())
+                        .context("invalid file batch item")?;
+                    let bytes = STANDARD
+                        .decode(file.content_base64.trim())
+                        .context("invalid file batch content_base64")?;
+                    let object_id = self
+                        .library
+                        .stage_file_for_task_input(
+                            group_id,
+                            crate::services::library::UploadedLibraryFile {
+                                folder_id: file.folder_id,
+                                filename: file.filename,
+                                media_type: file.media_type,
+                                bytes: bytes.into(),
+                                declared_sha256: file.declared_sha256,
+                                metadata: file.metadata,
+                                translation: file.translation,
+                                extraction: file.extraction,
+                                staged_storage_object_id: None,
+                            },
+                        )
+                        .await?;
+                    input_storage_object_ids[index] = Some(object_id);
+                    newly_staged_object_ids.push(object_id);
+                    if let Some(object) = payload.as_object_mut() {
+                        object.remove("content_base64");
+                    }
+                }
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            if let Err(error) = result {
+                self.release_staged_input_objects(&newly_staged_object_ids)
+                    .await;
+                return Err(error);
+            }
+        }
         let key = request
             .idempotency_key
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty());
         let task_id = Uuid::new_v4();
-        let (task_id, reused, item_ids) = self
+        let submission = self
             .db
-            .create_task_submission(
+            .create_task_submission_with_input_objects(
                 task_id,
                 request.user_id,
                 request.group_id,
                 request.kind.as_str(),
                 request.group_path.as_deref(),
                 request.source_key.as_deref(),
-                &request.payloads,
+                &payloads,
+                &input_storage_object_ids,
                 key,
                 &request_hash,
             )
-            .await?;
+            .await;
+        let (task_id, reused, item_ids) = match submission {
+            Ok(value) => value,
+            Err(error) => {
+                self.release_staged_input_objects(&newly_staged_object_ids)
+                    .await;
+                return Err(error);
+            }
+        };
+        if reused {
+            self.release_staged_input_objects(&newly_staged_object_ids)
+                .await;
+        }
         if !reused {
             self.notify_dispatch();
         }
         Ok(TaskRef { task_id, item_ids })
+    }
+
+    async fn release_staged_input_objects(&self, object_ids: &[Uuid]) {
+        for &object_id in object_ids {
+            if let Err(error) = self
+                .library
+                .release_task_input_staging(object_id, None)
+                .await
+            {
+                tracing::warn!(%object_id, %error, "failed to release staged task input after submission failure");
+            }
+        }
     }
 
     pub async fn get(&self, task_id: Uuid, user_id: i64) -> Result<TaskResponse> {

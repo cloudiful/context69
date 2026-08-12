@@ -135,6 +135,15 @@ impl LibraryService {
             .await
     }
 
+    pub(super) async fn exists_active_storage_for_lease(
+        &self,
+        key: &str,
+        lease_token: Uuid,
+    ) -> Result<bool> {
+        self.exists_active_storage_for_lease_context(key, Some(lease_token))
+            .await
+    }
+
     async fn exists_active_storage_for_lease_context(
         &self,
         key: &str,

@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, group_id, sha256, size_bytes, storage_backend, object_key, staging_lease_until\nFROM context69.library_storage_objects AS object\nWHERE object.staging_lease_until IS NOT NULL\n  AND object.staging_lease_until < $1\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.library_files AS file\n      WHERE file.storage_object_id = object.id\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.task_items AS item\n      WHERE item.input_storage_object_id = object.id\n  )\nORDER BY object.updated_at\nLIMIT $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "storage_backend",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "storage_backend"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "object_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "object_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "staging_lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "staging_lease_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "98b40e1edc99e687d5c2bbf2f9ab84ba7f96a403d16ac469cabe285d459f1aac"
+}

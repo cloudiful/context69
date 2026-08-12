@@ -13,6 +13,7 @@ pub struct UploadedLibraryFile {
     pub metadata: Option<LibraryFileUploadMetadata>,
     pub translation: Option<crate::contracts::TranslationDirective>,
     pub extraction: Option<crate::contracts::ExtractionDirective>,
+    pub staged_storage_object_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone)]

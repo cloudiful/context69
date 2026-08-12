@@ -64,103 +64,7 @@ impl LibraryService {
                 .await;
         }
 
-        let Some(object) = self
-            .store
-            .get_storage_object(project.id, &request.sha256)
-            .await?
-        else {
-            return Ok(upload_required());
-        };
-        if object.storage_backend != self.storage.backend()
-            || object.size_bytes != request.size_bytes
-            || !self.exists_active_storage(&object.object_key).await?
-        {
-            return Ok(upload_required());
-        }
-
-        let file_id = Uuid::new_v4();
-        let object_key = object.object_key.clone();
-        let object_id = object.id;
-        let create_result = self
-            .store
-            .create_file_in_project(
-                project.id,
-                &NewLibraryFile {
-                    id: file_id,
-                    folder_id: request.folder_id,
-                    external_id: None,
-                    filename: request.filename.clone(),
-                    media_type: request.media_type.clone(),
-                    size_bytes: request.size_bytes,
-                    sha256: request.sha256.clone(),
-                    storage_rel_path: object_key.clone(),
-                    storage_object_id: Some(object_id),
-                },
-            )
-            .await;
-        let mut created = match create_result {
-            Ok(file) => file,
-            Err(error) => {
-                self.rollback_new_file_record(
-                    Some(project.id),
-                    file_id,
-                    Some(&object_key),
-                    Some(object_id),
-                )
-                .await;
-                return Err(error);
-            }
-        };
-        if let Some(metadata) = request.metadata.as_ref() {
-            created = match self.apply_file_business_metadata(file_id, metadata).await {
-                Ok(file) => file,
-                Err(error) => {
-                    self.rollback_new_file_record(
-                        Some(project.id),
-                        file_id,
-                        Some(&object_key),
-                        Some(object_id),
-                    )
-                    .await;
-                    return Err(error);
-                }
-            };
-        }
-        if let Some(directive) = request.translation.as_ref() {
-            if let Err(error) = self
-                .apply_file_translation_directive(file_id, directive)
-                .await
-            {
-                self.rollback_new_file_record(
-                    Some(project.id),
-                    file_id,
-                    Some(&object_key),
-                    Some(object_id),
-                )
-                .await;
-                return Err(error);
-            }
-        }
-        if let Some(directive) = request.extraction.as_ref() {
-            if let Err(error) = self
-                .apply_file_extraction_directive(file_id, directive)
-                .await
-            {
-                self.rollback_new_file_record(
-                    Some(project.id),
-                    file_id,
-                    Some(&object_key),
-                    Some(object_id),
-                )
-                .await;
-                return Err(error);
-            }
-        }
-        Ok(PrepareLibraryUploadResponse {
-            upload_required: false,
-            file: Some(file_to_summary(&created)),
-            task: None,
-        })
+        Ok(upload_required())
     }
 
     async fn reuse_prepared_file(
@@ -219,20 +123,45 @@ impl LibraryService {
         lease_token: Option<Uuid>,
     ) -> Result<crate::library_store::objects::StorageObjectRecord> {
         let key = object_storage::content_object_key(group_id, sha256);
-        let object_preexisted = self
+        let mut tx = self.db.pool().begin().await?;
+        self.store
+            .lock_storage_object(&mut *tx, &format!("{group_id}:{sha256}"))
+            .await?;
+        let existing = self
             .store
-            .get_storage_object(group_id, sha256)
-            .await?
-            .is_some();
+            .get_storage_object_on_connection(&mut *tx, group_id, sha256)
+            .await?;
+        let reusable = existing
+            .as_ref()
+            .filter(|existing| {
+                existing.storage_backend == self.storage.backend()
+                    && existing.size_bytes == bytes.len() as i64
+                    && existing.staging_lease_until.is_none()
+            })
+            .cloned();
+        if let Some(existing) = reusable {
+            let exists = match lease_token {
+                Some(lease_token) => {
+                    self.exists_active_storage_for_lease(&existing.object_key, lease_token)
+                        .await?
+                }
+                None => self.exists_active_storage(&existing.object_key).await?,
+            };
+            if exists && existing.staging_lease_until.is_none() {
+                tx.commit().await?;
+                return Ok(existing);
+            }
+        }
         if let Some(lease_token) = lease_token {
             self.write_active_storage_for_lease(&key, bytes.clone(), lease_token)
                 .await?;
         } else {
             self.write_active_storage(&key, bytes.clone()).await?;
         }
-        match self
+        let object = match self
             .store
-            .upsert_storage_object(
+            .upsert_storage_object_on_connection(
+                &mut *tx,
                 Uuid::new_v4(),
                 group_id,
                 sha256,
@@ -242,21 +171,24 @@ impl LibraryService {
             )
             .await
         {
-            Ok(object) => Ok(object),
+            Ok(object) => object,
             Err(error) => {
-                if !object_preexisted
-                    && let Err(cleanup_error) = self.delete_active_storage(&key).await
-                {
-                    warn!(
-                        group_id,
-                        sha256,
-                        %cleanup_error,
-                        "failed to remove storage object after object record creation failure"
-                    );
+                tx.rollback().await?;
+                if existing.is_none() {
+                    if let Err(cleanup_error) = self.delete_active_storage(&key).await {
+                        warn!(
+                            group_id,
+                            sha256,
+                            %cleanup_error,
+                            "failed to remove storage object after object record creation failure"
+                        );
+                    }
                 }
-                Err(error)
+                return Err(error);
             }
-        }
+        };
+        tx.commit().await?;
+        Ok(object)
     }
 }
 

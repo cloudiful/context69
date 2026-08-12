@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use bytes::Bytes;
-use context69_contracts::{FileBatchItem, LibraryIngestStatus, UpsertLibraryTextRequest};
+use context69_contracts::{LibraryIngestStatus, UpsertLibraryTextRequest};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use super::TaskService;
@@ -75,13 +76,25 @@ pub(super) async fn process_file(
                 Err(error) => return Ok(process_error(stage, error)),
             }
         } else {
-            let request: FileBatchItem = match serde_json::from_value(item.payload.clone()) {
+            let request: StoredFileBatchItem = match serde_json::from_value(item.payload.clone()) {
                 Ok(request) => request,
                 Err(error) => return Ok(process_error(stage, error.into())),
             };
-            let bytes = match STANDARD.decode(request.content_base64.trim()) {
-                Ok(bytes) => bytes,
-                Err(error) => return Ok(process_error(stage, anyhow!(error))),
+            let bytes = if let Some(object_id) = item.input_storage_object_id {
+                match service
+                    .library()
+                    .read_task_input_for_task(group.id, object_id, item.lease_token)
+                    .await
+                {
+                    Ok(bytes) => bytes,
+                    Err(error) => return Ok(process_error(stage, error)),
+                }
+            } else {
+                match STANDARD.decode(request.content_base64.as_deref().unwrap_or_default().trim())
+                {
+                    Ok(bytes) => bytes.into(),
+                    Err(error) => return Ok(process_error(stage, anyhow!(error))),
+                }
             };
             match service
                 .library()
@@ -96,6 +109,7 @@ pub(super) async fn process_file(
                         metadata: request.metadata,
                         translation: request.translation,
                         extraction: request.extraction,
+                        staged_storage_object_id: item.input_storage_object_id,
                     },
                     item.lease_token,
                 )
@@ -106,6 +120,12 @@ pub(super) async fn process_file(
             }
         };
         set_file(service, task, item, file.file_id).await?;
+        if let Some(object_id) = item.input_storage_object_id {
+            service
+                .library()
+                .release_task_input_staging(object_id, Some(file.file_id))
+                .await?;
+        }
         if file.ingest_status == LibraryIngestStatus::Succeeded {
             set_stage(service, task, item, "translation").await?;
         } else {
@@ -117,6 +137,24 @@ pub(super) async fn process_file(
         return Ok(ProcessResult::Progressed);
     }
     process_file_stage(service, group.id, task, item, stage).await
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredFileBatchItem {
+    filename: String,
+    media_type: String,
+    #[serde(default)]
+    content_base64: Option<String>,
+    #[serde(default)]
+    declared_sha256: Option<String>,
+    #[serde(default)]
+    folder_id: Option<Uuid>,
+    #[serde(default)]
+    metadata: Option<context69_contracts::LibraryFileUploadMetadata>,
+    #[serde(default)]
+    translation: Option<context69_contracts::TranslationDirective>,
+    #[serde(default)]
+    extraction: Option<context69_contracts::ExtractionDirective>,
 }
 
 pub(super) async fn process_file_stage(

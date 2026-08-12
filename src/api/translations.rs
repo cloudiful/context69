@@ -170,6 +170,7 @@ pub(crate) async fn rebuild_document_translations(
                 "document_id": document_id,
                 "target_locales": request.target_locales,
             })],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         })
         .await

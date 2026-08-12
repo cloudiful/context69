@@ -8,8 +8,8 @@ use axum::{
 use crate::{
     contracts::{
         AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AdminUserSortBy,
-        ApiErrorResponse, CreateAdminUserRequest, ResetAdminUserPasswordRequest,
-        SortDirection, UpdateAdminUserRequest,
+        ApiErrorResponse, CreateAdminUserRequest, ResetAdminUserPasswordRequest, SortDirection,
+        UpdateAdminUserRequest,
     },
     domain::UserRecord,
 };

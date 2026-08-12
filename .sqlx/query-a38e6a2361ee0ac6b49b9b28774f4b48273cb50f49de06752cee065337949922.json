@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, group_id, sha256, size_bytes, storage_backend, object_key\nFROM context69.library_storage_objects\nWHERE group_id = $1 AND sha256 = $2\n",
+  "query": "INSERT INTO context69.library_storage_objects (\n    id,\n    group_id,\n    sha256,\n    size_bytes,\n    storage_backend,\n    object_key\n)\nVALUES ($1, $2, $3, $4, $5, $6)\nON CONFLICT (group_id, sha256) DO UPDATE\nSET size_bytes = EXCLUDED.size_bytes,\n    storage_backend = EXCLUDED.storage_backend,\n    object_key = EXCLUDED.object_key,\n    updated_at = now()\nRETURNING id, group_id, sha256, size_bytes, storage_backend, object_key, staging_lease_until\n",
   "describe": {
     "columns": [
       {
@@ -68,11 +68,26 @@
             "name": "object_key"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "staging_lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "staging_lease_until"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Int8",
+        "Text",
+        "Int8",
+        "Text",
         "Text"
       ]
     },
@@ -82,8 +97,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "6273a2d9b02226f069f04fe0291988a9b3cf3aad2f85de5c6979ebbc6b3210e8"
+  "hash": "a38e6a2361ee0ac6b49b9b28774f4b48273cb50f49de06752cee065337949922"
 }

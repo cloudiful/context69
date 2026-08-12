@@ -87,12 +87,7 @@ impl LibraryService {
         }
 
         let object = self
-            .store_project_content_with_optional_lease(
-                group_id,
-                &sha256,
-                upload.bytes.clone(),
-                Some(lease_token),
-            )
+            .storage_object_for_upload(group_id, &upload, &sha256, lease_token)
             .await?;
         let mut created = match self
             .store
@@ -248,12 +243,7 @@ impl LibraryService {
         let old_translation = self.store.file_translation_directive(existing.id).await?;
         let old_extraction = self.store.file_extraction_directive(existing.id).await?;
         let object = self
-            .store_project_content_with_optional_lease(
-                group_id,
-                &sha256,
-                upload.bytes.clone(),
-                Some(lease_token),
-            )
+            .storage_object_for_upload(group_id, &upload, &sha256, lease_token)
             .await?;
         let updated = match self
             .store
@@ -370,5 +360,38 @@ impl LibraryService {
             ));
         }
         Ok((kind, sha256))
+    }
+
+    async fn storage_object_for_upload(
+        &self,
+        group_id: i64,
+        upload: &UploadedLibraryFile,
+        sha256: &str,
+        lease_token: Uuid,
+    ) -> Result<crate::library_store::objects::StorageObjectRecord> {
+        if let Some(object_id) = upload.staged_storage_object_id {
+            let object = self
+                .store
+                .get_storage_object_by_id(object_id)
+                .await?
+                .with_context(|| format!("unknown staged storage object {object_id}"))?;
+            if object.group_id != group_id
+                || object.sha256 != sha256
+                || object.size_bytes != upload.bytes.len() as i64
+                || object.storage_backend != self.storage.backend()
+            {
+                return Err(anyhow!(
+                    "staged storage object metadata does not match upload"
+                ));
+            }
+            return Ok(object);
+        }
+        self.store_project_content_with_optional_lease(
+            group_id,
+            sha256,
+            upload.bytes.clone(),
+            Some(lease_token),
+        )
+        .await
     }
 }

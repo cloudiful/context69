@@ -98,6 +98,7 @@ pub(super) async fn process_url(
                         metadata,
                         translation: request.translation,
                         extraction: request.extraction,
+                        staged_storage_object_id: None,
                     },
                     item.lease_token,
                 )

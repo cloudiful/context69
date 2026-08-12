@@ -66,6 +66,7 @@ pub(crate) async fn submit_text_batch(
             source_key: None,
             kind: TaskKind::TextBatch,
             payloads,
+            input_storage_object_ids: Vec::new(),
             idempotency_key: idempotency_key(&headers),
         },
     )
@@ -102,6 +103,7 @@ pub(crate) async fn submit_url_batch(
             source_key: None,
             kind: TaskKind::UrlBatch,
             payloads,
+            input_storage_object_ids: Vec::new(),
             idempotency_key: idempotency_key(&headers),
         },
     )
@@ -138,6 +140,7 @@ pub(crate) async fn submit_file_batch(
             source_key: None,
             kind: TaskKind::FileBatch,
             payloads,
+            input_storage_object_ids: Vec::new(),
             idempotency_key: idempotency_key(&headers),
         },
     )
@@ -174,6 +177,7 @@ pub(crate) async fn submit_delete_batch(
             source_key: None,
             kind: TaskKind::DeleteBatch,
             payloads,
+            input_storage_object_ids: Vec::new(),
             idempotency_key: idempotency_key(&headers),
         },
     )
@@ -270,6 +274,7 @@ pub(crate) async fn submit_task(
             source_key,
             kind,
             payloads,
+            input_storage_object_ids: Vec::new(),
             idempotency_key: idempotency_key(&headers),
         },
     )
@@ -295,6 +300,7 @@ pub(crate) async fn submit_vector_index_rebuild(
             source_key: None,
             kind: TaskKind::VectorRebuild,
             payloads: vec![json!({})],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: idempotency_key(&headers),
         },
     )

@@ -14,6 +14,7 @@ use crate::domain::UserRecord;
 
 pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 pub const CLEANUP_BATCH_SIZE: i64 = 1000;
+pub const STAGED_OBJECT_GRACE_HOURS: i64 = 24;
 pub const MIN_RETENTION_DAYS: i64 = 1;
 pub const MAX_RETENTION_DAYS: i64 = 3650;
 
@@ -35,25 +36,31 @@ async fn run_cleanup(service: &TaskService) -> Result<()> {
     let Some(settings) = service.db().get_task_maintenance_settings().await? else {
         return Err(anyhow!("task maintenance settings are missing"));
     };
-    if !settings.cleanup_enabled {
-        tracing::info!("task history auto-cleanup is disabled");
-        return Ok(());
-    }
-    let cutoff = cutoff_at(Utc::now(), settings.retention_days);
     let mut deleted = 0i64;
-    loop {
-        let batch = service
-            .db()
-            .cleanup_expired_terminal_tasks(cutoff, CLEANUP_BATCH_SIZE)
-            .await?;
-        let batch_len = batch.len() as i64;
-        deleted += batch_len;
-        if batch_len < CLEANUP_BATCH_SIZE {
-            break;
+    let cutoff = cutoff_at(Utc::now(), settings.retention_days);
+    if settings.cleanup_enabled {
+        loop {
+            let batch = service
+                .db()
+                .cleanup_expired_terminal_tasks(cutoff, CLEANUP_BATCH_SIZE)
+                .await?;
+            let batch_len = batch.len() as i64;
+            deleted += batch_len;
+            if batch_len < CLEANUP_BATCH_SIZE {
+                break;
+            }
         }
+    } else {
+        tracing::info!("task history auto-cleanup is disabled");
     }
+    let staged_cutoff = Utc::now() - chrono::Duration::hours(STAGED_OBJECT_GRACE_HOURS);
+    let deleted_objects = service
+        .library()
+        .sweep_orphaned_storage_objects(staged_cutoff, CLEANUP_BATCH_SIZE)
+        .await?;
     tracing::info!(
         deleted_tasks = deleted,
+        deleted_staged_objects = deleted_objects,
         retention_days = settings.retention_days,
         cutoff = %cutoff,
         "task history cleanup cycle completed"

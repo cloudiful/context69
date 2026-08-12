@@ -132,7 +132,7 @@ WITH eligible AS (
     FROM eligible
     WHERE item.id = eligible.id
     RETURNING item.id, item.task_id, item.attempt_count, item.lease_token,
-              item.payload, item.file_id, item.stage
+              item.payload, item.file_id, item.stage, item.input_storage_object_id
 ), attempts AS (
     INSERT INTO context69.task_attempts (task_id, item_id, attempt, status)
     SELECT task_id, id, attempt_count, 'running'
@@ -146,6 +146,7 @@ SELECT claimed.id,
        claimed.payload,
        claimed.file_id,
        claimed.stage,
+       claimed.input_storage_object_id,
        attempts.attempt_id,
        task.kind,
        task.group_id,

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_storage_objects\nSET staging_lease_until = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND EXISTS (\n      SELECT 1\n      FROM context69.library_files AS file\n      WHERE file.id = $2\n        AND file.storage_object_id = $1\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.task_items AS item\n      WHERE item.input_storage_object_id = $1\n  )\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "59df953faf1eb621aafb7ecf219e136b7ceb8f47248f34eaa8c1d1d6f80b4e86"
+}

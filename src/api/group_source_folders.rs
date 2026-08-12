@@ -128,6 +128,7 @@ pub(crate) async fn sync_group_source_folder(
             source_key: None,
             kind: TaskKind::SourceSync,
             payloads: vec![json!({"source_folder_id": folder_id})],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )

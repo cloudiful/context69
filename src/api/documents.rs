@@ -137,6 +137,7 @@ pub(crate) async fn delete_group_document_by_key(
             source_key: None,
             kind: TaskKind::DeleteBatch,
             payloads: vec![json!(key)],
+            input_storage_object_ids: Vec::new(),
             idempotency_key: None,
         },
     )

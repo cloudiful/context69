@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.library_storage_objects AS object\nWHERE object.id = $1\n  AND object.staging_lease_until IS NOT NULL\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.library_files AS file\n      WHERE file.storage_object_id = object.id\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.task_items AS item\n      WHERE item.input_storage_object_id = object.id\n  )\nRETURNING object.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9303dc7b36cb6b2e8b69a4a7c167d88969041e84f0ed690e5c7fc36b054d2ec1"
+}

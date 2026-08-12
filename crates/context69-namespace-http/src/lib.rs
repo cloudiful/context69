@@ -11,8 +11,8 @@ use axum::{
 };
 use context69_contracts::{
     ApiErrorResponse, CreateGroupRequest, GroupMemberPageResponse, GroupMemberResponse,
-    GroupPageResponse, GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery,
-    MemberSortBy, MoveGroupRequest, NamespacePageQuery, SortDirection, UpdateGroupRequest,
+    GroupPageResponse, GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy,
+    MoveGroupRequest, NamespacePageQuery, SortDirection, UpdateGroupRequest,
     UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use context69_http_support::{

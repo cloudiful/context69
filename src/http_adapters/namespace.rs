@@ -131,7 +131,11 @@ impl NamespaceApi for NamespaceApiAdapter {
     ) -> anyhow::Result<GroupMemberPageResponse> {
         let page = self
             .service
-            .list_group_members(&to_user_record(actor), group_path, &member_page_request(query))
+            .list_group_members(
+                &to_user_record(actor),
+                group_path,
+                &member_page_request(query),
+            )
             .await?;
         Ok(group_member_page_response(page))
     }

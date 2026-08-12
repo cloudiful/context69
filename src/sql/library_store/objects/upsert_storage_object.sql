@@ -12,4 +12,4 @@ SET size_bytes = EXCLUDED.size_bytes,
     storage_backend = EXCLUDED.storage_backend,
     object_key = EXCLUDED.object_key,
     updated_at = now()
-RETURNING id, group_id, sha256, size_bytes, storage_backend, object_key
+RETURNING id, group_id, sha256, size_bytes, storage_backend, object_key, staging_lease_until

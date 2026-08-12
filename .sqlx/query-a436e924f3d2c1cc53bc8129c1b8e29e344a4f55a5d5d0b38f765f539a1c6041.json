@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH candidates AS (\n    SELECT object.id\n    FROM context69.library_storage_objects AS object\n    WHERE object.staging_lease_until IS NOT NULL\n      AND object.staging_lease_until < $1\n      AND EXISTS (\n          SELECT 1\n          FROM context69.library_files AS file\n          WHERE file.storage_object_id = object.id\n      )\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items AS item\n          WHERE item.input_storage_object_id = object.id\n      )\n    ORDER BY object.updated_at\n    LIMIT $2\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE context69.library_storage_objects AS object\nSET staging_lease_until = NULL,\n    updated_at = now()\nFROM candidates\nWHERE object.id = candidates.id\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a436e924f3d2c1cc53bc8129c1b8e29e344a4f55a5d5d0b38f765f539a1c6041"
+}

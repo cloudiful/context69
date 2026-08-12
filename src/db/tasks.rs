@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -99,6 +99,7 @@ pub struct ClaimedItem {
     pub payload: Value,
     pub file_id: Option<Uuid>,
     pub stage: Option<String>,
+    pub input_storage_object_id: Option<Uuid>,
     pub kind: String,
     pub group_id: Option<i64>,
     pub group_path: Option<String>,
@@ -110,12 +111,19 @@ pub struct RerunTaskItem {
     pub payload: Value,
     pub stage: Option<String>,
     pub file_id: Option<Uuid>,
+    pub input_storage_object_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, FromRow)]
 pub struct StoredIdempotencyKey {
     pub task_id: Uuid,
     pub request_hash: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct StoredInputStorageObject {
+    group_id: i64,
+    sha256: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -167,6 +175,37 @@ impl Database {
         idempotency_key: Option<&str>,
         request_hash: &str,
     ) -> Result<(Uuid, bool, Vec<Uuid>)> {
+        self.create_task_submission_with_input_objects(
+            task_id,
+            user_id,
+            group_id,
+            kind,
+            group_path,
+            source_key,
+            payloads,
+            &vec![None; payloads.len()],
+            idempotency_key,
+            request_hash,
+        )
+        .await
+    }
+
+    pub async fn create_task_submission_with_input_objects(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        group_id: Option<i64>,
+        kind: &str,
+        group_path: Option<&str>,
+        source_key: Option<&str>,
+        payloads: &[Value],
+        input_storage_object_ids: &[Option<Uuid>],
+        idempotency_key: Option<&str>,
+        request_hash: &str,
+    ) -> Result<(Uuid, bool, Vec<Uuid>)> {
+        if payloads.len() != input_storage_object_ids.len() {
+            anyhow::bail!("task payload and input object counts do not match");
+        }
         let mut tx = self.pool().begin().await?;
         if let Some(key) = idempotency_key {
             if let Some(existing) = sqlx::query_file_as!(
@@ -203,6 +242,39 @@ impl Database {
         )
         .fetch_one(&mut *tx)
         .await?;
+        for object_id in input_storage_object_ids.iter().flatten().copied() {
+            let object = sqlx::query_file_as!(
+                StoredInputStorageObject,
+                "src/sql/db/tasks/get_input_storage_object.sql",
+                object_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .with_context(|| format!("unknown input storage object {object_id}"))?;
+            if Some(object.group_id) != group_id {
+                anyhow::bail!("input storage object belongs to another group");
+            }
+            let lock_key = format!("{}:{}", object.group_id, object.sha256);
+            sqlx::query_file!("src/sql/db/tasks/lock_input_storage_object.sql", lock_key)
+                .execute(&mut *tx)
+                .await?;
+            let exists = sqlx::query_file_as!(
+                StoredInputStorageObject,
+                "src/sql/db/tasks/get_input_storage_object.sql",
+                object_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            if exists.is_none() {
+                anyhow::bail!("input storage object {object_id} disappeared");
+            }
+            sqlx::query_file!(
+                "src/sql/db/tasks/refresh_input_storage_object.sql",
+                object_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
         let mut item_ids = Vec::with_capacity(payloads.len());
         for (ordinal, payload) in payloads.iter().enumerate() {
             let item_id = Uuid::new_v4();
@@ -217,7 +289,8 @@ impl Database {
                 payload
                     .get("file_id")
                     .and_then(Value::as_str)
-                    .and_then(|value| value.parse::<Uuid>().ok())
+                    .and_then(|value| value.parse::<Uuid>().ok()),
+                input_storage_object_ids[ordinal]
             )
             .execute(&mut *tx)
             .await?;
@@ -291,6 +364,7 @@ impl Database {
         payload: &Value,
         stage: Option<&str>,
         file_id: Option<Uuid>,
+        input_storage_object_id: Option<Uuid>,
     ) -> Result<()> {
         sqlx::query_file!(
             "src/sql/db/tasks/insert_item.sql",
@@ -299,7 +373,8 @@ impl Database {
             ordinal,
             payload,
             stage,
-            file_id
+            file_id,
+            input_storage_object_id
         )
         .execute(self.pool())
         .await?;
@@ -753,7 +828,8 @@ impl Database {
                 ordinal as i32,
                 item.payload,
                 item.stage,
-                item.file_id
+                item.file_id,
+                item.input_storage_object_id
             )
             .execute(&mut *tx)
             .await?;
