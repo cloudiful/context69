@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH released AS (\n    UPDATE context69.task_items\n    SET status = 'waiting',\n        attempt_count = GREATEST(attempt_count - 1, 0),\n        waiting_reason = $3,\n        dependency_key = $4,\n        next_attempt_at = $5,\n        lease_token = NULL,\n        lease_until = NULL,\n        error_message = $6,\n        waiting_since = COALESCE(waiting_since, now()),\n        updated_at = now()\n    WHERE id = $1\n      AND lease_token = $2\n      AND status = 'running'\n    RETURNING id\n)\nUPDATE context69.task_attempts\nSET status = 'waiting',\n    error_message = $6,\n    finished_at = now()\nWHERE id = $7\n  AND item_id = $1\n  AND finished_at IS NULL\n  AND EXISTS (SELECT 1 FROM released)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba44eef67163b8106b1e01f72bfdb8b74013800e0d45eaadc3c5cff57e82918a"
+}

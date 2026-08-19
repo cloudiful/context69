@@ -41,7 +41,7 @@ pub(crate) use dependency_runtime::{
 };
 mod dependency_storage;
 mod docling_jobs;
-pub(crate) use docling_jobs::DoclingPollOutcome;
+pub(crate) use docling_jobs::{DOCLING_EXTERNAL_JOB_PROVIDER, DoclingPollOutcome};
 mod filenames;
 mod files;
 mod folders;
@@ -417,6 +417,13 @@ impl LibraryService {
             .acquire_owned()
             .await
             .map_err(anyhow::Error::from)
+    }
+
+    /// Borrow the underlying `LibraryStore` so caller modules in the task
+    /// service can run recovery SQL without widening the `LibraryService`
+    /// surface for one-off admin flows.
+    pub(super) fn store(&self) -> &LibraryStore {
+        &self.store
     }
 }
 

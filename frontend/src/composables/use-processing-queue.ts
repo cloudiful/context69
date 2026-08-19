@@ -47,9 +47,14 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   let requestController: AbortController | null = null;
   let requestId = 0;
 
+  const isDoclingRecoveryTask = (task: TaskResponse) =>
+    (task.status === "waiting" && task.stage === "docling_poll")
+    || (task.status === "failed"
+      && (task.failure_stage === "docling" || task.failure_stage === "docling_poll"));
   const isRecoverableTask = (task: TaskResponse) =>
-    task.status === "failed" || task.status === "cancelled";
+    task.status === "failed" || task.status === "cancelled" || isDoclingRecoveryTask(task);
   const recoverableCount = computed(() => items.value.filter(isRecoverableTask).length);
+  const doclingRecoveryCount = computed(() => items.value.filter(isDoclingRecoveryTask).length);
   const activeCount = computed(() => items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).length);
   const failedCount = computed(() => items.value.filter((task) => task.status === "failed").length);
   const cancelledCount = computed(() => items.value.filter((task) => task.status === "cancelled").length);
@@ -134,7 +139,11 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     if (!isRecoverableTask(task) || isActing(task)) return;
     actionTaskIds.value = [...actionTaskIds.value, task.task_id];
     try {
-      if (task.status === "cancelled") {
+      if (isDoclingRecoveryTask(task)) {
+        await apiClient.recoverDoclingTask(task.task_id, {
+          reason: "manual recovery from the processing queue",
+        });
+      } else if (task.status === "cancelled") {
         await apiClient.rerunTask(task.task_id);
       } else {
         await apiClient.retryTask(task.task_id);
@@ -142,12 +151,20 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       await load();
       toast.add({
         color: "success",
-        title: t(task.status === "cancelled" ? "processingQueue.resubmitAccepted" : "processingQueue.retryAccepted"),
+        title: t(isDoclingRecoveryTask(task)
+          ? "processingQueue.doclingRecoveryAccepted"
+          : task.status === "cancelled"
+            ? "processingQueue.resubmitAccepted"
+            : "processingQueue.retryAccepted"),
         description: task.task_id,
         duration: 2500,
       });
     } catch (recoverError) {
-      showErrorToast(recoverError, t(task.status === "cancelled" ? "processingQueue.resubmitFailed" : "processingQueue.retryFailed"));
+      showErrorToast(recoverError, t(isDoclingRecoveryTask(task)
+        ? "processingQueue.doclingRecoveryFailed"
+        : task.status === "cancelled"
+          ? "processingQueue.resubmitFailed"
+          : "processingQueue.retryFailed"));
     } finally {
       actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
     }
@@ -168,7 +185,11 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   }
 
   async function submitRecovery(task: TaskResponse): Promise<void> {
-    if (task.status === "cancelled") {
+    if (isDoclingRecoveryTask(task)) {
+      await apiClient.recoverDoclingTask(task.task_id, {
+        reason: "bulk recovery from the processing queue",
+      });
+    } else if (task.status === "cancelled") {
       await apiClient.rerunTask(task.task_id);
     } else {
       await apiClient.retryTask(task.task_id);
@@ -243,6 +264,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       message: t("processingQueue.recoverAllConfirm", {
         failed: failedCount.value,
         cancelled: cancelledCount.value,
+        docling: doclingRecoveryCount.value,
       }),
       rejectLabel: t("common.cancel"),
       acceptLabel: t("processingQueue.retryAllAction"),
@@ -284,10 +306,12 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     actionTaskIds,
     bulkAction,
     recoverableCount,
+    doclingRecoveryCount,
     failedCount,
     cancelledCount,
     activeCount,
     isRecoverableTask,
+    isDoclingRecoveryTask,
     load,
     refresh: () => load(),
     submitSearch,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT item.id,\n       item.task_id,\n       item.ordinal,\n       item.status,\n       item.resource_id,\n       item.file_id,\n       item.stage,\n       item.waiting_reason,\n       item.dependency_key,\n       item.next_attempt_at,\n       item.failure_stage,\n       item.error_message,\n       item.attempt_count,\n       item.retryable,\n       item.created_at,\n       item.started_at,\n       item.finished_at,\n       job.provider AS external_job_provider,\n       job.remote_task_id AS external_job_remote_task_id,\n       job.status AS external_job_status,\n       job.remote_status AS external_job_remote_status,\n       job.submitted_at AS external_job_submitted_at,\n       job.last_polled_at AS external_job_last_polled_at,\n       job.next_poll_at AS external_job_next_poll_at,\n       job.deadline_at AS external_job_deadline_at,\n       job.error_message AS external_job_error_message\nFROM context69.task_items item\nLEFT JOIN context69.task_external_jobs job\n       ON job.item_id = item.id\n      AND job.provider = 'docling'\nWHERE item.task_id = $1\nORDER BY item.ordinal\nLIMIT $2 OFFSET $3\n",
+  "query": "SELECT item.id,\n       item.task_id,\n       item.ordinal,\n       item.status,\n       item.resource_id,\n       item.file_id,\n       item.stage,\n       item.waiting_reason,\n       item.dependency_key,\n       item.next_attempt_at,\n       item.failure_stage,\n       item.error_message,\n       item.attempt_count,\n       item.retryable,\n       item.created_at,\n       item.started_at,\n       item.finished_at,\n       job.provider AS external_job_provider,\n       job.remote_task_id AS external_job_remote_task_id,\n       job.status AS external_job_status,\n       job.remote_status AS external_job_remote_status,\n       job.submitted_at AS external_job_submitted_at,\n       job.last_polled_at AS external_job_last_polled_at,\n       job.next_poll_at AS external_job_next_poll_at,\n       job.deadline_at AS external_job_deadline_at,\n       job.error_message AS external_job_error_message\nFROM context69.task_items item\nLEFT JOIN LATERAL (\n     SELECT job.provider,\n            job.remote_task_id,\n            job.status,\n            job.remote_status,\n            job.submitted_at,\n            job.last_polled_at,\n            job.next_poll_at,\n            job.deadline_at,\n            job.error_message\n     FROM context69.task_external_jobs job\n     WHERE job.item_id = item.id\n       AND job.provider = 'docling'\n     ORDER BY job.submitted_at DESC, job.created_at DESC\n     LIMIT 1\n) job ON TRUE\nWHERE item.task_id = $1\nORDER BY item.ordinal\nLIMIT $2 OFFSET $3\n",
   "describe": {
     "columns": [
       {
@@ -326,5 +326,5 @@
       true
     ]
   },
-  "hash": "ca7604de9608da4edcb0ee2188f40ddc00faaabdd32cf35444322fd55fd4b820"
+  "hash": "0932ac80a697fddda9596f0f6e40bce618e363f49348b7777b20c0eb970fc180"
 }

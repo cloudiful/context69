@@ -121,6 +121,17 @@ pub struct StoredIdempotencyKey {
 }
 
 #[derive(Debug, Clone, FromRow)]
+pub struct StoredDoclingRecovery {
+    pub task_id: Option<Uuid>,
+    pub item_id: Option<Uuid>,
+    pub file_id: Option<Uuid>,
+    pub reason: Option<String>,
+    pub remote_task_id: Option<String>,
+    pub lease_token: Option<Uuid>,
+    pub attempt_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, FromRow)]
 struct StoredInputStorageObject {
     group_id: i64,
     sha256: String,
@@ -132,8 +143,13 @@ pub struct TaskProcessingHealth {
     pub queued_count: i64,
     pub oldest_pending_at: Option<DateTime<Utc>>,
     pub oldest_queued_at: Option<DateTime<Utc>>,
+    pub oldest_waiting_at: Option<DateTime<Utc>>,
     pub recent_failure_count: i64,
     pub docling_required_count: i64,
+    pub docling_dependency_waiting_count: i64,
+    pub stale_waiting_count: i64,
+    pub expired_active_jobs: i64,
+    pub active_jobs: i64,
     pub status_counts: Value,
     pub stage_counts: Value,
     pub waiting_reason_counts: Value,
@@ -578,6 +594,28 @@ impl Database {
         )
     }
 
+    pub async fn release_recovery_wait(
+        &self,
+        item_id: Uuid,
+        lease_token: Uuid,
+        attempt_id: i64,
+        next_attempt_at: DateTime<Utc>,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file!(
+            "src/sql/db/tasks/release_recovery_wait.sql",
+            item_id,
+            lease_token,
+            "dependency",
+            "docling",
+            next_attempt_at,
+            "docling dependency gate is not ready",
+            attempt_id,
+        )
+        .execute(self.pool())
+        .await?;
+        Ok(updated.rows_affected() > 0)
+    }
+
     pub async fn progress_task_item(
         &self,
         task_id: Uuid,
@@ -920,6 +958,40 @@ impl Database {
         }
         tx.commit().await?;
         Ok(ids.len() as i64)
+    }
+
+    /// Atomically claim a recoverable Docling item with a real worker lease.
+    /// The lease prevents the dispatcher or a second recovery request from
+    /// submitting another remote job while the caller performs the network
+    /// submission.
+    pub async fn recover_docling_item(
+        &self,
+        task_id: Uuid,
+        lease_token: Uuid,
+    ) -> Result<StoredDoclingRecovery> {
+        let mut tx = self.pool().begin().await?;
+        let result = sqlx::query_file_as!(
+            StoredDoclingRecovery,
+            "src/sql/db/tasks/recover_docling_item.sql",
+            task_id,
+            lease_token,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let result = result.unwrap_or(StoredDoclingRecovery {
+            task_id: None,
+            item_id: None,
+            file_id: None,
+            reason: Some("task_not_found".to_string()),
+            remote_task_id: None,
+            lease_token: None,
+            attempt_id: None,
+        });
+        if result.reason.as_deref() == Some("ok") {
+            self.recompute_task(task_id).await?;
+        }
+        Ok(result)
     }
 }
 

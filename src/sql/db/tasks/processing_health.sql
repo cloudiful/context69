@@ -42,23 +42,47 @@ queue_counts AS (
         count(*) FILTER (WHERE item.status = 'queued')::BIGINT AS queued_count,
         min(item.created_at) FILTER (WHERE item.status IN ('queued', 'running', 'waiting')) AS oldest_pending_at,
         min(item.created_at) FILTER (WHERE item.status = 'queued') AS oldest_queued_at,
+        min(item.waiting_since) FILTER (WHERE item.status = 'waiting') AS oldest_waiting_at,
         count(*) FILTER (
             WHERE item.status = 'failed'
               AND item.updated_at >= now() - interval '1 hour'
         )::BIGINT AS recent_failure_count,
         count(*) FILTER (
-            WHERE item.stage = 'docling'
+            WHERE item.stage IN ('docling', 'docling_poll')
               AND item.status IN ('queued', 'running', 'waiting')
-        )::BIGINT AS docling_required_count
+        )::BIGINT AS docling_required_count,
+        count(*) FILTER (
+            WHERE item.status = 'waiting'
+              AND item.waiting_reason = 'dependency'
+              AND item.dependency_key = 'docling'
+        )::BIGINT AS docling_dependency_waiting_count,
+        count(*) FILTER (
+            WHERE item.status = 'waiting'
+              AND item.waiting_since < now() - interval '30 minutes'
+        )::BIGINT AS stale_waiting_count
     FROM context69.task_items item
+), external_jobs AS (
+    SELECT
+        count(*) FILTER (
+            WHERE job.status IN ('submitting', 'pending', 'running')
+              AND job.deadline_at IS NOT NULL
+              AND job.deadline_at < now()
+        )::BIGINT AS expired_active_jobs,
+         count(*) FILTER (WHERE job.status IN ('submitting', 'pending', 'running'))::BIGINT AS active_jobs
+    FROM context69.task_external_jobs job
 )
 SELECT
     queue_counts.pending_count AS "pending_count!",
     queue_counts.queued_count AS "queued_count!",
     queue_counts.oldest_pending_at,
     queue_counts.oldest_queued_at,
+    queue_counts.oldest_waiting_at,
     queue_counts.recent_failure_count AS "recent_failure_count!",
     queue_counts.docling_required_count AS "docling_required_count!",
+    queue_counts.docling_dependency_waiting_count AS "docling_dependency_waiting_count!",
+    queue_counts.stale_waiting_count AS "stale_waiting_count!",
+    external_jobs.expired_active_jobs AS "expired_active_jobs!",
+    external_jobs.active_jobs AS "active_jobs!",
     COALESCE(
         (SELECT jsonb_agg(jsonb_build_object('key', key, 'count', count) ORDER BY key)
          FROM status_counts),
@@ -83,3 +107,4 @@ SELECT
     recent_processing.failed_last_hour AS "failed_last_hour!"
 FROM queue_counts
 CROSS JOIN recent_processing
+CROSS JOIN external_jobs

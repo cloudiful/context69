@@ -229,21 +229,35 @@ pub(super) async fn process_file_stage(
                     set_stage(service, task, item, "embedding").await?;
                     Ok(ProcessResult::Progressed)
                 }
-                crate::services::library::DoclingPollOutcome::Failed { message } => {
-                    // A missed deadline or a remote failure fails only this
-                    // item (with the file marked failed) and never re-submits
-                    // automatically; recovery requires a manual task retry.
+                crate::services::library::DoclingPollOutcome::Failed {
+                    message,
+                    retryable,
+                    dependency_key,
+                } => {
+                    // A transient Docling outage should park the item on the
+                    // dependency gate; a missed deadline or a remote failure
+                    // fails this item and the recovery admin API can resubmit
+                    // a fresh remote task.
                     let error = UnifiedIngestError {
                         stage: "docling_poll".to_string(),
-                        dependency_key: None,
-                        retryable: false,
+                        dependency_key,
+                        retryable,
                         message,
                     };
                     ingest_error_result(service, item, file_id, error).await
                 }
                 crate::services::library::DoclingPollOutcome::ResubmitRequired { message } => {
-                    // Only reachable after a manual retry or task recovery:
-                    // restart at the docling stage to submit a fresh job.
+                    // Invalidate the old submission before restarting so the
+                    // next submission cannot reuse its stale remote id.
+                    service
+                        .library()
+                        .store()
+                        .supersede_external_job(
+                            item.id,
+                            crate::services::library::DOCLING_EXTERNAL_JOB_PROVIDER,
+                            &message,
+                        )
+                        .await?;
                     tracing::info!(
                         task_id = %item.task_id,
                         item_id = %item.id,

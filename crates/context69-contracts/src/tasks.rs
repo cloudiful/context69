@@ -424,6 +424,29 @@ pub struct PurgeTasksResponse {
     pub deleted_tasks: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct RecoverDoclingTaskRequest {
+    /// Free-form human justification recorded in the recovery audit.
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct RecoveredDoclingTask {
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub old_remote_task_id: Option<String>,
+    pub old_remote_status: Option<String>,
+    pub new_remote_task_id: String,
+    pub new_stage: String,
+    pub file_id: Option<Uuid>,
+    pub recovered_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct RecoverDoclingTaskResponse {
+    pub recovered: RecoveredDoclingTask,
+}
+
 fn default_page() -> u32 {
     1
 }

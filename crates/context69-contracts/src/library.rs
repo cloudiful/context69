@@ -87,7 +87,13 @@ pub struct LibraryProcessingQueueHealth {
     pub oldest_pending_age_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oldest_queued_age_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_waiting_age_seconds: Option<u64>,
     pub recent_failure_count: u64,
+    pub docling_dependency_waiting_count: u64,
+    pub stale_waiting_count: u64,
+    pub expired_active_external_jobs: u64,
+    pub active_external_jobs: u64,
     pub status_counts: Vec<LibraryProcessingMetric>,
     pub stage_counts: Vec<LibraryProcessingMetric>,
     pub waiting_reason_counts: Vec<LibraryProcessingMetric>,

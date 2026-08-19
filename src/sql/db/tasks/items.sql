@@ -25,9 +25,22 @@ SELECT item.id,
        job.deadline_at AS external_job_deadline_at,
        job.error_message AS external_job_error_message
 FROM context69.task_items item
-LEFT JOIN context69.task_external_jobs job
-       ON job.item_id = item.id
-      AND job.provider = 'docling'
+LEFT JOIN LATERAL (
+     SELECT job.provider,
+            job.remote_task_id,
+            job.status,
+            job.remote_status,
+            job.submitted_at,
+            job.last_polled_at,
+            job.next_poll_at,
+            job.deadline_at,
+            job.error_message
+     FROM context69.task_external_jobs job
+     WHERE job.item_id = item.id
+       AND job.provider = 'docling'
+     ORDER BY job.submitted_at DESC, job.created_at DESC
+     LIMIT 1
+) job ON TRUE
 WHERE item.task_id = $1
 ORDER BY item.ordinal
 LIMIT $2 OFFSET $3

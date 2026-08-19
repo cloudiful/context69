@@ -96,7 +96,12 @@ pub struct DoclingXlsxClient {
 impl DoclingXlsxClient {
     pub fn new(config: DoclingConfig) -> Result<Self> {
         let http = Client::builder()
-            .timeout(config.connection.timeout)
+            .timeout(
+                config
+                    .connection
+                    .timeout
+                    .min(Duration::from_secs(super::DEFAULT_DOCLING_TIMEOUT_SECS)),
+            )
             .tcp_keepalive(Duration::from_secs(60))
             .pool_idle_timeout(Duration::from_secs(30))
             .build()

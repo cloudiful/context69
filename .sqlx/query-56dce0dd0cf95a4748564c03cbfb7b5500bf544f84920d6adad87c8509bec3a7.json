@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH progressed AS (\n    UPDATE context69.task_items\n    SET status = 'queued',\n        attempt_count = 0,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = now(),\n        waiting_since = NULL,\n        lease_token = NULL,\n        lease_until = NULL,\n        updated_at = now()\n    WHERE id = $1\n      AND lease_token = $2\n      AND status = 'running'\n    RETURNING id\n)\nUPDATE context69.task_attempts\nSET status = 'progressed',\n    finished_at = now()\nWHERE id = $3\n  AND item_id = $1\n  AND finished_at IS NULL\n  AND EXISTS (SELECT 1 FROM progressed)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "56dce0dd0cf95a4748564c03cbfb7b5500bf544f84920d6adad87c8509bec3a7"
+}

@@ -76,11 +76,11 @@ pub use sources::{
 pub use tasks::{
     CancelActiveTasksResponse, DeleteBatchRequest, EnsureScopeResponse, ExternalJobInfo,
     FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest, PurgeTasksResponse,
-    RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus,
-    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview,
-    TaskMaintenanceSettings, TaskMaintenanceStats, TaskOrigin, TaskPageResponse, TaskProgress,
-    TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
-    TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem,
-    UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
+    RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
+    ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview, TaskMaintenanceSettings,
+    TaskMaintenanceStats, TaskOrigin, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef,
+    TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
+    TranslationSubmitItem, UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
 };
 pub use translation::*;

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id,\n       remote_task_id,\n       status,\n       remote_status,\n       next_poll_at,\n       deadline_at,\n       error_message\nFROM context69.task_external_jobs\nWHERE item_id = $1\n  AND provider = $2\n",
+  "query": "SELECT id,\n       remote_task_id,\n       status,\n       remote_status,\n       next_poll_at,\n       deadline_at,\n       error_message,\n       submission_count\nFROM context69.task_external_jobs\nWHERE item_id = $1\n  AND provider = $2\nORDER BY submitted_at DESC, created_at DESC\nLIMIT 1\n",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "error_message"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "submission_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "submission_count"
+          }
+        }
       }
     ],
     "parameters": {
@@ -94,8 +105,9 @@
       true,
       false,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "bc2e6fb5929bbc1a3a66b4233fae8fcd00143bbc48da27cf398110dd8fdd635e"
+  "hash": "400b57c1010b457919a3b2bfe5cfe0f796fb2cf868ab61d01b654d30b9518314"
 }

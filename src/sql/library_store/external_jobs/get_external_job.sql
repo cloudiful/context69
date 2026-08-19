@@ -4,7 +4,10 @@ SELECT id,
        remote_status,
        next_poll_at,
        deadline_at,
-       error_message
+       error_message,
+       submission_count
 FROM context69.task_external_jobs
 WHERE item_id = $1
   AND provider = $2
+ORDER BY submitted_at DESC, created_at DESC
+LIMIT 1

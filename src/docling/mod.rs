@@ -64,11 +64,16 @@ pub struct DoclingConfig {
 pub fn build_runtime_config(config: &DoclingConfig) -> Result<DoclingRuntimeConfig> {
     let docling_base_url = api_base_url(&config.connection.base_url);
     let mut runtime = DoclingRuntimeConfig::without_vlm(docling_base_url);
-    // The HTTP request timeout must cover the whole synchronous fallback
-    // conversion (convert_input still exists for legacy paths), so it shares
-    // the full per-document task budget rather than the short connection
-    // timeout. Async long-polls return within Docling's wait window.
-    runtime.request_timeout = Some(config.connection.task_timeout);
+    // The HTTP request timeout must be a short per-call ceiling so a slow
+    // Docling submit or poll cannot pin a worker slot for the whole task
+    // budget. The whole-document deadline is still enforced by the persisted
+    // `deadline_at` next to the external job.
+    runtime.request_timeout = Some(
+        config
+            .connection
+            .timeout
+            .min(Duration::from_secs(DEFAULT_DOCLING_TIMEOUT_SECS)),
+    );
     runtime.task_timeout = Some(config.connection.task_timeout);
     let Some(vlm) = resolve_vlm_runtime_config(&config.vlm)? else {
         return Ok(runtime);
@@ -196,6 +201,26 @@ mod tests {
         assert_eq!(runtime.docling_base_url, "http://localhost:5001/v1");
         assert!(runtime.openai_base_url.is_empty());
         assert!(runtime.api_key.is_none());
+    }
+
+    #[test]
+    fn runtime_config_keeps_request_timeout_short_and_separate_from_task_timeout() {
+        let runtime = build_runtime_config(&sample_config()).expect("runtime");
+        assert_eq!(
+            runtime.request_timeout,
+            Some(Duration::from_secs(120)),
+            "per-request HTTP timeout stays short so a slow Docling call \
+             cannot pin a worker slot for the whole task deadline",
+        );
+        assert_eq!(
+            runtime.task_timeout,
+            Some(Duration::from_secs(3600)),
+            "task_timeout continues to bound the whole-document conversion",
+        );
+        assert_ne!(
+            runtime.request_timeout, runtime.task_timeout,
+            "request_timeout and task_timeout must be independent budgets"
+        );
     }
 
     #[test]

@@ -5,6 +5,7 @@ WITH progressed AS (
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),
+        waiting_since = NULL,
         lease_token = NULL,
         lease_until = NULL,
         updated_at = now()

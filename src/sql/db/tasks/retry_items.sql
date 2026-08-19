@@ -27,7 +27,14 @@ WITH RECURSIVE inherited_groups AS (
             ELSE item.payload
         END,
         status = 'queued',
-        stage = COALESCE(item.stage, item.failure_stage, 'finalize'),
+        -- `docling_poll` items must restart at `docling` so the worker
+        -- submits a fresh remote task id; polling the old one forever is
+        -- exactly the failure mode the canary recovered from. Other failed
+        -- stages keep their original stage.
+        stage = CASE
+            WHEN item.stage = 'docling_poll' THEN 'docling'
+            ELSE COALESCE(item.stage, item.failure_stage, 'finalize')
+        END,
         attempt_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
@@ -35,6 +42,7 @@ WITH RECURSIVE inherited_groups AS (
         failure_stage = NULL,
         error_message = NULL,
         retryable = TRUE,
+        waiting_since = NULL,
         lease_token = NULL,
         lease_until = NULL,
         finished_at = NULL,

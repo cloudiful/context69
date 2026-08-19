@@ -8,6 +8,7 @@ WITH finished AS (
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = NULL,
+        waiting_since = NULL,
         lease_token = NULL,
         lease_until = NULL,
         finished_at = now(),

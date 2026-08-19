@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tasks/{task_id}/recover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recover_docling_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/users": {
         parameters: {
             query?: never;
@@ -1115,7 +1131,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description Get translation providers. The LLM provider is also used by document extraction and enrichment jobs. */
         get: operations["get_translation_settings"];
+        /** @description Update translation providers. The LLM provider settings apply to document extraction and enrichment jobs as well as translation. */
         put: operations["update_translation_settings"];
         post?: never;
         delete?: never;
@@ -1867,7 +1885,13 @@ export interface components {
             key: string;
         };
         LibraryProcessingQueueHealth: {
+            /** Format: int64 */
+            active_external_jobs: number;
             dependency_counts: components["schemas"]["LibraryProcessingMetric"][];
+            /** Format: int64 */
+            docling_dependency_waiting_count: number;
+            /** Format: int64 */
+            expired_active_external_jobs: number;
             /** Format: int64 */
             failed_last_hour: number;
             /** Format: double */
@@ -1876,6 +1900,8 @@ export interface components {
             oldest_pending_age_seconds?: number | null;
             /** Format: int64 */
             oldest_queued_age_seconds?: number | null;
+            /** Format: int64 */
+            oldest_waiting_age_seconds?: number | null;
             /** Format: int64 */
             pending_count: number;
             /** Format: int64 */
@@ -1887,6 +1913,8 @@ export interface components {
             /** Format: int64 */
             recent_failure_count: number;
             stage_counts: components["schemas"]["LibraryProcessingMetric"][];
+            /** Format: int64 */
+            stale_waiting_count: number;
             status_counts: components["schemas"]["LibraryProcessingMetric"][];
             waiting_reason_counts: components["schemas"]["LibraryProcessingMetric"][];
         };
@@ -2080,6 +2108,27 @@ export interface components {
         };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
+        };
+        RecoverDoclingTaskRequest: {
+            /** @description Free-form human justification recorded in the recovery audit. */
+            reason: string;
+        };
+        RecoverDoclingTaskResponse: {
+            recovered: components["schemas"]["RecoveredDoclingTask"];
+        };
+        RecoveredDoclingTask: {
+            /** Format: uuid */
+            file_id?: string | null;
+            /** Format: uuid */
+            item_id: string;
+            new_remote_task_id: string;
+            new_stage: string;
+            old_remote_status?: string | null;
+            old_remote_task_id?: string | null;
+            /** Format: date-time */
+            recovered_at: string;
+            /** Format: uuid */
+            task_id: string;
         };
         RerunTaskResponse: {
             task: components["schemas"]["TaskRef"];
@@ -2882,6 +2931,68 @@ export interface operations {
                 };
             };
             /** @description Active tasks block full history purge */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    recover_docling_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoverDoclingTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Recovered Docling task with fresh remote job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoverDoclingTaskResponse"];
+                };
+            };
+            /** @description Missing or empty reason */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Task or item is terminal / has an active lease or external job / is not in a Docling stage */
             409: {
                 headers: {
                     [name: string]: unknown;

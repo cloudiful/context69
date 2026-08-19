@@ -1,0 +1,133 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH status_counts AS (\n    SELECT item.status AS key, count(*)::BIGINT AS count\n    FROM context69.task_items item\n    GROUP BY item.status\n),\nstage_counts AS (\n    SELECT item.stage AS key, count(*)::BIGINT AS count\n    FROM context69.task_items item\n    WHERE item.status IN ('queued', 'running', 'waiting')\n      AND item.stage IS NOT NULL\n    GROUP BY item.stage\n),\nwaiting_reason_counts AS (\n    SELECT item.waiting_reason AS key, count(*)::BIGINT AS count\n    FROM context69.task_items item\n    WHERE item.status = 'waiting'\n      AND item.waiting_reason IS NOT NULL\n    GROUP BY item.waiting_reason\n),\ndependency_counts AS (\n    SELECT item.dependency_key AS key, count(*)::BIGINT AS count\n    FROM context69.task_items item\n    WHERE item.status = 'waiting'\n      AND item.dependency_key IS NOT NULL\n    GROUP BY item.dependency_key\n),\nrecent_processing AS (\n    SELECT\n        count(*) FILTER (\n            WHERE item.status IN ('succeeded', 'failed', 'cancelled')\n              AND item.updated_at >= now() - interval '1 hour'\n        )::BIGINT AS processed_last_hour,\n        count(*) FILTER (\n            WHERE item.status = 'failed'\n              AND item.updated_at >= now() - interval '1 hour'\n        )::BIGINT AS failed_last_hour\n    FROM context69.task_items item\n),\nqueue_counts AS (\n    SELECT\n        count(*) FILTER (WHERE item.status IN ('queued', 'running', 'waiting'))::BIGINT AS pending_count,\n        count(*) FILTER (WHERE item.status = 'queued')::BIGINT AS queued_count,\n        min(item.created_at) FILTER (WHERE item.status IN ('queued', 'running', 'waiting')) AS oldest_pending_at,\n        min(item.created_at) FILTER (WHERE item.status = 'queued') AS oldest_queued_at,\n        min(item.waiting_since) FILTER (WHERE item.status = 'waiting') AS oldest_waiting_at,\n        count(*) FILTER (\n            WHERE item.status = 'failed'\n              AND item.updated_at >= now() - interval '1 hour'\n        )::BIGINT AS recent_failure_count,\n        count(*) FILTER (\n            WHERE item.stage IN ('docling', 'docling_poll')\n              AND item.status IN ('queued', 'running', 'waiting')\n        )::BIGINT AS docling_required_count,\n        count(*) FILTER (\n            WHERE item.status = 'waiting'\n              AND item.waiting_reason = 'dependency'\n              AND item.dependency_key = 'docling'\n        )::BIGINT AS docling_dependency_waiting_count,\n        count(*) FILTER (\n            WHERE item.status = 'waiting'\n              AND item.waiting_since < now() - interval '30 minutes'\n        )::BIGINT AS stale_waiting_count\n    FROM context69.task_items item\n), external_jobs AS (\n    SELECT\n        count(*) FILTER (\n            WHERE job.status IN ('submitting', 'pending', 'running')\n              AND job.deadline_at IS NOT NULL\n              AND job.deadline_at < now()\n        )::BIGINT AS expired_active_jobs,\n         count(*) FILTER (WHERE job.status IN ('submitting', 'pending', 'running'))::BIGINT AS active_jobs\n    FROM context69.task_external_jobs job\n)\nSELECT\n    queue_counts.pending_count AS \"pending_count!\",\n    queue_counts.queued_count AS \"queued_count!\",\n    queue_counts.oldest_pending_at,\n    queue_counts.oldest_queued_at,\n    queue_counts.oldest_waiting_at,\n    queue_counts.recent_failure_count AS \"recent_failure_count!\",\n    queue_counts.docling_required_count AS \"docling_required_count!\",\n    queue_counts.docling_dependency_waiting_count AS \"docling_dependency_waiting_count!\",\n    queue_counts.stale_waiting_count AS \"stale_waiting_count!\",\n    external_jobs.expired_active_jobs AS \"expired_active_jobs!\",\n    external_jobs.active_jobs AS \"active_jobs!\",\n    COALESCE(\n        (SELECT jsonb_agg(jsonb_build_object('key', key, 'count', count) ORDER BY key)\n         FROM status_counts),\n        '[]'::jsonb\n    ) AS status_counts,\n    COALESCE(\n        (SELECT jsonb_agg(jsonb_build_object('key', key, 'count', count) ORDER BY key)\n         FROM stage_counts),\n        '[]'::jsonb\n    ) AS stage_counts,\n    COALESCE(\n        (SELECT jsonb_agg(jsonb_build_object('key', key, 'count', count) ORDER BY key)\n         FROM waiting_reason_counts),\n        '[]'::jsonb\n    ) AS waiting_reason_counts,\n    COALESCE(\n        (SELECT jsonb_agg(jsonb_build_object('key', key, 'count', count) ORDER BY key)\n         FROM dependency_counts),\n        '[]'::jsonb\n    ) AS dependency_counts,\n    recent_processing.processed_last_hour AS \"processed_last_hour!\",\n    recent_processing.failed_last_hour AS \"failed_last_hour!\"\nFROM queue_counts\nCROSS JOIN recent_processing\nCROSS JOIN external_jobs\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pending_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "queued_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest_pending_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "oldest_queued_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "oldest_waiting_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "recent_failure_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "docling_required_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "docling_dependency_waiting_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "stale_waiting_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "expired_active_jobs!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "active_jobs!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "status_counts",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "stage_counts",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "waiting_reason_counts",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "dependency_counts",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "processed_last_hour!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "failed_last_hour!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "363a831224731ace01d3a0acbb0d68a6dc1e69d17db925afa7af925b45d9b023"
+}

@@ -126,6 +126,7 @@ WITH eligible AS (
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = NULL,
+        waiting_since = NULL,
         failure_stage = NULL,
         error_message = NULL,
         updated_at = now()

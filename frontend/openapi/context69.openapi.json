@@ -198,6 +198,85 @@
         }
       }
     },
+    "/v1/admin/tasks/{task_id}/recover": {
+      "post": {
+        "tags": [],
+        "operationId": "recover_docling_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverDoclingTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recovered Docling task with fresh remote job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoverDoclingTaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or empty reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Task or item is terminal / has an active lease or external job / is not in a Docling stage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/users": {
       "get": {
         "tags": [],
@@ -4114,6 +4193,7 @@
     "/v1/settings/translation": {
       "get": {
         "tags": [],
+        "description": "Get translation providers. The LLM provider is also used by document extraction and enrichment jobs.",
         "operationId": "get_translation_settings",
         "responses": {
           "200": {
@@ -4140,6 +4220,7 @@
       },
       "put": {
         "tags": [],
+        "description": "Update translation providers. The LLM provider settings apply to document extraction and enrichment jobs as well as translation.",
         "operationId": "update_translation_settings",
         "requestBody": {
           "content": {
@@ -7200,6 +7281,10 @@
           "pending_count",
           "queued_count",
           "recent_failure_count",
+          "docling_dependency_waiting_count",
+          "stale_waiting_count",
+          "expired_active_external_jobs",
+          "active_external_jobs",
           "status_counts",
           "stage_counts",
           "waiting_reason_counts",
@@ -7210,11 +7295,26 @@
           "failure_rate_percent"
         ],
         "properties": {
+          "active_external_jobs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "dependency_counts": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/LibraryProcessingMetric"
             }
+          },
+          "docling_dependency_waiting_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expired_active_external_jobs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "failed_last_hour": {
             "type": "integer",
@@ -7234,6 +7334,14 @@
             "minimum": 0
           },
           "oldest_queued_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "oldest_waiting_age_seconds": {
             "type": [
               "integer",
               "null"
@@ -7270,6 +7378,11 @@
             "items": {
               "$ref": "#/components/schemas/LibraryProcessingMetric"
             }
+          },
+          "stale_waiting_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "status_counts": {
             "type": "array",
@@ -8034,6 +8147,78 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "RecoverDoclingTaskRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Free-form human justification recorded in the recovery audit."
+          }
+        }
+      },
+      "RecoverDoclingTaskResponse": {
+        "type": "object",
+        "required": [
+          "recovered"
+        ],
+        "properties": {
+          "recovered": {
+            "$ref": "#/components/schemas/RecoveredDoclingTask"
+          }
+        }
+      },
+      "RecoveredDoclingTask": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "item_id",
+          "new_remote_task_id",
+          "new_stage",
+          "recovered_at"
+        ],
+        "properties": {
+          "file_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "new_remote_task_id": {
+            "type": "string"
+          },
+          "new_stage": {
+            "type": "string"
+          },
+          "old_remote_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "old_remote_task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recovered_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

@@ -52,7 +52,7 @@ use crate::api::{
     },
     task_maintenance::{
         __path_cancel_active_tasks, __path_get_task_maintenance, __path_purge_tasks,
-        __path_update_task_maintenance,
+        __path_recover_docling_task, __path_update_task_maintenance,
     },
     tasks::{
         __path_cancel_task, __path_ensure_scope, __path_get_task, __path_list_task_items,
@@ -88,7 +88,8 @@ use crate::contracts::{
     MoveFolderRequest, PersonalAccessTokenPageQuery, PersonalAccessTokenPageResponse,
     PersonalAccessTokenResponse, PersonalAccessTokenScope, PrepareLibraryUploadRequest,
     PrepareLibraryUploadResponse, PurgeTasksRequest, PurgeTasksResponse,
-    RebuildDocumentExtractionsRequest, RebuildDocumentTranslationsRequest, RerunTaskResponse,
+    RebuildDocumentExtractionsRequest, RebuildDocumentTranslationsRequest,
+    RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
     ResetAdminUserPasswordRequest, ScopeMetadataIndex, ScopeSpec, SearchMode, SortDirection,
     SortOrder, SourceConfigInput, SourceConnectionResponse, SourceFolderResponse, SourcePageQuery,
     SourcePageResponse, SourceStatus, SyncOutcome, TaskItemResponse, TaskItemStatus,
@@ -191,7 +192,8 @@ use crate::contracts::{
         get_task_maintenance,
         update_task_maintenance,
         cancel_active_tasks,
-        purge_tasks
+        purge_tasks,
+        recover_docling_task
     ),
     components(schemas(
         HealthStatus,
@@ -315,6 +317,9 @@ use crate::contracts::{
         CancelActiveTasksResponse,
         PurgeTasksRequest,
         PurgeTasksResponse,
+        RecoverDoclingTaskRequest,
+        RecoverDoclingTaskResponse,
+        RecoveredDoclingTask,
         TextBatchRequest,
         UrlBatchRequest,
         DeleteBatchRequest,
@@ -399,6 +404,7 @@ mod tests {
             "/v1/admin/tasks/maintenance",
             "/v1/admin/tasks/cancel-active",
             "/v1/admin/tasks/purge",
+            "/v1/admin/tasks/{task_id}/recover",
         ] {
             assert!(paths.contains_key(path), "missing path {path}");
         }

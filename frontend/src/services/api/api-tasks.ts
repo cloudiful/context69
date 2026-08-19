@@ -2,6 +2,8 @@ import type {
   CancelActiveTasksResponse,
   PurgeTasksRequest,
   PurgeTasksResponse,
+  RecoverDoclingTaskRequest,
+  RecoverDoclingTaskResponse,
   RequestOptions,
   RerunTaskResponse,
   TaskItemsResponse,
@@ -114,6 +116,17 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         body: payload,
         signal: options?.signal,
       })) as Promise<PurgeTasksResponse>;
+    },
+    recoverDoclingTask(
+      taskId: string,
+      payload: RecoverDoclingTaskRequest,
+      options?: RequestOptions,
+    ) {
+      return unwrapResponse(openapiClient.POST("/v1/admin/tasks/{task_id}/recover", {
+        params: { path: { task_id: taskId } },
+        body: payload,
+        signal: options?.signal,
+      })) as Promise<RecoverDoclingTaskResponse>;
     },
   };
 }

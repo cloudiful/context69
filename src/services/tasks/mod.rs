@@ -44,6 +44,8 @@ mod item_url_processor;
 mod maintenance;
 mod runtime;
 
+pub(crate) use maintenance::TaskMaintenanceError;
+
 #[derive(Clone)]
 pub struct TaskService {
     db: Database,

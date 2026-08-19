@@ -1,15 +1,17 @@
 use axum::{
     Json,
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use context69_contracts::{
-    ApiErrorResponse, PurgeTasksRequest, TaskMaintenanceOverview,
-    UpdateTaskMaintenanceSettingsRequest,
+    ApiErrorResponse, PurgeTasksRequest, RecoverDoclingTaskRequest, RecoverDoclingTaskResponse,
+    TaskMaintenanceOverview, UpdateTaskMaintenanceSettingsRequest,
 };
+use uuid::Uuid;
 
 use super::{ApiState, auth::CurrentUser, errors::error_response};
+use crate::services::tasks::TaskMaintenanceError;
 
 #[utoipa::path(
     get,
@@ -110,9 +112,48 @@ pub(crate) async fn purge_tasks(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/admin/tasks/{task_id}/recover",
+    params(("task_id" = Uuid, Path)),
+    request_body = RecoverDoclingTaskRequest,
+    responses(
+        (status = 200, description = "Recovered Docling task with fresh remote job", body = RecoverDoclingTaskResponse),
+        (status = 400, description = "Missing or empty reason", body = ApiErrorResponse),
+        (status = 403, description = "Admin access required", body = ApiErrorResponse),
+        (status = 404, description = "Task not found", body = ApiErrorResponse),
+        (status = 409, description = "Task or item is terminal / has an active lease or external job / is not in a Docling stage", body = ApiErrorResponse)
+    )
+)]
+pub(crate) async fn recover_docling_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+    Json(request): Json<RecoverDoclingTaskRequest>,
+) -> Response {
+    match state
+        .app
+        .tasks
+        .admin_recover_docling_task(&session.user, task_id, &request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => task_maintenance_error_response(error),
+    }
+}
+
 fn task_maintenance_error_response(error: anyhow::Error) -> Response {
     let message = error.to_string();
-    let status = if message.contains("admin access required") {
+    let recovery_error = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<TaskMaintenanceError>());
+    let status = if let Some(recovery_error) = recovery_error {
+        match recovery_error {
+            TaskMaintenanceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            TaskMaintenanceError::Conflict(_) => StatusCode::CONFLICT,
+            TaskMaintenanceError::NotFound(_) => StatusCode::NOT_FOUND,
+        }
+    } else if message.contains("admin access required") {
         StatusCode::FORBIDDEN
     } else if message.contains("must be cancelled") {
         StatusCode::CONFLICT
