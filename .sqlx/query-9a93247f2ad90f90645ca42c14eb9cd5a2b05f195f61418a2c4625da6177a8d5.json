@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.tasks\nWHERE id IN (\n    SELECT id\n    FROM context69.tasks candidate\n    WHERE candidate.status IN ('succeeded', 'failed', 'cancelled')\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items item\n          JOIN context69.task_external_jobs job ON job.item_id = item.id\n          WHERE item.task_id = candidate.id\n            AND job.status IN ('submitting', 'pending', 'running')\n      )\n    LIMIT $1\n    FOR UPDATE SKIP LOCKED\n)\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9a93247f2ad90f90645ca42c14eb9cd5a2b05f195f61418a2c4625da6177a8d5"
+}

@@ -30,7 +30,7 @@ The `context69` database has 3,091 tasks, zero active tasks, and 77 records olde
 1. Investigation: complete. Queried schemas, task status, retention settings, failure groups, external jobs, and deletion constraints.
 2. Cleanup protection: in progress. Scope: `src/sql/db/tasks/cleanup_expired.sql`, `src/sql/db/tasks/purge_terminal.sql`, and `tests/task_maintenance.rs`.
 3. Independent review and repairs: complete. Reviewer round 1 returned exact `PASS`; no P0-P2 findings. P3 observations only: the structural test is not behavioral, its name overstates coverage, and its single normalized-substring assertion is somewhat brittle. They are non-blocking under the scoped SQL-only change and no repair is required.
-4. Checkpoint and final disposition: pending.
+4. Checkpoint and final disposition: repaired aggregate review passed; SQLx cache checkpoint pending, then final disposition.
 
 ## Validation
 
@@ -50,6 +50,11 @@ The `context69` database has 3,091 tasks, zero active tasks, and 77 records olde
 
 - Executor Phase 2 attempt 1: DONE. Changed the two purge SQL files and added structural regression coverage. Validation passed: `git diff --check`, `cargo fmt --all -- --check`, `cargo test --test task_maintenance` (1 passed). Redmine audit comment failed with HTTP 404.
 - Reviewer round 1: exact `PASS`. Reviewer JSON was recovered after an initial non-JSON wrapper response; final JSON verdict and evidence are valid. No P0-P2 findings. P3 observations recorded above. Validation confirmed `git diff --check`, `cargo fmt --all -- --check`, `cargo test --test task_maintenance` (1 passed), and SQLx call-site compatibility by inspection.
+- Final aggregate reviewer round 1: exact `FAIL`. Confirmed P1: changed SQL queries have no matching committed `.sqlx` offline cache entries, and `SQLX_OFFLINE=true cargo build --bin context69` fails at both query macro call sites. P3 alias/test-quality observations are non-blocking.
+- Repair phase: regenerate only `.sqlx/query-f8a92c9b4aafec5485284c6b21ba6c34250324a09a11149f11c1f8483d247872.json` and `.sqlx/query-9a93247f2ad90f90645ca42c14eb9cd5a2b05f195f61418a2c4625da6177a8d5.json` (or the exact generated paths for these query hashes), validate offline build, then run a fresh aggregate reviewer round.
+- Repair result: the SQLx prepare command attempted to delete 45 unrelated committed cache files and was stopped. Those exact baseline cache paths were restored. The two required cache files were added with the generated query metadata. Validation now passes: `SQLX_OFFLINE=true cargo check --bin context69`, `cargo test --test task_maintenance` (1 passed), `cargo fmt --all -- --check`, and `git diff --check`.
+- Final aggregate reviewer round 2: exact `PASS`. No P0-P2 findings. Confirmed both cache hashes, SQL text, parameter types, UUID result shape, unchanged tracked cache count, and no remaining unrelated deletions.
+- Checkpoint pending: stage only the two new `.sqlx/query-*.json` files and this plan, then commit `phase(task-cleanup-docling): refresh SQLx offline caches`.
 - Tracking fallback: Redmine issue 2 was created, but `comment create` returned HTTP 404 and `issue update-body` did not return the updated body. `.opencode/plans/task-cleanup-docling.md` is authoritative from this point.
 
 ## Blocked Questions
