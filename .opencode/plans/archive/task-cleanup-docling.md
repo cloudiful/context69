@@ -1,6 +1,6 @@
 # Task Cleanup and Docling Recovery
 
-Status: COMPLETE
+Status: BLOCKED
 Tracking: LOCAL_PLAN fallback from FORGEJO_ISSUE Redmine issue 2. Redmine issue creation and get worked, but issue update/comment operations did not persist or returned HTTP 404 for comments. This archived local plan is the final authoritative record.
 
 ## Goal
@@ -30,7 +30,7 @@ The `context69` database has 3,091 tasks, zero active tasks, and 77 records olde
 1. Investigation: complete. Queried schemas, task status, retention settings, failure groups, external jobs, and deletion constraints.
 2. Cleanup protection: complete. Changed `src/sql/db/tasks/cleanup_expired.sql`, `src/sql/db/tasks/purge_terminal.sql`, and added `tests/task_maintenance.rs`.
 3. Independent review and repairs: complete. Round 1 passed the SQL logic; aggregate round 1 found and repaired the missing SQLx offline caches.
-4. Checkpoint and final disposition: complete. Checkpoints are `180173d` and `adea599`; final aggregate round 3 returned exact `PASS`.
+4. Checkpoint and final disposition: code checkpoint and review complete, but final CI disposition is blocked because `ci inspect --wait` cannot select the completed run and times out with an empty conclusion.
 
 ## Validation
 
@@ -56,6 +56,8 @@ The `context69` database has 3,091 tasks, zero active tasks, and 77 records olde
 - Repair: restored the 45 unrelated cache deletions attempted by SQLx prepare and added only the two required generated cache files.
 - Final aggregate reviewer round 2: exact `PASS`; cache hashes, query text, parameters, result shape, and no unrelated deletions confirmed.
 - Final committed-range reviewer round 3: exact `PASS`; no P0-P2 findings.
+- Push: `git push origin main` succeeded for SHA `f99c02eedc12200debfc3cbcecde9ea933ca953a`.
+- CI: `ci inspect --sha f99c02eedc12200debfc3cbcecde9ea933ca953a --ref refs/heads/main --wait --timeout 900 --poll 10` timed out twice with `selected_run: null`, `poll_count: 91`, and no conclusion. Read-only `ci runs`/`ci run get` found run `880` at `https://forgejo.cloud1ful.com/research/context69/actions/runs/42` with workflow status `success` and job `build-and-publish` status `success`, but `conclusion` is null. This is recorded as CI inspection blocked, not normalized to PASS.
 - Redmine fallback: issue 2 comment creation returned HTTP 404 and issue body updates did not persist; local plan was used and archived here.
 
 ## Blocked Questions
@@ -64,4 +66,4 @@ The `context69` database has 3,091 tasks, zero active tasks, and 77 records olde
 
 ## Final Status
 
-COMPLETE
+BLOCKED
