@@ -38,7 +38,7 @@ const runtimeResponse = {
   },
   file_library: {
     storage_root: "/tmp/library",
-    max_upload_size_mb: 64,
+    max_upload_size_mb: 128,
     max_upload_request_size_mb: 128,
     ingest_concurrency: 2,
     url_import_concurrency: 2,

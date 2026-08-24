@@ -395,7 +395,7 @@ mod tests {
             },
             file_library: crate::contracts::UpdateRuntimeFileLibrarySettings {
                 storage_root: "/tmp/library".to_string(),
-                max_upload_size_mb: 64,
+                max_upload_size_mb: 128,
                 max_upload_request_size_mb: 128,
                 ingest_concurrency: 1,
                 url_import_concurrency: 1,

@@ -55,7 +55,7 @@ timeout_secs = 30
 
 [file_library]
 storage_root = "./data/library"
-max_upload_size_mb = 64
+max_upload_size_mb = 128
 max_upload_request_size_mb = 256
 ingest_concurrency = 1
 url_import_concurrency = 1

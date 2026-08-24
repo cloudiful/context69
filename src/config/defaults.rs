@@ -80,7 +80,7 @@ impl Default for FileConfig {
             },
             file_library: FileLibraryConfig {
                 storage_root: PathBuf::from("./data/library"),
-                max_upload_size_mb: 64,
+                max_upload_size_mb: 128,
                 max_upload_request_size_mb: default_max_upload_request_size_mb(),
                 ingest_concurrency: 1,
                 url_import_concurrency: DEFAULT_URL_IMPORT_CONCURRENCY,
