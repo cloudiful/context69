@@ -52,7 +52,12 @@ impl LibraryService {
             if requested_external_id.is_some()
                 && existing.external_id.as_deref() != requested_external_id
             {
-                return Err(anyhow!("external_id_content_conflict"));
+                // Same bytes, different external_id: mint a fresh
+                // library_files row that shares the existing
+                // content-addressed storage object so the file task the API
+                // handler submits against this response still has a fresh,
+                // distinct metadata row to ingest.
+                return self.prepare_duplicate_content_file(project, request).await;
             }
             return self
                 .reuse_prepared_file(
@@ -92,6 +97,153 @@ impl LibraryService {
             file: Some(file_to_summary(&file)),
             task: None,
         })
+    }
+
+    async fn prepare_duplicate_content_file(
+        &self,
+        project: &crate::domain::GroupRecord,
+        request: &PrepareLibraryUploadRequest,
+    ) -> Result<PrepareLibraryUploadResponse> {
+        // The duplicate-content reuse path is reachable only when an
+        // existing library_files row already points at a storage object for
+        // this SHA. Confirm that storage object matches the request and is
+        // physically present before linking a new metadata row to it.
+        let storage_object = self
+            .store
+            .get_storage_object(project.id, &request.sha256)
+            .await?
+            .with_context(|| {
+                format!(
+                    "missing storage object for duplicate-content reuse {}",
+                    request.sha256
+                )
+            })?;
+        if storage_object.storage_backend != self.storage.backend() {
+            return Ok(upload_required());
+        }
+        if storage_object.size_bytes != request.size_bytes {
+            return Ok(upload_required());
+        }
+        if !self
+            .exists_active_storage(&storage_object.object_key)
+            .await?
+        {
+            return Ok(upload_required());
+        }
+
+        // The new row must always live in the requested folder (or the
+        // project root when the caller did not pick one). Falling back to the
+        // existing file's folder would silently relocate the duplicate.
+        let folder_id = request.folder_id;
+        let filename = super::filenames::resolve_project_file_filename(
+            &self.store,
+            project.id,
+            folder_id,
+            &request.filename,
+        )
+        .await?;
+
+        let file_id = Uuid::new_v4();
+        let mut created = match self
+            .store
+            .create_file_in_project(
+                project.id,
+                &NewLibraryFile {
+                    id: file_id,
+                    folder_id,
+                    external_id: request
+                        .metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.external_id.clone()),
+                    filename: filename.clone(),
+                    media_type: request.media_type.clone(),
+                    size_bytes: request.size_bytes,
+                    sha256: request.sha256.clone(),
+                    storage_rel_path: storage_object.object_key.clone(),
+                    storage_object_id: Some(storage_object.id),
+                },
+            )
+            .await
+        {
+            Ok(file) => file,
+            Err(error) => {
+                // The storage object is still referenced by the original row,
+                // so unreferenced-object cleanup is a no-op for it.
+                self.rollback_prepared_duplicate_file(project.id, file_id, storage_object.id)
+                    .await;
+                return Err(error);
+            }
+        };
+        if let Some(metadata) = request.metadata.as_ref() {
+            created = match self.apply_file_business_metadata(file_id, metadata).await {
+                Ok(file) => file,
+                Err(error) => {
+                    self.rollback_prepared_duplicate_file(project.id, file_id, storage_object.id)
+                        .await;
+                    return Err(error);
+                }
+            };
+        }
+        if let Some(directive) = request.translation.as_ref()
+            && let Err(error) = self
+                .apply_file_translation_directive(file_id, directive)
+                .await
+        {
+            self.rollback_prepared_duplicate_file(project.id, file_id, storage_object.id)
+                .await;
+            return Err(error);
+        }
+        if let Some(directive) = request.extraction.as_ref()
+            && let Err(error) = self
+                .apply_file_extraction_directive(file_id, directive)
+                .await
+        {
+            self.rollback_prepared_duplicate_file(project.id, file_id, storage_object.id)
+                .await;
+            return Err(error);
+        }
+
+        info!(
+            file_id = %file_id,
+            storage_object_id = %storage_object.id,
+            sha256 = %request.sha256,
+            "library file reused an existing content-addressed storage object via prepare-upload"
+        );
+
+        Ok(PrepareLibraryUploadResponse {
+            upload_required: false,
+            file: Some(file_to_summary(&created)),
+            task: None,
+        })
+    }
+
+    /// Roll back a duplicate-content row created by
+    /// [`prepare_duplicate_content_file`]. The associated storage object is
+    /// still referenced by the original library_files row, so the unreferenced
+    /// cleanup is a guarded no-op against it.
+    async fn rollback_prepared_duplicate_file(
+        &self,
+        project_id: i64,
+        file_id: Uuid,
+        storage_object_id: Uuid,
+    ) {
+        match self
+            .store
+            .delete_file_record_in_project(project_id, file_id)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(file_id = %file_id, "prepared duplicate rollback found no file record")
+            }
+            Err(error) => warn!(
+                file_id = %file_id,
+                %error,
+                "failed to remove prepared duplicate file record"
+            ),
+        }
+        self.delete_unreferenced_storage_object(storage_object_id)
+            .await;
     }
 
     pub(super) async fn store_project_content(

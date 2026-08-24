@@ -1,7 +1,7 @@
 use super::*;
 
 impl LibraryService {
-    pub(crate) async fn prepare_file_for_task(
+    pub async fn prepare_file_for_task(
         &self,
         group_id: i64,
         upload: UploadedLibraryFile,
@@ -70,7 +70,19 @@ impl LibraryService {
             if requested_external_id.is_some()
                 && existing.external_id.as_deref() != requested_external_id
             {
-                return Err(anyhow!("external_id_content_conflict"));
+                let file = self
+                    .create_duplicate_content_file_in_project(
+                        group_id,
+                        existing,
+                        &upload,
+                        &sha256,
+                        lease_token,
+                    )
+                    .await?;
+                return Ok(UploadedLibraryFileResult {
+                    file: file_to_summary(&file),
+                    rollback: UploadedLibraryFileRollback::empty(),
+                });
             }
             let file = self
                 .update_reused_file(
@@ -360,38 +372,5 @@ impl LibraryService {
             ));
         }
         Ok((kind, sha256))
-    }
-
-    async fn storage_object_for_upload(
-        &self,
-        group_id: i64,
-        upload: &UploadedLibraryFile,
-        sha256: &str,
-        lease_token: Uuid,
-    ) -> Result<crate::library_store::objects::StorageObjectRecord> {
-        if let Some(object_id) = upload.staged_storage_object_id {
-            let object = self
-                .store
-                .get_storage_object_by_id(object_id)
-                .await?
-                .with_context(|| format!("unknown staged storage object {object_id}"))?;
-            if object.group_id != group_id
-                || object.sha256 != sha256
-                || object.size_bytes != upload.bytes.len() as i64
-                || object.storage_backend != self.storage.backend()
-            {
-                return Err(anyhow!(
-                    "staged storage object metadata does not match upload"
-                ));
-            }
-            return Ok(object);
-        }
-        self.store_project_content_with_optional_lease(
-            group_id,
-            sha256,
-            upload.bytes.clone(),
-            Some(lease_token),
-        )
-        .await
     }
 }

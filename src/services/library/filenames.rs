@@ -25,6 +25,18 @@ pub(super) async fn resolve_project_text_filename(
     ))
 }
 
+pub(super) async fn resolve_project_file_filename(
+    store: &LibraryStore,
+    project_id: i64,
+    folder_id: Option<Uuid>,
+    requested: &str,
+) -> Result<String> {
+    let occupied = store
+        .list_filenames_in_project_folder(project_id, folder_id, None)
+        .await?;
+    Ok(next_available_filename(requested, &occupied))
+}
+
 fn next_available_filename(base_filename: &str, occupied: &[String]) -> String {
     let occupied = occupied.iter().cloned().collect::<HashSet<_>>();
     if !occupied.contains(base_filename) {
@@ -84,5 +96,17 @@ mod tests {
     fn keeps_suffix_before_extension() {
         let filename = next_available_filename("notice.md.txt", &["notice.md.txt".to_string()]);
         assert_eq!(filename, "notice.md (2).txt");
+    }
+
+    #[test]
+    fn collision_handles_dash_and_dot_separators() {
+        let filename = next_available_filename(
+            "report-2026.pdf",
+            &[
+                "report-2026.pdf".to_string(),
+                "report-2026 (2).pdf".to_string(),
+            ],
+        );
+        assert_eq!(filename, "report-2026 (3).pdf");
     }
 }

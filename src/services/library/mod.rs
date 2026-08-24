@@ -42,6 +42,7 @@ pub(crate) use dependency_runtime::{
 mod dependency_storage;
 mod docling_jobs;
 pub(crate) use docling_jobs::{DOCLING_EXTERNAL_JOB_PROVIDER, DoclingPollOutcome};
+mod duplicate_content;
 mod filenames;
 mod files;
 mod folders;
