@@ -98,6 +98,65 @@ The startup log line exposes the run summary:
 `scanned`, `migrated`, `already_migrated`, `missing`, `invalid`, `conflicts`, and
 `errors`.
 
+### Missing-source cleanup (automatic, with documented data loss)
+
+Legacy direct-path rows that the migration cannot bring onto the
+content-addressed layout because the active storage backend has lost their
+source object are cleaned up automatically on every normal startup, after the
+legacy migration and before task workers resume. This is the documented
+data-loss path for source files whose physical RustFS objects are confirmed
+absent: there is no manual CLI, and operators do not need to enter the
+container or run a one-shot tool.
+
+Selection criteria (deterministic, bounded, restartable):
+
+- `storage_object_id IS NULL` (still pointing at the legacy key),
+- `ingest_status IN ('succeeded', 'failed')` (terminal states only),
+- `created_at < now() - 24h` (conservative grace so transient S3 races
+  during upload, and any late migration writes, are not destructive).
+
+The active storage key is re-checked for each candidate; only an explicit
+`NotFound` from the storage abstraction qualifies. Storage errors are
+retryable and never result in a delete: they propagate as a per-row
+failure, leaving the row in place for the next startup. Qdrant runtime
+availability gates the whole run: when Qdrant is not configured, the
+cleanup short-circuits and the next startup retries with the same grace
+window. This ordering guarantees that the existing application delete
+chain (chunk-id Qdrant delete, then document/row deletion, then physical
+storage delete) cannot strand PostgreSQL rows without their vector points.
+
+Per-row re-reads between the selection page and the per-row work prevent
+racing a concurrent migration or ingest: a row that becomes linked onto
+the content-addressed layout (storage_object_id set), whose storage_rel_path
+is rewritten, whose ingest_status leaves a terminal state, or whose source
+reappears in active storage between selection and per-row work, is skipped
+without mutation. Failures are isolated per row; one permanently failing
+candidate does not block later rows, and the cursor on (created_at, id)
+keeps the loop deterministic across restarts.
+
+The startup log line exposes the run summary:
+`scanned`, `confirmed_missing`, `deleted`, `still_present`,
+`skipped_recent_nonterminal`, `errors`, and `qdrant_unavailable`.
+
+### Startup old-object cleanup (gated)
+
+The previously-recorded legacy old-key cleanup runs only after the
+missing-source cleanup completes successfully and no legacy direct-path
+rows remain in the database. The gate is:
+
+- `qdrant_unavailable` and `errors` from the missing-source summary must
+  be zero (no per-row failure can leak past the gate),
+- `library_files.storage_object_id IS NULL` count must be zero
+  (no in-flight legacy row that the missing-source cleanup is still
+  about to act on; otherwise old-key deletion would race).
+
+When the gate holds, the existing `cleanup_legacy_objects` is invoked with
+its own 7-day grace, backend-matching, live reference, and idempotent
+delete/mark guarantees. The startup log line exposes the run summary:
+`scanned`, `eligible`, `deleted`, `already_missing`, `skipped_referenced`,
+`skipped_backend`, and `errors`. When no candidates ever existed (and no
+migration ever recorded a legacy old-key record), this is a no-op.
+
 ### Old-object and code cleanup (awaiting explicit confirmation)
 
 Old physical object deletion and removal of the legacy read-compatibility code are

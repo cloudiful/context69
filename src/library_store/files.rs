@@ -24,6 +24,21 @@ pub struct LegacyFileStorageStateRow {
     pub storage_rel_path: String,
 }
 
+/// Legacy direct-path row eligible for the startup missing-source cleanup:
+/// still pointing at the legacy key, in a terminal ingest state, and old
+/// enough that the active storage key has had a chance to settle.
+#[derive(Debug, Clone, FromRow)]
+pub struct MissingLegacySourceFileRow {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub filename: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub storage_rel_path: String,
+    pub ingest_status: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, FromRow)]
 struct FileTranslationDirectiveRow {
     translation_override: bool,
@@ -167,6 +182,42 @@ impl LibraryStore {
         )
         .fetch_all(self.db.pool())
         .await?)
+    }
+
+    /// Bounded page of legacy direct-path rows whose source object is a
+    /// candidate for startup missing-source cleanup. Filters out rows that
+    /// were concurrently linked (`storage_object_id IS NOT NULL`), ingested
+    /// again (non-terminal `ingest_status`), or are too recent to safely
+    /// verify (younger than `grace_hours`).
+    pub async fn list_missing_legacy_source_files(
+        &self,
+        grace_hours: i64,
+        after_created_at: Option<DateTime<Utc>>,
+        after_id: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<MissingLegacySourceFileRow>> {
+        Ok(sqlx::query_file_as!(
+            MissingLegacySourceFileRow,
+            "src/sql/library_store/files/list_missing_legacy_source_files.sql",
+            grace_hours,
+            after_created_at,
+            after_id,
+            limit
+        )
+        .fetch_all(self.db.pool())
+        .await?)
+    }
+
+    /// Lightweight existence check for any legacy direct-path rows. Used by
+    /// startup to gate the old-key cleanup phase: legacy old-key deletion
+    /// only runs when this returns `false` so a partially-completed
+    /// migration cannot strand old objects that the missing-source cleanup
+    /// is still about to act on.
+    pub async fn has_legacy_direct_path_files(&self) -> Result<bool> {
+        let rows = self
+            .list_legacy_direct_path_files(None, None, 1_i64)
+            .await?;
+        Ok(!rows.is_empty())
     }
 
     /// Conditionally link a legacy direct-path row to a content-addressed

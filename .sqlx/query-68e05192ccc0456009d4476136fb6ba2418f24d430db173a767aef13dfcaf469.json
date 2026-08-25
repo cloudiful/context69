@@ -1,0 +1,115 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Deterministic, bounded selection of legacy direct-path rows whose\n-- recorded source object is a candidate for startup missing-source\n-- cleanup: still pointing at a legacy direct-path key\n-- (`storage_object_id IS NULL`), in a terminal ingest state\n-- (`succeeded` or `failed`), and old enough that the active storage key\n-- has had a chance to settle (`created_at < now() - grace_hours`).\n-- The `(created_at, id)` cursor keeps restarts safe: a row concurrently\n-- linked, ingested again, or deleted drops out of the filter on the\n-- next pass.\nSELECT f.id,\n       f.group_id,\n       f.filename,\n       f.size_bytes,\n       f.sha256,\n       f.storage_rel_path,\n       f.ingest_status,\n       f.created_at\nFROM context69.library_files AS f\nWHERE f.storage_object_id IS NULL\n  AND f.ingest_status IN ('succeeded', 'failed')\n  AND f.created_at < (now() - ($1::bigint * INTERVAL '1 hour'))\n  AND ($2::timestamptz IS NULL OR (f.created_at, f.id) > ($2::timestamptz, $3::uuid))\nORDER BY f.created_at, f.id\nLIMIT $4::bigint\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "filename",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "filename"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "storage_rel_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "storage_rel_path"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "ingest_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "ingest_status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "68e05192ccc0456009d4476136fb6ba2418f24d430db173a767aef13dfcaf469"
+}

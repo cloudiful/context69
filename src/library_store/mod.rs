@@ -24,6 +24,7 @@ pub use resources::ResourceListQuery;
 pub(crate) use dependency_gates::DependencyGateTransition;
 pub(crate) use external_jobs::RecoveryAudit;
 pub(crate) use files::LegacyDirectPathFileRow;
+pub use files::MissingLegacySourceFileRow;
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format};
 
 #[derive(Clone)]

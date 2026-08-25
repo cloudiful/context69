@@ -25,7 +25,8 @@ use crate::{
         document_store::DocumentStoreService,
         extraction::ExtractionPublisherAdapter,
         library::{
-            LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS, LibraryDependency, LibraryService,
+            DEFAULT_LEGACY_CLEANUP_BATCH_SIZE, LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS,
+            LibraryDependency, LibraryService, MissingSourceCleanupSummary,
             log_dependency_transition, report_embedding_vector_processing_error_with_lease,
         },
         namespace::NamespaceService,
@@ -348,6 +349,88 @@ impl Context69App {
                 %error,
                 "startup legacy library direct-path migration failed; it will retry on the next restart"
             ),
+        }
+        // Run missing-source cleanup before task workers resume: it
+        // re-checks each terminal legacy direct-path row that the
+        // migration could not bring onto the content-addressed layout
+        // because its recorded source is gone from the active storage
+        // backend. Qdrant availability gates the whole run so an outage
+        // can never strand PostgreSQL rows without their vector points.
+        // Per-row failures stay for the next startup; this only logs and
+        // continues.
+        let missing_summary = match library.run_startup_missing_source_cleanup().await {
+            Ok(summary) => {
+                info!(
+                    scanned = summary.scanned,
+                    confirmed_missing = summary.confirmed_missing,
+                    deleted = summary.deleted,
+                    still_present = summary.still_present,
+                    skipped_recent_nonterminal = summary.skipped_recent_nonterminal,
+                    errors = summary.errors,
+                    qdrant_unavailable = summary.qdrant_unavailable,
+                    "startup library missing-source cleanup complete"
+                );
+                summary
+            }
+            Err(error) => {
+                warn!(
+                    %error,
+                    "startup library missing-source cleanup failed; it will retry on the next restart"
+                );
+                MissingSourceCleanupSummary::default()
+            }
+        };
+        // Old-key cleanup is gated on no remaining legacy direct-path rows
+        // and a clean missing-source cleanup so a partially-completed
+        // migration cannot strand old objects that the missing-source
+        // phase is still about to act on. Old-key cleanup honors its own
+        // 7-day grace, backend matching, live reference checks, and
+        // idempotent delete/mark; running it here is safe once the gate
+        // holds. When no candidates ever existed (and no migration ever
+        // recorded a legacy old-key record), this is a no-op.
+        let legacy_direct_paths_remaining = library
+            .store()
+            .has_legacy_direct_path_files()
+            .await
+            .unwrap_or_else(|error| {
+                warn!(
+                    %error,
+                    "failed to count remaining legacy direct-path rows; \
+                     skipping startup old-key cleanup"
+                );
+                true
+            });
+        if missing_summary.qdrant_unavailable || missing_summary.errors > 0 {
+            warn!(
+                qdrant_unavailable = missing_summary.qdrant_unavailable,
+                errors = missing_summary.errors,
+                "skipping startup old-key cleanup because the missing-source cleanup was incomplete"
+            );
+        } else if legacy_direct_paths_remaining {
+            info!(
+                "skipping startup old-key cleanup because legacy direct-path rows remain; \
+                 the missing-source cleanup will revisit them on the next startup"
+            );
+        } else {
+            match library
+                .cleanup_legacy_objects(true, DEFAULT_LEGACY_CLEANUP_BATCH_SIZE)
+                .await
+            {
+                Ok(summary) => info!(
+                    scanned = summary.scanned,
+                    eligible = summary.eligible,
+                    deleted = summary.deleted,
+                    already_missing = summary.already_missing,
+                    skipped_referenced = summary.skipped_referenced,
+                    skipped_backend = summary.skipped_backend,
+                    errors = summary.errors,
+                    "startup legacy old-key cleanup complete"
+                ),
+                Err(error) => warn!(
+                    %error,
+                    "startup legacy old-key cleanup failed; it will retry on the next restart"
+                ),
+            }
         }
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
         library.initialize_dependency_gates().await?;

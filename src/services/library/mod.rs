@@ -58,6 +58,11 @@ mod migration;
 pub use migration::{
     DEFAULT_LEGACY_PATH_MIGRATION_BATCH_SIZE, LegacyPathMigrationSummary, StorageMigrationSummary,
 };
+mod missing_source_cleanup;
+pub use missing_source_cleanup::{
+    DEFAULT_MISSING_SOURCE_CLEANUP_BATCH_SIZE, MISSING_SOURCE_CLEANUP_GRACE_HOURS,
+    MissingSourceCleanupSummary,
+};
 pub(crate) mod object_storage;
 mod remote_download;
 mod remote_proxy;
