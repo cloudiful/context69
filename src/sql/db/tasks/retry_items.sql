@@ -51,7 +51,6 @@ WITH RECURSIVE inherited_groups AS (
     WHERE item.task_id IN (SELECT id FROM allowed)
       AND item.task_id = task.id
       AND item.status = 'failed'
-      AND item.retryable
     RETURNING item.id
 )
 SELECT id FROM retried ORDER BY id

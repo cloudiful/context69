@@ -299,7 +299,7 @@ impl TaskService {
         }
         let item_ids = self.db.retry_task_items(task_id, user_id).await?;
         if item_ids.is_empty() {
-            return Err(anyhow!("task has no retryable failed items"));
+            return Err(anyhow!("task has no failed items to retry"));
         }
         self.db.recompute_task(task_id).await?;
         self.notify_dispatch();

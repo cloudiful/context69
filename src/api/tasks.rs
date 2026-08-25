@@ -438,6 +438,7 @@ fn task_error(error: anyhow::Error) -> Response {
     } else if message.contains("must")
         || message.contains("requires")
         || message.contains("no retryable")
+        || message.contains("no failed items to retry")
     {
         StatusCode::BAD_REQUEST
     } else {
