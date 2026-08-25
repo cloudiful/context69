@@ -91,6 +91,7 @@ export function normalizeDoclingPayload(
       api_key: cleanOptional(vlm.api_key),
       vlm_pipeline_model: cleanOptional(vlm.vlm_pipeline_model),
       picture_description_model: cleanOptional(vlm.picture_description_model),
+      picture_description_preset: cleanOptional(vlm.picture_description_preset),
       code_formula_model: cleanOptional(vlm.code_formula_model),
     },
   };

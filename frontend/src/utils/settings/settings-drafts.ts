@@ -69,6 +69,7 @@ export function createDoclingDraft(): DraftDoclingSettings {
       api_key: "",
       vlm_pipeline_model: "",
       picture_description_model: "",
+      picture_description_preset: "",
       code_formula_model: "",
     },
   };
@@ -149,6 +150,7 @@ export function doclingResponseToDraft(
       api_key: "",
       vlm_pipeline_model: response.vlm.vlm_pipeline_model ?? "",
       picture_description_model: response.vlm.picture_description_model ?? "",
+      picture_description_preset: response.vlm.picture_description_preset ?? "",
       code_formula_model: response.vlm.code_formula_model ?? "",
     },
   };

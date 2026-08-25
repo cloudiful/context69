@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as monaco from "monaco-editor";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import editorWorker from "monaco-editor/editor/editor.worker?worker";
 
 import { useUiPreferences } from "../composables/use-ui-preferences";
 

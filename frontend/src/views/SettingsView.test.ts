@@ -61,6 +61,7 @@ const doclingResponse = {
     has_api_key: true,
     vlm_pipeline_model: "gemini-3-flash",
     picture_description_model: "gpt-4o-mini",
+    picture_description_preset: "granite_vision",
     code_formula_model: "gpt-4o-mini",
   },
 };
@@ -201,7 +202,9 @@ describe("SettingsView", () => {
     expect(wrapper.find("#docling-clear-api-key").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("Stored key");
     expect(wrapper.text()).not.toContain("No key stored");
+    expect(wrapper.get("#docling-picture-description-preset").element).toBeTruthy();
     await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
+    await wrapper.get("#docling-picture-description-preset").setValue("granite_vision");
 
     await router.push("/settings/search");
     await flushPromises();
@@ -227,6 +230,7 @@ describe("SettingsView", () => {
       }),
       vlm: expect.objectContaining({
         openai_base_url: "https://openrouter.ai/api/v1",
+        picture_description_preset: "granite_vision",
       }),
     }));
     expect(apiSpies.updateSearchSettings).toHaveBeenCalledWith(expect.objectContaining({

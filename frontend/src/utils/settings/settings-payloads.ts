@@ -31,6 +31,7 @@ export function buildDoclingPayload(
       api_key: draft.vlm.api_key,
       vlm_pipeline_model: draft.vlm.vlm_pipeline_model,
       picture_description_model: draft.vlm.picture_description_model,
+      picture_description_preset: draft.vlm.picture_description_preset,
       code_formula_model: draft.vlm.code_formula_model,
     },
   });

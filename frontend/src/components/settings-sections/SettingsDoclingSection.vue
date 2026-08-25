@@ -88,6 +88,13 @@ const { t } = useI18n();
               placeholder="gpt-4o-mini"
             />
             <AppTextField
+              input-id="docling-picture-description-preset"
+              v-model="doclingDraft.vlm.picture_description_preset"
+              :label="t('settings.docling.pictureDescriptionPreset')"
+              :placeholder="t('settings.docling.pictureDescriptionPresetPlaceholder')"
+              :helper="t('settings.docling.pictureDescriptionPresetHint')"
+            />
+            <AppTextField
               input-id="docling-code-formula-model"
               v-model="doclingDraft.vlm.code_formula_model"
               :label="t('settings.docling.codeFormulaModel')"

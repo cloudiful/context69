@@ -5744,6 +5744,12 @@
               "null"
             ]
           },
+          "picture_description_preset": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "vlm_pipeline_model": {
             "type": [
               "string",
@@ -10328,6 +10334,12 @@
             ]
           },
           "picture_description_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "picture_description_preset": {
             "type": [
               "string",
               "null"

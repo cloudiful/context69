@@ -20,14 +20,6 @@ declare module "monaco-editor" {
   export const editor: any;
 }
 
-declare module "monaco-editor/esm/vs/editor/editor.worker?worker" {
-  const MonacoEditorWorker: {
-    new (): Worker;
-  };
-
-  export default MonacoEditorWorker;
-}
-
 interface Window {
   MonacoEnvironment?: {
     getWorker: () => Worker;

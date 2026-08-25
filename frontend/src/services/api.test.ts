@@ -121,6 +121,7 @@ describe("apiClient", () => {
         vlm: {
           openai_base_url: null,
           has_api_key: false,
+          picture_description_preset: null,
         },
       },
       response: {
@@ -143,6 +144,7 @@ describe("apiClient", () => {
           has_api_key: true,
           vlm_pipeline_model: "gemini-3-flash",
           picture_description_model: "gpt-4o-mini",
+          picture_description_preset: "granite_vision",
           code_formula_model: "gpt-4o-mini",
         },
       },
@@ -155,6 +157,9 @@ describe("apiClient", () => {
     await expect(apiClient.getDoclingSettings()).resolves.toEqual(
       expect.objectContaining({
         source: "unconfigured",
+        vlm: expect.objectContaining({
+          picture_description_preset: null,
+        }),
       }),
     );
     await expect(
@@ -170,12 +175,16 @@ describe("apiClient", () => {
           api_key: "secret",
           vlm_pipeline_model: "gemini-3-flash",
           picture_description_model: "gpt-4o-mini",
+          picture_description_preset: "granite_vision",
           code_formula_model: "gpt-4o-mini",
         },
       }),
     ).resolves.toEqual(
       expect.objectContaining({
         source: "database",
+        vlm: expect.objectContaining({
+          picture_description_preset: "granite_vision",
+        }),
       }),
     );
 
@@ -195,11 +204,86 @@ describe("apiClient", () => {
           api_key: "secret",
           vlm_pipeline_model: "gemini-3-flash",
           picture_description_model: "gpt-4o-mini",
+          picture_description_preset: "granite_vision",
           code_formula_model: "gpt-4o-mini",
         },
       },
       signal: undefined,
     });
+  });
+
+  it("preserves API-key blank/merge behavior for docling settings", async () => {
+    GET.mockResolvedValueOnce({
+      data: {
+        configured: true,
+        source: "database",
+        connection: {
+          base_url: "http://docling:5001",
+          timeout_secs: 180,
+          poll_interval_secs: 3,
+          task_timeout_secs: 600,
+        },
+        vlm: {
+          openai_base_url: "https://openrouter.ai/api/v1",
+          has_api_key: true,
+          vlm_pipeline_model: "gemini-3-flash",
+          picture_description_model: "gpt-4o-mini",
+          picture_description_preset: "granite_vision",
+          code_formula_model: "gpt-4o-mini",
+        },
+      },
+      response: {
+        ok: true,
+        status: 200,
+      },
+    });
+    PUT.mockResolvedValueOnce({
+      data: {
+        configured: true,
+        source: "database",
+        connection: {
+          base_url: "http://docling:5001",
+          timeout_secs: 180,
+          poll_interval_secs: 3,
+          task_timeout_secs: 600,
+        },
+        vlm: {
+          openai_base_url: "https://openrouter.ai/api/v1",
+          has_api_key: true,
+          vlm_pipeline_model: "gemini-3-flash",
+          picture_description_model: "gpt-4o-mini",
+          picture_description_preset: "granite_vision",
+          code_formula_model: "gpt-4o-mini",
+        },
+      },
+      response: {
+        ok: true,
+        status: 200,
+      },
+    });
+
+    await apiClient.getDoclingSettings();
+    await apiClient.updateDoclingSettings({
+      connection: {
+        base_url: "http://docling:5001",
+        timeout_secs: 180,
+        poll_interval_secs: 3,
+        task_timeout_secs: 600,
+      },
+      vlm: {
+        openai_base_url: "https://openrouter.ai/api/v1",
+        picture_description_model: "gpt-4o-mini",
+        picture_description_preset: "granite_vision",
+        code_formula_model: "gpt-4o-mini",
+        vlm_pipeline_model: "gemini-3-flash",
+      },
+    });
+
+    const putCall = PUT.mock.calls.find((call) => call[0] === "/v1/settings/docling");
+    expect(putCall).toBeDefined();
+    const body = putCall?.[1]?.body as { vlm?: Record<string, unknown> } | undefined;
+    expect(body?.vlm?.api_key).toBeUndefined();
+    expect(body?.vlm?.picture_description_preset).toBe("granite_vision");
   });
 
   it("lists, creates, and revokes personal access tokens", async () => {

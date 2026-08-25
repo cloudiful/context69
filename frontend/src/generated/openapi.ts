@@ -1499,6 +1499,7 @@ export interface components {
             has_api_key: boolean;
             openai_base_url?: string | null;
             picture_description_model?: string | null;
+            picture_description_preset?: string | null;
             vlm_pipeline_model?: string | null;
         };
         DocumentChunkResponse: {
@@ -2647,6 +2648,7 @@ export interface components {
             code_formula_model?: string | null;
             openai_base_url?: string | null;
             picture_description_model?: string | null;
+            picture_description_preset?: string | null;
             vlm_pipeline_model?: string | null;
         };
         UpdateGroupRequest: {

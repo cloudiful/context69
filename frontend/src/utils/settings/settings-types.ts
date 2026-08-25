@@ -60,6 +60,7 @@ export type DraftDoclingSettings = {
     api_key: string;
     vlm_pipeline_model: string;
     picture_description_model: string;
+    picture_description_preset: string;
     code_formula_model: string;
   };
 };
