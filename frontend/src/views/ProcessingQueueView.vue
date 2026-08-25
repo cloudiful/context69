@@ -198,9 +198,9 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 min-w-0 flex-col gap-3">
+  <section class="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto">
     <AppServerList
-      class="min-h-0 flex-1 overflow-auto"
+      class="min-w-0"
       :loading="queue.loading && !queue.items.length"
       :error="queue.items.length ? null : queue.error"
       :pagination="queue.pagination"
@@ -232,15 +232,16 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
         <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />
       </template>
 
-      <UTable
-        v-model:sorting="sorting"
-        class="min-w-[88rem]"
-        v-model:expanded="expandedRows"
-        :data="queue.items"
-        :columns="columns"
-        :loading="queue.loading"
-        :sorting-options="{ manualSorting: true }"
-      >
+      <div v-if="queue.items.length" class="min-w-0 overflow-x-auto" data-testid="processing-queue-table-scroll">
+        <UTable
+          v-model:sorting="sorting"
+          class="min-w-[88rem]"
+          v-model:expanded="expandedRows"
+          :data="queue.items"
+          :columns="columns"
+          :loading="queue.loading"
+          :sorting-options="{ manualSorting: true }"
+        >
           <template #expand-cell="{ row }">
             <UButton
               variant="ghost"
@@ -269,7 +270,6 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
               <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="queue.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="queue.cancelTask(row.original)" />
             </div>
           </template>
-          <template #empty><div class="py-12 text-center text-sm text-muted">{{ t("processingQueue.noTasks") }}</div></template>
           <template #expanded="{ row }">
             <div class="p-3">
               <template v-if="expandedItems[row.original.task_id] === undefined">
@@ -298,7 +298,11 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
             </div>
           </template>
         </UTable>
-      </AppServerList>
+      </div>
+      <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">
+        {{ t("processingQueue.noTasks") }}
+      </div>
+    </AppServerList>
 
     <section v-if="maintenance.isAdmin" class="flex flex-col gap-3 rounded-lg border border-default/70 p-3">
       <div class="flex flex-wrap items-center justify-between gap-2">

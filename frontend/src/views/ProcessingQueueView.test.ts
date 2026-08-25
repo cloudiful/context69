@@ -87,6 +87,26 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
+  it("renders the table inside a horizontally scrolling container", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const scrollWrapper = wrapper.find('[data-testid="processing-queue-table-scroll"]');
+    expect(scrollWrapper.exists()).toBe(true);
+    expect(scrollWrapper.classes()).toContain("overflow-x-auto");
+    wrapper.unmount();
+  });
+
+  it("shows a top-aligned empty state instead of a table when no tasks are visible", async () => {
+    listTasks.mockResolvedValue(response([]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("No tasks");
+    expect(wrapper.find("table").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("expands a task row and loads its items", async () => {
     const getTaskItems = vi.spyOn(apiClient, "getTaskItems").mockResolvedValue({
       items: [
