@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Record a physical-delete failure so the row is retried by a later run.\n-- Never marks the row deleted; the next invocation reselects it.\nUPDATE context69.library_legacy_object_cleanup\nSET delete_error = $2\nWHERE id = $1\n  AND deleted_at IS NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4067e961aaa16e315136d3005463e49a7335cdc822ca2fdf9e5260af854d4142"
+}

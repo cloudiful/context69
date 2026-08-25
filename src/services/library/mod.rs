@@ -50,6 +50,8 @@ mod ingest_batches;
 mod ingest_documents;
 mod ingest_persistence;
 mod ingest_types;
+mod legacy_cleanup;
+pub use legacy_cleanup::{DEFAULT_LEGACY_CLEANUP_BATCH_SIZE, LegacyCleanupSummary};
 mod metadata;
 mod metadata_helpers;
 mod migration;

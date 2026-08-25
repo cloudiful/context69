@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Live reference safety check for the legacy cleanup phase: an old key still\n-- referenced by any library_files row must never be physically deleted.\nSELECT count(*)::bigint AS \"references!\"\nFROM context69.library_files\nWHERE storage_rel_path = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "references!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "96c7fe4c699c998a4b5bc65f2d74d67cd79b7c6565df0afb89eb9ce95b05d094"
+}

@@ -5,7 +5,8 @@ INSERT INTO context69.library_legacy_object_cleanup (
     group_id,
     file_id,
     old_key,
+    old_storage_backend,
     cleanup_eligible_at
 )
-VALUES ($1, $2, $3, $4)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (file_id, old_key) DO NOTHING

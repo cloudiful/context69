@@ -270,6 +270,7 @@ impl LibraryService {
                 row.group_id,
                 row.id,
                 &row.storage_rel_path,
+                self.storage.backend(),
                 Utc::now() + ChronoDuration::days(LEGACY_CLEANUP_GRACE_DAYS),
             )
             .await?;

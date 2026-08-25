@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Conditional success marker for the legacy cleanup phase: only lands while\n-- the row is still open, so a concurrent completion or retry can never\n-- double-write the timestamp. Runs after the physical delete succeeded (or\n-- the object was already missing), never before.\nUPDATE context69.library_legacy_object_cleanup\nSET deleted_at = now(),\n    delete_error = NULL\nWHERE id = $1\n  AND deleted_at IS NULL\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_legacy_object_cleanup",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a3fad6c5968a509ba4d53a936a00859b4e37fd85cfd8ee0d49d21b7df2574f70"
+}

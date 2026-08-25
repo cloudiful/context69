@@ -93,6 +93,26 @@ cargo run -- migrate-library-legacy-paths --dry-run
 cargo run -- migrate-library-legacy-paths --batch-size 200
 ```
 
+`cleanup-library-legacy-paths [--dry-run] [--execute] [--batch-size <n>]`
+deletes the physical old objects recorded in
+`context69.library_legacy_object_cleanup` once their grace period has
+elapsed. Migrations 0023 and 0024 must be applied before running it. The
+mode defaults to a dry run; `--execute` is required for actual deletion and
+`--dry-run` and `--execute` cannot be combined. A record is skipped (and
+left open) when its old key is still referenced by any
+`library_files.storage_rel_path` row, when it was recorded on a storage
+backend different from the active one, or when its recorded backend is
+unknown (pre-0024 rows have no backend recorded and are never deleted).
+Physical deletion happens first; only then is the record marked deleted,
+so an interrupted run can be restarted safely and already-missing objects
+count as idempotent successes.
+
+```bash
+cargo run -- cleanup-library-legacy-paths --dry-run
+cargo run -- cleanup-library-legacy-paths --dry-run --batch-size 200
+cargo run -- cleanup-library-legacy-paths --execute --batch-size 200
+```
+
 ## Local Full-Stack Flow
 
 Preferred single-command flow:

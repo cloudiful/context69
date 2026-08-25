@@ -22,6 +22,18 @@ pub struct DeletedStorageObject {
     pub storage_backend: String,
 }
 
+/// One open legacy old-key cleanup record selected by the cleanup phase.
+/// `old_storage_backend` is `None` for rows recorded before migration 0024;
+/// such rows have an unknown backend and must never be physically deleted.
+#[derive(Debug, Clone, FromRow)]
+pub struct LegacyCleanupRow {
+    pub id: i64,
+    pub group_id: i64,
+    pub file_id: Uuid,
+    pub old_key: String,
+    pub old_storage_backend: Option<String>,
+}
+
 impl LibraryStore {
     pub async fn get_storage_object_on_connection(
         &self,
@@ -326,6 +338,7 @@ impl LibraryStore {
         group_id: i64,
         file_id: Uuid,
         old_key: &str,
+        old_storage_backend: &str,
         cleanup_eligible_at: DateTime<Utc>,
     ) -> Result<()> {
         sqlx::query_file!(
@@ -333,9 +346,71 @@ impl LibraryStore {
             group_id,
             file_id,
             old_key,
+            old_storage_backend,
             cleanup_eligible_at
         )
         .execute(connection)
+        .await?;
+        Ok(())
+    }
+
+    /// Bounded, deterministic page of open legacy cleanup records whose grace
+    /// period has elapsed. Pass `None` to start from the beginning; the id
+    /// cursor keeps restarts and error retries safe.
+    pub async fn list_eligible_legacy_cleanup(
+        &self,
+        after_id: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<LegacyCleanupRow>> {
+        Ok(sqlx::query_file_as!(
+            LegacyCleanupRow,
+            "src/sql/library_store/objects/list_eligible_legacy_cleanup.sql",
+            limit,
+            after_id
+        )
+        .fetch_all(self.db.pool())
+        .await?)
+    }
+
+    /// Live check: how many library_files rows still point at this old key.
+    /// Any nonzero result blocks physical deletion.
+    pub async fn count_files_referencing_old_key(&self, old_key: &str) -> Result<i64> {
+        #[derive(sqlx::FromRow)]
+        struct ReferenceCountRow {
+            references: i64,
+        }
+        let row = sqlx::query_file_as!(
+            ReferenceCountRow,
+            "src/sql/library_store/objects/count_files_referencing_old_key.sql",
+            old_key
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(row.references)
+    }
+
+    /// Conditionally close a cleanup record after its physical delete (or an
+    /// already-missing observation). Returns `false` when the record was
+    /// closed concurrently; the caller must not retry the write.
+    pub async fn mark_legacy_cleanup_deleted(&self, id: i64) -> Result<bool> {
+        Ok(sqlx::query_file!(
+            "src/sql/library_store/objects/mark_legacy_cleanup_deleted.sql",
+            id
+        )
+        .fetch_optional(self.db.pool())
+        .await?
+        .is_some())
+    }
+
+    /// Persist a physical-delete failure on an open cleanup record so a later
+    /// run retries it. Never marks the record deleted.
+    pub async fn record_legacy_cleanup_error(&self, id: i64, error: &str) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/objects/record_legacy_cleanup_error.sql",
+            id,
+            error
+        )
+        .execute(self.db.pool())
         .await?;
         Ok(())
     }

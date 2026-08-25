@@ -100,10 +100,48 @@ async fn main() -> Result<()> {
                 "legacy direct-path migration finished"
             );
         }
+        "cleanup-library-legacy-paths" => {
+            let args: Vec<String> = env::args().skip(2).collect();
+            let dry_run_flag = args.iter().any(|arg| arg == "--dry-run");
+            let execute = args.iter().any(|arg| arg == "--execute");
+            if dry_run_flag && execute {
+                return Err(anyhow::anyhow!(
+                    "--dry-run and --execute are mutually exclusive"
+                ));
+            }
+            let batch_size = match cli_usize_flag(&args, "--batch-size")? {
+                Some(size) if size > 0 => size,
+                Some(_) => return Err(anyhow::anyhow!("--batch-size must be greater than zero")),
+                None => context69::services::library::DEFAULT_LEGACY_CLEANUP_BATCH_SIZE,
+            };
+            if execute {
+                warn!(
+                    "legacy-path cleanup is DESTRUCTIVE: eligible old objects will be physically deleted"
+                );
+            } else {
+                info!("legacy-path cleanup running in dry-run mode; nothing will be deleted");
+            }
+            let summary = app
+                .library
+                .cleanup_legacy_objects(execute, batch_size)
+                .await?;
+            info!(
+                mode = if execute { "execute" } else { "dry-run" },
+                batch_size,
+                scanned = summary.scanned,
+                eligible = summary.eligible,
+                deleted = summary.deleted,
+                already_missing = summary.already_missing,
+                skipped_referenced = summary.skipped_referenced,
+                skipped_backend = summary.skipped_backend,
+                errors = summary.errors,
+                "legacy object cleanup finished"
+            );
+        }
         "serve" => serve(app).await?,
         other => {
             return Err(anyhow::anyhow!(
-                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, migrate-library-storage, migrate-library-legacy-paths, or export-openapi"
+                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, migrate-library-storage, migrate-library-legacy-paths, cleanup-library-legacy-paths, or export-openapi"
             ));
         }
     }
