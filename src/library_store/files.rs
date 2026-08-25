@@ -1,7 +1,28 @@
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 use uuid::Uuid;
+
+/// Legacy direct-path row selected by the migration tool: the file still
+/// references its old UUID-path object directly (no storage object yet).
+#[derive(Debug, Clone, FromRow)]
+pub struct LegacyDirectPathFileRow {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub filename: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub storage_rel_path: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Current storage linkage of a library_files row, used to classify why a
+/// conditional legacy reference update did not land.
+#[derive(Debug, FromRow)]
+pub struct LegacyFileStorageStateRow {
+    pub storage_object_id: Option<Uuid>,
+    pub storage_rel_path: String,
+}
 
 #[derive(Debug, FromRow)]
 struct FileTranslationDirectiveRow {
@@ -126,6 +147,63 @@ impl LibraryStore {
             .await?;
 
         rows.into_iter().map(file_from_row).collect()
+    }
+
+    /// Bounded page of legacy direct-path rows ordered by the
+    /// `(created_at, id)` cursor. Pass `None` for both cursor values to start
+    /// from the beginning.
+    pub async fn list_legacy_direct_path_files(
+        &self,
+        after_created_at: Option<DateTime<Utc>>,
+        after_id: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<LegacyDirectPathFileRow>> {
+        Ok(sqlx::query_file_as!(
+            LegacyDirectPathFileRow,
+            "src/sql/library_store/files/list_legacy_direct_path_files.sql",
+            after_created_at,
+            after_id,
+            limit
+        )
+        .fetch_all(self.db.pool())
+        .await?)
+    }
+
+    /// Conditionally link a legacy direct-path row to a content-addressed
+    /// storage object. Returns `false` when the row no longer matches the old
+    /// key or was linked concurrently; the caller must then treat its own
+    /// object as unreferenced.
+    pub async fn link_legacy_file_storage_object_on_connection(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        expected_old_key: &str,
+        object_id: Uuid,
+        object_key: &str,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file!(
+            "src/sql/library_store/files/link_legacy_file_storage_object.sql",
+            file_id,
+            object_id,
+            object_key,
+            expected_old_key
+        )
+        .fetch_optional(connection)
+        .await?
+        .is_some())
+    }
+
+    pub async fn get_legacy_file_storage_state(
+        &self,
+        file_id: Uuid,
+    ) -> Result<Option<LegacyFileStorageStateRow>> {
+        Ok(sqlx::query_file_as!(
+            LegacyFileStorageStateRow,
+            "src/sql/library_store/files/get_legacy_file_storage_state.sql",
+            file_id
+        )
+        .fetch_optional(self.db.pool())
+        .await?)
     }
 
     pub async fn list_files_by_ids(&self, file_ids: &[Uuid]) -> Result<Vec<LibraryFileRecord>> {

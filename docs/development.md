@@ -66,6 +66,33 @@ Or use the local dev launcher:
 nu scripts/dev.nu backend
 ```
 
+## Library Storage Maintenance Modes
+
+Two one-shot CLI modes maintain library storage. Neither deletes old objects
+automatically.
+
+`migrate-library-storage [--dry-run]` copies files from the local filesystem
+storage root into the active S3 backend. It requires S3 to be configured.
+
+```bash
+cargo run -- migrate-library-storage --dry-run
+```
+
+`migrate-library-legacy-paths [--dry-run] [--batch-size <n>]` migrates legacy
+library files that still point at UUID direct paths
+(`storage_object_id IS NULL`) onto the content-addressed layout
+(`objects/{group_id}/{sha256}`). Each source object is read back and verified
+against its stored size and SHA-256 before the reference is updated; the old
+key is recorded in `context69.library_legacy_object_cleanup` for a separate,
+later cleanup phase and is never deleted by this command. The run is bounded
+(default batch size 100), restartable, and idempotent; per-row failures are
+counted and reported without blocking later rows.
+
+```bash
+cargo run -- migrate-library-legacy-paths --dry-run
+cargo run -- migrate-library-legacy-paths --batch-size 200
+```
+
 ## Local Full-Stack Flow
 
 Preferred single-command flow:

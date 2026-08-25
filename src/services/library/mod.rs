@@ -53,7 +53,9 @@ mod ingest_types;
 mod metadata;
 mod metadata_helpers;
 mod migration;
-pub use migration::StorageMigrationSummary;
+pub use migration::{
+    DEFAULT_LEGACY_PATH_MIGRATION_BATCH_SIZE, LegacyPathMigrationSummary, StorageMigrationSummary,
+};
 pub(crate) mod object_storage;
 mod remote_download;
 mod remote_proxy;

@@ -159,6 +159,15 @@ fn path_text(path: &Path) -> Result<&str> {
 }
 
 fn is_not_found_error(error: &anyhow::Error) -> bool {
+    // Match on the structured opendal error kind first; the string fallback
+    // keeps older message formats working.
+    let has_not_found_kind = error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<opendal::Error>())
+        .any(|error| error.kind() == opendal::ErrorKind::NotFound);
+    if has_not_found_kind {
+        return true;
+    }
     let message = error.to_string().to_ascii_lowercase();
     message.contains("kind=notfound") || message.contains("kind=not_found")
 }

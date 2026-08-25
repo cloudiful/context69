@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Durable old-key record for the later cleanup phase. Committed in the same\n-- transaction as the library_files reference update so a migrated reference\n-- never exists without its cleanup record. Re-runs are idempotent.\nINSERT INTO context69.library_legacy_object_cleanup (\n    group_id,\n    file_id,\n    old_key,\n    cleanup_eligible_at\n)\nVALUES ($1, $2, $3, $4)\nON CONFLICT (file_id, old_key) DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0fd1ff348371863189f31d6dade681019eb50f40d0ac2b61b7d9c9ddee544da2"
+}

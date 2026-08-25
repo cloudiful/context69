@@ -134,6 +134,24 @@ impl LibraryStore {
         .await?)
     }
 
+    /// Live reference count for a storage object (library_files rows plus
+    /// staged task inputs). Zero means a guarded unreferenced-object delete
+    /// is allowed to remove it.
+    pub async fn count_storage_object_references(&self, object_id: Uuid) -> Result<i64> {
+        #[derive(sqlx::FromRow)]
+        struct ReferenceCountRow {
+            references: i64,
+        }
+        let row = sqlx::query_file_as!(
+            ReferenceCountRow,
+            "src/sql/library_store/objects/count_storage_object_references.sql",
+            object_id
+        )
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(row.references)
+    }
+
     pub async fn get_storage_object_by_id_on_connection(
         &self,
         connection: &mut sqlx::PgConnection,
@@ -297,5 +315,28 @@ impl LibraryStore {
         .fetch_optional(connection)
         .await?
         .is_some())
+    }
+
+    /// Record a successfully migrated legacy direct-path key for the later
+    /// cleanup phase. Must run on the same connection/transaction as the
+    /// reference update so both commit together. Re-runs are idempotent.
+    pub async fn record_legacy_object_cleanup_on_connection(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        file_id: Uuid,
+        old_key: &str,
+        cleanup_eligible_at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/objects/record_legacy_object_cleanup.sql",
+            group_id,
+            file_id,
+            old_key,
+            cleanup_eligible_at
+        )
+        .execute(connection)
+        .await?;
+        Ok(())
     }
 }

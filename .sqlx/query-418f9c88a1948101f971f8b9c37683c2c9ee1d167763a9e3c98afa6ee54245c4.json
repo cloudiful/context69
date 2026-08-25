@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Deterministic, bounded selection of legacy direct-path rows. The cursor on\n-- (created_at, id) keeps restarts safe: rows migrated in earlier batches drop\n-- out of the filter, and a failed row is simply not revisited until the next\n-- invocation rescans from the beginning.\nSELECT f.id,\n       f.group_id,\n       f.filename,\n       f.size_bytes,\n       f.sha256,\n       f.storage_rel_path,\n       f.created_at\nFROM context69.library_files AS f\nWHERE f.storage_object_id IS NULL\n  AND ($1::timestamptz IS NULL OR (f.created_at, f.id) > ($1::timestamptz, $2::uuid))\nORDER BY f.created_at, f.id\nLIMIT $3::bigint\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "filename",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "filename"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "storage_rel_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "storage_rel_path"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "418f9c88a1948101f971f8b9c37683c2c9ee1d167763a9e3c98afa6ee54245c4"
+}
