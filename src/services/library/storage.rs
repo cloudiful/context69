@@ -30,17 +30,6 @@ pub(super) fn detect_file_kind(filename: &str, media_type: &str) -> Result<Libra
     Err(anyhow!("unsupported file type for {}", filename))
 }
 
-pub(super) fn build_storage_rel_path(file_id: Uuid, filename: &str) -> String {
-    let sanitized = filename
-        .chars()
-        .map(|ch| match ch {
-            '/' | '\\' => '_',
-            other => other,
-        })
-        .collect::<String>();
-    format!("{file_id}/{sanitized}")
-}
-
 pub(super) fn text_filename_from_title(title: &str, format: LibraryTextContentFormat) -> String {
     let mut stem = title
         .chars()

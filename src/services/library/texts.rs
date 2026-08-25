@@ -101,23 +101,29 @@ impl LibraryService {
             .map(|file| file.id)
             .unwrap_or_else(Uuid::new_v4);
         let sha256 = storage::hash_bytes(&bytes);
-        let storage_namespace = if existing.is_some() {
-            Uuid::new_v4()
-        } else {
-            file_id
-        };
-        let storage_rel_path = storage::build_storage_rel_path(storage_namespace, &filename);
+        // Route text bytes through the content-addressed storage object flow:
+        // identical content reuses one object and library_files rows link to
+        // it via storage_object_id with storage_rel_path = object_key.
+        let object = self
+            .store_project_content_with_optional_lease(
+                project.id,
+                &sha256,
+                bytes.clone(),
+                lease_token,
+            )
+            .await?;
+        let storage_rel_path = object.object_key.clone();
         let storage_key = storage_rel_path.clone();
-        match lease_token {
-            Some(lease_token) => {
-                self.write_active_storage_for_lease(&storage_rel_path, bytes.clone(), lease_token)
-                    .await?
-            }
-            None => {
-                self.write_active_storage(&storage_rel_path, bytes.clone())
-                    .await?
-            }
-        }
+        let previous_storage_object_id = match previous_file.as_ref() {
+            Some(file) => self
+                .store
+                .list_storage_paths_for_files(&[file.id])
+                .await?
+                .into_iter()
+                .find(|path| path.id == file.id)
+                .and_then(|path| path.storage_object_id),
+            None => None,
+        };
 
         if let Some(existing_file) = existing.as_ref() {
             let update_result = self
@@ -133,7 +139,7 @@ impl LibraryService {
                         size_bytes: bytes.len() as i64,
                         sha256: sha256.clone(),
                         storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: None,
+                        storage_object_id: Some(object.id),
                     },
                 )
                 .await;
@@ -144,10 +150,10 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        None,
+                        previous_storage_object_id,
                         previous_translation.as_ref(),
                         &storage_key,
-                        None,
+                        Some(object.id),
                         lease_token,
                     )
                     .await;
@@ -158,10 +164,10 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        None,
+                        previous_storage_object_id,
                         previous_translation.as_ref(),
                         &storage_key,
-                        None,
+                        Some(object.id),
                         lease_token,
                     )
                     .await;
@@ -182,7 +188,7 @@ impl LibraryService {
                         size_bytes: bytes.len() as i64,
                         sha256: sha256.clone(),
                         storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: None,
+                        storage_object_id: Some(object.id),
                     },
                 )
                 .await;
@@ -191,10 +197,10 @@ impl LibraryService {
                     project.id,
                     file_id,
                     previous_file.as_ref(),
-                    None,
+                    previous_storage_object_id,
                     previous_translation.as_ref(),
                     &storage_key,
-                    None,
+                    Some(object.id),
                     lease_token,
                 )
                 .await;
@@ -217,10 +223,10 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                None,
+                previous_storage_object_id,
                 previous_translation.as_ref(),
                 &storage_key,
-                None,
+                Some(object.id),
                 lease_token,
             )
             .await;
@@ -235,10 +241,10 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                None,
+                previous_storage_object_id,
                 previous_translation.as_ref(),
                 &storage_key,
-                None,
+                Some(object.id),
                 lease_token,
             )
             .await;
@@ -253,10 +259,10 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                None,
+                previous_storage_object_id,
                 previous_translation.as_ref(),
                 &storage_key,
-                None,
+                Some(object.id),
                 lease_token,
             )
             .await;
@@ -279,10 +285,10 @@ impl LibraryService {
                     project.id,
                     file_id,
                     previous_file.as_ref(),
-                    None,
+                    previous_storage_object_id,
                     previous_translation.as_ref(),
                     &storage_key,
-                    None,
+                    Some(object.id),
                     lease_token,
                 )
                 .await;
@@ -290,26 +296,43 @@ impl LibraryService {
             }
         };
         if let Some(previous_file) = previous_file.as_ref() {
-            let result = match lease_token {
-                Some(lease_token) => {
-                    self.delete_active_storage_for_lease(
-                        &previous_file.storage_rel_path,
-                        lease_token,
-                    )
-                    .await
-                }
-                None => {
-                    self.delete_active_storage(&previous_file.storage_rel_path)
+            // Only release the previous content after the DB reference update
+            // succeeded. Object-backed rows use the guarded unreferenced delete;
+            // legacy direct-path rows keep their physical delete.
+            match previous_storage_object_id {
+                Some(old_object_id) => match lease_token {
+                    Some(lease_token) => {
+                        self.delete_unreferenced_storage_object_for_lease(
+                            old_object_id,
+                            lease_token,
+                        )
                         .await
+                    }
+                    None => self.delete_unreferenced_storage_object(old_object_id).await,
+                },
+                None => {
+                    let result = match lease_token {
+                        Some(lease_token) => {
+                            self.delete_active_storage_for_lease(
+                                &previous_file.storage_rel_path,
+                                lease_token,
+                            )
+                            .await
+                        }
+                        None => {
+                            self.delete_active_storage(&previous_file.storage_rel_path)
+                                .await
+                        }
+                    };
+                    if let Err(error) = result {
+                        warn!(
+                            file_id = %file_id,
+                            path = %previous_file.storage_rel_path,
+                            %error,
+                            "failed to remove replaced text storage object"
+                        );
+                    }
                 }
-            };
-            if let Err(error) = result {
-                warn!(
-                    file_id = %file_id,
-                    path = %previous_file.storage_rel_path,
-                    %error,
-                    "failed to remove replaced text storage object"
-                );
             }
         }
         let file = self
@@ -377,23 +400,29 @@ impl LibraryService {
             .map(|file| file.id)
             .unwrap_or_else(Uuid::new_v4);
         let sha256 = storage::hash_bytes(&bytes);
-        let storage_namespace = if existing.is_some() {
-            Uuid::new_v4()
-        } else {
-            file_id
-        };
-        let storage_rel_path = storage::build_storage_rel_path(storage_namespace, filename);
+        // Route text bytes through the content-addressed storage object flow:
+        // identical content reuses one object and library_files rows link to
+        // it via storage_object_id with storage_rel_path = object_key.
+        let object = self
+            .store_project_content_with_optional_lease(
+                project.id,
+                &sha256,
+                bytes.clone(),
+                lease_token,
+            )
+            .await?;
+        let storage_rel_path = object.object_key.clone();
         let storage_key = storage_rel_path.clone();
-        match lease_token {
-            Some(lease_token) => {
-                self.write_active_storage_for_lease(&storage_rel_path, bytes.clone(), lease_token)
-                    .await?
-            }
-            None => {
-                self.write_active_storage(&storage_rel_path, bytes.clone())
-                    .await?
-            }
-        }
+        let previous_storage_object_id = match previous_file.as_ref() {
+            Some(file) => self
+                .store
+                .list_storage_paths_for_files(&[file.id])
+                .await?
+                .into_iter()
+                .find(|path| path.id == file.id)
+                .and_then(|path| path.storage_object_id),
+            None => None,
+        };
 
         if let Some(existing_file) = existing.as_ref() {
             let update_result = self
@@ -409,7 +438,7 @@ impl LibraryService {
                         size_bytes: bytes.len() as i64,
                         sha256: sha256.clone(),
                         storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: None,
+                        storage_object_id: Some(object.id),
                     },
                 )
                 .await;
@@ -420,10 +449,10 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        None,
+                        previous_storage_object_id,
                         previous_translation.as_ref(),
                         &storage_key,
-                        None,
+                        Some(object.id),
                         lease_token,
                     )
                     .await;
@@ -434,10 +463,10 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        None,
+                        previous_storage_object_id,
                         previous_translation.as_ref(),
                         &storage_key,
-                        None,
+                        Some(object.id),
                         lease_token,
                     )
                     .await;
@@ -458,7 +487,7 @@ impl LibraryService {
                         size_bytes: bytes.len() as i64,
                         sha256: sha256.clone(),
                         storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: None,
+                        storage_object_id: Some(object.id),
                     },
                 )
                 .await;
@@ -467,10 +496,10 @@ impl LibraryService {
                     project.id,
                     file_id,
                     previous_file.as_ref(),
-                    None,
+                    previous_storage_object_id,
                     previous_translation.as_ref(),
                     &storage_key,
-                    None,
+                    Some(object.id),
                     lease_token,
                 )
                 .await;
@@ -492,36 +521,53 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                None,
+                previous_storage_object_id,
                 previous_translation.as_ref(),
                 &storage_key,
-                None,
+                Some(object.id),
                 lease_token,
             )
             .await;
             return Err(error.into());
         }
         if let Some(previous_file) = previous_file.as_ref() {
-            let result = match lease_token {
-                Some(lease_token) => {
-                    self.delete_active_storage_for_lease(
-                        &previous_file.storage_rel_path,
-                        lease_token,
-                    )
-                    .await
-                }
-                None => {
-                    self.delete_active_storage(&previous_file.storage_rel_path)
+            // Only release the previous content after the DB reference update
+            // succeeded. Object-backed rows use the guarded unreferenced delete;
+            // legacy direct-path rows keep their physical delete.
+            match previous_storage_object_id {
+                Some(old_object_id) => match lease_token {
+                    Some(lease_token) => {
+                        self.delete_unreferenced_storage_object_for_lease(
+                            old_object_id,
+                            lease_token,
+                        )
                         .await
+                    }
+                    None => self.delete_unreferenced_storage_object(old_object_id).await,
+                },
+                None => {
+                    let result = match lease_token {
+                        Some(lease_token) => {
+                            self.delete_active_storage_for_lease(
+                                &previous_file.storage_rel_path,
+                                lease_token,
+                            )
+                            .await
+                        }
+                        None => {
+                            self.delete_active_storage(&previous_file.storage_rel_path)
+                                .await
+                        }
+                    };
+                    if let Err(error) = result {
+                        warn!(
+                            file_id = %file_id,
+                            path = %previous_file.storage_rel_path,
+                            %error,
+                            "failed to remove replaced text storage object"
+                        );
+                    }
                 }
-            };
-            if let Err(error) = result {
-                warn!(
-                    file_id = %file_id,
-                    path = %previous_file.storage_rel_path,
-                    %error,
-                    "failed to remove replaced text storage object"
-                );
             }
         }
         let file = self
