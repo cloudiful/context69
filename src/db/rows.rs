@@ -140,6 +140,7 @@ pub(super) struct DoclingSettingsRow {
     pub(super) vlm_pipeline_model: Option<String>,
     pub(super) picture_description_model: Option<String>,
     pub(super) code_formula_model: Option<String>,
+    pub(super) picture_description_preset: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]

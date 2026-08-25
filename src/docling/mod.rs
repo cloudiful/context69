@@ -51,6 +51,14 @@ pub struct DoclingVlmConfig {
     pub vlm_pipeline_model: Option<String>,
     pub picture_description_model: Option<String>,
     pub code_formula_model: Option<String>,
+    /// Optional Docling Serve `picture_description_preset` selection. Decoupled
+    /// from the legacy VLM bundle so a preset alone does not require the
+    /// `openai_base_url` / `api_key` / `vlm_pipeline_model` /
+    /// `picture_description_model` / `code_formula_model` bundle. When set, the
+    /// 0.3.3 adapter suppresses the legacy `picture_description_custom_config`
+    /// form field so the preset wins on Docling Serve; leaving it `None`
+    /// preserves the legacy custom VLM behaviour.
+    pub picture_description_preset: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -167,6 +175,7 @@ mod tests {
                 vlm_pipeline_model: Some("vlm".to_string()),
                 picture_description_model: Some("pic".to_string()),
                 code_formula_model: Some("code".to_string()),
+                picture_description_preset: None,
             },
         }
     }
@@ -247,5 +256,28 @@ mod tests {
                 .to_string()
                 .contains("must be fully configured together")
         );
+    }
+
+    #[test]
+    fn legacy_config_files_without_picture_description_preset_deserialize() {
+        let json = r#"{
+            "connection": {
+                "base_url": "http://localhost:5001",
+                "timeout_secs": 120,
+                "poll_interval_secs": 2,
+                "task_timeout_secs": 3600
+            },
+            "vlm": {
+                "openai_base_url": null,
+                "api_key": null,
+                "vlm_pipeline_model": null,
+                "picture_description_model": null,
+                "code_formula_model": null
+            }
+        }"#;
+
+        let config: DoclingConfig =
+            serde_json::from_str(json).expect("legacy config without preset should deserialize");
+        assert!(config.vlm.picture_description_preset.is_none());
     }
 }

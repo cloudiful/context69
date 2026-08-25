@@ -72,6 +72,7 @@ pub struct StoredDoclingSettings {
     pub vlm_pipeline_model: Option<String>,
     pub picture_description_model: Option<String>,
     pub code_formula_model: Option<String>,
+    pub picture_description_preset: Option<String>,
 }
 
 #[derive(Debug, Clone)]

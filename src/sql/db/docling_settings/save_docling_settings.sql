@@ -19,6 +19,7 @@ INSERT INTO context69.docling_settings (
     vlm_pipeline_model,
     picture_description_model,
     code_formula_model,
+    picture_description_preset,
     updated_at
 )
 VALUES (
@@ -42,6 +43,7 @@ VALUES (
     $17,
     $18,
     $19,
+    $20,
     now()
 )
 ON CONFLICT (singleton) DO UPDATE
@@ -64,6 +66,7 @@ SET base_url = EXCLUDED.base_url,
     vlm_pipeline_model = EXCLUDED.vlm_pipeline_model,
     picture_description_model = EXCLUDED.picture_description_model,
     code_formula_model = EXCLUDED.code_formula_model,
+    picture_description_preset = EXCLUDED.picture_description_preset,
     updated_at = now()
 RETURNING
     base_url,
@@ -84,4 +87,5 @@ RETURNING
     api_key,
     vlm_pipeline_model,
     picture_description_model,
-    code_formula_model
+    code_formula_model,
+    picture_description_preset

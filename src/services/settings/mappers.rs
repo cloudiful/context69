@@ -40,6 +40,9 @@ pub(super) fn docling_settings_from_request(
             request.vlm.picture_description_model.clone(),
         ),
         code_formula_model: normalize_optional_string(request.vlm.code_formula_model.clone()),
+        picture_description_preset: normalize_optional_string(
+            request.vlm.picture_description_preset.clone(),
+        ),
     }
 }
 
@@ -74,6 +77,7 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
             vlm_pipeline_model: None,
             picture_description_model: None,
             code_formula_model: None,
+            picture_description_preset: None,
         },
     }
 }
@@ -118,6 +122,7 @@ pub(super) fn response_from_stored(
             vlm_pipeline_model: settings.vlm_pipeline_model,
             picture_description_model: settings.picture_description_model,
             code_formula_model: settings.code_formula_model,
+            picture_description_preset: settings.picture_description_preset,
         },
     }
 }
@@ -136,6 +141,7 @@ pub(super) fn config_from_stored(settings: StoredDoclingSettings) -> DoclingConf
             vlm_pipeline_model: settings.vlm_pipeline_model,
             picture_description_model: settings.picture_description_model,
             code_formula_model: settings.code_formula_model,
+            picture_description_preset: settings.picture_description_preset,
         },
     }
 }

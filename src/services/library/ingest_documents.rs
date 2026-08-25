@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use docling_convert::{InputDocument, OutputFormat, PdfConvert};
+use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
 use serde_json::json;
 use tokio::time::Duration;
 
@@ -24,7 +24,18 @@ impl LibraryService {
             .await?
             .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
         let runtime = crate::docling::build_runtime_config(&config)?;
+        // Forward the optional picture_description_preset from settings
+        // through the 0.3.3 conversion behavior. When set, the convert crate
+        // emits the preset form field and suppresses the legacy
+        // `picture_description_custom_config` so the preset wins on Docling
+        // Serve. With no preset configured, the default behaviour preserves
+        // the existing custom VLM picture-description pipeline unchanged.
+        let behavior = ConversionBehavior {
+            picture_description_preset: config.vlm.picture_description_preset.clone(),
+            ..ConversionBehavior::default()
+        };
         PdfConvert::builder(runtime)
+            .behavior(behavior)
             .output_formats(vec![
                 OutputFormat::Md,
                 OutputFormat::Text,

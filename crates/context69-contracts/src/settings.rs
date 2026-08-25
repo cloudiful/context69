@@ -219,6 +219,8 @@ pub struct DoclingVlmSettingsResponse {
     pub picture_description_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_formula_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture_description_preset: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -233,4 +235,6 @@ pub struct UpdateDoclingVlmSettings {
     pub picture_description_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_formula_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture_description_preset: Option<String>,
 }

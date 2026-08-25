@@ -17,6 +17,7 @@ SELECT
     api_key,
     vlm_pipeline_model,
     picture_description_model,
-    code_formula_model
+    code_formula_model,
+    picture_description_preset
 FROM context69.docling_settings
 WHERE singleton = TRUE

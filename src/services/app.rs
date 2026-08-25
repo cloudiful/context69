@@ -588,6 +588,7 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             vlm_pipeline_model: docling.vlm.vlm_pipeline_model.clone(),
             picture_description_model: docling.vlm.picture_description_model.clone(),
             code_formula_model: docling.vlm.code_formula_model.clone(),
+            picture_description_preset: docling.vlm.picture_description_preset.clone(),
         })
         .await?;
     }

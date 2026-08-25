@@ -35,6 +35,7 @@ impl Database {
                 vlm_pipeline_model: row.vlm_pipeline_model,
                 picture_description_model: row.picture_description_model,
                 code_formula_model: row.code_formula_model,
+                picture_description_preset: row.picture_description_preset,
             })
         })
         .transpose()
@@ -72,7 +73,8 @@ impl Database {
             settings.api_key,
             settings.vlm_pipeline_model,
             settings.picture_description_model,
-            settings.code_formula_model
+            settings.code_formula_model,
+            settings.picture_description_preset.clone(),
         )
         .fetch_one(&self.pool)
         .await?;
@@ -100,6 +102,7 @@ impl Database {
             vlm_pipeline_model: row.vlm_pipeline_model,
             picture_description_model: row.picture_description_model,
             code_formula_model: row.code_formula_model,
+            picture_description_preset: row.picture_description_preset,
         })
     }
 }

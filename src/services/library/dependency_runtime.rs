@@ -397,6 +397,7 @@ fn docling_configuration_fingerprint(config: Option<&crate::docling::DoclingConf
     append_optional(&mut parts, config.vlm.vlm_pipeline_model.as_deref());
     append_optional(&mut parts, config.vlm.picture_description_model.as_deref());
     append_optional(&mut parts, config.vlm.code_formula_model.as_deref());
+    append_optional(&mut parts, config.vlm.picture_description_preset.as_deref());
     configuration_fingerprint(&parts)
 }
 

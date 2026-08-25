@@ -313,7 +313,10 @@ fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        mappers::{response_from_stored, search_response_from_stored},
+        mappers::{
+            config_from_stored, docling_settings_from_request, response_from_stored,
+            search_response_from_stored,
+        },
         runtime_mappers::{runtime_settings_from_request, runtime_settings_response},
         validate::{
             docling_request as validate_docling_request,
@@ -365,6 +368,7 @@ mod tests {
             vlm_pipeline_model: None,
             picture_description_model: None,
             code_formula_model: None,
+            picture_description_preset: None,
         }
     }
 
@@ -564,5 +568,49 @@ mod tests {
 
         let error = validate_search_request(&request).expect_err("request should be invalid");
         assert!(error.to_string().contains("rerank_model"));
+    }
+
+    #[test]
+    fn picture_description_preset_round_trips_through_request_and_stored_config() {
+        let mut request = sample_request();
+        request.vlm = UpdateDoclingVlmSettings {
+            picture_description_preset: Some("smolvlm".to_string()),
+            ..UpdateDoclingVlmSettings::default()
+        };
+
+        let stored = docling_settings_from_request(&request, None);
+        assert_eq!(
+            stored.picture_description_preset.as_deref(),
+            Some("smolvlm"),
+            "settings mapper must persist picture_description_preset from request to stored"
+        );
+
+        let config = config_from_stored(stored.clone());
+        assert_eq!(
+            config.vlm.picture_description_preset.as_deref(),
+            Some("smolvlm"),
+            "stored -> runtime config must surface picture_description_preset"
+        );
+
+        let response = response_from_stored(DoclingSettingsSource::Database, true, stored);
+        assert_eq!(
+            response.vlm.picture_description_preset.as_deref(),
+            Some("smolvlm"),
+            "response must include picture_description_preset without affecting has_api_key"
+        );
+        assert!(
+            !response.vlm.has_api_key,
+            "preset-only settings must not pretend to have an api key"
+        );
+    }
+
+    #[test]
+    fn empty_picture_description_preset_is_normalized_away_in_mapper() {
+        let request = sample_request();
+        let stored = docling_settings_from_request(&request, None);
+        assert!(
+            stored.picture_description_preset.is_none(),
+            "blank picture_description_preset must be normalized away by the mapper"
+        );
     }
 }

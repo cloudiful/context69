@@ -43,5 +43,7 @@ pub(super) fn normalize_docling_config(mut value: DoclingConfig) -> DoclingConfi
     value.vlm.picture_description_model =
         normalize_optional_string(value.vlm.picture_description_model);
     value.vlm.code_formula_model = normalize_optional_string(value.vlm.code_formula_model);
+    value.vlm.picture_description_preset =
+        normalize_optional_string(value.vlm.picture_description_preset);
     value
 }
