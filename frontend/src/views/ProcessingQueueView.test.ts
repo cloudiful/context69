@@ -4,13 +4,15 @@ import * as nuxtUiComposables from "@nuxt/ui/composables";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import ProcessingQueueView from "./ProcessingQueueView.vue";
-import { apiClient, type TaskResponse } from "../services/api";
+import { apiClient, type TaskMaintenanceOverview, type TaskResponse } from "../services/api";
+import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const listTasks = vi.spyOn(apiClient, "listTasks");
 const retryTask = vi.spyOn(apiClient, "retryTask");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
+const getTaskMaintenance = vi.spyOn(apiClient, "getTaskMaintenance");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 const addToast = vi.fn();
 const useToast = vi.spyOn(nuxtUiComposables, "useToast");
@@ -53,6 +55,11 @@ function response(items: TaskResponse[]) {
   };
 }
 
+const maintenanceOverview: TaskMaintenanceOverview = {
+  settings: { cleanup_enabled: true, retention_days: 30, updated_at: "2026-07-20T00:00:00Z" },
+  stats: { total: 40, queued: 2, running: 1, waiting: 3, succeeded: 25, failed: 5, cancelled: 4, active: 6, expired_terminal: 12 },
+};
+
 async function mountQueue() {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -67,9 +74,11 @@ async function mountQueue() {
 
 describe("ProcessingQueueView", () => {
   beforeEach(() => {
+    setGuest();
     listTasks.mockReset().mockResolvedValue(response([row]) as never);
     retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
+    getTaskMaintenance.mockReset().mockResolvedValue(maintenanceOverview as never);
     useOverlay.mockReset().mockReturnValue({
       create: () => ({ open: async () => true }),
     } as never);
@@ -87,13 +96,17 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("renders the table inside a horizontally scrolling container", async () => {
+  it("lets the table own horizontal scrolling without a page-level wrapper", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    const scrollWrapper = wrapper.find('[data-testid="processing-queue-table-scroll"]');
-    expect(scrollWrapper.exists()).toBe(true);
-    expect(scrollWrapper.classes()).toContain("overflow-x-auto");
+    expect(wrapper.find('[data-testid="processing-queue-table-scroll"]').exists()).toBe(false);
+    const table = wrapper.find('[data-testid="processing-queue-table"] table');
+    expect(table.exists()).toBe(true);
+    expect(table.classes()).toContain("min-w-[88rem]");
+    const root = wrapper.find("section");
+    expect(root.classes()).toContain("overflow-x-hidden");
+    expect(root.classes()).not.toContain("overflow-x-auto");
     wrapper.unmount();
   });
 
@@ -181,6 +194,79 @@ describe("ProcessingQueueView", () => {
     await flushPromises();
 
     expect(cancelTask).toHaveBeenCalledWith("task-id");
+    wrapper.unmount();
+  });
+
+  it("hides maintenance controls from non-admin users", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
+    expect(getTaskMaintenance).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("shows a compact admin toolbar and opens cleanup settings in a modal", async () => {
+    setAuthenticatedUser({ is_admin: true });
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(getTaskMaintenance).toHaveBeenCalledOnce();
+    const toolbar = wrapper.find('[data-testid="task-maintenance-toolbar"]');
+    expect(toolbar.exists()).toBe(true);
+    expect(toolbar.classes()).toContain("border-t");
+    expect(toolbar.text()).toContain("Task history maintenance");
+    expect(toolbar.text()).toContain("Total tasks: 40");
+    expect(toolbar.text()).toContain("Active: 6");
+    expect(toolbar.text()).toContain("Expired history: 12");
+
+    // Inline settings form must not reserve page height; it lives in the modal.
+    expect(wrapper.find('[data-testid="maintenance-cleanup-toggle"]').exists()).toBe(false);
+
+    const settingsButton = toolbar.find('[data-testid="maintenance-settings-button"]');
+    expect(settingsButton.attributes("aria-label")).toBe("Cleanup settings");
+
+    expect(document.body.textContent).not.toContain("Retention (days)");
+    await settingsButton.trigger("click");
+    await flushPromises();
+
+    expect(document.body.textContent).toContain("Cleanup settings");
+    expect(document.body.textContent).toContain("Auto-cleanup of expired tasks");
+    expect(document.body.textContent).toContain("Retention (days)");
+    expect(document.body.textContent).toContain("Save");
+    wrapper.unmount();
+  });
+
+  it("restores persisted settings when the modal is reopened after cancel", async () => {
+    setAuthenticatedUser({ is_admin: true });
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="maintenance-settings-button"]').trigger("click");
+    await flushPromises();
+
+    const toggle = document.querySelector('[data-testid="maintenance-cleanup-toggle"]');
+    expect(toggle).not.toBeNull();
+    expect(toggle!.getAttribute("aria-checked")).toBe("true");
+
+    toggle!.dispatchEvent(new Event("click", { bubbles: true }));
+    await flushPromises();
+    expect(toggle!.getAttribute("aria-checked")).toBe("false");
+
+    const cancelButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Cancel",
+    );
+    expect(cancelButton).toBeDefined();
+    cancelButton!.click();
+    await flushPromises();
+    expect(document.body.textContent).not.toContain("Retention (days)");
+
+    // Reopening must discard the discarded draft and restart from persisted values.
+    await wrapper.find('[data-testid="maintenance-settings-button"]').trigger("click");
+    await flushPromises();
+
+    const reopenedToggle = document.querySelector('[data-testid="maintenance-cleanup-toggle"]');
+    expect(reopenedToggle!.getAttribute("aria-checked")).toBe("true");
     wrapper.unmount();
   });
 });

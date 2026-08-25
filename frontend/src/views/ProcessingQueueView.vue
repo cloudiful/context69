@@ -104,11 +104,20 @@ watch(
 
 const draftCleanup = ref(true);
 const draftRetentionDays = ref(30);
+const settingsOpen = ref(false);
 watch(() => maintenance.settings, (settings) => {
   if (!settings) return;
   draftCleanup.value = settings.cleanup_enabled;
   draftRetentionDays.value = settings.retention_days;
 }, { immediate: true });
+// Reopening the modal discards unsaved edits and restarts from persisted settings.
+watch(settingsOpen, (open) => {
+  if (!open) return;
+  const settings = maintenance.settings;
+  if (!settings) return;
+  draftCleanup.value = settings.cleanup_enabled;
+  draftRetentionDays.value = settings.retention_days;
+});
 const settingsDirty = computed(() => {
   const settings = maintenance.settings;
   return !!settings && (settings.cleanup_enabled !== draftCleanup.value || settings.retention_days !== draftRetentionDays.value);
@@ -198,7 +207,7 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto">
+  <section class="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-x-hidden overflow-y-auto">
     <AppServerList
       class="min-w-0"
       :loading="queue.loading && !queue.items.length"
@@ -232,90 +241,100 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
         <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />
       </template>
 
-      <div v-if="queue.items.length" class="min-w-0 overflow-x-auto" data-testid="processing-queue-table-scroll">
-        <UTable
-          v-model:sorting="sorting"
-          class="min-w-[88rem]"
-          v-model:expanded="expandedRows"
-          :data="queue.items"
-          :columns="columns"
-          :loading="queue.loading"
-          :sorting-options="{ manualSorting: true }"
-        >
-          <template #expand-cell="{ row }">
-            <UButton
-              variant="ghost"
-              color="neutral"
-              size="sm"
-              icon="i-lucide-chevron-right"
-              :class="{ 'rotate-90': row.getIsExpanded() }"
-              :aria-label="row.getIsExpanded() ? t('processingQueue.collapse') : t('processingQueue.expand')"
-              :aria-expanded="row.getIsExpanded()"
-              :disabled="expandingTaskId === row.original.task_id"
-              @click="toggleExpand(row)"
-            />
-          </template>
-          <template #task_id-cell="{ row }"><span class="block max-w-64 truncate font-mono text-xs" :title="row.original.task_id">{{ row.original.task_id }}</span></template>
-          <template #kind-cell="{ row }"><UBadge :label="taskKindLabel(row.original.kind)" color="neutral" variant="subtle" /></template>
-          <template #group_path-cell="{ row }"><span class="block max-w-48 truncate" :title="row.original.group_path || undefined">{{ row.original.group_path || "--" }}</span></template>
-          <template #status-cell="{ row }"><UBadge :label="taskStatusLabel(row.original.status)" :color="statusSeverity(row.original.status)" variant="subtle" /></template>
-          <template #stage-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ stageLabel(row.original.stage) }}</span></template>
-          <template #waiting-cell="{ row }"><span class="block max-w-48 truncate text-sm text-muted" :title="waitingLabel(row.original.waiting_reason, row.original.dependency_key)">{{ waitingLabel(row.original.waiting_reason, row.original.dependency_key) }}</span></template>
-          <template #progress-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ row.original.progress.succeeded }}/{{ row.original.progress.total }}</span></template>
-          <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="row.original.error_summary || undefined">{{ row.original.error_summary || "--" }}</span></template>
-          <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
-          <template #actions-cell="{ row }">
-            <div class="flex items-center gap-1">
-               <UButton v-if="queue.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="queue.isActing(row.original)" :label="t(queue.isDoclingRecoveryTask(row.original) ? 'processingQueue.doclingRecovery' : row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="queue.recoverTask(row.original)" />
-              <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="queue.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="queue.cancelTask(row.original)" />
-            </div>
-          </template>
-          <template #expanded="{ row }">
-            <div class="p-3">
-              <template v-if="expandedItems[row.original.task_id] === undefined">
-                <div v-if="expandedError[row.original.task_id]" class="text-sm text-(--ui-error)">
-                  {{ t("processingQueue.itemsLoadFailed") }}
-                </div>
-                <div v-else class="text-sm text-muted">{{ t("common.loading") }}…</div>
-              </template>
-              <template v-else-if="(expandedItems[row.original.task_id]?.length ?? 0) === 0">
-                <div class="text-sm text-muted">{{ t("processingQueue.noItems") }}</div>
-              </template>
-              <div v-else class="grid gap-1">
-                <div
-                  v-for="item in expandedItems[row.original.task_id]"
-                  :key="item.item_id"
-                  class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
-                >
-                  <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
-                  <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
-                  <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage) }}</span>
-                  <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
-                  <span class="block max-w-56 truncate text-xs text-muted" :title="externalJobTitle(item.external_job)">{{ externalJobLabel(item.external_job) }}</span>
-                  <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
-                </div>
+      <UTable
+        v-if="queue.items.length"
+        v-model:sorting="sorting"
+        class="min-w-0"
+        :ui="{ base: 'min-w-[88rem]' }"
+        data-testid="processing-queue-table"
+        v-model:expanded="expandedRows"
+        :data="queue.items"
+        :columns="columns"
+        :loading="queue.loading"
+        :sorting-options="{ manualSorting: true }"
+      >
+        <template #expand-cell="{ row }">
+          <UButton
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            icon="i-lucide-chevron-right"
+            :class="{ 'rotate-90': row.getIsExpanded() }"
+            :aria-label="row.getIsExpanded() ? t('processingQueue.collapse') : t('processingQueue.expand')"
+            :aria-expanded="row.getIsExpanded()"
+            :disabled="expandingTaskId === row.original.task_id"
+            @click="toggleExpand(row)"
+          />
+        </template>
+        <template #task_id-cell="{ row }"><span class="block max-w-64 truncate font-mono text-xs" :title="row.original.task_id">{{ row.original.task_id }}</span></template>
+        <template #kind-cell="{ row }"><UBadge :label="taskKindLabel(row.original.kind)" color="neutral" variant="subtle" /></template>
+        <template #group_path-cell="{ row }"><span class="block max-w-48 truncate" :title="row.original.group_path || undefined">{{ row.original.group_path || "--" }}</span></template>
+        <template #status-cell="{ row }"><UBadge :label="taskStatusLabel(row.original.status)" :color="statusSeverity(row.original.status)" variant="subtle" /></template>
+        <template #stage-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ stageLabel(row.original.stage) }}</span></template>
+        <template #waiting-cell="{ row }"><span class="block max-w-48 truncate text-sm text-muted" :title="waitingLabel(row.original.waiting_reason, row.original.dependency_key)">{{ waitingLabel(row.original.waiting_reason, row.original.dependency_key) }}</span></template>
+        <template #progress-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ row.original.progress.succeeded }}/{{ row.original.progress.total }}</span></template>
+        <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="row.original.error_summary || undefined">{{ row.original.error_summary || "--" }}</span></template>
+        <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
+        <template #actions-cell="{ row }">
+          <div class="flex items-center gap-1">
+             <UButton v-if="queue.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="queue.isActing(row.original)" :label="t(queue.isDoclingRecoveryTask(row.original) ? 'processingQueue.doclingRecovery' : row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="queue.recoverTask(row.original)" />
+            <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="queue.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="queue.cancelTask(row.original)" />
+          </div>
+        </template>
+        <template #expanded="{ row }">
+          <div class="p-3">
+            <template v-if="expandedItems[row.original.task_id] === undefined">
+              <div v-if="expandedError[row.original.task_id]" class="text-sm text-(--ui-error)">
+                {{ t("processingQueue.itemsLoadFailed") }}
+              </div>
+              <div v-else class="text-sm text-muted">{{ t("common.loading") }}…</div>
+            </template>
+            <template v-else-if="(expandedItems[row.original.task_id]?.length ?? 0) === 0">
+              <div class="text-sm text-muted">{{ t("processingQueue.noItems") }}</div>
+            </template>
+            <div v-else class="grid gap-1">
+              <div
+                v-for="item in expandedItems[row.original.task_id]"
+                :key="item.item_id"
+                class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
+              >
+                <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
+                <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
+                <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage) }}</span>
+                <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
+                <span class="block max-w-56 truncate text-xs text-muted" :title="externalJobTitle(item.external_job)">{{ externalJobLabel(item.external_job) }}</span>
+                <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
               </div>
             </div>
-          </template>
-        </UTable>
-      </div>
+          </div>
+        </template>
+      </UTable>
       <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">
         {{ t("processingQueue.noTasks") }}
       </div>
     </AppServerList>
 
-    <section v-if="maintenance.isAdmin" class="flex flex-col gap-3 rounded-lg border border-default/70 p-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-sm font-semibold text-color">{{ t("taskMaintenance.title") }}</h2>
-        <div class="flex flex-wrap items-center gap-4 text-sm text-muted">
-          <span>{{ t("taskMaintenance.total") }}: {{ maintenance.stats?.total ?? "--" }}</span>
-          <span>{{ t("taskMaintenance.active") }}: {{ maintenance.activeCount }}</span>
-          <span>{{ t("taskMaintenance.expiredTerminal") }}: {{ maintenance.stats?.expired_terminal ?? "--" }}</span>
+    <section v-if="maintenance.isAdmin" data-testid="task-maintenance-toolbar" class="flex flex-col gap-2 border-t border-default/70 pt-3">
+      <UAlert v-if="maintenance.error" color="error" variant="subtle" :title="t('common.error')" :description="maintenance.error" />
+      <div class="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+          <h2 class="text-sm font-semibold text-color">{{ t("taskMaintenance.title") }}</h2>
+          <span class="text-sm text-muted">{{ t("taskMaintenance.total") }}: {{ maintenance.stats?.total ?? "--" }}</span>
+          <span class="text-sm text-muted">{{ t("taskMaintenance.active") }}: {{ maintenance.activeCount }}</span>
+          <span class="text-sm text-muted">{{ t("taskMaintenance.expiredTerminal") }}: {{ maintenance.stats?.expired_terminal ?? "--" }}</span>
+        </div>
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <UButton color="error" variant="outline" size="sm" icon="i-lucide-ban" :loading="maintenance.action === 'cancel'" :disabled="maintenance.activeCount === 0 || !!maintenance.action" :label="t('taskMaintenance.cancelActiveAction') + ' (' + maintenance.activeCount + ')'" @click="maintenance.confirmCancelActive" />
+          <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="!!maintenance.action" :label="t('taskMaintenance.purgeExpiredAction')" @click="maintenance.confirmPurge('expired')" />
+          <UButton color="error" variant="outline" size="sm" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="maintenance.activeCount > 0 || !!maintenance.action" :label="t('taskMaintenance.purgeAllAction')" @click="maintenance.confirmPurge('all_terminal')" />
+          <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-settings" :aria-label="t('taskMaintenance.settings')" :title="t('taskMaintenance.settings')" data-testid="maintenance-settings-button" @click="settingsOpen = true" />
         </div>
       </div>
-      <UAlert v-if="maintenance.error" color="error" variant="subtle" :title="t('common.error')" :description="maintenance.error" />
-      <div class="flex flex-wrap items-end justify-between gap-3">
-        <div class="flex flex-wrap items-end gap-4">
+    </section>
+
+    <UModal v-model:open="settingsOpen" :title="t('taskMaintenance.settings')" class="w-[30rem] max-w-[96vw]">
+      <template #body>
+        <div class="grid gap-3">
           <label class="flex items-center gap-2 text-sm text-color">
             <USwitch :model-value="draftCleanup" :disabled="!maintenance.settings || maintenance.saving" data-testid="maintenance-cleanup-toggle" @update:model-value="draftCleanup = $event as boolean" />
             {{ t("taskMaintenance.autoCleanup") }}
@@ -323,14 +342,14 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
           <div class="w-36">
             <AppNumberField :input-id="'maintenance-retention'" :label="t('taskMaintenance.retentionDays')" :model-value="draftRetentionDays" :min="1" :max="3650" :disabled="!maintenance.settings || maintenance.saving" :test-id="'maintenance-retention'" @update:model-value="draftRetentionDays = $event ?? 30" />
           </div>
-          <UButton color="neutral" variant="outline" icon="i-lucide-save" :loading="maintenance.saving" :disabled="!settingsDirty || retentionInvalid" :label="t('common.save')" @click="saveSettings" />
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <UButton color="error" variant="outline" icon="i-lucide-ban" :loading="maintenance.action === 'cancel'" :disabled="maintenance.activeCount === 0 || !!maintenance.action" :label="t('taskMaintenance.cancelActiveAction') + ' (' + maintenance.activeCount + ')'" @click="maintenance.confirmCancelActive" />
-          <UButton color="neutral" variant="outline" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="!!maintenance.action" :label="t('taskMaintenance.purgeExpiredAction')" @click="maintenance.confirmPurge('expired')" />
-          <UButton color="error" variant="outline" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="maintenance.activeCount > 0 || !!maintenance.action" :label="t('taskMaintenance.purgeAllAction')" @click="maintenance.confirmPurge('all_terminal')" />
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="outline" :label="t('common.cancel')" @click="settingsOpen = false" />
+          <UButton icon="i-lucide-save" :loading="maintenance.saving" :disabled="!settingsDirty || retentionInvalid" :label="t('common.save')" @click="saveSettings" />
         </div>
-      </div>
-    </section>
+      </template>
+    </UModal>
   </section>
 </template>

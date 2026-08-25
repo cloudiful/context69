@@ -126,6 +126,7 @@ export const zhCN = {
   },
   taskMaintenance: {
     title: "任务历史维护",
+    settings: "清理设置",
     total: "任务总数",
     active: "进行中",
     expiredTerminal: "过期历史",

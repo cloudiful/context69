@@ -126,6 +126,7 @@ export const en = {
   },
   taskMaintenance: {
     title: "Task history maintenance",
+    settings: "Cleanup settings",
     total: "Total tasks",
     active: "Active",
     expiredTerminal: "Expired history",
