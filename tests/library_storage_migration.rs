@@ -782,3 +782,58 @@ async fn old_key_cleanup_record_survives_file_deletion() {
     cleanup_group(&db, group.id).await;
     let _ = std::fs::remove_dir_all(storage_root);
 }
+
+#[tokio::test]
+async fn startup_helper_migrates_with_default_batch_and_is_restart_safe() {
+    let Some((_guard, db)) = prepare_isolated_db().await else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping startup-helper test");
+        return;
+    };
+    let (service, storage_root) = build_library_service(&db).await;
+    let group = seed_group_record(&db).await;
+    let content = b"startup migrated\n".to_vec();
+    let (file_id, old_key) = seed_legacy_file(
+        &db,
+        &storage_root,
+        group.id,
+        "legacy-startup",
+        &content,
+        &SeedLegacyOptions {
+            size_bytes: None,
+            sha256: None,
+            write_physical: true,
+        },
+    )
+    .await;
+    let sha = sha256_hex(&content);
+    let expected_key = format!("objects/{}/{}", group.id, sha);
+
+    // The startup entry point uses the safe default batch size and performs real
+    // writes (never a dry run), linking the content-addressed object.
+    let summary = service
+        .run_startup_legacy_migration()
+        .await
+        .expect("startup migration");
+    assert_eq!(
+        (summary.scanned, summary.migrated, summary.errors),
+        (1, 1, 0)
+    );
+    let (rel_path, object_id) = file_storage_row(&db, file_id).await;
+    assert_eq!(rel_path, expected_key);
+    assert!(object_id.is_some());
+    assert!(storage_root.join(&old_key).exists(), "old key retained");
+    assert_eq!(cleanup_record_count(&db, file_id).await, 1);
+
+    // A restart finds nothing left to do; the existing object is reused.
+    let second = service
+        .run_startup_legacy_migration()
+        .await
+        .expect("startup migration restart");
+    assert_eq!(
+        (second.scanned, second.migrated, second.already_migrated),
+        (0, 0, 0)
+    );
+
+    cleanup_group(&db, group.id).await;
+    let _ = std::fs::remove_dir_all(storage_root);
+}

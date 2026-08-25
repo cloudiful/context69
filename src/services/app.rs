@@ -8,7 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use context69_extraction::{ExtractionDependencies, ExtractionReadiness, ExtractionService};
 use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -322,6 +322,33 @@ impl Context69App {
             extraction.clone(),
         )
         .await?;
+        // Before task workers resume, migrate any remaining legacy UUID
+        // direct-path library files (storage_object_id IS NULL) onto the
+        // content-addressed layout. This runs after LibraryService is ready and
+        // before tasks.resume_pending()/translation/extraction resume, so new
+        // ingestion cannot race the transition. Per-row errors are handled and
+        // retried inside the migration; only a fatal selection error bubbles up
+        // here. We tolerate that fatal error (log and continue) instead of
+        // failing the whole startup: Docker operators must not enter the
+        // container or run a manual migration, so the app keeps serving and
+        // retries the migration on the next restart. This choice deliberately
+        // leaves all unrelated startup behavior unchanged.
+        match library.run_startup_legacy_migration().await {
+            Ok(summary) => info!(
+                scanned = summary.scanned,
+                migrated = summary.migrated,
+                already_migrated = summary.already_migrated,
+                missing = summary.missing,
+                invalid = summary.invalid,
+                conflicts = summary.conflicts,
+                errors = summary.errors,
+                "startup legacy library direct-path migration complete"
+            ),
+            Err(error) => warn!(
+                %error,
+                "startup legacy library direct-path migration failed; it will retry on the next restart"
+            ),
+        }
         let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
         library.initialize_dependency_gates().await?;
         settings.set_docling_settings_observer(Some(Arc::new({

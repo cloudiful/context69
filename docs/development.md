@@ -68,7 +68,7 @@ nu scripts/dev.nu backend
 
 ## Library Storage Maintenance Modes
 
-Two one-shot CLI modes maintain library storage. Neither deletes old objects
+One one-shot CLI mode maintains library storage. It does not delete old objects
 automatically.
 
 `migrate-library-storage [--dry-run]` copies files from the local filesystem
@@ -78,40 +78,33 @@ storage root into the active S3 backend. It requires S3 to be configured.
 cargo run -- migrate-library-storage --dry-run
 ```
 
-`migrate-library-legacy-paths [--dry-run] [--batch-size <n>]` migrates legacy
-library files that still point at UUID direct paths
-(`storage_object_id IS NULL`) onto the content-addressed layout
-(`objects/{group_id}/{sha256}`). Each source object is read back and verified
-against its stored size and SHA-256 before the reference is updated; the old
-key is recorded in `context69.library_legacy_object_cleanup` for a separate,
-later cleanup phase and is never deleted by this command. The run is bounded
-(default batch size 100), restartable, and idempotent; per-row failures are
-counted and reported without blocking later rows.
+### Legacy UUID direct-path migration (automatic)
 
-```bash
-cargo run -- migrate-library-legacy-paths --dry-run
-cargo run -- migrate-library-legacy-paths --batch-size 200
-```
+Legacy library files that still point at UUID direct paths
+(`storage_object_id IS NULL`) are migrated automatically at application
+startup, before pending task workers resume. The migration runs on every normal
+startup: it reads each source object back through the storage abstraction,
+verifies it against the stored size and SHA-256, links the row to the existing
+content-addressed layout (`objects/{group_id}/{sha256}`), and records the old
+key durably in `context69.library_legacy_object_cleanup` for a separate, later
+cleanup phase. The operation is bounded per selection page (default batch size
+100), idempotent, and restartable; per-row missing/invalid/errors are logged and
+retried on the next startup. A fatal migration selection error is logged and
+tolerated so unrelated startup behavior is unaffected, and the migration is
+retried on the next restart. Old physical objects are never deleted by this
+phase.
 
-`cleanup-library-legacy-paths [--dry-run] [--execute] [--batch-size <n>]`
-deletes the physical old objects recorded in
-`context69.library_legacy_object_cleanup` once their grace period has
-elapsed. Migrations 0023 and 0024 must be applied before running it. The
-mode defaults to a dry run; `--execute` is required for actual deletion and
-`--dry-run` and `--execute` cannot be combined. A record is skipped (and
-left open) when its old key is still referenced by any
-`library_files.storage_rel_path` row, when it was recorded on a storage
-backend different from the active one, or when its recorded backend is
-unknown (pre-0024 rows have no backend recorded and are never deleted).
-Physical deletion happens first; only then is the record marked deleted,
-so an interrupted run can be restarted safely and already-missing objects
-count as idempotent successes.
+The startup log line exposes the run summary:
+`scanned`, `migrated`, `already_migrated`, `missing`, `invalid`, `conflicts`, and
+`errors`.
 
-```bash
-cargo run -- cleanup-library-legacy-paths --dry-run
-cargo run -- cleanup-library-legacy-paths --dry-run --batch-size 200
-cargo run -- cleanup-library-legacy-paths --execute --batch-size 200
-```
+### Old-object and code cleanup (awaiting explicit confirmation)
+
+Old physical object deletion and removal of the legacy read-compatibility code are
+deliberately deferred to a separately reviewed phase that runs only after the
+user confirms the startup migration is complete. Do not run a manual cleanup
+against production from this workspace, and do not remove the legacy
+compatibility code until that confirmation is given.
 
 ## Local Full-Stack Flow
 

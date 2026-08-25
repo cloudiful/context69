@@ -158,6 +158,17 @@ impl LibraryService {
         Ok(summary)
     }
 
+    /// Run the legacy UUID direct-path migration as part of normal application
+    /// startup, before pending task workers resume. Uses the safe default batch
+    /// size and performs real writes (never a dry run). Per-row errors are
+    /// logged and counted inside `migrate_legacy_direct_paths`; only a fatal
+    /// selection error is returned so the caller can decide whether to fail
+    /// startup or retry on the next restart.
+    pub async fn run_startup_legacy_migration(&self) -> Result<LegacyPathMigrationSummary> {
+        self.migrate_legacy_direct_paths(false, DEFAULT_LEGACY_PATH_MIGRATION_BATCH_SIZE)
+            .await
+    }
+
     async fn migrate_legacy_direct_path_row(
         &self,
         dry_run: bool,
