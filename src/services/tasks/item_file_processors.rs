@@ -381,7 +381,12 @@ async fn ingest_error_result(
 ) -> Result<ProcessResult> {
     let error = service
         .library()
-        .handle_task_ingest_failure_with_payload(file_id, item.lease_token, error, Some(&item.payload))
+        .handle_task_ingest_failure_with_payload(
+            file_id,
+            item.lease_token,
+            error,
+            Some(&item.payload),
+        )
         .await;
     if error.retryable {
         Ok(waiting_for_error(item, error))

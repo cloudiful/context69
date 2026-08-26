@@ -412,6 +412,16 @@ lease handling and is deferred.
   Qdrant idempotent), deterministic duplicate IDs, old payload compatibility,
   and cleanup-once ordering. `tests/library_ingest_retry.rs` continues to pin
   Qdrant-before-SQL ordering and gate split.
+- **Module layout:** The checkpoint types and pure helpers live in
+  `src/services/library/ingest_checkpoint.rs` (parse/serialize, batch
+  estimation, prepared-record hashing, payload cloning with monotonicity
+  guard, bounded size). The driver that ties them to
+  `set_task_item_payload` (`persist_file_sections_for_task_with_checkpoint` and
+  its inner batch/finalize helpers) lives in
+  `src/services/library/ingest_checkpoint_persistence.rs`. The remaining
+  per-task item surface (`prepare_file_sections_for_task`,
+  `persist_file_sections_for_task`, failure handling, etc.) stays in
+  `src/services/library/task_ingest.rs`.
 - **Limitations:** Not a distributed transaction; operators should not expect
   exactly-once. If the process dies between Qdrant and checkpoint, the same
   batch will be upserted again on retry – safe because IDs are deterministic

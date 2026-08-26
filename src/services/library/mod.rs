@@ -47,6 +47,12 @@ mod filenames;
 mod files;
 mod folders;
 mod ingest_batches;
+mod ingest_checkpoint;
+pub use ingest_checkpoint::{
+    IndexingCheckpoint, compute_section_payload_record_hash, indexing_checkpoint_to_value,
+    parse_indexing_checkpoint, payload_with_checkpoint,
+};
+mod ingest_checkpoint_persistence;
 mod ingest_documents;
 mod ingest_persistence;
 mod ingest_types;

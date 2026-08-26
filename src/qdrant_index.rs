@@ -891,8 +891,4 @@ impl QdrantIndex {
             dimensions,
         })
     }
-
-    fn is_noop(&self) -> bool {
-        self.collection_name == "test-noop"
-    }
 }
