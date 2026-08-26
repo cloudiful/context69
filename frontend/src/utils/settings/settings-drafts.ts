@@ -1,3 +1,4 @@
+import type { components } from "../../generated/openapi";
 import type {
   DoclingSettingsResponse,
   RuntimeSettingsResponse,
@@ -5,9 +6,12 @@ import type {
 } from "../../services/api";
 import type {
   DraftDoclingSettings,
+  DraftDoclingVlmMode,
   DraftRuntimeSettings,
   DraftSearchSettings,
 } from "./settings-types";
+
+type DoclingVlmSettingsResponse = components["schemas"]["DoclingVlmSettingsResponse"];
 
 export function createRuntimeDraft(): DraftRuntimeSettings {
   return {
@@ -64,6 +68,7 @@ export function createDoclingDraft(): DraftDoclingSettings {
       poll_interval_secs: 2,
       task_timeout_secs: 600,
     },
+    vlm_mode: "disabled",
     vlm: {
       openai_base_url: "",
       api_key: "",
@@ -138,6 +143,7 @@ export function runtimeResponseToDraft(
 export function doclingResponseToDraft(
   response: DoclingSettingsResponse,
 ): DraftDoclingSettings {
+  const vlm = response.vlm ?? ({} as DoclingVlmSettingsResponse);
   return {
     connection: {
       base_url: response.connection.base_url ?? "",
@@ -145,15 +151,52 @@ export function doclingResponseToDraft(
       poll_interval_secs: response.connection.poll_interval_secs,
       task_timeout_secs: response.connection.task_timeout_secs,
     },
+    vlm_mode: inferDoclingVlmMode(vlm),
     vlm: {
-      openai_base_url: response.vlm.openai_base_url ?? "",
+      openai_base_url: vlm.openai_base_url ?? "",
       api_key: "",
-      vlm_pipeline_model: response.vlm.vlm_pipeline_model ?? "",
-      picture_description_model: response.vlm.picture_description_model ?? "",
-      picture_description_preset: response.vlm.picture_description_preset ?? "",
-      code_formula_model: response.vlm.code_formula_model ?? "",
+      vlm_pipeline_model: vlm.vlm_pipeline_model ?? "",
+      picture_description_model: vlm.picture_description_model ?? "",
+      picture_description_preset: vlm.picture_description_preset ?? "",
+      code_formula_model: vlm.code_formula_model ?? "",
     },
   };
+}
+
+function hasLegacyVlmBundle(vlm: DoclingVlmSettingsResponse | undefined): boolean {
+  if (!vlm) return false;
+  return (
+    hasNonEmpty(vlm.openai_base_url)
+    || hasNonEmpty(vlm.vlm_pipeline_model)
+    || hasNonEmpty(vlm.picture_description_model)
+    || hasNonEmpty(vlm.code_formula_model)
+    || vlm.has_api_key === true
+  );
+}
+
+function hasNonEmpty(value: string | null | undefined): boolean {
+  return !!value && value.trim().length > 0;
+}
+
+/**
+ * Infer the frontend draft VLM mode from a stored Docling VLM response.
+ * Preset wins over a residual legacy bundle: a non-empty preset alone is
+ * enough to classify as "preset" because the backend treats preset and
+ * legacy fields as mutually exclusive on save. A persisted legacy bundle
+ * without a preset keeps the user on "custom". A blank response collapses
+ * to "disabled".
+ */
+export function inferDoclingVlmMode(
+  vlm: DoclingVlmSettingsResponse | undefined,
+): DraftDoclingVlmMode {
+  const preset = hasNonEmpty(vlm?.picture_description_preset);
+  if (preset) {
+    return "preset";
+  }
+  if (hasLegacyVlmBundle(vlm)) {
+    return "custom";
+  }
+  return "disabled";
 }
 
 export function searchResponseToPayload(response: SearchSettingsResponse): DraftSearchSettings {

@@ -161,6 +161,11 @@ async function mountSettingsView(path: string, i18n = createTestI18n("en")) {
     attachTo: document.body,
     global: {
       plugins: [testNuxtUiPlugin, i18n, router],
+      stubs: {
+        UTooltip: {
+          template: "<div><slot /><div class='tooltip-stub'>{{ $attrs.text }}</div></div>",
+        },
+      },
     },
   });
 
@@ -202,7 +207,9 @@ describe("SettingsView", () => {
     expect(wrapper.find("#docling-clear-api-key").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("Stored key");
     expect(wrapper.text()).not.toContain("No key stored");
+    expect(wrapper.get("#docling-vlm-mode").element).toBeTruthy();
     expect(wrapper.get("#docling-picture-description-preset").element).toBeTruthy();
+    expect(wrapper.find("#docling-openai-base-url").exists()).toBe(false);
     await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
     await wrapper.get("#docling-picture-description-preset").setValue("granite_vision");
 
@@ -229,10 +236,15 @@ describe("SettingsView", () => {
         base_url: "http://docling.internal:5001",
       }),
       vlm: expect.objectContaining({
-        openai_base_url: "https://openrouter.ai/api/v1",
         picture_description_preset: "granite_vision",
       }),
     }));
+    const updateDoclingCall = apiSpies.updateDoclingSettings.mock.calls.at(-1)?.[0];
+    expect(updateDoclingCall?.vlm?.openai_base_url).toBeUndefined();
+    expect(updateDoclingCall?.vlm?.api_key).toBeUndefined();
+    expect(updateDoclingCall?.vlm?.vlm_pipeline_model).toBeUndefined();
+    expect(updateDoclingCall?.vlm?.picture_description_model).toBeUndefined();
+    expect(updateDoclingCall?.vlm?.code_formula_model).toBeUndefined();
     expect(apiSpies.updateSearchSettings).toHaveBeenCalledWith(expect.objectContaining({
       mode: "hybrid",
       rerank_enabled: true,
@@ -337,5 +349,117 @@ describe("SettingsView", () => {
     await flushPromises();
 
     expect(wrapper.get('[data-testid="personal-access-token-create"]').attributes("disabled")).toBeUndefined();
+  });
+
+  it("switches the docling VLM form between disabled, preset, and custom modes", async () => {
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await flushPromises();
+
+    const modeSelect = wrapper.findAllComponents(AppSelectField).find((component) =>
+      component.props("inputId") === "docling-vlm-mode",
+    );
+    expect(modeSelect).toBeDefined();
+    expect(modeSelect!.props("modelValue")).toBe("preset");
+
+    // preset mode (loaded by default since the response carries a preset) shows only the preset input
+    expect(wrapper.find("#docling-picture-description-preset").exists()).toBe(true);
+    expect(wrapper.find("#docling-openai-base-url").exists()).toBe(false);
+    expect(wrapper.find("#docling-api-key").exists()).toBe(false);
+
+    await modeSelect!.vm.$emit("update:modelValue", "custom");
+    await flushPromises();
+    expect(wrapper.find("#docling-openai-base-url").exists()).toBe(true);
+    expect(wrapper.find("#docling-api-key").exists()).toBe(true);
+    expect(wrapper.find("#docling-vlm-pipeline-model").exists()).toBe(true);
+    expect(wrapper.find("#docling-picture-description-model").exists()).toBe(true);
+    expect(wrapper.find("#docling-code-formula-model").exists()).toBe(true);
+    expect(wrapper.find("#docling-picture-description-preset").exists()).toBe(false);
+
+    await modeSelect!.vm.$emit("update:modelValue", "disabled");
+    await flushPromises();
+    expect(wrapper.find("#docling-picture-description-preset").exists()).toBe(false);
+    expect(wrapper.find("#docling-openai-base-url").exists()).toBe(false);
+    expect(wrapper.find("#docling-api-key").exists()).toBe(false);
+    expect(wrapper.find("#docling-code-formula-model").exists()).toBe(false);
+  });
+
+  it("infers disabled mode when no preset or legacy VLM fields are stored", async () => {
+    apiSpies.getDoclingSettings.mockResolvedValueOnce({
+      configured: true,
+      source: "database",
+      connection: {
+        base_url: "http://docling:5001",
+        timeout_secs: 120,
+        poll_interval_secs: 2,
+        task_timeout_secs: 600,
+      },
+      vlm: {
+        openai_base_url: null,
+        has_api_key: false,
+        vlm_pipeline_model: null,
+        picture_description_model: null,
+        code_formula_model: null,
+        picture_description_preset: null,
+      },
+    } as never);
+
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await flushPromises();
+
+    const modeSelect = wrapper.findAllComponents(AppSelectField).find((component) =>
+      component.props("inputId") === "docling-vlm-mode",
+    );
+    expect(modeSelect).toBeDefined();
+    expect(modeSelect!.props("modelValue")).toBe("disabled");
+    expect(wrapper.find("#docling-picture-description-preset").exists()).toBe(false);
+    expect(wrapper.find("#docling-openai-base-url").exists()).toBe(false);
+
+    // Touch the connection URL so the save flow actually fires for a
+    // disabled-mode draft where every VLM field is already a no-op.
+    await wrapper.get("#docling-base-url").setValue("http://docling:5002");
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    const updateDoclingCall = apiSpies.updateDoclingSettings.mock.calls.at(-1)?.[0];
+    expect(updateDoclingCall?.vlm).toEqual({
+      openai_base_url: undefined,
+      api_key: undefined,
+      vlm_pipeline_model: undefined,
+      picture_description_model: undefined,
+      picture_description_preset: undefined,
+      code_formula_model: undefined,
+    });
+  });
+
+  it("switches to custom mode and submits the legacy bundle without the preset", async () => {
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await flushPromises();
+
+    const modeSelect = wrapper.findAllComponents(AppSelectField).find((component) =>
+      component.props("inputId") === "docling-vlm-mode",
+    );
+    expect(modeSelect).toBeDefined();
+    await modeSelect!.vm.$emit("update:modelValue", "custom");
+    await flushPromises();
+
+    await wrapper.get("#docling-openai-base-url").setValue("https://openrouter.ai/api/v1");
+    await wrapper.get("#docling-api-key").setValue("sk-new");
+    await wrapper.get("#docling-vlm-pipeline-model").setValue("gemini-3-flash");
+    await wrapper.get("#docling-picture-description-model").setValue("gpt-4o-mini");
+    await wrapper.get("#docling-code-formula-model").setValue("gpt-4o-mini");
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    const updateDoclingCall = apiSpies.updateDoclingSettings.mock.calls.at(-1)?.[0];
+    expect(updateDoclingCall?.vlm).toEqual({
+      openai_base_url: "https://openrouter.ai/api/v1",
+      api_key: "sk-new",
+      vlm_pipeline_model: "gemini-3-flash",
+      picture_description_model: "gpt-4o-mini",
+      picture_description_preset: undefined,
+      code_formula_model: "gpt-4o-mini",
+    });
   });
 });

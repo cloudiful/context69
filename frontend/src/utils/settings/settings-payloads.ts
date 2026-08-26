@@ -1,5 +1,6 @@
 import type {
   DraftDoclingSettings,
+  DraftDoclingVlmMode,
   DraftRuntimeSettings,
   DraftSearchSettings,
 } from "./settings-types";
@@ -26,15 +27,51 @@ export function buildDoclingPayload(
       poll_interval_secs: draft.connection.poll_interval_secs,
       task_timeout_secs: draft.connection.task_timeout_secs,
     },
-    vlm: {
-      openai_base_url: draft.vlm.openai_base_url,
-      api_key: draft.vlm.api_key,
-      vlm_pipeline_model: draft.vlm.vlm_pipeline_model,
-      picture_description_model: draft.vlm.picture_description_model,
-      picture_description_preset: draft.vlm.picture_description_preset,
-      code_formula_model: draft.vlm.code_formula_model,
-    },
+    vlm: projectDoclingVlmForPayload(draft.vlm_mode, draft.vlm),
   });
+}
+
+/**
+ * Project the draft VLM fields onto only the values the backend should see
+ * for the active mode. The draft keeps every field the user has touched so
+ * switching modes is non-destructive, but a save in `disabled` or `preset`
+ * mode must drop the legacy bundle (and clear the stored API key on the
+ * backend by omission), and a save in `preset` mode must clear the legacy
+ * fields as well.
+ */
+export function projectDoclingVlmForPayload(
+  mode: DraftDoclingVlmMode,
+  vlm: DraftDoclingSettings["vlm"],
+): UpdateDoclingSettingsRequest["vlm"] {
+  switch (mode) {
+    case "disabled":
+      return {
+        openai_base_url: undefined,
+        api_key: undefined,
+        vlm_pipeline_model: undefined,
+        picture_description_model: undefined,
+        picture_description_preset: undefined,
+        code_formula_model: undefined,
+      };
+    case "preset":
+      return {
+        openai_base_url: undefined,
+        api_key: undefined,
+        vlm_pipeline_model: undefined,
+        picture_description_model: undefined,
+        picture_description_preset: vlm.picture_description_preset,
+        code_formula_model: undefined,
+      };
+    case "custom":
+      return {
+        openai_base_url: vlm.openai_base_url,
+        api_key: vlm.api_key,
+        vlm_pipeline_model: vlm.vlm_pipeline_model,
+        picture_description_model: vlm.picture_description_model,
+        picture_description_preset: undefined,
+        code_formula_model: vlm.code_formula_model,
+      };
+  }
 }
 
 export function buildSearchSettingsPayload(

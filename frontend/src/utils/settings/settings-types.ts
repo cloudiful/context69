@@ -48,6 +48,8 @@ export type DraftRuntimeSettings = {
   };
 };
 
+export type DraftDoclingVlmMode = "disabled" | "preset" | "custom";
+
 export type DraftDoclingSettings = {
   connection: {
     base_url: string;
@@ -55,6 +57,8 @@ export type DraftDoclingSettings = {
     poll_interval_secs: number;
     task_timeout_secs: number;
   };
+  /** Frontend-only draft mode selector; never persisted to the backend. */
+  vlm_mode: DraftDoclingVlmMode;
   vlm: {
     openai_base_url: string;
     api_key: string;

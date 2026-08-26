@@ -267,6 +267,28 @@ fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
         .code_formula_model
         .as_deref()
         .filter(|value| !value.trim().is_empty());
+    let picture_description_preset = settings
+        .picture_description_preset
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+
+    // Preset-only configuration: the picture-description preset is a
+    // self-contained server-side selection and must not coexist with the
+    // legacy OpenAI bundle. The ingest path forwards `picture_description_preset`
+    // to the 0.3.3 Docling converter regardless of the VLM runtime path.
+    if picture_description_preset.is_some() {
+        if openai_base_url.is_some()
+            || api_key.is_some()
+            || vlm_pipeline_model.is_some()
+            || picture_description_model.is_some()
+            || code_formula_model.is_some()
+        {
+            return Err(anyhow!(
+                "docling.vlm.picture_description_preset must not be combined with the legacy OpenAI VLM bundle (openai_base_url, api_key, vlm_pipeline_model, picture_description_model, code_formula_model)"
+            ));
+        }
+        return Ok(());
+    }
 
     let raw_auth_count = [openai_base_url, api_key]
         .into_iter()
@@ -611,6 +633,81 @@ mod tests {
         assert!(
             stored.picture_description_preset.is_none(),
             "blank picture_description_preset must be normalized away by the mapper"
+        );
+    }
+
+    #[test]
+    fn validate_docling_vlm_shape_accepts_preset_only_configuration() {
+        let mut settings = sample_stored();
+        settings.picture_description_preset = Some("granite_vision".to_string());
+
+        validate_docling_vlm_shape(&settings)
+            .expect("preset-only VLM settings should be a valid stored configuration");
+    }
+
+    #[test]
+    fn validate_docling_vlm_shape_rejects_preset_combined_with_partial_legacy_fields() {
+        let mut settings = sample_stored();
+        settings.picture_description_preset = Some("granite_vision".to_string());
+        settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        // api_key deliberately missing to make the stored config unsafe
+        // and exercise the explicit preset+legacy error message.
+
+        let error = validate_docling_vlm_shape(&settings)
+            .expect_err("preset combined with partial legacy fields must be rejected");
+        let message = error.to_string();
+        assert!(
+            message.contains("picture_description_preset"),
+            "error must name picture_description_preset but was: {message}"
+        );
+        assert!(
+            message.contains("legacy OpenAI VLM bundle"),
+            "error must call out the legacy bundle but was: {message}"
+        );
+    }
+
+    #[test]
+    fn validate_docling_vlm_shape_rejects_preset_combined_with_complete_legacy_bundle() {
+        let mut settings = sample_stored();
+        settings.picture_description_preset = Some("granite_vision".to_string());
+        settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        settings.api_key = Some("secret".to_string());
+        settings.vlm_pipeline_model = Some("gemini".to_string());
+        settings.picture_description_model = Some("gpt-4o-mini".to_string());
+        settings.code_formula_model = Some("gpt-4o-mini".to_string());
+
+        let error = validate_docling_vlm_shape(&settings)
+            .expect_err("preset combined with the full legacy bundle must be rejected");
+        assert!(error.to_string().contains("picture_description_preset"));
+    }
+
+    #[test]
+    fn validate_docling_vlm_shape_keeps_complete_custom_vlm_valid() {
+        let mut settings = sample_stored();
+        settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        settings.api_key = Some("secret".to_string());
+        settings.vlm_pipeline_model = Some("gemini".to_string());
+        settings.picture_description_model = Some("gpt-4o-mini".to_string());
+        settings.code_formula_model = Some("gpt-4o-mini".to_string());
+
+        validate_docling_vlm_shape(&settings)
+            .expect("complete custom VLM bundle must remain valid");
+    }
+
+    #[test]
+    fn validate_docling_vlm_shape_rejects_partial_custom_vlm() {
+        let mut settings = sample_stored();
+        settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        settings.api_key = Some("secret".to_string());
+        settings.vlm_pipeline_model = Some("gemini".to_string());
+        // picture_description_model + code_formula_model missing
+
+        let error = validate_docling_vlm_shape(&settings)
+            .expect_err("partial custom VLM bundle must be rejected");
+        let message = error.to_string();
+        assert!(
+            message.contains("fully configured together"),
+            "error must call out the all-or-none model rule but was: {message}"
         );
     }
 }
