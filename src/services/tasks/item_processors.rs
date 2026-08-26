@@ -122,6 +122,13 @@ pub(super) async fn save_sections(
 ) -> Result<()> {
     let mut payload = item.payload.clone();
     payload["section_payload"] = sections;
+    // New sections invalidate any previous batch progress; start at 0.
+    // Preserve boundedness: remove small checkpoint rather than carrying
+    // stale hash/total. The next indexing stage will recreate it with the
+    // current hash.
+    if let Some(obj) = payload.as_object_mut() {
+        obj.remove("indexing_checkpoint");
+    }
     if !service
         .db()
         .set_task_item_payload(item.id, item.lease_token, &payload)

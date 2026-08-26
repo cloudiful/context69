@@ -39,6 +39,9 @@ pub(super) async fn process_text(
         set_file(service, task, item, file.file_id).await?;
         let mut payload = item.payload.clone();
         payload["section_payload"] = section_payload;
+        if let Some(obj) = payload.as_object_mut() {
+            obj.remove("indexing_checkpoint");
+        }
         if !service
             .db()
             .set_task_item_payload(item.id, item.lease_token, &payload)
@@ -326,7 +329,13 @@ pub(super) async fn process_file_stage(
             };
             if let Err(error) = service
                 .library()
-                .persist_file_sections_for_task(file_id, &sections, item.lease_token)
+                .persist_file_sections_for_task_with_checkpoint(
+                    file_id,
+                    &sections,
+                    item.id,
+                    item.lease_token,
+                    &item.payload,
+                )
                 .await
             {
                 return ingest_error_result(service, item, file_id, error).await;
@@ -372,7 +381,7 @@ async fn ingest_error_result(
 ) -> Result<ProcessResult> {
     let error = service
         .library()
-        .handle_task_ingest_failure(file_id, item.lease_token, error)
+        .handle_task_ingest_failure_with_payload(file_id, item.lease_token, error, Some(&item.payload))
         .await;
     if error.retryable {
         Ok(waiting_for_error(item, error))

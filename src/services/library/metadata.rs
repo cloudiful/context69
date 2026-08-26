@@ -132,16 +132,26 @@ impl LibraryService {
             })?;
             // Keep SQL chunks and their deterministic IDs until the remote delete succeeds.
             // A later retry needs those IDs to remove points left by a partial ingest.
+            // Operation context (operation=delete_points, collection, category, point_count) is
+            // produced inside QdrantIndex::delete_points; on failure we bubble a retryable
+            // qdrant-classified error and never reach the SQL delete below.
             runtime.index.delete_points(&chunk_ids).await?;
         }
         if let Some(runtime) = &self.runtime {
             // SQL may already have been cleared by a previous partial ingest while its
             // Qdrant points survived; the payload filter catches those orphaned points.
+            // This second delete is explicit: operation=delete_points_for_library_file with
+            // file_id/collection/category in the error, so orphan cleanup is observable
+            // and still idempotent (missing filter match = success, permission not swallowed).
             runtime
                 .index
                 .delete_points_for_library_file(file_id)
                 .await?;
         }
+        // Qdrant deletions must complete before SQL deletion. On failure the
+        // caller (persist_sections / handle_task_ingest_failure) maps the error
+        // to a retryable IngestFailure routed to `qdrant`, leaving
+        // document_chunks/documents and the library_files row intact for retry.
         self.store
             .delete_documents_for_library_file(file_id)
             .await?;

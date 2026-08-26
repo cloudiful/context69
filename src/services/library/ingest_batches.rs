@@ -7,8 +7,8 @@ use crate::{
 };
 use tracing::info;
 
-const MAX_BATCH_CHUNKS: usize = 32;
-const MAX_BATCH_CHARS: usize = 64_000;
+pub(crate) const MAX_BATCH_CHUNKS: usize = 32;
+pub(crate) const MAX_BATCH_CHARS: usize = 64_000;
 
 impl LibraryService {
     pub(super) async fn persist_document_chunks(

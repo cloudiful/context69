@@ -68,7 +68,7 @@ mod remote_download;
 mod remote_proxy;
 mod resources;
 mod storage;
-mod task_ingest;
+pub mod task_ingest;
 mod texts;
 mod tree;
 mod unified_ingest;

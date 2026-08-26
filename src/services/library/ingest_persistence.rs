@@ -14,6 +14,9 @@ impl LibraryService {
             .runtime()
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?
             .clone();
+        // Cleanup must run before any new embedding or document work so a retry
+        // after a partial ingest does not leak orphan points and so a Qdrant
+        // failure never triggers the embedding provider.
         self.cleanup_ingest_artifacts(file.id)
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;

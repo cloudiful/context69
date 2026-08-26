@@ -305,6 +305,118 @@ stranded.
   `Vec<LibraryDependencyGateResponse>` and the synthesized alias keeps the
   previous UI from breaking.
 
+### Error observability and cleanup retry (issue 43, phase 2)
+
+Phase 2 preserves accurate, bounded Qdrant diagnostics and makes the ingest
+cleanup retry semantics explicit without adding batch checkpoints or broad
+frontend changes.
+
+- **Operation-specific Qdrant context:** Every Qdrant boundary (`upsert_points`,
+  `delete_points`, `delete_points_for_library_file`, `update_points_batch`,
+  `search_points`, `count_points`) wraps failures with `operation`, `collection`,
+  `category` (`timeout` / `transport` / `server` / `rate_limited` /
+  `client_error` / `provider_unknown`), and a bounded `underlying_preview`
+  (800 chars). The outer message keeps the legacy `qdrant ... request failed`
+  prefix so existing `qdrant` substring + transport/status classification stays
+  compatible. Timeout is distinguishable (`category=timeout`, `timed out after
+  30s`). Provider status is only claimed when present in the error chain
+  (`429`, `5xx`, `transport`, etc.); otherwise `provider_unknown`.
+- **Safe and bounded:** No request payloads, API keys, or document text are
+  included. Only counts (`batch_size`, `point_count`, `payload_count`) and
+  identifiers (`collection`, `file_id`) are emitted. Underlying chain is
+  truncated via `truncate_for_qdrant_error` (800 chars) and also chain-preserved
+  for `dependency_is_transient` classification. `redact_dependency_error`
+  still caps at 1000 chars for gate persistence.
+- **Idempotent deletes:** `delete_points` early-returns on empty slices.
+  Qdrant's own semantics already treat missing point ids / zero-match filters
+  as success. An explicit helper `is_qdrant_idempotent_not_found` documents
+  the narrow swallow boundary (point/filter `not found` without
+  `permission`/`validation`/`authentication`) and is tested not to swallow
+  `PermissionDenied`/`validation` errors. Collection-not-found without point
+  hint is not swallowed.
+- **Cleanup ordering:** `cleanup_ingest_artifacts` (services/library/metadata.rs)
+  does Qdrant `delete_points` (chunk ids) then Qdrant
+  `delete_points_for_library_file` (payload filter orphan) **before**
+  `delete_documents_for_library_file`. On Qdrant failure it returns
+  `anyhow::Error` that `persist_sections` maps to `LibraryIngestFailureStage::Storage`
+  and `infer_unified_dependency` routes to `qdrant`; with transport/timeout/5xx
+  it is retryable under the `qdrant` gate. SQL `document_chunks`/`documents`
+  remain intact for retry – the `library_files` row survives and no new
+  `embedding.embed_texts` call occurs (pinned by
+  `qdrant_cleanup_failure_aborts_ingest_before_embedding_runs` and the new
+  `qdrant_cleanup_failure_preserves_sql_and_is_retryable_with_operation_context`
+  in `tests/library_ingest_retry.rs`).
+- **Embedding vs Qdrant:** `embedding` errors (`embedding upstream transport error`,
+  `embedding request failed` with 429/5xx) never contain `qdrant`; `qdrant`
+  errors always contain `qdrant` and transport/status signals. The new formatter
+  never mixes the two substrings. Tests in `qdrant_index::tests` and
+  `library_ingest_retry.rs` assert operation labels, bounded previews, category
+  distinction, and non-cross-routing.
+- **Batch checkpoint gap:** Still not addressed – phase 3 owns it. The existing
+  `reproduction_documents_batch_checkpoint_gap` marker remains.
+
+### Indexing batch checkpoint (issue 43, phase 3)
+
+Phase 3 adds a durable, bounded, lease-conditional batch checkpoint under the
+existing task item payload (`indexing_checkpoint` key). Evaluation of
+payload vs dedicated table concluded that the existing `task_items.payload`
+plus `set_task_item_payload` (lease_token + status=running) already provides
+lease-conditional, bounded, and concurrent-safe semantics, keeps the change
+small, and avoids a new migration. The dedicated table would duplicate the same
+lease handling and is deferred.
+
+- **Stored fields only:** `v` (version=1), `next_batch_index` (usize),
+  `total_batches` (Option<usize> for observability), `record_hash` (Option<String>
+  hex sha256 of prepared record_hash chain). No full text, embeddings, or
+  document payload is ever stored in the checkpoint. The JSON is capped at
+  512 bytes and preserves all existing payload keys (`section_payload`,
+  `file_id`, etc.) via a cloned payload insert.
+- **Old payload compatibility:** `parse_indexing_checkpoint` returns
+  `next_batch_index=0` when the key is absent or version mismatches, so old
+  tasks start at batch 0. A hash mismatch (section_payload changed) resets the
+  checkpoint to 0 and forces a fresh `cleanup_ingest_artifacts` before any new
+  batch.
+- **Cleanup ordering:** `cleanup_ingest_artifacts` (Qdrant `delete_points` +
+  `delete_points_for_library_file` before `delete_documents_for_library_file`)
+  runs once per file when `next_batch_index==0`. On resume (`>0`) it is
+  skipped so already checkpointed batches are not deleted. The per-document
+  `delete_document_chunks` in the new checkpoint path is also skipped on resume;
+  SQL inserts are idempotent (duplicate key treated as success) and Qdrant
+  `upsert_document_chunks` is idempotent via deterministic `chunk_id`
+  (`chunk_uuid` = `source_key:external_id:record_hash:chunk_index`).
+- **Per-batch contract (at-least-once, not exactly-once):** For each batch
+  the order is `embed_texts` → `insert_document_chunks` (SQL) →
+  `upsert_document_chunks` (Qdrant) → `set_task_item_payload` advancing
+  `next_batch_index`. The checkpoint is only bumped after both stores succeed.
+  On **SQL success / Qdrant failure** the checkpoint stays behind; retry
+  re-inserts the same chunk_ids idempotently. On **Qdrant success / checkpoint
+  failure** (lease lost) the checkpoint also stays behind; retry re-upserts the
+  same points idempotently. This is explicitly **not** full transactional
+  exactly-once across external Qdrant; it is at-least-once external upsert with
+  deterministic idempotency, and is documented and re-tested as such.
+- **Lease-conditional and monotonic:** `payload_with_checkpoint` rejects
+  regressions (`next <= old`), overshoot (`next > total`), oversized JSON, and
+  uses `set_task_item_payload(item_id, lease_token, payload)` which checks
+  `lease_token` and `status=running`. Concurrent workers cannot regress or
+  overwrite; a lost lease yields `task item lease was lost while checkpointing
+  batch N` (retryable). `handle_task_ingest_failure_with_payload` skips the
+  post-failure `cleanup_ingest_artifacts` when `next_batch_index>0` so committed
+  batches are not deleted.
+- **Finalize:** `replace_file_documents` and `bump_search_generation` plus
+  `update_file_status(Succeeded)` and dependency gate closes happen only after
+  all batches and mappings are persisted. The `library_files` row and
+  translation/extraction enqueue flow is preserved.
+- **Tests:** `tests/indexing_batch_checkpoint.rs` (unit + integration behind
+  `integration-test-helpers` + `CONTEXT69_TEST_DATABASE_URL`) covers resume after
+  batch 1 (no re-embedding), checkpoint loss (lease-conditional failure leaves
+  Qdrant idempotent), deterministic duplicate IDs, old payload compatibility,
+  and cleanup-once ordering. `tests/library_ingest_retry.rs` continues to pin
+  Qdrant-before-SQL ordering and gate split.
+- **Limitations:** Not a distributed transaction; operators should not expect
+  exactly-once. If the process dies between Qdrant and checkpoint, the same
+  batch will be upserted again on retry – safe because IDs are deterministic
+  and Qdrant upsert is idempotent, but at-least-once is the accurate contract.
+
 ## Local Full-Stack Flow
 
 Preferred single-command flow:
