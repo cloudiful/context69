@@ -41,6 +41,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const kindFilter = ref<TaskKind | null>(null);
   const stageFilter = ref<string | null>(null);
   const waitingReasonFilter = ref<string | null>(null);
+  const dependencyKeyFilter = ref<string | null>(null);
   const sort = ref<{ field: TaskSortBy; direction: "asc" | "desc" } | null>(null);
   const actionTaskIds = ref<string[]>([]);
   const bulkAction = ref<"recover" | "cancel" | null>(null);
@@ -76,6 +77,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         status: statusFilter.value,
         stage: stageFilter.value,
         waitingReason: waitingReasonFilter.value,
+        dependencyKey: dependencyKeyFilter.value,
         sortBy: sort.value?.field,
         sortDirection: sort.value?.direction,
       }, { signal: requestController.signal });
@@ -303,6 +305,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     kindFilter,
     stageFilter,
     waitingReasonFilter,
+    dependencyKeyFilter,
     actionTaskIds,
     bulkAction,
     recoverableCount,
@@ -319,6 +322,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     setKindFilter: (value: TaskKind | null) => setFilter(kindFilter, value),
     setStageFilter: (value: string | null) => setFilter(stageFilter, value),
     setWaitingReasonFilter: (value: string | null) => setFilter(waitingReasonFilter, value),
+    setDependencyKeyFilter: (value: string | null) => setFilter(dependencyKeyFilter, value),
     changePage,
     changePageSize,
     changeSort,

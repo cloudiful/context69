@@ -9,6 +9,7 @@ import { useTaskMaintenance } from "../composables/use-task-maintenance";
 import { apiClient } from "../services/api";
 import type { TaskItemResponse, TaskKind, TaskResponse, TaskSortBy, TaskStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
+import { LIBRARY_DEPENDENCY_KEYS, libraryDependencyLabel } from "../utils/library-status";
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
@@ -132,6 +133,7 @@ const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "fa
 const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
 const stages = ["download", "storage", "docling", "docling_poll", "embedding", "indexing", "translation", "sync", "delete", "finalize"];
 const waitingReasons = ["dependency", "backoff", "external_job"];
+const dependencies = LIBRARY_DEPENDENCY_KEYS;
 
 const statusOptions = computed(() => [
   { label: t("processingQueue.allStatuses"), value: null },
@@ -148,6 +150,10 @@ const stageOptions = computed(() => [
 const waitingReasonOptions = computed(() => [
   { label: t("processingQueue.allWaitingReasons"), value: null },
   ...waitingReasons.map((value) => ({ label: t(`processingQueue.waitingReasons.${value}`), value })),
+]);
+const dependencyOptions = computed(() => [
+  { label: t("processingQueue.allDependencies"), value: null },
+  ...dependencies.map((value) => ({ label: t(`processingQueue.dependencies.${value}`), value })),
 ]);
 const columns = computed<TableColumn<TaskResponse>[]>(() => [
   { id: "expand", enableHiding: false },
@@ -169,7 +175,7 @@ function stageLabel(stage: string | null) { return stage ? t(`processingQueue.st
 function waitingLabel(reason: string | null, dependency: string | null) {
   if (!reason) return "--";
   const label = t(`processingQueue.waitingReasons.${reason}`);
-  return dependency ? `${label}: ${dependency}` : label;
+  return dependency ? `${label}: ${libraryDependencyLabel(t, dependency)}` : label;
 }
 function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "neutral" | "primary" {
   if (status === "succeeded") return "success";
@@ -236,6 +242,7 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
           <USelect :model-value="queue.kindFilter" :items="kindOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.kindFilter')" @update:model-value="queue.setKindFilter($event as TaskKind | null)" />
           <USelect :model-value="queue.stageFilter" :items="stageOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.stageFilter')" @update:model-value="queue.setStageFilter($event as string | null)" />
           <USelect :model-value="queue.waitingReasonFilter" :items="waitingReasonOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.waitingReasonFilter')" @update:model-value="queue.setWaitingReasonFilter($event as string | null)" />
+          <USelect :model-value="queue.dependencyKeyFilter" :items="dependencyOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.dependencyFilter')" @update:model-value="queue.setDependencyKeyFilter($event as string | null)" />
         </div>
 
         <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />

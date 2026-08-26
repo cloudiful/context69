@@ -112,6 +112,7 @@ describe("useProcessingQueue", () => {
         status: null,
         stage: null,
         waitingReason: null,
+        dependencyKey: null,
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
@@ -136,6 +137,26 @@ describe("useProcessingQueue", () => {
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 2, status: "waiting", stage: "docling" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("forwards the dependency filter as dependency_key on listTasks", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.setDependencyKeyFilter("qdrant");
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dependencyKey: "qdrant" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    state.setDependencyKeyFilter(null);
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dependencyKey: null }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();

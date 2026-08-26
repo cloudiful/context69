@@ -48,6 +48,33 @@ const failedRow: TaskResponse = {
   finished_at: "2026-07-20T00:02:00Z",
 };
 
+const waitingQdrantRow: TaskResponse = {
+  ...row,
+  task_id: "waiting-qdrant-task-id",
+  dependency_key: "qdrant",
+};
+
+const waitingEmbeddingRow: TaskResponse = {
+  ...row,
+  task_id: "waiting-embedding-task-id",
+  stage: "embedding",
+  dependency_key: "embedding",
+};
+
+const waitingLegacyEmbeddingRow: TaskResponse = {
+  ...row,
+  task_id: "waiting-legacy-embedding-task-id",
+  stage: "embedding",
+  dependency_key: "embedding_vector",
+};
+
+const waitingUnknownDependencyRow: TaskResponse = {
+  ...row,
+  task_id: "waiting-unknown-dependency-task-id",
+  stage: "storage",
+  dependency_key: "custom_storage",
+};
+
 function response(items: TaskResponse[]) {
   return {
     items,
@@ -91,8 +118,80 @@ describe("ProcessingQueueView", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Docling");
-    expect(wrapper.text()).toContain("docling");
+    expect(wrapper.text()).toContain("Docling");
     expect(wrapper.text()).toContain("Waiting");
+    wrapper.unmount();
+  });
+
+  it("renders the localized Qdrant label for the waiting dependency column", async () => {
+    listTasks.mockReset().mockResolvedValue(response([waitingQdrantRow]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Dependency: Qdrant");
+    expect(wrapper.text()).toContain("waiting-qdrant-task-id");
+    wrapper.unmount();
+  });
+
+  it("renders the localized Embedding label for the waiting dependency column", async () => {
+    listTasks.mockReset().mockResolvedValue(response([waitingEmbeddingRow]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Dependency: Embedding");
+    expect(wrapper.text()).not.toContain("dependency_key: embedding");
+    wrapper.unmount();
+  });
+
+  it("renders the legacy embedding_vector dependency as the Embedding label", async () => {
+    listTasks.mockReset().mockResolvedValue(response([waitingLegacyEmbeddingRow]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Dependency: Embedding");
+    expect(wrapper.text()).not.toContain("embedding_vector");
+    wrapper.unmount();
+  });
+
+  it("keeps unknown dependency keys visible as their raw value", async () => {
+    listTasks.mockReset().mockResolvedValue(response([waitingUnknownDependencyRow]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Dependency: custom_storage");
+    wrapper.unmount();
+  });
+
+  it("renders a library dependency filter select alongside the existing filters", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const labels = ["Task status", "Task type", "Task stage", "Waiting reason", "Library dependency"];
+    for (const label of labels) {
+      expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
+    }
+    wrapper.unmount();
+  });
+
+  it("forwards dependency_key through listTasks when the dependency filter changes", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const queue = (wrapper.vm as unknown as { queue: { setDependencyKeyFilter(value: string | null): void } }).queue;
+    queue.setDependencyKeyFilter("qdrant");
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dependencyKey: "qdrant" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    queue.setDependencyKeyFilter(null);
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dependencyKey: null }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     wrapper.unmount();
   });
 
