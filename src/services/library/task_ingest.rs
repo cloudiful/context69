@@ -60,7 +60,7 @@ impl LibraryService {
         serde_json::to_value(sections).map_err(|error| task_failure("parsing", error, false))
     }
 
-    pub(crate) async fn persist_file_sections_for_task(
+    pub async fn persist_file_sections_for_task(
         &self,
         file_id: Uuid,
         section_payload: &Value,

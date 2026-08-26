@@ -378,4 +378,88 @@ mod tests {
         assert!(is_configuration_error(&error));
         assert!(!dependency_is_transient(LibraryDependency::Docling, &error));
     }
+
+    /// `qdrant library file cleanup request failed` is the exact context
+    /// string produced by `QdrantIndex::delete_points_for_library_file` when
+    /// the gRPC call errors. These tests pin the current classification for
+    /// representative transport, server-status, and timeout errors so the
+    /// phase 0 reproduction cannot drift, and so the eventual split between
+    /// embedding and qdrant gates can change this behavior with confidence.
+    #[test]
+    fn classifies_qdrant_cleanup_transport_error_as_embedding_transient() {
+        for message in [
+            "transport error: connection refused",
+            "transport error: connection reset",
+            "connection refused",
+        ] {
+            let error = anyhow!(message).context("qdrant library file cleanup request failed");
+            assert!(
+                dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                "expected transient classification for {message}"
+            );
+        }
+    }
+
+    /// Pin the current behavior that "network is unreachable" alone (without
+    /// "transport"/"connection"/"timeout" signals) does NOT trigger the
+    /// qdrant transient classifier. The phase 0 reproduction deliberately
+    /// avoids guessing at the gRPC error format we have not observed, so this
+    /// test documents the boundary so the eventual split can change it.
+    #[test]
+    fn classifies_qdrant_cleanup_unreachable_alone_as_embedding_non_transient() {
+        let error =
+            anyhow!("network is unreachable").context("qdrant library file cleanup request failed");
+        assert!(
+            !dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+            "network-only signal should not be transient under current classifier"
+        );
+    }
+
+    #[test]
+    fn classifies_qdrant_cleanup_timeout_as_embedding_transient() {
+        for message in [
+            "request timed out after 30s",
+            "qdrant library file cleanup request timed out after 30s",
+        ] {
+            let error = anyhow!(message).context("qdrant library file cleanup request failed");
+            assert!(
+                dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                "expected transient classification for {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn classifies_qdrant_cleanup_server_status_as_embedding_transient() {
+        for message in [
+            "status 503 service unavailable",
+            "status 502 bad gateway",
+            "status 429 too many requests",
+            "kind=Unexpected: status=503",
+        ] {
+            let error = anyhow!(message).context("qdrant library file cleanup request failed");
+            assert!(
+                dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                "expected transient classification for {message}"
+            );
+        }
+    }
+
+    /// Permanent (client-side) qdrant errors are not retried by the
+    /// transient gate. The test uses only the publicly known contract of
+    /// `delete_points_for_library_file`; it does not invent raw server error
+    /// details we have not observed.
+    #[test]
+    fn classifies_qdrant_cleanup_permanent_error_as_embedding_non_transient() {
+        for message in [
+            "validation error: filter format is invalid",
+            "unsupported point id variant",
+        ] {
+            let error = anyhow!(message).context("qdrant library file cleanup request failed");
+            assert!(
+                !dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                "expected permanent classification for {message}"
+            );
+        }
+    }
 }

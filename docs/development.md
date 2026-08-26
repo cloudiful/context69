@@ -165,6 +165,96 @@ user confirms the startup migration is complete. Do not run a manual cleanup
 against production from this workspace, and do not remove the legacy
 compatibility code until that confirmation is given.
 
+## Qdrant Cleanup Failure Reproduction (issue 43, phase 0)
+
+Phase 0 of Redmine issue 43 adds a deterministic reproduction fixture for the
+observed incident where a Qdrant cleanup failure during library file ingest
+currently gets routed through the generic `embedding_vector` dependency gate,
+even though the new embedding call never runs. The reproduction is the
+regression-safe baseline that the dependency split, error-chain preservation,
+batch resume, and UI phases will all be measured against.
+
+The exact call path the reproduction pins:
+
+```
+persist_file_sections_for_task (services/library/task_ingest.rs)
+  -> persist_sections (services/library/ingest_persistence.rs)
+    -> cleanup_ingest_artifacts (services/library/metadata.rs)
+      -> QdrantIndex::delete_points_for_library_file
+         (src/qdrant_index/cleanup.rs)
+      -> QdrantIndex::delete_points
+         (src/qdrant_index.rs)
+```
+
+When the Qdrant delete errors, `persist_sections` maps the failure to stage
+`storage`, `infer_unified_dependency` (services/library/unified_ingest.rs)
+matches on the `qdrant` substring, and the existing
+`dependency_is_transient` (services/library/dependency_errors.rs) classifies
+it as a retryable `embedding_vector` failure. The phase 1+ split changes that
+boundary; the reproduction below pins it.
+
+Reproduction layout:
+
+- `tests/qdrant_cleanup_failure.rs` exercises
+  `LibraryService::persist_file_sections_for_task` against
+  `QdrantIndex::for_test_unreachable` (a deliberately unreachable gRPC
+  endpoint) and a spy `EmbeddingProvider`. It is skipped when
+  `CONTEXT69_TEST_DATABASE_URL` is not set, matching the other library
+  storage integration tests.
+- `QdrantIndex::for_test_unreachable` lives in a separate
+  `#[cfg(feature = "integration-test-helpers")] impl QdrantIndex` block
+  at the bottom of `src/qdrant_index.rs`. The Cargo feature is declared
+  in `Cargo.toml` and is not part of any default feature set, so
+  production builds (`cargo build`, `cargo build --release`, and the
+  deployed binary) never compile the block. Other integration tests
+  also stay clean. To exercise the Qdrant-dependent case use
+  `cargo test --test qdrant_cleanup_failure --features
+  integration-test-helpers` (or
+  `cargo test --workspace --features integration-test-helpers`);
+  without the feature the file still compiles but that one case is
+  skipped with an explanatory message, so `cargo test --test
+  qdrant_cleanup_failure` and `cargo test --workspace` remain green
+  without extra flags. The constructor still builds the real
+  `QdrantIndex` struct so every other invariant is exercised; it only
+  skips the `ensure_collection` round trip so the first RPC fails
+  deterministically.
+- `qdrant_cleanup_failure_aborts_ingest_before_embedding_runs` asserts:
+  1. the spy `EmbeddingProvider` was never invoked,
+  2. the returned `UnifiedIngestError` is retryable,
+  3. the dependency key is currently `embedding_vector` (proving the
+     misclassification that phase 1 has to remove),
+  4. the underlying `qdrant library file cleanup request failed` context
+     is preserved in the error message,
+  5. the `library_files` row still exists, because
+     `cleanup_ingest_artifacts` deletes SQL rows only after the Qdrant
+     delete succeeds.
+
+Classification coverage lives in
+`src/services/library/dependency_errors.rs::tests` (timeout / transport /
+server-status / permanent validation) and in
+`src/services/library/unified_ingest.rs::tests` (`infer_unified_dependency`
+on the same error chain). These tests intentionally avoid guessing at the
+gRPC error payload format that has not been captured in production.
+
+### Current checkpoint state
+
+The task payload stage checkpoint (`section_payload` on `task_items`)
+exists today, but the library file indexer does NOT carry a per-batch
+checkpoint for indexing embeddings. The phase 0 reproduction therefore
+cannot yet assert "no duplicate vectors are written after a Qdrant cleanup
+retry" — phase 3 of issue 43 has to add the per-batch checkpoint before the
+cleanup retry can resume without duplicating vectors. The
+`reproduction_documents_batch_checkpoint_gap` test in
+`tests/qdrant_cleanup_failure.rs` is a grep-able marker for that gap.
+
+### What this phase deliberately does NOT change
+
+- No new `Qdrant` dependency key is added to `LibraryDependency`; the
+  embedding/vector gate still absorbs Qdrant errors. The split is phase 1.
+- No new Qdrant-specific retry/idempotency ordering; phase 2 owns that.
+- No new indexing batch checkpoint; phase 3 owns that.
+- No frontend changes; phase 4 owns the UI/i18n updates.
+
 ## Local Full-Stack Flow
 
 Preferred single-command flow:

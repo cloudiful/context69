@@ -10,11 +10,11 @@ use super::*;
 use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
 
 #[derive(Debug, Clone)]
-pub(crate) struct UnifiedIngestError {
-    pub(crate) stage: String,
-    pub(crate) dependency_key: Option<String>,
-    pub(crate) retryable: bool,
-    pub(crate) message: String,
+pub struct UnifiedIngestError {
+    pub stage: String,
+    pub dependency_key: Option<String>,
+    pub retryable: bool,
+    pub message: String,
 }
 
 impl std::fmt::Display for UnifiedIngestError {
@@ -157,4 +157,59 @@ pub(super) fn infer_unified_dependency(failure: &IngestFailure) -> Option<Librar
         return Some(LibraryDependency::EmbeddingVector);
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::anyhow;
+    use context69_contracts::LibraryIngestFailureStage;
+
+    use super::{IngestFailure, LibraryDependency, infer_unified_dependency};
+
+    fn failure(stage: LibraryIngestFailureStage, error: anyhow::Error) -> IngestFailure {
+        IngestFailure::new(stage, error)
+    }
+
+    #[test]
+    fn qdrant_cleanup_failure_with_transport_cause_is_routed_to_embedding_vector() {
+        let inner = anyhow!("status 503 service unavailable");
+        let error = inner.context("qdrant library file cleanup request failed");
+        let failure = failure(LibraryIngestFailureStage::Storage, error);
+
+        assert_eq!(
+            infer_unified_dependency(&failure),
+            Some(LibraryDependency::EmbeddingVector)
+        );
+    }
+
+    #[test]
+    fn qdrant_timeout_during_cleanup_is_routed_to_embedding_vector() {
+        let error = anyhow!("qdrant library file cleanup request timed out after 30s");
+        let failure = failure(LibraryIngestFailureStage::Storage, error);
+
+        assert_eq!(
+            infer_unified_dependency(&failure),
+            Some(LibraryDependency::EmbeddingVector)
+        );
+    }
+
+    #[test]
+    fn indexing_stage_qdrant_error_is_routed_to_embedding_vector() {
+        let error = anyhow!("qdrant points upsert request failed: connection refused")
+            .context("qdrant points upsert request failed");
+        let failure = failure(LibraryIngestFailureStage::Indexing, error);
+
+        assert_eq!(
+            infer_unified_dependency(&failure),
+            Some(LibraryDependency::EmbeddingVector)
+        );
+    }
+
+    #[test]
+    fn non_qdrant_storage_failure_with_no_signal_is_unrouted() {
+        let error = anyhow!("object store backend is offline");
+        let failure = failure(LibraryIngestFailureStage::Storage, error);
+
+        assert_eq!(infer_unified_dependency(&failure), None);
+    }
 }

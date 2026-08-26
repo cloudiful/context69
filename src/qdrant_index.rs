@@ -480,3 +480,36 @@ fn collection_vector_size(collection: &qdrant_client::qdrant::CollectionInfo) ->
         None => None,
     }
 }
+
+/// Test-only impl block enabled exclusively through the
+/// `integration-test-helpers` Cargo feature. The feature is declared in
+/// `Cargo.toml` and is not part of any default feature set, so
+/// production builds (`cargo build`, `cargo build --release`, and the
+/// deployed binary) never see these methods (no feature, no symbol).
+/// Other integration tests that do not enable the feature behave the
+/// same way. The constructor below still builds the real `QdrantIndex`
+/// struct so the rest of the type's invariants are exercised; it only
+/// skips the `ensure_collection` round trip so the first RPC fails
+/// deterministically.
+#[cfg(feature = "integration-test-helpers")]
+impl QdrantIndex {
+    /// Builds a `QdrantIndex` against an arbitrary gRPC endpoint without
+    /// performing the `ensure_collection` round trip used by
+    /// `QdrantIndex::connect`. Production code MUST keep calling
+    /// `QdrantIndex::connect` so the collection boot path stays intact;
+    /// this constructor exists solely for the issue 43 phase 0
+    /// reproduction fixture and any future test that needs a deterministic
+    /// cleanup failure against an unreachable gRPC target.
+    pub fn for_test_unreachable(
+        url: &str,
+        collection_name: &str,
+        dimensions: usize,
+    ) -> Result<Self> {
+        let client = Qdrant::from_url(url).build()?;
+        Ok(Self {
+            client,
+            collection_name: collection_name.to_string(),
+            dimensions,
+        })
+    }
+}

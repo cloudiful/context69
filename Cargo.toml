@@ -77,6 +77,18 @@ edition.workspace = true
 license.workspace = true
 default-run = "context69"
 
+[features]
+# `integration-test-helpers` exposes the narrow test-only QdrantIndex
+# constructor (and any future helper of the same shape) to integration
+# tests under `tests/`. It is enabled only when callers pass
+# `--features integration-test-helpers` (for example
+# `cargo test --test qdrant_cleanup_failure --features
+# integration-test-helpers`). The production binary and any build that
+# does not enable the feature never see the constructor and cannot
+# reach it through the public API — the separate `#[cfg(feature =
+# "integration-test-helpers")]` impl block below is entirely absent.
+integration-test-helpers = []
+
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true

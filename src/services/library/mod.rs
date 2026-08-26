@@ -72,7 +72,7 @@ mod task_ingest;
 mod texts;
 mod tree;
 mod unified_ingest;
-pub(crate) use unified_ingest::UnifiedIngestError;
+pub use unified_ingest::UnifiedIngestError;
 mod upload_rollback;
 mod upload_types;
 mod uploads;
