@@ -336,13 +336,12 @@ async fn qdrant_cleanup_failure_aborts_ingest_before_embedding_runs() {
         "Qdrant cleanup failure must be marked retryable"
     );
 
-    // 3. The error is currently routed to the `embedding_vector` dependency
-    //    gate — the misclassification phase 1 has to fix. Pinning it here
-    //    means any future split must update this assertion deliberately.
+    // 3. After phase 1 the Qdrant cleanup failure must route to the
+    //    dedicated `qdrant` gate, not the legacy `embedding_vector` alias.
     assert_eq!(
         error.dependency_key.as_deref(),
-        Some("embedding_vector"),
-        "Qdrant cleanup failure must currently surface under embedding_vector"
+        Some("qdrant"),
+        "Qdrant cleanup failure must surface under qdrant after the split"
     );
 
     // 4. The error message preserves the Qdrant context that callers will

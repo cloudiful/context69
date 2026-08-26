@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::LibraryStore;
 
 #[derive(Debug, Clone, FromRow)]
-pub(crate) struct DependencyGateRecord {
+pub struct DependencyGateRecord {
     pub dependency_key: String,
     pub state: String,
     pub failure_count: i32,
@@ -19,14 +19,24 @@ pub(crate) struct DependencyGateRecord {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(crate) struct DependencyGateTransition {
+pub struct DependencyGateTransition {
     pub dependency_key: String,
     pub state: String,
     pub transitioned: bool,
 }
 
 impl LibraryStore {
-    pub(crate) async fn list_dependency_gates(&self) -> Result<Vec<DependencyGateRecord>> {
+    pub async fn ensure_dependency_gate(&self, dependency_key: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO context69.library_dependency_gates (dependency_key, state, failure_count) VALUES ($1, 'closed', 0) ON CONFLICT (dependency_key) DO NOTHING",
+        )
+        .bind(dependency_key)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_dependency_gates(&self) -> Result<Vec<DependencyGateRecord>> {
         Ok(sqlx::query_file_as!(
             DependencyGateRecord,
             "src/sql/library_store/dependency_gates/get.sql"
@@ -35,7 +45,7 @@ impl LibraryStore {
         .await?)
     }
 
-    pub(crate) async fn configure_dependency_gate(
+    pub async fn configure_dependency_gate(
         &self,
         dependency_key: &str,
         configured: bool,
@@ -54,7 +64,7 @@ impl LibraryStore {
         .await?)
     }
 
-    pub(crate) async fn reserve_dependency_probe(
+    pub async fn reserve_dependency_probe(
         &self,
         dependency_key: &str,
         lease_token: Uuid,
@@ -71,7 +81,7 @@ impl LibraryStore {
         .await?)
     }
 
-    pub(crate) async fn record_dependency_success(
+    pub async fn record_dependency_success(
         &self,
         dependency_key: &str,
         lease_token: Uuid,
@@ -86,7 +96,7 @@ impl LibraryStore {
         .await?)
     }
 
-    pub(crate) async fn record_dependency_failure(
+    pub async fn record_dependency_failure(
         &self,
         dependency_key: &str,
         lease_token: Uuid,
@@ -103,7 +113,7 @@ impl LibraryStore {
         .await?)
     }
 
-    pub(crate) async fn abandon_dependency_probe(
+    pub async fn abandon_dependency_probe(
         &self,
         dependency_key: &str,
         lease_token: Uuid,
@@ -118,7 +128,7 @@ impl LibraryStore {
         .await?)
     }
 
-    pub(crate) async fn release_dependency_probe(
+    pub async fn release_dependency_probe(
         &self,
         dependency_key: &str,
         lease_token: Uuid,

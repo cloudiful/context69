@@ -27,18 +27,18 @@ impl LibraryService {
         dependency_key: &str,
         lease_token: Uuid,
     ) -> Result<Option<DateTime<Utc>>> {
-        if dependency_key == LibraryDependency::S3.as_str() && self.storage.backend() != "s3" {
+        let canonical = LibraryDependency::canonical_key(dependency_key);
+        if canonical == LibraryDependency::S3.canonical_str() && self.storage.backend() != "s3" {
             return Ok(None);
         }
-        if dependency_key == LibraryDependency::EmbeddingVector.as_str() && self.runtime.is_none() {
+        if (canonical == LibraryDependency::Embedding.canonical_str()
+            || canonical == LibraryDependency::Qdrant.canonical_str())
+            && self.runtime.is_none()
+        {
             return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
         }
-        let gate = self
-            .store
-            .list_dependency_gates()
-            .await?
-            .into_iter()
-            .find(|gate| gate.dependency_key == dependency_key);
+        let gates = self.store.list_dependency_gates().await?;
+        let gate = find_gate_by_canonical(&gates, canonical);
         let Some(gate) = gate else {
             return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
         };
@@ -54,7 +54,7 @@ impl LibraryService {
         if probe_due
             && let Some(transition) = self
                 .store
-                .reserve_dependency_probe(dependency_key, lease_token, PROBE_LEASE_TTL_SECS)
+                .reserve_dependency_probe(&gate.dependency_key, lease_token, PROBE_LEASE_TTL_SECS)
                 .await?
         {
             log_dependency_transition(&transition);
@@ -79,18 +79,48 @@ impl LibraryService {
             )
             .await?;
         }
-        self.configure_dependency_gate(
+        // Ensure canonical gates exist before configuring. The legacy
+        // embedding_vector row already exists via the original migration; the new
+        // canonical embedding and qdrant rows are created idempotently here.
+        self.store
+            .ensure_dependency_gate(LibraryDependency::Embedding.canonical_str())
+            .await?;
+        self.store
+            .ensure_dependency_gate(LibraryDependency::Qdrant.canonical_str())
+            .await?;
+        // Keep the legacy alias row present for old DBs that still have it.
+        self.store
+            .ensure_dependency_gate(LibraryDependency::EmbeddingVector.as_str())
+            .await?;
+        let configured = self.embedding_vector_configured;
+        let fingerprint = self.embedding_vector_configuration_fingerprint.clone();
+        let not_configured_error =
+            (!configured).then_some("configuration: embedding/vector runtime is not configured");
+        for dependency in [
+            LibraryDependency::Embedding,
+            LibraryDependency::Qdrant,
             LibraryDependency::EmbeddingVector,
-            self.embedding_vector_configured,
-            (!self.embedding_vector_configured)
-                .then_some("configuration: embedding/vector runtime is not configured"),
-            &self.embedding_vector_configuration_fingerprint,
-        )
-        .await?;
-        if self.embedding_vector_configured && self.runtime.is_none() {
+        ] {
+            self.configure_dependency_gate(
+                dependency,
+                configured,
+                not_configured_error,
+                &fingerprint,
+            )
+            .await?;
+        }
+        if configured && self.runtime.is_none() {
             let error = anyhow!("embedding/vector runtime is unavailable");
-            self.note_dependency_failure(LibraryDependency::EmbeddingVector, &error)
-                .await;
+            // Trip both canonical gates independently; the legacy alias is
+            // also tripped so old rows do not stay closed while the new gates
+            // are open.
+            for dependency in [
+                LibraryDependency::Embedding,
+                LibraryDependency::Qdrant,
+                LibraryDependency::EmbeddingVector,
+            ] {
+                self.note_dependency_failure(dependency, &error).await;
+            }
         }
 
         match self.settings.resolve_docling_config().await {
@@ -127,12 +157,14 @@ impl LibraryService {
     }
 
     async fn dependency_configuration_fingerprint(&self, dependency: LibraryDependency) -> String {
-        match dependency {
+        match dependency.canonical() {
             LibraryDependency::S3 => self
                 .s3_configuration_fingerprint
                 .clone()
                 .unwrap_or_else(|| configuration_fingerprint(&["s3", "disabled"])),
-            LibraryDependency::EmbeddingVector => {
+            LibraryDependency::Embedding
+            | LibraryDependency::Qdrant
+            | LibraryDependency::EmbeddingVector => {
                 self.embedding_vector_configuration_fingerprint.clone()
             }
             LibraryDependency::Docling => match self.settings.resolve_docling_config().await {
@@ -150,14 +182,18 @@ impl LibraryService {
         error: Option<&str>,
         configuration_fingerprint: &str,
     ) -> Result<()> {
+        // Persist using the canonical key so new deployments write `embedding`
+        // and `qdrant`. The legacy `embedding_vector` row is still written
+        // when the caller explicitly passes that variant so existing rows stay
+        // in sync.
+        let key = if dependency == LibraryDependency::EmbeddingVector {
+            dependency.as_str()
+        } else {
+            dependency.canonical_str()
+        };
         if let Some(transition) = self
             .store
-            .configure_dependency_gate(
-                dependency.as_str(),
-                configured,
-                error,
-                configuration_fingerprint,
-            )
+            .configure_dependency_gate(key, configured, error, configuration_fingerprint)
             .await?
         {
             log_dependency_transition(&transition);
@@ -172,20 +208,54 @@ impl LibraryService {
         Vec<LibraryDependencyGateResponse>,
         LibraryProcessingQueueHealth,
     )> {
-        let gates = self.store.list_dependency_gates().await?;
+        let mut gates = self.store.list_dependency_gates().await?;
         let queue = self.db.task_processing_health().await?;
-        let mut required_dependencies = vec![LibraryDependency::EmbeddingVector.as_str()];
+        let mut required_dependencies = vec![
+            LibraryDependency::Embedding.canonical_str(),
+            LibraryDependency::Qdrant.canonical_str(),
+        ];
         if queue.docling_required_count > 0 {
-            required_dependencies.push(LibraryDependency::Docling.as_str());
+            required_dependencies.push(LibraryDependency::Docling.canonical_str());
         }
         if self.storage.backend() == "s3" {
-            required_dependencies.push(LibraryDependency::S3.as_str());
+            required_dependencies.push(LibraryDependency::S3.canonical_str());
         }
         let ready = required_dependencies.iter().all(|dependency| {
-            gates
-                .iter()
-                .any(|gate| gate.dependency_key == *dependency && gate.state == "closed")
+            gates.iter().any(|gate| {
+                LibraryDependency::canonical_key(&gate.dependency_key) == *dependency
+                    && gate.state == "closed"
+            })
         });
+        // Backward compatibility: if the canonical `embedding` gate exists but
+        // the legacy `embedding_vector` row is absent (fresh DB after the
+        // split), synthesize it so old clients that still query for
+        // `embedding_vector` see a consistent state. If the legacy row already
+        // exists we keep the stored state (which is kept in sync via
+        // refresh_dependency_configuration).
+        let has_legacy = gates
+            .iter()
+            .any(|gate| gate.dependency_key == LibraryDependency::EmbeddingVector.as_str());
+        if !has_legacy
+            && let Some(canonical) = gates
+                .iter()
+                .find(|gate| {
+                    LibraryDependency::canonical_key(&gate.dependency_key)
+                        == LibraryDependency::Embedding.canonical_str()
+                })
+                .cloned()
+        {
+            gates.push(crate::library_store::DependencyGateRecord {
+                dependency_key: LibraryDependency::EmbeddingVector.as_str().to_string(),
+                state: canonical.state.clone(),
+                failure_count: canonical.failure_count,
+                next_probe_at: canonical.next_probe_at,
+                probe_lease_expires_at: canonical.probe_lease_expires_at,
+                last_error: canonical.last_error.clone(),
+                probe_lease_token: canonical.probe_lease_token,
+                last_transition_at: canonical.last_transition_at,
+                last_success_at: canonical.last_success_at,
+            });
+        }
         let response = gates
             .into_iter()
             .map(|gate| LibraryDependencyGateResponse {
@@ -254,20 +324,21 @@ impl LibraryService {
         lease_token: Uuid,
         error: &anyhow::Error,
     ) {
+        let canonical = dependency.canonical();
         let error_message = redact_dependency_error(error);
-        let configuration_fingerprint = self.dependency_configuration_fingerprint(dependency).await;
+        let configuration_fingerprint = self.dependency_configuration_fingerprint(canonical).await;
         let result = if is_configuration_error(error) {
             self.store
                 .configure_dependency_gate(
-                    dependency.as_str(),
+                    canonical.canonical_str(),
                     false,
                     Some(&format!("configuration: {error_message}")),
                     &configuration_fingerprint,
                 )
                 .await
-        } else if dependency_is_transient(dependency, error) {
+        } else if dependency_is_transient(canonical, error) {
             self.store
-                .record_dependency_failure(dependency.as_str(), lease_token, &error_message)
+                .record_dependency_failure(canonical.canonical_str(), lease_token, &error_message)
                 .await
         } else {
             return;
@@ -277,10 +348,38 @@ impl LibraryService {
             Ok(None) => {}
             Err(record_error) => {
                 warn!(
-                    dependency = dependency.as_str(),
+                    dependency = canonical.canonical_str(),
                     error = %record_error,
                     "failed to persist library dependency gate failure"
                 );
+            }
+        }
+        // Keep the legacy alias in sync with the canonical embedding gate so
+        // old rows/tasks do not get stranded and health checks remain coherent
+        // for clients still reading `embedding_vector`.
+        if canonical == LibraryDependency::Embedding {
+            let legacy_result = if is_configuration_error(error) {
+                self.store
+                    .configure_dependency_gate(
+                        LibraryDependency::EmbeddingVector.as_str(),
+                        false,
+                        Some(&format!("configuration: {error_message}")),
+                        &configuration_fingerprint,
+                    )
+                    .await
+            } else if dependency_is_transient(canonical, error) {
+                self.store
+                    .record_dependency_failure(
+                        LibraryDependency::EmbeddingVector.as_str(),
+                        lease_token,
+                        &error_message,
+                    )
+                    .await
+            } else {
+                return;
+            };
+            if let Ok(Some(transition)) = legacy_result {
+                log_dependency_transition(&transition);
             }
         }
     }
@@ -290,22 +389,87 @@ impl LibraryService {
         dependency: LibraryDependency,
         lease_token: Uuid,
     ) {
-        match self
-            .store
-            .record_dependency_success(dependency.as_str(), lease_token)
-            .await
-        {
+        let canonical = dependency.canonical();
+        let key = canonical.canonical_str();
+        match self.store.record_dependency_success(key, lease_token).await {
             Ok(Some(transition)) => log_dependency_transition(&transition),
             Ok(None) => {}
             Err(error) => {
                 warn!(
-                    dependency = dependency.as_str(),
+                    dependency = key,
                     %error,
                     "failed to persist library dependency gate recovery"
                 );
             }
         }
+        // Mirror success to the legacy alias when the canonical is embedding.
+        if canonical == LibraryDependency::Embedding
+            && let Ok(Some(transition)) = self
+                .store
+                .record_dependency_success(LibraryDependency::EmbeddingVector.as_str(), lease_token)
+                .await
+        {
+            log_dependency_transition(&transition);
+        }
     }
+}
+
+pub(crate) async fn report_dependency_processing_error_with_lease(
+    store: &LibraryStore,
+    configuration_fingerprint: &str,
+    dependency: LibraryDependency,
+    lease_token: Uuid,
+    error: &str,
+) -> Result<bool> {
+    let error = anyhow::anyhow!(error.to_string());
+    let error_message = redact_dependency_error(&error);
+    let canonical = dependency.canonical();
+    let result = if is_configuration_error(&error) {
+        store
+            .configure_dependency_gate(
+                canonical.canonical_str(),
+                false,
+                Some(&format!("configuration: {error_message}")),
+                configuration_fingerprint,
+            )
+            .await?
+    } else if dependency_is_transient(canonical, &error) {
+        store
+            .record_dependency_failure(canonical.canonical_str(), lease_token, &error_message)
+            .await?
+    } else {
+        return Ok(false);
+    };
+    if let Some(transition) = result {
+        log_dependency_transition(&transition);
+    }
+    // Mirror embedding results to the legacy alias.
+    if canonical == LibraryDependency::Embedding {
+        let legacy_result = if is_configuration_error(&error) {
+            store
+                .configure_dependency_gate(
+                    LibraryDependency::EmbeddingVector.as_str(),
+                    false,
+                    Some(&format!("configuration: {error_message}")),
+                    configuration_fingerprint,
+                )
+                .await?
+        } else if dependency_is_transient(canonical, &error) {
+            store
+                .record_dependency_failure(
+                    LibraryDependency::EmbeddingVector.as_str(),
+                    lease_token,
+                    &error_message,
+                )
+                .await?
+        } else {
+            None
+        };
+        if let Some(transition) = legacy_result {
+            log_dependency_transition(&transition);
+        }
+    }
+    Ok(true)
 }
 
 pub(crate) async fn report_embedding_vector_processing_error_with_lease(
@@ -314,32 +478,23 @@ pub(crate) async fn report_embedding_vector_processing_error_with_lease(
     lease_token: Uuid,
     error: &str,
 ) -> Result<bool> {
-    let error = anyhow::anyhow!(error.to_string());
-    let error_message = redact_dependency_error(&error);
-    let result = if is_configuration_error(&error) {
-        store
-            .configure_dependency_gate(
-                LibraryDependency::EmbeddingVector.as_str(),
-                false,
-                Some(&format!("configuration: {error_message}")),
-                configuration_fingerprint,
-            )
-            .await?
-    } else if dependency_is_transient(LibraryDependency::EmbeddingVector, &error) {
-        store
-            .record_dependency_failure(
-                LibraryDependency::EmbeddingVector.as_str(),
-                lease_token,
-                &error_message,
-            )
-            .await?
+    // Preserve the old symbol for callers that still import it; route
+    // automatically based on the error content so qdrant failures do not stay
+    // hidden behind the embedding gate.
+    let is_qdrant = error.to_ascii_lowercase().contains("qdrant");
+    let dependency = if is_qdrant {
+        LibraryDependency::Qdrant
     } else {
-        return Ok(false);
+        LibraryDependency::Embedding
     };
-    if let Some(transition) = result {
-        log_dependency_transition(&transition);
-    }
-    Ok(true)
+    report_dependency_processing_error_with_lease(
+        store,
+        configuration_fingerprint,
+        dependency,
+        lease_token,
+        error,
+    )
+    .await
 }
 
 pub(crate) fn log_dependency_transition(
@@ -352,6 +507,22 @@ pub(crate) fn log_dependency_transition(
             "library dependency gate transitioned"
         );
     }
+}
+
+fn find_gate_by_canonical<'a>(
+    gates: &'a [crate::library_store::DependencyGateRecord],
+    canonical: &str,
+) -> Option<&'a crate::library_store::DependencyGateRecord> {
+    // Prefer an exact canonical row; fall back to the legacy alias that
+    // canonicalizes to the same key (e.g. `embedding_vector` -> `embedding`).
+    gates
+        .iter()
+        .find(|gate| gate.dependency_key == canonical)
+        .or_else(|| {
+            gates
+                .iter()
+                .find(|gate| LibraryDependency::canonical_key(&gate.dependency_key) == canonical)
+        })
 }
 
 fn non_negative_count(value: i64) -> Result<u64> {

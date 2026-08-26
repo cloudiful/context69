@@ -98,7 +98,10 @@ pub(super) async fn process_sync(
     if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
         return Ok(waiting);
     }
-    if let Some(waiting) = dependency_wait(service, "embedding_vector", item.lease_token).await? {
+    if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
+        return Ok(waiting);
+    }
+    if let Some(waiting) = dependency_wait(service, "qdrant", item.lease_token).await? {
         return Ok(waiting);
     }
     let resource_id = if let Some(folder_id) = item
@@ -158,14 +161,17 @@ pub(super) async fn process_vector_rebuild(
             anyhow!("unsupported vector rebuild stage {stage}"),
         ));
     }
-    if let Some(waiting) = dependency_wait(service, "embedding_vector", item.lease_token).await? {
+    if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
+        return Ok(waiting);
+    }
+    if let Some(waiting) = dependency_wait(service, "qdrant", item.lease_token).await? {
         return Ok(waiting);
     }
     let status = service.sync().vector_index_rebuild_status().await;
     if status.state == VectorIndexRebuildState::Running {
         return Ok(ProcessResult::Waiting {
             reason: "external_job".to_string(),
-            dependency_key: Some("embedding_vector".to_string()),
+            dependency_key: Some("qdrant".to_string()),
             next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
             message: Some("another vector index rebuild is still running".to_string()),
         });
@@ -177,7 +183,7 @@ pub(super) async fn process_vector_rebuild(
         }
         Err(error) if error.to_string().contains("already running") => Ok(ProcessResult::Waiting {
             reason: "external_job".to_string(),
-            dependency_key: Some("embedding_vector".to_string()),
+            dependency_key: Some("qdrant".to_string()),
             next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
             message: Some("another vector index rebuild is still running".to_string()),
         }),

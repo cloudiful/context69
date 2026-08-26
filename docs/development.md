@@ -247,13 +247,63 @@ cleanup retry can resume without duplicating vectors. The
 `reproduction_documents_batch_checkpoint_gap` test in
 `tests/qdrant_cleanup_failure.rs` is a grep-able marker for that gap.
 
-### What this phase deliberately does NOT change
+### Dependency gate split (issue 43, phase 1)
+
+Phase 1 introduces distinct logical dependency keys `embedding` and `qdrant`
+while retaining `embedding_vector` as a compatibility alias. The alias
+mapping is centralized in `LibraryDependency::canonical_key` and is used by
+gate lookup, `dependency_wait`, probe reservation/recovery, health readiness,
+and error routing so existing `embedding_vector` rows/tasks are never
+stranded.
+
+- **Canonical keys:** `s3`, `docling`, `embedding`, `qdrant`. Legacy
+  `embedding_vector` canonicalizes to `embedding`. New code writes only
+  `embedding` and `qdrant`; old tasks with `embedding_vector` are satisfied
+  when the canonical `embedding` gate is closed.
+- **Error routing:** Qdrant cleanup/upsert/delete failures (messages
+  containing `qdrant` plus `connect`/`connection`/`timeout`/`transport`/429/5xx)
+  trip the `qdrant` gate. Embedding API failures
+  (`embedding upstream transport error`, `runtime is unavailable`,
+  `embedding request failed` with 429/5xx) trip `embedding`. Unknown errors
+  are never treated as transient.
+- **Gate bootstrap:** On startup `refresh_dependency_configuration` ensures
+  `embedding`, `qdrant`, and the legacy `embedding_vector` rows exist
+  (idempotent `INSERT ... ON CONFLICT DO NOTHING`) and configures all three
+  with the same fingerprint so a vector-runtime config change closes both
+  gates. `embedding/vector runtime is unavailable` trips both canonical gates
+  (and the alias) so the service degrades coherently.
+- **Health:** `processing_health` requires `embedding` **and** `qdrant` to be
+  `closed` (plus `docling`/`s3` when relevant). For backward compatibility
+  the legacy `embedding_vector` gate is synthesized from the canonical
+  `embedding` state when the legacy row is absent, so old clients still see
+  `embedding_vector: closed` when `embedding` is healthy. The API schema
+  (`LibraryDependencyGateResponse`) is unchanged; it simply returns the
+  stored gates plus the synthesized alias.
+- **Task wait:** `dependency_wait` canonicalizes the requested key before
+  lookup, so old items waiting on `embedding_vector` are woken when
+  `embedding` recovers. New indexing tasks wait on `qdrant` (and `embedding`
+  where both are needed) so Qdrant outages no longer masquerade as embedding
+  outages. Probe recovery is independent per gate; success on one does not
+  close the other (`no_cross_gate_recovery` is covered in
+  `tests/dependency_gate_split.rs`).
+- **Qdrant port:** The gRPC endpoint remains `6334` (see
+  `qdrant_grpc_url_from_rest_port`); no S3 migration or port change is
+  introduced in this phase.
+
+### What phase 0 deliberately does NOT change
 
 - No new `Qdrant` dependency key is added to `LibraryDependency`; the
   embedding/vector gate still absorbs Qdrant errors. The split is phase 1.
 - No new Qdrant-specific retry/idempotency ordering; phase 2 owns that.
 - No new indexing batch checkpoint; phase 3 owns that.
 - No frontend changes; phase 4 owns the UI/i18n updates.
+
+### What phase 1 deliberately does NOT change
+
+- No indexing batch checkpoint or Qdrant retry ordering (phase 2/3).
+- No frontend redesign; the health gate list is still returned as
+  `Vec<LibraryDependencyGateResponse>` and the synthesized alias keeps the
+  previous UI from breaking.
 
 ## Local Full-Stack Flow
 

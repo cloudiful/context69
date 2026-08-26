@@ -269,9 +269,7 @@ pub(super) async fn process_file_stage(
             }
         }
         "embedding" => {
-            if let Some(waiting) =
-                dependency_wait(service, "embedding_vector", item.lease_token).await?
-            {
+            if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
                 return Ok(waiting);
             }
             if persisted_section_payload(&item.payload).is_none() {
@@ -289,9 +287,14 @@ pub(super) async fn process_file_stage(
             Ok(ProcessResult::Progressed)
         }
         "indexing" => {
-            if let Some(waiting) =
-                dependency_wait(service, "embedding_vector", item.lease_token).await?
-            {
+            // Indexing touches both the embedding provider (batch embed) and
+            // Qdrant (cleanup, upsert). Check both gates independently so a
+            // transient outage in one does not mask the other and so retries
+            // are routed to the correct gate.
+            if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
+                return Ok(waiting);
+            }
+            if let Some(waiting) = dependency_wait(service, "qdrant", item.lease_token).await? {
                 return Ok(waiting);
             }
             let file = service

@@ -47,29 +47,30 @@ mod vector_rebuild;
 
 #[derive(Clone)]
 struct LibraryEmbeddingVectorReadiness {
-    pool: sqlx::PgPool,
     store: LibraryStore,
     configuration_fingerprint: String,
 }
 #[async_trait]
 impl ExtractionReadiness for LibraryEmbeddingVectorReadiness {
     async fn is_ready(&self) -> Result<bool> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/library_store/dependency_gates/embedding_vector_ready.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?)
+        let gates = self.store.list_dependency_gates().await?;
+        let canonical = LibraryDependency::Embedding.canonical_str();
+        let gate = gates
+            .iter()
+            .find(|gate| LibraryDependency::canonical_key(&gate.dependency_key) == canonical);
+        Ok(gate.is_some_and(|gate| gate.state == "closed"))
     }
 }
 
 #[async_trait]
 impl TranslationReadiness for LibraryEmbeddingVectorReadiness {
     async fn is_ready(&self) -> Result<bool> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/library_store/dependency_gates/embedding_vector_ready.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?)
+        let gates = self.store.list_dependency_gates().await?;
+        let canonical = LibraryDependency::Embedding.canonical_str();
+        let gate = gates
+            .iter()
+            .find(|gate| LibraryDependency::canonical_key(&gate.dependency_key) == canonical);
+        Ok(gate.is_some_and(|gate| gate.state == "closed"))
     }
 
     async fn reserve_probe(&self) -> Result<Option<Uuid>> {
@@ -77,7 +78,7 @@ impl TranslationReadiness for LibraryEmbeddingVectorReadiness {
         let transition = self
             .store
             .reserve_dependency_probe(
-                LibraryDependency::EmbeddingVector.as_str(),
+                LibraryDependency::Embedding.canonical_str(),
                 token,
                 LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS,
             )
@@ -91,12 +92,15 @@ impl TranslationReadiness for LibraryEmbeddingVectorReadiness {
     }
 
     async fn is_ready_for_probe(&self, probe_token: Uuid) -> Result<bool> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/library_store/dependency_gates/embedding_vector_ready_for_probe.sql",
-            probe_token
-        )
-        .fetch_one(&self.pool)
-        .await?)
+        let gates = self.store.list_dependency_gates().await?;
+        let canonical = LibraryDependency::Embedding.canonical_str();
+        let gate = gates
+            .iter()
+            .find(|gate| LibraryDependency::canonical_key(&gate.dependency_key) == canonical);
+        Ok(gate.is_some_and(|gate| {
+            gate.state == "closed"
+                || (gate.state == "half_open" && gate.probe_lease_token == Some(probe_token))
+        }))
     }
 
     async fn report_processing_error(&self, error: &str) -> Result<bool> {
@@ -127,7 +131,7 @@ impl TranslationReadiness for LibraryEmbeddingVectorReadiness {
     async fn complete_probe(&self, probe_token: Uuid) -> Result<()> {
         if let Some(transition) = self
             .store
-            .release_dependency_probe(LibraryDependency::EmbeddingVector.as_str(), probe_token)
+            .release_dependency_probe(LibraryDependency::Embedding.canonical_str(), probe_token)
             .await?
         {
             log_dependency_transition(&transition);
@@ -138,7 +142,7 @@ impl TranslationReadiness for LibraryEmbeddingVectorReadiness {
     async fn abandon_probe(&self, probe_token: Uuid) -> Result<()> {
         if let Some(transition) = self
             .store
-            .abandon_dependency_probe(LibraryDependency::EmbeddingVector.as_str(), probe_token)
+            .abandon_dependency_probe(LibraryDependency::Embedding.canonical_str(), probe_token)
             .await?
         {
             log_dependency_transition(&transition);
@@ -250,7 +254,6 @@ impl Context69App {
             )),
             concurrency: config.scheduler.max_concurrency,
             readiness: Arc::new(LibraryEmbeddingVectorReadiness {
-                pool: db.pool().clone(),
                 store: LibraryStore::new(db.clone()),
                 configuration_fingerprint: vector_identity::configuration_fingerprint(&config),
             }),
@@ -263,7 +266,6 @@ impl Context69App {
             publisher: Arc::new(ExtractionPublisherAdapter::new(db.clone(), index.clone())),
             concurrency: config.scheduler.max_concurrency,
             readiness: Arc::new(LibraryEmbeddingVectorReadiness {
-                pool: db.pool().clone(),
                 store: LibraryStore::new(db.clone()),
                 configuration_fingerprint: vector_identity::configuration_fingerprint(&config),
             }),

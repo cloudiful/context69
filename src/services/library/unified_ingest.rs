@@ -148,14 +148,21 @@ pub(super) fn infer_unified_dependency(failure: &IngestFailure) -> Option<Librar
     {
         return Some(LibraryDependency::Docling);
     }
+    // Qdrant is checked first: its error messages always contain "qdrant",
+    // and after phase 1 they must not be collapsed into embedding.
+    if message.contains("qdrant") {
+        return Some(LibraryDependency::Qdrant);
+    }
     if matches!(
         failure.stage,
         LibraryIngestFailureStage::Embedding | LibraryIngestFailureStage::Indexing
     ) || message.contains("embedding")
-        || message.contains("qdrant")
     {
-        return Some(LibraryDependency::EmbeddingVector);
+        return Some(LibraryDependency::Embedding);
     }
+    // Stage Storage can also be qdrant cleanup; already handled via qdrant
+    // substring above. If storage error without qdrant/embedding signal, leave
+    // unrouted so caller can decide not to trip a gate.
     None
 }
 
@@ -171,37 +178,60 @@ mod tests {
     }
 
     #[test]
-    fn qdrant_cleanup_failure_with_transport_cause_is_routed_to_embedding_vector() {
+    fn qdrant_cleanup_failure_with_transport_cause_is_routed_to_qdrant() {
         let inner = anyhow!("status 503 service unavailable");
         let error = inner.context("qdrant library file cleanup request failed");
         let failure = failure(LibraryIngestFailureStage::Storage, error);
 
         assert_eq!(
             infer_unified_dependency(&failure),
-            Some(LibraryDependency::EmbeddingVector)
+            Some(LibraryDependency::Qdrant)
         );
     }
 
     #[test]
-    fn qdrant_timeout_during_cleanup_is_routed_to_embedding_vector() {
+    fn qdrant_timeout_during_cleanup_is_routed_to_qdrant() {
         let error = anyhow!("qdrant library file cleanup request timed out after 30s");
         let failure = failure(LibraryIngestFailureStage::Storage, error);
 
         assert_eq!(
             infer_unified_dependency(&failure),
-            Some(LibraryDependency::EmbeddingVector)
+            Some(LibraryDependency::Qdrant)
         );
     }
 
     #[test]
-    fn indexing_stage_qdrant_error_is_routed_to_embedding_vector() {
+    fn indexing_stage_qdrant_error_is_routed_to_qdrant() {
         let error = anyhow!("qdrant points upsert request failed: connection refused")
             .context("qdrant points upsert request failed");
         let failure = failure(LibraryIngestFailureStage::Indexing, error);
 
         assert_eq!(
             infer_unified_dependency(&failure),
-            Some(LibraryDependency::EmbeddingVector)
+            Some(LibraryDependency::Qdrant)
+        );
+    }
+
+    #[test]
+    fn embedding_stage_error_is_routed_to_embedding() {
+        let error = anyhow!("embedding request failed: status=503");
+        let failure = failure(LibraryIngestFailureStage::Embedding, error);
+
+        assert_eq!(
+            infer_unified_dependency(&failure),
+            Some(LibraryDependency::Embedding)
+        );
+    }
+
+    #[test]
+    fn embedding_message_is_routed_to_embedding_not_qdrant() {
+        let error =
+            anyhow!("embedding upstream transport error: operation=send request kind=connect");
+        let failure = failure(LibraryIngestFailureStage::Other, error);
+
+        assert_eq!(
+            infer_unified_dependency(&failure),
+            Some(LibraryDependency::Embedding)
         );
     }
 
@@ -211,5 +241,16 @@ mod tests {
         let failure = failure(LibraryIngestFailureStage::Storage, error);
 
         assert_eq!(infer_unified_dependency(&failure), None);
+    }
+
+    #[test]
+    fn qdrant_takes_precedence_over_embedding_substring() {
+        let error = anyhow!("qdrant points upsert request failed: embedding dimension mismatch?")
+            .context("qdrant points upsert request failed");
+        let failure = failure(LibraryIngestFailureStage::Indexing, error);
+        assert_eq!(
+            infer_unified_dependency(&failure),
+            Some(LibraryDependency::Qdrant)
+        );
     }
 }

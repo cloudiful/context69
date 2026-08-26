@@ -21,7 +21,7 @@ pub(crate) mod objects;
 mod resources;
 pub use resources::ResourceListQuery;
 
-pub(crate) use dependency_gates::DependencyGateTransition;
+pub use dependency_gates::{DependencyGateRecord, DependencyGateTransition};
 pub(crate) use external_jobs::RecoveryAudit;
 pub(crate) use files::LegacyDirectPathFileRow;
 pub use files::MissingLegacySourceFileRow;

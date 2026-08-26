@@ -76,7 +76,12 @@ impl LibraryService {
         self.persist_sections(&file, prepared)
             .await
             .map_err(normalize_task_failure)?;
-        self.note_dependency_success(LibraryDependency::EmbeddingVector, lease_token)
+        // Persist succeeded, so both the embedding and qdrant gates have had a
+        // successful probe. Mark them independently so a transient qdrant
+        // outage does not keep the embedding gate open and vice versa.
+        self.note_dependency_success(LibraryDependency::Embedding, lease_token)
+            .await;
+        self.note_dependency_success(LibraryDependency::Qdrant, lease_token)
             .await;
         self.store
             .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)
@@ -108,13 +113,13 @@ impl LibraryService {
     ) -> UnifiedIngestError {
         if failure.retryable {
             if let Err(error) = self.cleanup_ingest_artifacts(file_id).await {
-                return task_failure_with_dependency("indexing", error, "embedding_vector");
+                return task_failure_with_dependency("indexing", error, "qdrant");
             }
             if let Some(dependency) = failure.dependency_key.as_deref()
                 && let Ok(dependency) = dependency.parse::<LibraryDependency>()
             {
                 self.note_dependency_failure_with_lease(
-                    dependency,
+                    dependency.canonical(),
                     lease_token,
                     &anyhow!(failure.message.clone()),
                 )
@@ -206,10 +211,11 @@ impl std::str::FromStr for LibraryDependency {
     type Err = anyhow::Error;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
+        match LibraryDependency::canonical_key(value) {
             "s3" => Ok(Self::S3),
             "docling" => Ok(Self::Docling),
-            "embedding_vector" => Ok(Self::EmbeddingVector),
+            "embedding" => Ok(Self::Embedding),
+            "qdrant" => Ok(Self::Qdrant),
             other => Err(anyhow!("unknown library dependency {other}")),
         }
     }

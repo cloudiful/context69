@@ -13,7 +13,7 @@ pub(super) fn dependency_is_transient(
         return false;
     }
 
-    match dependency {
+    match dependency.canonical() {
         LibraryDependency::S3 => is_s3_transient_error(error),
         LibraryDependency::Docling => {
             message.contains("timeout")
@@ -29,23 +29,37 @@ pub(super) fn dependency_is_transient(
                 || status_is_server_error(&message)
                 || message.contains("temporar")
         }
-        LibraryDependency::EmbeddingVector => {
-            if message.contains("qdrant") {
-                return message.contains("connect")
-                    || message.contains("connection")
-                    || message.contains("timeout")
-                    || message.contains("timed out")
-                    || message.contains("transport")
-                    || status_is_too_many_requests(&message)
-                    || status_is_server_error(&message);
-            }
-            message.contains("embedding upstream transport error")
-                || message.contains("runtime is unavailable")
-                || message.contains("runtime unavailable")
-                || (message.contains("embedding request failed")
-                    && (status_is_too_many_requests(&message) || status_is_server_error(&message)))
-        }
+        LibraryDependency::Embedding => is_embedding_transient(&message),
+        LibraryDependency::Qdrant => is_qdrant_transient(&message),
+        LibraryDependency::EmbeddingVector => is_embedding_transient(&message),
     }
+}
+
+fn is_embedding_transient(message: &str) -> bool {
+    message.contains("embedding upstream transport error")
+        || message.contains("runtime is unavailable")
+        || message.contains("runtime unavailable")
+        || (message.contains("embedding request failed")
+            && (status_is_too_many_requests(message) || status_is_server_error(message)))
+}
+
+fn is_qdrant_transient(message: &str) -> bool {
+    // Runtime unavailable is a shared degraded state that should trip both
+    // gates when the vector runtime cannot be built, even if the message
+    // does not yet carry a qdrant substring.
+    if message.contains("runtime is unavailable") || message.contains("runtime unavailable") {
+        return true;
+    }
+    if !message.contains("qdrant") {
+        return false;
+    }
+    message.contains("connect")
+        || message.contains("connection")
+        || message.contains("timeout")
+        || message.contains("timed out")
+        || message.contains("transport")
+        || status_is_too_many_requests(message)
+        || status_is_server_error(message)
 }
 
 pub(super) fn is_configuration_error(error: &anyhow::Error) -> bool {
@@ -324,9 +338,18 @@ mod tests {
         let error = anyhow!("status 503 service unavailable")
             .context("qdrant points upsert request failed");
 
-        assert!(dependency_is_transient(
+        assert!(dependency_is_transient(LibraryDependency::Qdrant, &error));
+        // Legacy alias must still be handled but via embedding for backward
+        // compat; qdrant errors should NOT be transient for the legacy alias
+        // after the split, proving the gate separation.
+        assert!(!dependency_is_transient(
             LibraryDependency::EmbeddingVector,
-            &error
+            &anyhow!("status 503 service unavailable")
+                .context("qdrant points upsert request failed")
+        ));
+        assert!(dependency_is_transient(
+            LibraryDependency::Embedding,
+            &anyhow!("embedding upstream transport error: operation=send request kind=connect")
         ));
     }
 
@@ -335,6 +358,11 @@ mod tests {
         let error = anyhow!("embedding dimension mismatch: expected 1536, got 768")
             .context("qdrant points upsert request failed");
 
+        assert!(!dependency_is_transient(LibraryDependency::Qdrant, &error));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Embedding,
+            &error
+        ));
         assert!(!dependency_is_transient(
             LibraryDependency::EmbeddingVector,
             &error
@@ -344,11 +372,23 @@ mod tests {
     #[test]
     fn treats_unavailable_configured_vector_runtime_as_transient() {
         assert!(dependency_is_transient(
+            LibraryDependency::Embedding,
+            &anyhow!("embedding/vector runtime is unavailable")
+        ));
+        assert!(dependency_is_transient(
+            LibraryDependency::Qdrant,
+            &anyhow!("embedding/vector runtime is unavailable")
+        ));
+        assert!(dependency_is_transient(
             LibraryDependency::EmbeddingVector,
             &anyhow!("embedding/vector runtime is unavailable")
         ));
         assert!(!dependency_is_transient(
-            LibraryDependency::EmbeddingVector,
+            LibraryDependency::Embedding,
+            &anyhow!("embedding/vector runtime is not configured")
+        ));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Qdrant,
             &anyhow!("embedding/vector runtime is not configured")
         ));
     }
@@ -381,12 +421,11 @@ mod tests {
 
     /// `qdrant library file cleanup request failed` is the exact context
     /// string produced by `QdrantIndex::delete_points_for_library_file` when
-    /// the gRPC call errors. These tests pin the current classification for
-    /// representative transport, server-status, and timeout errors so the
-    /// phase 0 reproduction cannot drift, and so the eventual split between
-    /// embedding and qdrant gates can change this behavior with confidence.
+    /// the gRPC call errors. After phase 1 these must route to qdrant, not
+    /// embedding_vector. The alias `embedding_vector` is kept for backward
+    /// reads but must NOT be used for new qdrant failures.
     #[test]
-    fn classifies_qdrant_cleanup_transport_error_as_embedding_transient() {
+    fn classifies_qdrant_cleanup_transport_error_as_qdrant_transient() {
         for message in [
             "transport error: connection refused",
             "transport error: connection reset",
@@ -394,43 +433,49 @@ mod tests {
         ] {
             let error = anyhow!(message).context("qdrant library file cleanup request failed");
             assert!(
-                dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                dependency_is_transient(LibraryDependency::Qdrant, &error),
                 "expected transient classification for {message}"
+            );
+            assert!(
+                !dependency_is_transient(LibraryDependency::Embedding, &error),
+                "qdrant transport must not be embedding transient for {message}"
             );
         }
     }
 
     /// Pin the current behavior that "network is unreachable" alone (without
     /// "transport"/"connection"/"timeout" signals) does NOT trigger the
-    /// qdrant transient classifier. The phase 0 reproduction deliberately
-    /// avoids guessing at the gRPC error format we have not observed, so this
-    /// test documents the boundary so the eventual split can change it.
+    /// qdrant transient classifier.
     #[test]
-    fn classifies_qdrant_cleanup_unreachable_alone_as_embedding_non_transient() {
+    fn classifies_qdrant_cleanup_unreachable_alone_as_qdrant_non_transient() {
         let error =
             anyhow!("network is unreachable").context("qdrant library file cleanup request failed");
         assert!(
-            !dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+            !dependency_is_transient(LibraryDependency::Qdrant, &error),
             "network-only signal should not be transient under current classifier"
+        );
+        assert!(
+            !dependency_is_transient(LibraryDependency::Embedding, &error),
+            "network-only should not be embedding transient"
         );
     }
 
     #[test]
-    fn classifies_qdrant_cleanup_timeout_as_embedding_transient() {
+    fn classifies_qdrant_cleanup_timeout_as_qdrant_transient() {
         for message in [
             "request timed out after 30s",
             "qdrant library file cleanup request timed out after 30s",
         ] {
             let error = anyhow!(message).context("qdrant library file cleanup request failed");
             assert!(
-                dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                dependency_is_transient(LibraryDependency::Qdrant, &error),
                 "expected transient classification for {message}"
             );
         }
     }
 
     #[test]
-    fn classifies_qdrant_cleanup_server_status_as_embedding_transient() {
+    fn classifies_qdrant_cleanup_server_status_as_qdrant_transient() {
         for message in [
             "status 503 service unavailable",
             "status 502 bad gateway",
@@ -439,27 +484,87 @@ mod tests {
         ] {
             let error = anyhow!(message).context("qdrant library file cleanup request failed");
             assert!(
-                dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                dependency_is_transient(LibraryDependency::Qdrant, &error),
                 "expected transient classification for {message}"
+            );
+            assert!(
+                !dependency_is_transient(LibraryDependency::Embedding, &error),
+                "qdrant server status must not be embedding transient"
             );
         }
     }
 
     /// Permanent (client-side) qdrant errors are not retried by the
-    /// transient gate. The test uses only the publicly known contract of
-    /// `delete_points_for_library_file`; it does not invent raw server error
-    /// details we have not observed.
+    /// transient gate.
     #[test]
-    fn classifies_qdrant_cleanup_permanent_error_as_embedding_non_transient() {
+    fn classifies_qdrant_cleanup_permanent_error_as_qdrant_non_transient() {
         for message in [
             "validation error: filter format is invalid",
             "unsupported point id variant",
         ] {
             let error = anyhow!(message).context("qdrant library file cleanup request failed");
             assert!(
-                !dependency_is_transient(LibraryDependency::EmbeddingVector, &error),
+                !dependency_is_transient(LibraryDependency::Qdrant, &error),
                 "expected permanent classification for {message}"
             );
         }
+    }
+
+    #[test]
+    fn embedding_transient_does_not_trigger_on_qdrant_errors() {
+        for message in [
+            "transport error: connection refused",
+            "status 503 service unavailable",
+        ] {
+            let error = anyhow!(message).context("qdrant library file cleanup request failed");
+            assert!(
+                !dependency_is_transient(LibraryDependency::Embedding, &error),
+                "qdrant error must not be embedding transient for {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn qdrant_transient_does_not_trigger_on_embedding_errors() {
+        let error =
+            anyhow!("embedding upstream transport error: operation=send request kind=connect");
+        assert!(dependency_is_transient(
+            LibraryDependency::Embedding,
+            &error
+        ));
+        assert!(!dependency_is_transient(LibraryDependency::Qdrant, &error));
+    }
+
+    #[test]
+    fn does_not_make_unknown_errors_transient() {
+        for (dependency, message) in [
+            (LibraryDependency::Embedding, "some random failure"),
+            (LibraryDependency::Qdrant, "some random failure"),
+            (
+                LibraryDependency::Qdrant,
+                "qdrant points delete request failed: unknown issue",
+            ),
+        ] {
+            assert!(
+                !dependency_is_transient(dependency, &anyhow!(message)),
+                "unknown error must not be transient for {:?}: {message}",
+                dependency
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_embedding_vector_alias_still_routes_embedding_transient() {
+        let error =
+            anyhow!("embedding upstream transport error: operation=send request kind=timeout");
+        assert!(dependency_is_transient(
+            LibraryDependency::EmbeddingVector,
+            &error
+        ));
+        assert!(dependency_is_transient(
+            LibraryDependency::Embedding,
+            &error
+        ));
+        assert!(!dependency_is_transient(LibraryDependency::Qdrant, &error));
     }
 }

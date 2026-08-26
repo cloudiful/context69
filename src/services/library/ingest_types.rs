@@ -25,18 +25,59 @@ pub(super) struct IngestSection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LibraryDependency {
+pub enum LibraryDependency {
     S3,
     Docling,
+    Embedding,
+    Qdrant,
     EmbeddingVector,
 }
 
 impl LibraryDependency {
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::S3 => "s3",
             Self::Docling => "docling",
+            Self::Embedding => "embedding",
+            Self::Qdrant => "qdrant",
             Self::EmbeddingVector => "embedding_vector",
+        }
+    }
+
+    pub fn canonical_str(self) -> &'static str {
+        match self {
+            Self::EmbeddingVector => "embedding",
+            Self::Embedding => "embedding",
+            Self::Qdrant => "qdrant",
+            Self::S3 => "s3",
+            Self::Docling => "docling",
+        }
+    }
+
+    pub fn canonical(self) -> Self {
+        match self {
+            Self::EmbeddingVector => Self::Embedding,
+            other => other,
+        }
+    }
+
+    /// Centralized alias mapping: `embedding_vector` is a legacy alias for `embedding`.
+    /// All gate lookups, health checks, and dependency waits should use this.
+    pub fn canonical_key(key: &str) -> &str {
+        match key {
+            "embedding_vector" => "embedding",
+            other => other,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn from_canonical_key(key: &str) -> Option<Self> {
+        match Self::canonical_key(key) {
+            "s3" => Some(Self::S3),
+            "docling" => Some(Self::Docling),
+            "embedding" => Some(Self::Embedding),
+            "qdrant" => Some(Self::Qdrant),
+            _ => None,
         }
     }
 }
