@@ -33,11 +33,12 @@ to finish configuration. Search and library ingest require a restart after those
 
 ## Scheduler Options
 
+- `max_concurrency`: shared task worker pool size and scheduler fan-out for translation, extraction, and sync. URL imports run through this shared pool. Default `2`.
 - `valkey_url`: optional; enables persistent scheduler state and distributed execution leasing
 - `execution_guard_ttl_secs`: lease TTL, default `30`
 - `execution_guard_renew_interval_secs`: lease renewal interval, default `10`
 
-The renew interval must be lower than the TTL.
+The renew interval must be lower than the TTL. Runtime settings changes, including `max_concurrency`, take effect after the service restarts.
 
 ## Qdrant Options
 
@@ -117,14 +118,16 @@ network isolation because it performs the final target connection.
 
 ## URL Import Queue
 
-URL imports are processed by a persistent queue with one worker by default. Runtime Settings
-`file_library.url_import_concurrency` controls worker count, and
-`file_library.url_import_min_interval_ms` controls the minimum interval between requests to the
-same `scheme://host:port` (default 1000 ms). `ingest_concurrency` controls only file ingest after
-download. Without `scheduler.valkey_url`, throttling is local to each process; multi-instance
-deployments must configure the same Valkey URL on all instances. A Valkey limiter initialization
-failure does not fall back to local throttling, so queued URL jobs remain queued until the shared
-limiter is available. Runtime settings changes take effect after the service restarts.
+URL imports are processed through the shared task worker pool controlled by
+`scheduler.max_concurrency` (see Scheduler Options). `file_library.url_import_min_interval_ms`
+controls the minimum interval between requests to the same `scheme://host:port` (default
+1000 ms). `file_library.ingest_concurrency` and `file_library.url_import_concurrency` remain
+stored, validated, and exposed for backward compatibility but no longer control task worker
+count; URL imports use the shared pool with per-host throttling via the rate limiter. Without
+`scheduler.valkey_url`, throttling is local to each process; multi-instance deployments must
+configure the same Valkey URL on all instances. A Valkey limiter initialization failure does
+not fall back to local throttling, so queued URL jobs remain queued until the shared limiter
+is available. Runtime settings changes take effect after the service restarts.
 
 ## SQLx CLI
 

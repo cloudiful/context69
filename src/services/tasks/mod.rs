@@ -73,6 +73,12 @@ pub struct TaskSubmission {
     pub idempotency_key: Option<String>,
 }
 
+pub(crate) fn normalize_task_worker_concurrency(concurrency: usize) -> usize {
+    // Shared task worker pool is driven by scheduler.max_concurrency.
+    // Preserve at least one worker for direct constructor inputs.
+    concurrency.max(1)
+}
+
 impl TaskService {
     pub fn new(
         db: Database,
@@ -84,7 +90,7 @@ impl TaskService {
         translation: TranslationService,
         concurrency: usize,
     ) -> Self {
-        let worker_capacity = concurrency.max(1);
+        let worker_capacity = normalize_task_worker_concurrency(concurrency);
         Self {
             db,
             namespace,
@@ -744,8 +750,16 @@ fn is_conflict_error(error: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_kind, split_scope_path};
+    use super::{normalize_task_worker_concurrency, parse_kind, split_scope_path};
     use context69_contracts::TaskKind;
+
+    #[test]
+    fn task_worker_concurrency_clamps_zero_and_preserves_capacity() {
+        assert_eq!(normalize_task_worker_concurrency(0), 1);
+        assert_eq!(normalize_task_worker_concurrency(1), 1);
+        assert_eq!(normalize_task_worker_concurrency(8), 8);
+        assert_eq!(normalize_task_worker_concurrency(2), 2);
+    }
 
     #[test]
     fn scope_path_is_split_without_empty_segments() {

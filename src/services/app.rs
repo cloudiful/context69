@@ -460,11 +460,7 @@ impl Context69App {
             sync.clone(),
             source_folders.clone(),
             translation.clone(),
-            config
-                .file_library
-                .ingest_concurrency
-                .min(config.file_library.url_import_concurrency)
-                .max(1),
+            task_worker_capacity(&config),
         );
         tasks.resume_pending();
         tasks.start_maintenance();
@@ -677,9 +673,19 @@ fn qdrant_grpc_url_from_rest_port(url: &str) -> Option<String> {
         .map(|prefix| format!("{prefix}:6334"))
 }
 
+pub(crate) fn task_worker_capacity(config: &Config) -> usize {
+    // scheduler.max_concurrency is the single effective control for the shared
+    // task worker pool (including URL imports) and the scheduler fan-out
+    // (translation / extraction / sync). file_library ingest and URL-import
+    // concurrency remain stored/validated for backward compatibility but do not
+    // cap the task worker pool.
+    crate::services::tasks::normalize_task_worker_concurrency(config.scheduler.max_concurrency)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::qdrant_grpc_url_from_rest_port;
+    use super::{qdrant_grpc_url_from_rest_port, task_worker_capacity};
+    use crate::config::Config;
 
     #[test]
     fn upgrades_qdrant_rest_port_to_grpc_port() {
@@ -696,5 +702,35 @@ mod tests {
     #[test]
     fn keeps_qdrant_grpc_port_unchanged() {
         assert_eq!(qdrant_grpc_url_from_rest_port("http://qdrant:6334"), None);
+    }
+
+    #[test]
+    fn task_worker_capacity_uses_scheduler_not_file_library() {
+        let mut config = Config::default();
+        config.scheduler.max_concurrency = 8;
+        config.file_library.ingest_concurrency = 1;
+        config.file_library.url_import_concurrency = 1;
+        assert_eq!(task_worker_capacity(&config), 8);
+
+        // Changing file_library values must not affect capacity.
+        config.file_library.ingest_concurrency = 100;
+        config.file_library.url_import_concurrency = 100;
+        assert_eq!(task_worker_capacity(&config), 8);
+
+        // Scheduler drives capacity independently.
+        config.scheduler.max_concurrency = 4;
+        config.file_library.ingest_concurrency = 1;
+        config.file_library.url_import_concurrency = 1;
+        assert_eq!(task_worker_capacity(&config), 4);
+    }
+
+    #[test]
+    fn task_worker_capacity_clamps_zero_to_one() {
+        let mut config = Config::default();
+        config.scheduler.max_concurrency = 0;
+        assert_eq!(task_worker_capacity(&config), 1);
+
+        config.scheduler.max_concurrency = 1;
+        assert_eq!(task_worker_capacity(&config), 1);
     }
 }
