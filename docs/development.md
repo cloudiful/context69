@@ -462,6 +462,93 @@ scratch database (the hash for the new SQL replaces the offline cache entry).
 No new persistent migration is shipped: the Qdrant payload index is external
 to PostgreSQL.
 
+### Two-tier task dispatch (issue 50, phase 3)
+
+Phase 3 splits the dispatcher hot path into a fast claim statement and a
+periodic maintenance statement so notification-driven wakes avoid the
+exhausted/expired UPDATE/RETURNING work that previously ran on every claim.
+The existing lease/retry invariants are preserved verbatim, the public
+`Database::claim_items` API still observes the same behavior, and no new
+precheck is introduced.
+
+- **`claim_items.sql` (fast path):** eligible selection with `FOR UPDATE
+  OF ti SKIP LOCKED`, parent activation for claimed `task_id`s only,
+  item lease/attempt fields, `task_attempts` insert, and the returned
+  `ClaimedItem`. The expired-attempt interruption is scoped to the items
+  being claimed so a notification wake that picks up an item with an
+  abandoned lease still recycles that worker's attempt without waiting
+  for the recovery tick. Maintenance UPDATE/RETURNING CTEs do not run.
+- **`maintain_claim_state.sql` (recovery path):** exhausted
+  item/file/task propagation and a global expired-attempt interruption that
+  atomically revokes the `task_items` lease (`lease_token`/`lease_until`)
+  for expired running items with an active parent task (`queued`/`running`
+  or due `waiting`) before interrupting the matching `task_attempts` row.
+  The item stays `running` so the fast claim can reclaim it, but the old
+  token can no longer `finish`/`heartbeat`/`progress`. The expired item
+  predicate is `lease_until IS NULL OR lease_until < now()` and active
+  parent task filtering applies (the item is only revoked when its parent
+  task is `queued`, `running`, or due `waiting`). Idempotent and safe to
+  repeat: only rows that already satisfy the exhausted
+  (`attempt_count >= 5` while item is `queued`/`waiting`) or expired
+  (`lease_until IS NULL OR lease_until < now()` while item is `running`
+  and the parent task is active) predicates are touched, and
+  `expired_attempts` counts only the interrupted attempt rows. Returns a
+  small row of counts so the dispatcher can log recovery work without an
+  extra round trip.
+- **`Database::claim_items` (compatibility):** runs `maintain_claim_state`
+  and the fast claim inside a single PostgreSQL transaction so existing
+  callers and the lease/retry tests in `tests/task_lease_invariant.rs`
+  observe the same exhaustive behavior the old monolithic statement
+  provided. Tests that call `claim_items` directly therefore still see
+  exhausted items become terminal and expired attempts recycled even
+  when the dispatcher is not running.
+- **`Database::claim_items_fast`:** fast claim only. Dispatcher calls
+  this on every notification-driven wake and on worker-spawn wakes; the
+  hot path is bounded by the available worker semaphore and is safe to
+  spam. `Database::maintain_claim_state` is the only place the exhausted
+  /expired UPDATE/RETURNING work runs on the dispatcher side.
+- **Dispatcher wiring (`src/services/tasks/dispatcher.rs`):**
+  - Startup runs `maintain_claim_state` once and then a fast dispatch.
+  - Two `select!` arms split the work: the `notified` arm drains the
+    queue with `claim_items_fast` only, and the `recovery.tick()` arm
+    runs `maintain_claim_state` sequentially before a fast drain so the
+    claim sees freshly converged state. `MissedTickBehavior::Delay` is
+    set and the immediate interval tick is consumed at startup so the
+    first periodic recovery fires 30 seconds later, not milliseconds
+    after startup. Notification wakes never run maintenance; only the
+    recovery tick does, and failures are logged without stalling the
+    loop.
+  - Maintenance is sequential with the recovery dispatch inside one
+    recovery cycle and idempotent if retried. Exhausted propagation
+    touches rows the fast eligible selection explicitly excludes
+    (`attempt_count >= 5`), and expired-attempt interruption only
+    touches abandoned leases, so concurrent callers remain safe to retry
+    even if a notification-driven fast claim races an out-of-band
+    `maintain_claim_state` call. Both arms eventually converge because
+    maintenance runs on every recovery tick regardless of how many
+    notifications fire in between.
+  - Worker semaphore behavior, notify coalescing, and the existing
+    `Notify`/dispatch state are preserved; only the call site changed
+    from `claim_items` to `claim_items_fast`/`maintain_claim_state`.
+
+Exhausted-only queues (every item has already hit the attempt cap) still
+converge because the recovery tick runs `maintain_claim_state` before the
+fast dispatch even when the fast dispatch sees no claimable rows. A
+`has_claimable_items` precheck would skip that maintenance exactly when
+it is most needed, so it is deliberately not added: maintenance is the
+recovery path, not the dispatch path.
+
+Regression coverage lives in `tests/task_dispatcher_fast_path.rs`:
+fast claim claims and activates correctly, maintenance-only converges
+exhausted item/task/file when no claimable row exists, maintenance-only
+interrupts expired attempts while revoking the item lease and rejecting
+late `finish`/`heartbeat`/`progress` with the stale token/attempt and
+leaving the item reclaimable, the compatibility path still converges
+exhausted state and recycles expired attempts, and the maintenance
+outcome struct returns zeros on an idle database. Existing
+`tests/task_lease_invariant.rs` cases are unchanged because they call
+`claim_items` and therefore exercise the compatibility path.
+
 ## Local Full-Stack Flow
 
 Preferred single-command flow:

@@ -1,3 +1,18 @@
+-- Fast claim path used by the dispatcher on notification-driven wakes.
+--
+-- This intentionally contains only the eligible selection (with FOR
+-- UPDATE SKIP LOCKED), parent activation for claimed task_ids, item
+-- lease/attempt fields, task_attempts insert, and the returned
+-- ClaimedItem. The exhausted-item/file/task propagation and the
+-- recovery-attempt interruption live in maintain_claim_state.sql and
+-- are not run on every notification. claim_items (the compatibility
+-- method) still runs both files in one transaction so existing callers
+-- and lease/retry tests observe the same exhaustive behavior.
+--
+-- The expired-attempt interruption here is scoped to the items being
+-- claimed so the fast path still recycles a crashed worker's attempt
+-- even when no recovery maintenance has run recently. maintain_claim_state
+-- handles the wider expired-attempt set on the recovery tick.
 WITH eligible AS (
     SELECT ti.id, ti.task_id
     FROM context69.task_items ti
@@ -39,69 +54,6 @@ WITH eligible AS (
               task.status = 'waiting'
               AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
           )
-      )
-), exhausted AS (
-    UPDATE context69.task_items AS item
-    SET status = 'failed',
-        failure_stage = 'attempts',
-        error_message = 'exceeded maximum attempt count',
-        lease_token = NULL,
-        lease_until = NULL,
-        waiting_reason = NULL,
-        dependency_key = NULL,
-        next_attempt_at = NULL,
-        finished_at = now(),
-        updated_at = now()
-    FROM context69.tasks AS task
-    WHERE item.task_id = task.id
-      AND (
-          task.status IN ('queued', 'running')
-          OR (
-              task.status = 'waiting'
-              AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
-          )
-      )
-      AND item.status IN ('queued', 'waiting')
-      AND item.attempt_count >= 5
-      AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
-    RETURNING item.task_id, item.id AS item_id, item.file_id
-), exhausted_files AS (
-    UPDATE context69.library_files AS file
-    SET ingest_status = 'failed',
-        error_message = 'exceeded maximum attempt count',
-        updated_at = now()
-    FROM exhausted
-    WHERE file.id = exhausted.file_id
-      AND exhausted.file_id IS NOT NULL
-      AND file.ingest_status IN ('pending', 'running')
-      AND NOT EXISTS (
-          SELECT 1
-          FROM context69.task_items other
-          WHERE other.file_id = file.id
-            AND other.id <> exhausted.item_id
-            AND other.status IN ('queued', 'running', 'waiting')
-      )
-), exhausted_tasks AS (
-    UPDATE context69.tasks AS task
-    SET status = 'failed',
-        failure_stage = 'attempts',
-        error_summary = 'task items exceeded the maximum attempt count',
-        finished_at = now(),
-        updated_at = now()
-    FROM exhausted
-    WHERE task.id = exhausted.task_id
-      AND NOT EXISTS (
-          SELECT 1
-          FROM context69.task_items ti
-          WHERE ti.task_id = task.id
-            AND ti.status IN ('queued', 'waiting')
-            AND ti.attempt_count < 5
-      )
-      AND NOT EXISTS (
-          SELECT 1
-          FROM context69.task_items ti
-          WHERE ti.task_id = task.id
-            AND ti.status = 'running'
       )
 ), expired AS (
     UPDATE context69.task_attempts AS attempt

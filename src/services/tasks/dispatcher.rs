@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tokio::time::interval;
+use tokio::time::{MissedTickBehavior, interval};
 
 use super::TaskService;
 
@@ -13,14 +13,38 @@ pub(super) fn start(service: &TaskService) {
 
     let service = service.clone();
     tokio::spawn(async move {
-        let mut recovery = interval(RECOVERY_INTERVAL);
+        // Startup path: run maintenance once so any exhausted items or
+        // expired attempts left by the previous process converge before
+        // the first claim, then drain the available queue.
+        run_maintenance(&service).await;
         dispatch_available(&service).await;
+
+        let mut recovery = interval(RECOVERY_INTERVAL);
+        recovery.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // The first interval tick completes immediately. Consume it so the
+        // first periodic recovery runs 30 seconds after startup, not
+        // milliseconds after the explicit startup maintenance above.
+        recovery.tick().await;
+
         loop {
             tokio::select! {
-                _ = service.dispatch_notify().notified() => {}
-                _ = recovery.tick() => {}
+                _ = service.dispatch_notify().notified() => {
+                    // Notification-driven wake: only the fast claim. The
+                    // maintenance UPDATE/RETURNING work is reserved for the
+                    // periodic recovery tick so spammed submit/retry/finish
+                    // notifications avoid the exhausted/expired work.
+                    dispatch_available(&service).await;
+                }
+                _ = recovery.tick() => {
+                    // Recovery tick: maintenance must converge exhausted
+                    // items and expired attempts even when no row is
+                    // claimable, then drain any newly eligible work.
+                    // Sequential so the fast dispatch sees freshly
+                    // converged state. Failure is logged, never propagated.
+                    run_maintenance(&service).await;
+                    dispatch_available(&service).await;
+                }
             }
-            dispatch_available(&service).await;
         }
     });
 }
@@ -33,7 +57,11 @@ async fn dispatch_available(service: &TaskService) {
             break;
         }
         let limit = i64::try_from(available_slots).unwrap_or(i64::MAX);
-        let items = match service.db().claim_items(limit).await {
+        // Hot path: only the fast claim statement runs. Maintenance lives
+        // on the recovery tick so notification-driven wakes (submit,
+        // retry, finish, worker release) avoid the exhausted/expired
+        // UPDATE CTEs that used to run on every wake.
+        let items = match service.db().claim_items_fast(limit).await {
             Ok(items) => items,
             Err(error) => {
                 tracing::warn!(%error, "failed to claim context69 task items");
@@ -59,6 +87,37 @@ async fn dispatch_available(service: &TaskService) {
         available_slots = service.available_worker_slots(),
         "task dispatcher state"
     );
+}
+
+/// Run `Database::maintain_claim_state` and log (but never propagate)
+/// failures. The recovery tick is best-effort: a transient DB error
+/// must not stall the dispatcher loop, and the next tick will retry.
+/// Maintenance is intentionally called sequentially before the recovery
+/// dispatch call so the fast claim path sees freshly converged state
+/// without running its own UPDATE/RETURNING work.
+async fn run_maintenance(service: &TaskService) {
+    match service.db().maintain_claim_state().await {
+        Ok(outcome) => {
+            if outcome.exhausted_items
+                + outcome.exhausted_files
+                + outcome.exhausted_tasks
+                + outcome.expired_attempts
+                > 0
+            {
+                tracing::info!(
+                    target: "task_dispatch",
+                    exhausted_items = outcome.exhausted_items,
+                    exhausted_files = outcome.exhausted_files,
+                    exhausted_tasks = outcome.exhausted_tasks,
+                    expired_attempts = outcome.expired_attempts,
+                    "task claim maintenance converged terminal state"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, "task claim maintenance failed; continuing");
+        }
+    }
 }
 
 #[cfg(test)]
