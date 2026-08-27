@@ -227,6 +227,114 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
         task.status, "failed",
         "a task whose only item is exhausted must become failed"
     );
+    assert_eq!(
+        task.total_count, 1,
+        "single-item exhausted task must preserve total_count"
+    );
+    assert_eq!(
+        task.queued_count, 0,
+        "exhausted task must have queued_count 0"
+    );
+    assert_eq!(
+        task.running_count, 0,
+        "exhausted task must have running_count 0"
+    );
+    assert_eq!(
+        task.waiting_count, 0,
+        "exhausted task must have waiting_count 0"
+    );
+    assert_eq!(
+        task.succeeded_count, 0,
+        "exhausted task must have succeeded_count 0"
+    );
+    assert_eq!(
+        task.failed_count, 1,
+        "exhausted task must have failed_count 1"
+    );
+    assert_eq!(
+        task.cancelled_count, 0,
+        "exhausted task must have cancelled_count 0"
+    );
+    assert_eq!(
+        task.failure_stage.as_deref(),
+        Some("attempts"),
+        "exhausted task must carry attempts failure_stage"
+    );
+    assert_eq!(
+        task.error_summary.as_deref(),
+        Some("exceeded maximum attempt count"),
+        "exhausted task must carry the exhausted error_summary"
+    );
+    assert!(
+        task.finished_at.is_some(),
+        "terminal exhausted task must have finished_at"
+    );
+    assert_eq!(task.stage, None, "terminal task must clear stage");
+    assert_eq!(
+        task.waiting_reason, None,
+        "terminal task must clear waiting_reason"
+    );
+    assert_eq!(
+        task.dependency_key, None,
+        "terminal task must clear dependency_key"
+    );
+    assert_eq!(
+        task.next_attempt_at, None,
+        "terminal task must clear next_attempt_at"
+    );
+    let (queued, running, waiting, succeeded, failed, cancelled): (i64, i64, i64, i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT \
+             count(*) FILTER (WHERE status = 'queued')::bigint, \
+             count(*) FILTER (WHERE status = 'running')::bigint, \
+             count(*) FILTER (WHERE status = 'waiting')::bigint, \
+             count(*) FILTER (WHERE status = 'succeeded')::bigint, \
+             count(*) FILTER (WHERE status = 'failed')::bigint, \
+             count(*) FILTER (WHERE status = 'cancelled')::bigint \
+             FROM context69.task_items WHERE task_id = $1",
+        )
+        .bind(task_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("count task items");
+    assert_eq!(task.queued_count, queued, "queued_count must match items");
+    assert_eq!(
+        task.running_count, running,
+        "running_count must match items"
+    );
+    assert_eq!(
+        task.waiting_count, waiting,
+        "waiting_count must match items"
+    );
+    assert_eq!(
+        task.succeeded_count, succeeded,
+        "succeeded_count must match items"
+    );
+    assert_eq!(task.failed_count, failed, "failed_count must match items");
+    assert_eq!(
+        task.cancelled_count, cancelled,
+        "cancelled_count must match items"
+    );
+    let lease_token: Option<uuid::Uuid> =
+        sqlx::query_scalar("SELECT lease_token FROM context69.tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("load lease_token");
+    assert!(
+        lease_token.is_none(),
+        "terminal exhausted task must clear lease_token"
+    );
+    let lease_until: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT lease_until FROM context69.tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("load lease_until");
+    assert!(
+        lease_until.is_none(),
+        "terminal exhausted task must clear lease_until"
+    );
     let item_status: String = sqlx::query("SELECT status FROM context69.task_items WHERE id = $1")
         .bind(item_ids[0])
         .fetch_one(db.pool())
@@ -242,6 +350,21 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
             .expect("load item stage")
             .get("failure_stage");
     assert_eq!(item_stage.as_deref(), Some("attempts"));
+
+    // Idempotent second claim must keep counters stable and not resurrect.
+    let second_claimed = db.claim_items(10).await.expect("second claim");
+    assert!(
+        second_claimed.iter().all(|item| item.task_id != task_id),
+        "second claim must still not return exhausted items"
+    );
+    let task_second = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(task_second.failed_count, 1);
+    assert_eq!(task_second.waiting_count, 0);
+    assert_eq!(task_second.status, "failed");
 
     cleanup_task(&db, task_id, user_id).await;
 }
