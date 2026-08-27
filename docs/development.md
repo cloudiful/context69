@@ -427,6 +427,41 @@ lease handling and is deferred.
   batch will be upserted again on retry – safe because IDs are deterministic
   and Qdrant upsert is idempotent, but at-least-once is the accurate contract.
 
+### High-confidence index fixes (issue 50, phase 2)
+
+Phase 2 lands two high-confidence fixes observed in the phase 1 root-cause
+assessment (Redmine note 889):
+
+- **SQL no-op for unchanged chunk hash:** `update_library_business_fields.sql`
+  now guards the `document_chunks` update with a null-safe
+  `record_hash IS DISTINCT FROM $7` predicate. The parent `documents` rewrite
+  stays unconditional so extracted metadata publishing may still change
+  `external_id` / `source_uri` / `published_at` / `updated_at_source` /
+  `metadata_json` independently of `record_hash`. Observed removed
+  write-amplification: document 49532 with 175 chunks dropped from 175–296 row
+  updates (3.9–5.3s) to zero chunk rewrites whenever the hash is unchanged.
+  Regression coverage lives in `tests/document_business_fields.rs`.
+- **Qdrant `library_file_id` keyword payload index:** the typed
+  `PAYLOAD_FIELD_INDEXES` table in `src/qdrant_index/collection.rs` adds
+  `library_file_id` (Keyword) to the baseline schema-preserving field/index
+  list (Keyword for `group_key` / `group_path` / `visibility` / `source_key`,
+  Integer for `group_id` / `document_id` / `published_ts`). New collections
+  build every entry through `create_field_index`; `QdrantIndex::connect`
+  additionally calls `ensure_library_file_id_field_index` for pre-existing
+  collections so the cleanup filter is fast on startup (avoids the 30s
+  Qdrant timeout observed on the 330k-chunk collection).
+  `ensure_field_index_idempotent` only swallows gRPC `AlreadyExists` paired
+  with field-index-shaped text; permission / validation / transport failures
+  still propagate through the existing operation/collection/category error
+  formatter. Unit coverage sits next to `metadata_payload_key` in
+  `src/qdrant_index/collection.rs`.
+
+No production DB / Qdrant / S3 mutation. Production readiness for the SQL
+change requires `cargo sqlx prepare --workspace` against a fully-migrated
+scratch database (the hash for the new SQL replaces the offline cache entry).
+No new persistent migration is shipped: the Qdrant payload index is external
+to PostgreSQL.
+
 ## Local Full-Stack Flow
 
 Preferred single-command flow:
