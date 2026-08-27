@@ -4,8 +4,10 @@ import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import AppServerList from "../components/AppServerList.vue";
+import TaskItemsExpanded from "../components/TaskItemsExpanded.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
 import { useTaskMaintenance } from "../composables/use-task-maintenance";
+import { summarizeApiError, type ApiErrorSummary } from "../composables/use-error-toast";
 import { apiClient } from "../services/api";
 import type { TaskItemResponse, TaskKind, TaskResponse, TaskSortBy, TaskStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
@@ -20,9 +22,14 @@ const maintenance = proxyRefs(useTaskMaintenance({
 
 const AUTO_REFRESH_INTERVAL = 20_000;
 
+// Bound the upstream message that flows into a tooltip so a noisy error
+// string cannot blow up the layout. The localized label below is still the
+// primary text; the tooltip only carries the bounded detail when present.
+const ITEM_ERROR_TOOLTIP_MAX = 240;
+
 const expandedRows = ref<Record<string, boolean>>({});
 const expandedItems = ref<Record<string, TaskItemResponse[] | null>>({});
-const expandedError = ref<Record<string, string | null>>({});
+const expandedError = ref<Record<string, ApiErrorSummary | null>>({});
 const expandingTaskId = ref<string | null>(null);
 
 const sorting = ref<{ id: string; desc: boolean }[]>([]);
@@ -37,11 +44,7 @@ watch(sorting, (value) => {
   queue.changeSort(next.id as TaskSortBy, next.desc ? "desc" : "asc");
 });
 
-async function toggleExpand(row: { original: TaskResponse; id: string }) {
-  const taskId = row.original.task_id;
-  const next = !expandedRows.value[row.id];
-  expandedRows.value = { ...expandedRows.value, [row.id]: next };
-  if (!next || expandedItems.value[taskId] !== undefined) return;
+async function loadTaskItems(taskId: string) {
   expandingTaskId.value = taskId;
   try {
     const response = await apiClient.getTaskItems(taskId, { limit: 100 });
@@ -50,11 +53,33 @@ async function toggleExpand(row: { original: TaskResponse; id: string }) {
   } catch (error) {
     expandedError.value = {
       ...expandedError.value,
-      [taskId]: error instanceof Error ? error.message : String(error),
+      [taskId]: summarizeApiError(error, ITEM_ERROR_TOOLTIP_MAX),
     };
   } finally {
     expandingTaskId.value = null;
   }
+}
+
+async function toggleExpand(row: { original: TaskResponse; id: string }) {
+  const taskId = row.original.task_id;
+  const next = !expandedRows.value[row.id];
+  expandedRows.value = { ...expandedRows.value, [row.id]: next };
+  if (!next || expandedItems.value[taskId] !== undefined) return;
+  await loadTaskItems(taskId);
+}
+
+async function retryLoadItems(taskId: string) {
+  if (expandingTaskId.value === taskId) return;
+  await loadTaskItems(taskId);
+}
+
+function clampText(value: string | null | undefined, max: number): string | null {
+  if (!value) return null;
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function itemErrorTooltip(message: string | null | undefined): string | null {
+  return clampText(message, ITEM_ERROR_TOOLTIP_MAX);
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -184,32 +209,6 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
   if (status === "running") return "primary";
   return "neutral";
 }
-
-function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" | "warning" | "neutral" | "primary" {
-  if (status === "succeeded") return "success";
-  if (status === "failed") return "error";
-  if (status === "waiting") return "warning";
-  if (status === "running") return "primary";
-  return "neutral";
-}
-
-function externalJobLabel(job: TaskItemResponse["external_job"]): string {
-  if (!job) return "--";
-  return `${job.remote_task_id} · ${job.status}`;
-}
-
-function externalJobTitle(job: TaskItemResponse["external_job"]): string | undefined {
-  if (!job) return undefined;
-  const parts = [
-    `${job.provider} ${job.remote_task_id}`,
-    `status: ${job.remote_status ?? job.status}`,
-    `submitted: ${job.submitted_at}`,
-    job.last_polled_at ? `last polled: ${job.last_polled_at}` : null,
-    job.deadline_at ? `deadline: ${job.deadline_at}` : null,
-    job.error_message ? `error: ${job.error_message}` : null,
-  ];
-  return parts.filter(Boolean).join("\n");
-}
 </script>
 
 <template>
@@ -280,7 +279,7 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
         <template #stage-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ stageLabel(row.original.stage) }}</span></template>
         <template #waiting-cell="{ row }"><span class="block max-w-48 truncate text-sm text-muted" :title="waitingLabel(row.original.waiting_reason, row.original.dependency_key)">{{ waitingLabel(row.original.waiting_reason, row.original.dependency_key) }}</span></template>
         <template #progress-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ row.original.progress.succeeded }}/{{ row.original.progress.total }}</span></template>
-        <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="row.original.error_summary || undefined">{{ row.original.error_summary || "--" }}</span></template>
+        <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="itemErrorTooltip(row.original.error_summary) || undefined">{{ row.original.error_summary || "--" }}</span></template>
         <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
         <template #actions-cell="{ row }">
           <div class="flex items-center gap-1">
@@ -289,31 +288,17 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
           </div>
         </template>
         <template #expanded="{ row }">
-          <div class="p-3">
-            <template v-if="expandedItems[row.original.task_id] === undefined">
-              <div v-if="expandedError[row.original.task_id]" class="text-sm text-(--ui-error)">
-                {{ t("processingQueue.itemsLoadFailed") }}
-              </div>
-              <div v-else class="text-sm text-muted">{{ t("common.loading") }}…</div>
-            </template>
-            <template v-else-if="(expandedItems[row.original.task_id]?.length ?? 0) === 0">
-              <div class="text-sm text-muted">{{ t("processingQueue.noItems") }}</div>
-            </template>
-            <div v-else class="grid gap-1">
-              <div
-                v-for="item in expandedItems[row.original.task_id]"
-                :key="item.item_id"
-                class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
-              >
-                <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
-                <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
-                <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage) }}</span>
-                <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
-                <span class="block max-w-56 truncate text-xs text-muted" :title="externalJobTitle(item.external_job)">{{ externalJobLabel(item.external_job) }}</span>
-                <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
-              </div>
-            </div>
-          </div>
+          <TaskItemsExpanded
+            :task="row.original"
+            :items="expandedItems[row.original.task_id]"
+            :error="expandedError[row.original.task_id]"
+            :is-loading="expandingTaskId === row.original.task_id"
+            :is-admin="maintenance.isAdmin"
+            :is-acting="queue.isActing(row.original)"
+            @retry="queue.recoverTask"
+            @recover="queue.recoverDoclingFromItem"
+            @retry-load="retryLoadItems"
+          />
         </template>
       </UTable>
       <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">

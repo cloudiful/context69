@@ -62,6 +62,7 @@ export const en = {
     noTasks: "No tasks",
     noItems: "No items",
     itemsLoadFailed: "Failed to load task items",
+    retryLoadItems: "Retry loading items",
     expand: "Expand task items",
     collapse: "Collapse task items",
     attempts: "{count} attempts",

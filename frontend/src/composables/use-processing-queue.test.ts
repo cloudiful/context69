@@ -227,6 +227,51 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
+  it("routes item-level Docling recovery through recoverDoclingFromItem even when the task is not task-level docling", async () => {
+    const nonDoclingFailedTask: TaskResponse = {
+      ...failedTask,
+      task_id: "non-docling-task-id",
+      failure_stage: "indexing",
+    };
+    listTasks
+      .mockResolvedValueOnce(page([nonDoclingFailedTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    expect(state.isDoclingRecoveryTask(nonDoclingFailedTask)).toBe(false);
+    await state.recoverDoclingFromItem(nonDoclingFailedTask);
+
+    expect(recoverDoclingTask).toHaveBeenCalledWith(
+      "non-docling-task-id",
+      { reason: expect.stringContaining("Docling") },
+    );
+    expect(retryTask).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("rejects a duplicate item-level Docling recovery while another task-scoped action is in flight", async () => {
+    let resolveRetry: (() => void) | null = null;
+    retryTask.mockReset().mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRetry = () => resolve({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
+    }));
+    listTasks
+      .mockResolvedValueOnce(page([failedTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    const inFlight = state.recoverTask(failedTask);
+    await state.recoverDoclingFromItem(failedTask);
+
+    expect(recoverDoclingTask).not.toHaveBeenCalled();
+    expect(retryTask).toHaveBeenCalledTimes(1);
+
+    resolveRetry!();
+    await inFlight;
+    wrapper.unmount();
+  });
+
   it("counts failed and cancelled tasks as recoverable, ignoring succeeded and active ones", async () => {
     const succeededTask: TaskResponse = {
       ...failedTask,

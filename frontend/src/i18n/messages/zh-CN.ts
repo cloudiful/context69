@@ -62,6 +62,7 @@ export const zhCN = {
     noTasks: "暂无任务",
     noItems: "无任务项",
     itemsLoadFailed: "加载任务项失败",
+    retryLoadItems: "重新加载任务项",
     expand: "展开任务项",
     collapse: "收起任务项",
     attempts: "{count} 次尝试",

@@ -11,8 +11,10 @@ import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const listTasks = vi.spyOn(apiClient, "listTasks");
 const retryTask = vi.spyOn(apiClient, "retryTask");
+const recoverDoclingTask = vi.spyOn(apiClient, "recoverDoclingTask");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
 const getTaskMaintenance = vi.spyOn(apiClient, "getTaskMaintenance");
+const getTaskItems = vi.spyOn(apiClient, "getTaskItems");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 const addToast = vi.fn();
 const useToast = vi.spyOn(nuxtUiComposables, "useToast");
@@ -104,8 +106,10 @@ describe("ProcessingQueueView", () => {
     setGuest();
     listTasks.mockReset().mockResolvedValue(response([row]) as never);
     retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
+    recoverDoclingTask.mockReset().mockResolvedValue({ recovered: { task_id: "task-id" } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
     getTaskMaintenance.mockReset().mockResolvedValue(maintenanceOverview as never);
+    getTaskItems.mockReset();
     useOverlay.mockReset().mockReturnValue({
       create: () => ({ open: async () => true }),
     } as never);
@@ -220,7 +224,7 @@ describe("ProcessingQueueView", () => {
   });
 
   it("expands a task row and loads its items", async () => {
-    const getTaskItems = vi.spyOn(apiClient, "getTaskItems").mockResolvedValue({
+    getTaskItems.mockResolvedValue({
       items: [
         {
           item_id: "item-id",
@@ -366,6 +370,328 @@ describe("ProcessingQueueView", () => {
 
     const reopenedToggle = document.querySelector('[data-testid="maintenance-cleanup-toggle"]');
     expect(reopenedToggle!.getAttribute("aria-checked")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("renders a retryable failed item with a Retry button that calls the task-scoped retry endpoint", async () => {
+    listTasks
+      .mockResolvedValueOnce(response([failedRow]) as never)
+      .mockResolvedValueOnce(response([row]) as never);
+    getTaskItems.mockResolvedValue({
+      items: [
+        {
+          item_id: "item-id",
+          status: "failed",
+          stage: "indexing",
+          attempt_count: 3,
+          error_message: "Qdrant unavailable",
+          failure_stage: "indexing",
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    } as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    expect(expandButton).toBeDefined();
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    const itemRetry = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    expect(itemRetry.length).toBeGreaterThanOrEqual(2);
+    await itemRetry[itemRetry.length - 1]!.trigger("click");
+    await flushPromises();
+
+    expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(getTaskItems).toHaveBeenCalledWith("task-id", expect.objectContaining({ limit: 100 }));
+    expect(recoverDoclingTask).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("routes Qdrant/indexing/embedding failed items through retry and never through Docling recovery", async () => {
+    listTasks.mockResolvedValue(response([failedRow]) as never);
+    getTaskItems.mockResolvedValue({
+      items: [
+        {
+          item_id: "qdrant-item",
+          status: "failed",
+          stage: "indexing",
+          attempt_count: 1,
+          error_message: "Qdrant unreachable",
+          failure_stage: "indexing",
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+        {
+          item_id: "embedding-item",
+          status: "failed",
+          stage: "embedding",
+          attempt_count: 1,
+          error_message: "Embedding failed",
+          failure_stage: "embedding",
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+        {
+          item_id: "qdrant-only-item",
+          status: "failed",
+          stage: "embedding",
+          attempt_count: 1,
+          error_message: "qdrant: connection refused",
+          failure_stage: "qdrant",
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    } as never);
+    setAuthenticatedUser({ is_admin: true });
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    const doclingButtons = wrapper.findAll("button").filter((button) => button.text().includes("Docling"));
+    expect(doclingButtons).toHaveLength(0);
+    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    expect(retryButtons.length).toBeGreaterThanOrEqual(3);
+
+    expect(recoverDoclingTask).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("shows admin-only Docling recovery for failed Docling items and routes through recoverDoclingTask", async () => {
+    listTasks.mockResolvedValueOnce(response([failedRow]) as never).mockResolvedValueOnce(response([row]) as never);
+    getTaskItems.mockResolvedValue({
+      items: [
+        {
+          item_id: "docling-item",
+          status: "failed",
+          stage: "docling_poll",
+          attempt_count: 1,
+          error_message: "Docling submission outcome is uncertain",
+          failure_stage: "docling_poll",
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    } as never);
+    setAuthenticatedUser({ is_admin: true });
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    const doclingButton = wrapper.findAll("button").find((button) => button.text().includes("Docling"));
+    expect(doclingButton).toBeDefined();
+    await doclingButton!.trigger("click");
+    await flushPromises();
+
+    expect(recoverDoclingTask).toHaveBeenCalledWith("task-id", expect.objectContaining({ reason: expect.stringContaining("Docling") }));
+    expect(retryTask).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("hides Docling recovery for non-admin users and routes failed Docling items through retry", async () => {
+    listTasks.mockResolvedValue(response([failedRow]) as never);
+    getTaskItems.mockResolvedValue({
+      items: [
+        {
+          item_id: "docling-item",
+          status: "failed",
+          stage: "docling_poll",
+          attempt_count: 1,
+          error_message: "Docling submission outcome is uncertain",
+          failure_stage: "docling_poll",
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    } as never);
+    // Guest user (non-admin).
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    const doclingButtons = wrapper.findAll("button").filter((button) => button.text().includes("Docling"));
+    expect(doclingButtons).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("hides the per-item action for non-actionable items", async () => {
+    listTasks.mockResolvedValue(response([failedRow]) as never);
+    getTaskItems.mockResolvedValue({
+      items: [
+        {
+          item_id: "non-retryable-item",
+          status: "failed",
+          stage: "indexing",
+          attempt_count: 1,
+          error_message: "Hard failure",
+          failure_stage: "indexing",
+          retryable: false,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+        {
+          item_id: "succeeded-item",
+          status: "succeeded",
+          stage: "indexing",
+          attempt_count: 1,
+          error_message: null,
+          failure_stage: null,
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    } as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("non-retryable-item");
+    expect(wrapper.text()).toContain("succeeded-item");
+
+    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    expect(retryButtons).toHaveLength(1);
+    expect(retryButtons[0]!.text()).toContain("Retry file");
+    wrapper.unmount();
+  });
+
+  it("prevents duplicate row and cell retry requests for the same task", async () => {
+    let resolveRetry: (() => void) | null = null;
+    retryTask.mockReset().mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRetry = () => resolve({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
+    }));
+    listTasks
+      .mockResolvedValueOnce(response([failedRow]) as never)
+      .mockResolvedValueOnce(response([row]) as never);
+    getTaskItems.mockResolvedValue({
+      items: [
+        {
+          item_id: "item-id",
+          status: "failed",
+          stage: "indexing",
+          attempt_count: 3,
+          error_message: "Qdrant unavailable",
+          failure_stage: "indexing",
+          retryable: true,
+          created_at: "2026-07-20T00:01:00Z",
+          updated_at: "2026-07-20T00:02:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    } as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    expect(retryButtons.length).toBeGreaterThanOrEqual(2);
+    await retryButtons[0]!.trigger("click");
+    await flushPromises();
+
+    expect(retryTask).toHaveBeenCalledTimes(1);
+
+    // The cell button must reflect the in-flight row retry as disabled/loading.
+    const stillPending = retryButtons[retryButtons.length - 1]!;
+    const disabledAttr = stillPending.attributes("disabled");
+    expect(disabledAttr !== undefined || stillPending.classes().some((cls) => cls.includes("disabled"))).toBe(true);
+
+    resolveRetry!();
+    await flushPromises();
+    wrapper.unmount();
+  });
+
+  it("exposes a retry-load button when the item list fails and reuses getTaskItems", async () => {
+    listTasks.mockReset().mockResolvedValue(response([failedRow]) as never);
+    getTaskItems.mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            item_id: "item-id",
+            status: "failed",
+            stage: "indexing",
+            attempt_count: 1,
+            error_message: "Qdrant unavailable",
+            failure_stage: "indexing",
+            retryable: true,
+            created_at: "2026-07-20T00:01:00Z",
+            updated_at: "2026-07-20T00:02:00Z",
+          },
+        ],
+        next_cursor: undefined,
+      } as never);
+
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Failed to load task items");
+    expect(getTaskItems).toHaveBeenCalledTimes(1);
+
+    const retryLoad = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Retry loading items");
+    expect(retryLoad).toBeDefined();
+    await retryLoad!.trigger("click");
+    await flushPromises();
+
+    expect(getTaskItems).toHaveBeenCalledTimes(2);
+    expect(getTaskItems).toHaveBeenLastCalledWith("task-id", expect.objectContaining({ limit: 100 }));
+    expect(wrapper.text()).toContain("item-id");
+    wrapper.unmount();
+  });
+
+  it("surfaces the bounded upstream message and a stable HTTP status when item loading fails with an HTTP error", async () => {
+    listTasks.mockReset().mockResolvedValue(response([failedRow]) as never);
+    const longMessage = `Qdrant unavailable: ${"x".repeat(400)}`;
+    const { ApiError } = await import("../services/api/api-core");
+    getTaskItems.mockRejectedValueOnce(
+      new ApiError(longMessage, 503),
+    );
+
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
+    await expandButton!.trigger("click");
+    await flushPromises();
+
+    expect(getTaskItems).toHaveBeenCalled();
+    const errorSpan = wrapper.find('[aria-label="Failed to load task items"]');
+    expect(errorSpan.exists()).toBe(true);
+    expect(wrapper.text()).toContain("· 503");
+    expect(errorSpan.attributes("title")).toBeDefined();
+    expect((errorSpan.attributes("title") ?? "").length).toBeLessThanOrEqual(240);
+    expect((errorSpan.attributes("title") ?? "")).toContain("Qdrant unavailable");
     wrapper.unmount();
   });
 });

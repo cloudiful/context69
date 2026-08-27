@@ -172,6 +172,32 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   }
 
+  // Item-level Docling recovery. The task-level recoverTask refuses tasks
+  // whose own failure_stage is not docling/docling_poll, but a per-item
+  // recovery for an item with a Docling failure_stage should still route
+  // through the admin endpoint. Shares the actionTaskIds guard so row and
+  // cell requests for the same task cannot run concurrently.
+  async function recoverDoclingFromItem(task: TaskResponse) {
+    if (isActing(task)) return;
+    actionTaskIds.value = [...actionTaskIds.value, task.task_id];
+    try {
+      await apiClient.recoverDoclingTask(task.task_id, {
+        reason: "manual Docling recovery from item in the processing queue",
+      });
+      await load();
+      toast.add({
+        color: "success",
+        title: t("processingQueue.doclingRecoveryAccepted"),
+        description: task.task_id,
+        duration: 2500,
+      });
+    } catch (recoverError) {
+      showErrorToast(recoverError, t("processingQueue.doclingRecoveryFailed"));
+    } finally {
+      actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
+    }
+  }
+
   async function cancelTask(task: TaskResponse) {
     if (!ACTIVE_STATUSES.includes(task.status) || isActing(task)) return;
     actionTaskIds.value = [...actionTaskIds.value, task.task_id];
@@ -328,6 +354,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     changeSort,
     clearSort,
     recoverTask,
+    recoverDoclingFromItem,
     cancelTask,
     isActing,
     recoverAll,
