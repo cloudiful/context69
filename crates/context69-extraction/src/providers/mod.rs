@@ -187,7 +187,7 @@ pub fn next_retry_delay(attempt_count: i32) -> std::time::Duration {
 fn validate_schema(schema: &Value, instance: &Value) -> Result<()> {
     let validator = jsonschema::validator_for(schema)
         .map_err(|error| ProviderSchemaError(format!("output_schema is invalid: {error}")))
-        .map_err(|e| anyhow::Error::new(e))?;
+        .map_err(anyhow::Error::new)?;
     validator.validate(instance).map_err(|error| {
         anyhow::Error::new(ProviderSchemaError(format!(
             "extraction result violates output_schema: {error}"
