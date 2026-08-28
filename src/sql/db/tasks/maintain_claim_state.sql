@@ -22,14 +22,31 @@
 -- recovery tick keep converging exhausted-only queues toward terminal
 -- state.
 --
--- Parent aggregates (queued_count, running_count, waiting_count,
--- succeeded_count, failed_count, cancelled_count, stage,
--- waiting_reason, dependency_key, next_attempt_at, failure_stage,
--- error_summary, status, finished_at, lease_token/lease_until) are
--- recomputed atomically from task_items for every task touched by the
--- exhausted propagation, so denormalized counters cannot drift from the
--- item state (e.g. failed_count/waiting_count).
-WITH exhausted AS (
+-- Parent aggregates are recomputed atomically from the post-exhaustion
+-- effective item state. PostgreSQL data-modifying CTEs share a snapshot,
+-- so a later CTE cannot see the earlier UPDATE's row changes via a plain
+-- read of the target table, and the same parent row must not be updated
+-- from two CTEs in one statement. This file therefore uses a single
+-- authoritative parent UPDATE: to_exhaust captures the candidate rows and
+-- their pre-update state, exhausted updates them, and the parent
+-- recompute derives effective counts/status from the snapshot plus the
+-- captured to_exhaust rows.
+WITH to_exhaust AS (
+    SELECT item.id, item.task_id, item.file_id, item.status AS old_status, item.ordinal
+    FROM context69.task_items AS item
+    JOIN context69.tasks AS task ON task.id = item.task_id
+    WHERE (
+            task.status IN ('queued', 'running')
+            OR (
+                task.status = 'waiting'
+                AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
+            )
+        )
+      AND item.status IN ('queued', 'waiting')
+      AND item.attempt_count >= 5
+      AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
+    FOR UPDATE OF item
+), exhausted AS (
     UPDATE context69.task_items AS item
     SET status = 'failed',
         failure_stage = 'attempts',
@@ -41,19 +58,9 @@ WITH exhausted AS (
         next_attempt_at = NULL,
         finished_at = now(),
         updated_at = now()
-    FROM context69.tasks AS task
-    WHERE item.task_id = task.id
-      AND (
-          task.status IN ('queued', 'running')
-          OR (
-              task.status = 'waiting'
-              AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
-          )
-      )
-      AND item.status IN ('queued', 'waiting')
-      AND item.attempt_count >= 5
-      AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
-    RETURNING item.task_id, item.id AS item_id, item.file_id
+    FROM to_exhaust
+    WHERE item.id = to_exhaust.id
+    RETURNING item.task_id, item.id AS item_id, item.file_id, to_exhaust.old_status, to_exhaust.ordinal
 ), exhausted_files AS (
     UPDATE context69.library_files AS file
     SET ingest_status = 'failed',
@@ -71,30 +78,7 @@ WITH exhausted AS (
             AND other.status IN ('queued', 'running', 'waiting')
       )
     RETURNING file.id
-), exhausted_tasks AS (
-    UPDATE context69.tasks AS task
-    SET status = 'failed',
-        failure_stage = 'attempts',
-        error_summary = 'task items exceeded the maximum attempt count',
-        finished_at = now(),
-        updated_at = now()
-    FROM exhausted
-    WHERE task.id = exhausted.task_id
-      AND NOT EXISTS (
-          SELECT 1
-          FROM context69.task_items ti
-          WHERE ti.task_id = task.id
-            AND ti.status IN ('queued', 'waiting')
-            AND ti.attempt_count < 5
-      )
-      AND NOT EXISTS (
-          SELECT 1
-          FROM context69.task_items ti
-          WHERE ti.task_id = task.id
-            AND ti.status = 'running'
-      )
-    RETURNING task.id
-), recomputed_tasks AS (
+), recomputed AS (
     UPDATE context69.tasks t
     SET queued_count = counts.queued_count,
         running_count = counts.running_count,
@@ -103,16 +87,34 @@ WITH exhausted AS (
         failed_count = counts.failed_count,
         cancelled_count = counts.cancelled_count,
         failure_stage = (
-            SELECT failure_stage
-            FROM context69.task_items
-            WHERE task_id = t.id AND status = 'failed' AND failure_stage IS NOT NULL
+            SELECT failure_stage FROM (
+                SELECT ti.failure_stage, ti.ordinal
+                FROM context69.task_items ti
+                WHERE ti.task_id = t.id
+                  AND ti.status = 'failed'
+                  AND ti.failure_stage IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)
+                UNION ALL
+                SELECT 'attempts'::text AS failure_stage, te.ordinal
+                FROM to_exhaust te
+                WHERE te.task_id = t.id
+            ) u
             ORDER BY ordinal
             LIMIT 1
         ),
         error_summary = (
-            SELECT error_message
-            FROM context69.task_items
-            WHERE task_id = t.id AND status = 'failed' AND error_message IS NOT NULL
+            SELECT error_message FROM (
+                SELECT ti.error_message, ti.ordinal
+                FROM context69.task_items ti
+                WHERE ti.task_id = t.id
+                  AND ti.status = 'failed'
+                  AND ti.error_message IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)
+                UNION ALL
+                SELECT 'exceeded maximum attempt count'::text AS error_message, te.ordinal
+                FROM to_exhaust te
+                WHERE te.task_id = t.id
+            ) u
             ORDER BY ordinal
             LIMIT 1
         ),
@@ -144,30 +146,26 @@ WITH exhausted AS (
         updated_at = now()
     FROM (
         SELECT
-            task_id,
-            count(*) FILTER (WHERE status = 'queued')::bigint AS queued_count,
-            count(*) FILTER (WHERE status = 'running')::bigint AS running_count,
-            count(*) FILTER (WHERE status = 'waiting')::bigint AS waiting_count,
-            count(*) FILTER (WHERE status = 'succeeded')::bigint AS succeeded_count,
-            count(*) FILTER (WHERE status = 'failed')::bigint AS failed_count,
-            count(*) FILTER (WHERE status = 'cancelled')::bigint AS cancelled_count
-        FROM context69.task_items
-        WHERE task_id IN (SELECT DISTINCT task_id FROM exhausted)
-        GROUP BY task_id
+            agg.task_id,
+            (SELECT count(*)::bigint FROM context69.task_items ti WHERE ti.task_id = agg.task_id AND ti.status = 'queued' AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)) AS queued_count,
+            (SELECT count(*)::bigint FROM context69.task_items ti WHERE ti.task_id = agg.task_id AND ti.status = 'running' AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)) AS running_count,
+            (SELECT count(*)::bigint FROM context69.task_items ti WHERE ti.task_id = agg.task_id AND ti.status = 'waiting' AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)) AS waiting_count,
+            (SELECT count(*)::bigint FROM context69.task_items ti WHERE ti.task_id = agg.task_id AND ti.status = 'succeeded' AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)) AS succeeded_count,
+            (SELECT count(*)::bigint FROM context69.task_items ti WHERE ti.task_id = agg.task_id AND ti.status = 'failed' AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)) + (SELECT count(*)::bigint FROM to_exhaust te WHERE te.task_id = agg.task_id) AS failed_count,
+            (SELECT count(*)::bigint FROM context69.task_items ti WHERE ti.task_id = agg.task_id AND ti.status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)) AS cancelled_count
+        FROM (SELECT DISTINCT task_id FROM to_exhaust) agg
     ) counts
     LEFT JOIN LATERAL (
         SELECT stage, waiting_reason, dependency_key, next_attempt_at
-        FROM context69.task_items
-        WHERE task_id = counts.task_id
-          AND status IN ('queued', 'running', 'waiting')
-        ORDER BY
-            CASE status
-                WHEN 'queued' THEN 0
-                WHEN 'running' THEN 1
-                ELSE 2
-            END,
-            next_attempt_at NULLS FIRST,
-            ordinal
+        FROM (
+            SELECT ti.stage, ti.waiting_reason, ti.dependency_key, ti.next_attempt_at, ti.ordinal,
+                   CASE ti.status WHEN 'queued' THEN 0 WHEN 'running' THEN 1 ELSE 2 END AS prio
+            FROM context69.task_items ti
+            WHERE ti.task_id = counts.task_id
+              AND ti.status IN ('queued', 'running', 'waiting')
+              AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)
+        ) sub
+        ORDER BY prio, next_attempt_at NULLS FIRST, ordinal
         LIMIT 1
     ) current_item ON TRUE
     WHERE t.id = counts.task_id
@@ -203,5 +201,5 @@ WITH exhausted AS (
 SELECT
     (SELECT count(*) FROM exhausted) AS "exhausted_items!",
     (SELECT count(*) FROM exhausted_files) AS "exhausted_files!",
-    (SELECT count(*) FROM exhausted_tasks) AS "exhausted_tasks!",
+    (SELECT count(*) FROM recomputed) AS "exhausted_tasks!",
     (SELECT count(*) FROM expired) AS "expired_attempts!"

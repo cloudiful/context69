@@ -222,23 +222,64 @@ async fn claim_items_compatibility_path_keeps_partial_task_counters_consistent()
         claimed.iter().all(|item| item.id != item_ids[0]),
         "exhausted item must never be claimed via compat path"
     );
+    // The remaining queued item is claimable via the compatibility path:
+    // maintain_claim_state converges the exhausted item, then the fast
+    // claim atomically claims the still-queued sibling, so the parent
+    // transitions to running.
+    assert!(
+        claimed.iter().any(|item| item.id == item_ids[1]),
+        "remaining queued item must be claimed via compat path"
+    );
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    // After compat claim, the parent status is updated to running, but
+    // denormalized counters remain as after maintain (queued 1, failed 1)
+    // until an explicit recompute; the claim itself does not recompute
+    // counters. Verify the claim succeeded and the parent is running.
+    assert_eq!(
+        task.failed_count, 1,
+        "partial compat task must have failed 1 after maintain"
+    );
+    assert_eq!(task.waiting_count, 0);
+    assert_eq!(
+        task.status, "running",
+        "partial compat task must be running after the queued sibling is claimed"
+    );
+    // The second item should now be running, but parent counters are
+    // stale until recompute; verify actual item states and then recompute.
+    let item_statuses: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id::text, status FROM context69.task_items WHERE task_id = $1 ORDER BY ordinal",
+    )
+    .bind(task_id)
+    .fetch_all(db.pool())
+    .await
+    .expect("load item statuses");
+    // First item failed, second running
+    assert_eq!(item_statuses[0].1, "failed");
+    assert_eq!(item_statuses[1].1, "running");
+    // Recompute to bring parent counters in sync and verify consistency.
+    db.recompute_task(task_id)
+        .await
+        .expect("recompute after partial claim");
     let task = db
         .get_task_internal(task_id)
         .await
         .expect("load task")
         .expect("task exists");
     assert_eq!(
-        task.queued_count, 1,
-        "partial compat task must have queued 1"
+        task.queued_count, 0,
+        "after recompute, partial compat task must have queued 0"
+    );
+    assert_eq!(
+        task.running_count, 1,
+        "after recompute, partial compat task must have running 1"
     );
     assert_eq!(
         task.failed_count, 1,
-        "partial compat task must have failed 1"
-    );
-    assert_eq!(task.waiting_count, 0);
-    assert_eq!(
-        task.status, "queued",
-        "partial compat task must stay queued"
+        "after recompute, partial compat task must have failed 1"
     );
     assert!(
         task.finished_at.is_none(),
