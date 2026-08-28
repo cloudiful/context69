@@ -31,6 +31,19 @@
 -- their pre-update state, exhausted updates them, and the parent
 -- recompute derives effective counts/status from the snapshot plus the
 -- captured to_exhaust rows.
+--
+-- External-job lifecycle reconciliation is conservative and idempotent.
+-- Any local pending/running task_external_jobs rows attached to terminal
+-- task_items (succeeded, failed, cancelled) — including items newly
+-- exhausted by this statement — are locally moved to cancelled with an
+-- explicit reason that remote cancellation was not requested. The check
+-- uses the statement's snapshot terminal items plus the captured
+-- to_exhaust ids so the transition does not require a second maintenance
+-- call. `submitting` rows are never touched because the remote submission
+-- outcome is uncertain and must remain manual-recovery-required; active
+-- items (queued, running, waiting) are left alone. No external request
+-- is made and the same external-job row is never updated from two CTEs
+-- in this statement.
 WITH to_exhaust AS (
     SELECT item.id, item.task_id, item.file_id, item.status AS old_status, item.ordinal
     FROM context69.task_items AS item
@@ -197,6 +210,29 @@ WITH to_exhaust AS (
     WHERE attempt.item_id = expired_items.id
       AND attempt.finished_at IS NULL
     RETURNING attempt.id
+), reconciled_external_jobs AS (
+    UPDATE context69.task_external_jobs AS job
+    SET status = 'cancelled',
+        remote_status = COALESCE(job.remote_status, job.status),
+        error_message = COALESCE(
+            job.error_message,
+            'task item is terminal; local external job cancelled without remote cancellation'
+        ),
+        last_polled_at = now(),
+        updated_at = now()
+    WHERE job.status IN ('pending', 'running')
+      AND (
+          EXISTS (
+              SELECT 1
+              FROM context69.task_items ti
+              WHERE ti.id = job.item_id
+                AND ti.status IN ('succeeded', 'failed', 'cancelled')
+          )
+          OR EXISTS (
+              SELECT 1 FROM to_exhaust te WHERE te.id = job.item_id
+          )
+      )
+    RETURNING job.id
 )
 SELECT
     (SELECT count(*) FROM exhausted) AS "exhausted_items!",
