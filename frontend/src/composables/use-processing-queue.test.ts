@@ -193,20 +193,21 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("recovers a waiting Docling poll task through the admin recovery endpoint", async () => {
-    listTasks
-      .mockResolvedValueOnce(page([waitingDoclingPollTask]) as never)
-      .mockResolvedValueOnce(page([]) as never);
+  it("does not count a waiting Docling poll task as recoverable while the remote job is still active", async () => {
+    listTasks.mockResolvedValueOnce(page([waitingDoclingPollTask]) as never);
     const { state, wrapper } = mountState();
     await flushPromises();
 
-    expect(state.isDoclingRecoveryTask(waitingDoclingPollTask)).toBe(true);
+    expect(state.isDoclingRecoveryTask(waitingDoclingPollTask)).toBe(false);
+    expect(state.isRecoverableTask(waitingDoclingPollTask)).toBe(false);
+    expect(state.recoverableCount.value).toBe(0);
+    expect(state.doclingRecoveryCount.value).toBe(0);
+
     await state.recoverTask(waitingDoclingPollTask);
 
-    expect(recoverDoclingTask).toHaveBeenCalledWith(
-      "waiting-docling-poll-task-id",
-      { reason: "manual recovery from the processing queue" },
-    );
+    expect(recoverDoclingTask).not.toHaveBeenCalled();
+    expect(retryTask).not.toHaveBeenCalled();
+    expect(rerunTask).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
@@ -279,18 +280,22 @@ describe("useProcessingQueue", () => {
       status: "succeeded",
       progress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 1, failed: 0, cancelled: 0 },
     };
-    listTasks.mockResolvedValueOnce(page([failedTask, cancelledTask, waitingTask, succeededTask]) as never);
+    listTasks.mockResolvedValueOnce(page([failedTask, cancelledTask, waitingTask, succeededTask, waitingDoclingPollTask]) as never);
     const { state, wrapper } = mountState();
     await flushPromises();
 
     expect(state.isRecoverableTask(failedTask)).toBe(true);
     expect(state.isRecoverableTask(cancelledTask)).toBe(true);
     expect(state.isRecoverableTask(waitingTask)).toBe(false);
+    expect(state.isRecoverableTask(waitingDoclingPollTask)).toBe(false);
     expect(state.isRecoverableTask(succeededTask)).toBe(false);
+    expect(state.isDoclingRecoveryTask(waitingDoclingPollTask)).toBe(false);
+    expect(state.isDoclingRecoveryTask(failedDoclingTask)).toBe(true);
     expect(state.recoverableCount.value).toBe(2);
+    expect(state.doclingRecoveryCount.value).toBe(0);
     expect(state.failedCount.value).toBe(1);
     expect(state.cancelledCount.value).toBe(1);
-    expect(state.activeCount.value).toBe(1);
+    expect(state.activeCount.value).toBe(2);
     wrapper.unmount();
   });
 
@@ -328,19 +333,44 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("uses the admin recovery endpoint for waiting Docling tasks in bulk", async () => {
-    listTasks
-      .mockResolvedValueOnce(page([waitingDoclingPollTask]) as never)
-      .mockResolvedValueOnce(page([]) as never);
+  it("excludes waiting Docling polls from bulk recovery while keeping failed Docling tasks recoverable", async () => {
+    listTasks.mockResolvedValueOnce(page([waitingDoclingPollTask, failedDoclingTask]) as never);
     const { state, wrapper } = mountState();
 
     await flushPromises();
+
+    expect(state.isRecoverableTask(waitingDoclingPollTask)).toBe(false);
+    expect(state.isRecoverableTask(failedDoclingTask)).toBe(true);
+    expect(state.recoverableCount.value).toBe(1);
+    expect(state.doclingRecoveryCount.value).toBe(1);
+
     await state.recoverAll();
 
+    expect(recoverDoclingTask).toHaveBeenCalledTimes(1);
     expect(recoverDoclingTask).toHaveBeenCalledWith(
-      "waiting-docling-poll-task-id",
+      "failed-docling-task-id",
       { reason: "bulk recovery from the processing queue" },
     );
+    expect(recoverDoclingTask).not.toHaveBeenCalledWith(
+      "waiting-docling-poll-task-id",
+      expect.anything(),
+    );
+    wrapper.unmount();
+  });
+
+  it("does not trigger bulk recovery when only waiting Docling polls are visible", async () => {
+    listTasks.mockResolvedValueOnce(page([waitingDoclingPollTask]) as never);
+    const { state, wrapper } = mountState();
+
+    await flushPromises();
+
+    expect(state.recoverableCount.value).toBe(0);
+
+    await state.recoverAll();
+
+    expect(recoverDoclingTask).not.toHaveBeenCalled();
+    expect(retryTask).not.toHaveBeenCalled();
+    expect(rerunTask).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 

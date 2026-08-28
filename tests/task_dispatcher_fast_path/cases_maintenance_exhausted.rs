@@ -391,3 +391,251 @@ async fn maintain_claim_state_keeps_partial_task_counters_consistent() {
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
+
+#[tokio::test]
+async fn maintain_claim_state_does_not_exhaust_waiting_docling_poll_at_or_above_cap() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping docling poll exhaustion test");
+        return;
+    };
+    let _guard = FAST_PATH_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+
+    for attempt in [5, 8, 10] {
+        let task_id = Uuid::new_v4();
+        let (task_id, _reused, item_ids) = db
+            .create_task_submission(
+                task_id,
+                user_id,
+                None,
+                "text_batch",
+                Some("test/fast-path"),
+                None,
+                &[json!({"external_id": format!("docling-maintain-{attempt}")})],
+                None,
+                &format!("fast-path-docling-maintain-{attempt}-{}", Uuid::new_v4()),
+            )
+            .await
+            .expect("create docling poll task");
+        let item_id = item_ids[0];
+
+        // Park as a due waiting docling_poll with an active external job; the
+        // generic five-attempt exhaustion must not mark it failed.
+        sqlx::query(
+            "UPDATE context69.task_items \
+             SET status = 'waiting', stage = 'docling_poll', waiting_reason = 'external_job', \
+                 attempt_count = $2, next_attempt_at = now() - interval '1 minute', waiting_since = now() \
+             WHERE id = $1",
+        )
+        .bind(item_id)
+        .bind(attempt)
+        .execute(db.pool())
+        .await
+        .expect("park item as waiting docling_poll");
+
+        sqlx::query(
+            "UPDATE context69.tasks \
+             SET status = 'waiting', stage = 'docling_poll', waiting_reason = 'external_job', \
+                 next_attempt_at = now() - interval '1 minute' \
+             WHERE id = $1",
+        )
+        .bind(task_id)
+        .execute(db.pool())
+        .await
+        .expect("park task as waiting");
+
+        // Bring parent counters in sync with the manually parked waiting
+        // item; otherwise the task's denormalized counts remain at the
+        // pre-park queued values and the assertion below would see a stale
+        // waiting_count. In production this recompute happens inside
+        // wait_item, so we replicate it here for the manual fixture.
+        db.recompute_task(task_id)
+            .await
+            .expect("recompute after parking docling poll");
+
+        let deadline = chrono::Utc::now() + chrono::Duration::hours(1);
+        let next_poll = chrono::Utc::now() - chrono::Duration::seconds(30);
+        let job_id = {
+            let id = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO context69.task_external_jobs \
+                 (id, item_id, provider, remote_task_id, status, submitted_at, next_poll_at, deadline_at, submission_count) \
+                 VALUES ($1, $2, 'docling', $3, 'running', now(), $4, $5, 1)",
+            )
+            .bind(id)
+            .bind(item_id)
+            .bind(format!("remote-{id}"))
+            .bind(next_poll)
+            .bind(deadline)
+            .execute(db.pool())
+            .await
+            .expect("insert running external job");
+            id
+        };
+
+        let outcome = db
+            .maintain_claim_state()
+            .await
+            .expect("maintenance succeeds");
+
+        // The waiting docling_poll must not be counted as exhausted even though
+        // its attempt_count is at/above 5.
+        let item_status: String =
+            sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
+                .bind(item_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("load item status");
+        assert_eq!(
+            item_status, "waiting",
+            "due waiting docling_poll with active external job must not be exhausted at attempt {attempt}"
+        );
+        let failure_stage: Option<String> =
+            sqlx::query_scalar("SELECT failure_stage FROM context69.task_items WHERE id = $1")
+                .bind(item_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("load failure_stage");
+        assert!(
+            failure_stage.is_none(),
+            "exempt docling poll must not have failure_stage set"
+        );
+
+        let task = db
+            .get_task_internal(task_id)
+            .await
+            .expect("load task")
+            .expect("task exists");
+        assert_eq!(
+            task.waiting_count, 1,
+            "task waiting_count must stay 1 for exempt poll at attempt {attempt}"
+        );
+        assert_eq!(
+            task.failed_count, 0,
+            "task failed_count must stay 0 for exempt poll at attempt {attempt}"
+        );
+        assert_eq!(
+            task.status, "waiting",
+            "task must stay waiting for exempt poll at attempt {attempt}"
+        );
+
+        // Item must remain claimable on the fast path despite being past the cap.
+        let claimed = db
+            .claim_items_fast(10)
+            .await
+            .expect("fast claim")
+            .into_iter()
+            .find(|item| item.task_id == task_id)
+            .expect("exempt waiting docling_poll must remain claimable after maintenance");
+        assert_eq!(claimed.id, item_id);
+        assert_eq!(claimed.attempt_count, attempt + 1);
+
+        // Clean up the claimed attempt and the external job so the task can be deleted.
+        sqlx::query("DELETE FROM context69.task_external_jobs WHERE id = $1")
+            .bind(job_id)
+            .execute(db.pool())
+            .await
+            .expect("clean up external job");
+        sqlx::query("DELETE FROM context69.task_attempts WHERE item_id = $1")
+            .bind(item_id)
+            .execute(db.pool())
+            .await
+            .expect("clean up attempts");
+        cleanup_task(&db, task_id, user_id).await;
+
+        // Ensure the maintenance outcome did not incorrectly count this exempt item.
+        // We do not assert outcome == 0 globally because concurrent tests could
+        // have exhausted other items, but we have already verified this task's
+        // item was not marked failed.
+        let _ = outcome.exhausted_items;
+    }
+
+    cleanup_user(&db, user_id).await;
+}
+
+#[tokio::test]
+async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping ordinary exhaustion test");
+        return;
+    };
+    let _guard = FAST_PATH_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+
+    // Ordinary waiting items with a dependency/backoff reason must still be
+    // exhausted at attempt_count >= 5; the docling_poll exemption is narrow.
+    let task_id = Uuid::new_v4();
+    let (task_id, _reused, item_ids) = db
+        .create_task_submission(
+            task_id,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/fast-path"),
+            None,
+            &[json!({"external_id": "ordinary-waiting"})],
+            None,
+            &format!("fast-path-ordinary-{}", Uuid::new_v4()),
+        )
+        .await
+        .expect("create ordinary task");
+    let item_id = item_ids[0];
+
+    sqlx::query(
+        "UPDATE context69.task_items \
+         SET status = 'waiting', stage = 'indexing', waiting_reason = 'backoff', \
+             attempt_count = 5, next_attempt_at = now() - interval '1 minute', waiting_since = now() \
+         WHERE id = $1",
+    )
+    .bind(item_id)
+    .execute(db.pool())
+    .await
+    .expect("park ordinary waiting item");
+
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'waiting', stage = 'indexing', waiting_reason = 'backoff', \
+             next_attempt_at = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("park ordinary task");
+
+    let outcome = db
+        .maintain_claim_state()
+        .await
+        .expect("maintenance succeeds");
+    assert!(
+        outcome.exhausted_items >= 1,
+        "ordinary waiting item at the cap must be exhausted"
+    );
+
+    let item_status: String =
+        sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
+            .bind(item_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("load item status");
+    assert_eq!(
+        item_status, "failed",
+        "ordinary waiting item must be marked failed"
+    );
+
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(task.failed_count, 1);
+    assert_eq!(task.waiting_count, 0);
+    assert_eq!(task.status, "failed");
+
+    cleanup_task(&db, task_id, user_id).await;
+    cleanup_user(&db, user_id).await;
+}

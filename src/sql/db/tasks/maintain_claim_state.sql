@@ -5,9 +5,9 @@
 -- safe to repeat: exhausted item/file/task propagation only touches rows
 -- that already satisfy the existing exhausted predicates
 -- (attempt_count >= 5 while queued/waiting), which the fast claim's
--- eligible selection explicitly excludes, and expired-attempt interruption
--- is scoped to abandoned attempts (lease_until IS NULL OR lease_until < now())
--- so it does not
+-- eligible selection explicitly excludes except for waiting Docling polls,
+-- and expired-attempt interruption is scoped to abandoned attempts
+-- (lease_until IS NULL OR lease_until < now()) so it does not
 -- clear active leases. When an expired running item is interrupted, its
 -- item lease (lease_token/lease_until) is atomically revoked in the same
 -- statement so a late worker holding the old token cannot
@@ -21,6 +21,16 @@
 -- maintenance UPDATE/RETURNING work when the queue is empty and lets the
 -- recovery tick keep converging exhausted-only queues toward terminal
 -- state.
+--
+-- Waiting Docling poll items (stage = 'docling_poll', waiting_reason = 'external_job')
+-- are excluded from generic five-attempt exhaustion so a due poll can keep
+-- polling past the cap until the external-job deadline or a
+-- terminal/missing-remote resubmit path handles it. The exclusion keeps
+-- next_attempt_at and lease gating intact and preserves submitting-job
+-- safety and terminal reconciliation; ordinary queued/backoff/dependency
+-- items still exhaust at the cap, and a due docling_poll item with a
+-- terminal or missing remote job remains claimable so the poll code can
+-- observe the outcome and resubmit through the existing path.
 --
 -- Parent aggregates are recomputed atomically from the post-exhaustion
 -- effective item state. PostgreSQL data-modifying CTEs share a snapshot,
@@ -58,6 +68,11 @@ WITH to_exhaust AS (
       AND item.status IN ('queued', 'waiting')
       AND item.attempt_count >= 5
       AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
+      AND NOT (
+          item.status = 'waiting'
+          AND item.stage = 'docling_poll'
+          AND item.waiting_reason = 'external_job'
+      )
     FOR UPDATE OF item
 ), exhausted AS (
     UPDATE context69.task_items AS item

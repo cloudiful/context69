@@ -48,10 +48,18 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   let requestController: AbortController | null = null;
   let requestId = 0;
 
+  // Docling polling items wait on an active external job (stage=docling_poll,
+  // waiting_reason=external_job) and are not manual-recovery candidates while
+  // the remote job is still pending/running and its deadline has not elapsed.
+  // Only failed Docling items (failure_stage docling/docling_poll) are
+  // offered as recovery; waiting polls remain pollable through the normal
+  // attempt-count-exempt claim path and must not contribute to the
+  // recoverable count or bulk recovery action. This matches the backend
+  // guard in recover_docling_item.sql which rejects active pending/running
+  // external jobs.
   const isDoclingRecoveryTask = (task: TaskResponse) =>
-    (task.status === "waiting" && task.stage === "docling_poll")
-    || (task.status === "failed"
-      && (task.failure_stage === "docling" || task.failure_stage === "docling_poll"));
+    task.status === "failed"
+    && (task.failure_stage === "docling" || task.failure_stage === "docling_poll");
   const isRecoverableTask = (task: TaskResponse) =>
     task.status === "failed" || task.status === "cancelled" || isDoclingRecoveryTask(task);
   const recoverableCount = computed(() => items.value.filter(isRecoverableTask).length);

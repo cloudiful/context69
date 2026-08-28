@@ -13,6 +13,18 @@
 -- claimed so the fast path still recycles a crashed worker's attempt
 -- even when no recovery maintenance has run recently. maintain_claim_state
 -- handles the wider expired-attempt set on the recovery tick.
+--
+-- Docling polling items (stage = 'docling_poll', waiting_reason = 'external_job')
+-- remain claimable when due even at or above the generic five-attempt cap
+-- so a live remote conversion can keep polling until its deadline or a
+-- terminal/missing-remote resubmit path handles it. The existing
+-- next_attempt_at and lease gates still apply and no duplicate submission
+-- is permitted; ordinary queued/backoff/dependency items still exhaust at
+-- the cap. A due waiting docling_poll external_job item therefore bypasses
+-- the generic attempt_count < 5 gate but must still satisfy the due and
+-- task-state predicates, and maintenance will not exhaust it either, so a
+-- terminal or missing remote job can still be observed and resubmitted
+-- through the existing poll code.
 WITH eligible AS (
     SELECT ti.id, ti.task_id
     FROM context69.task_items ti
@@ -33,6 +45,12 @@ WITH eligible AS (
           OR (
               ti.status = 'running'
               AND (ti.lease_until IS NULL OR ti.lease_until < now())
+          )
+          OR (
+              ti.status = 'waiting'
+              AND ti.stage = 'docling_poll'
+              AND ti.waiting_reason = 'external_job'
+              AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
           )
       )
     ORDER BY CASE
