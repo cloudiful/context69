@@ -50,6 +50,14 @@ pub enum ExtractionJobStatus {
     Skipped,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtractionFailureClass {
+    Transient,
+    QuotaExceeded,
+    Permanent,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct ExtractionJobResponse {
     pub job_id: Uuid,
@@ -60,6 +68,10 @@ pub struct ExtractionJobResponse {
     pub status: ExtractionJobStatus,
     pub attempt_count: i32,
     pub error_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_class: Option<ExtractionFailureClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_attempt_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
@@ -89,6 +101,17 @@ pub struct ExtractionJobsResponse {
 pub struct RebuildDocumentExtractionsRequest {
     #[serde(default)]
     pub template_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct ExtractionHealthResponse {
+    pub queued: i64,
+    pub running: i64,
+    pub awaiting_retry: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_retry_at: Option<DateTime<Utc>>,
+    pub failed_last_hour: i64,
+    pub failure_class_counts: std::collections::BTreeMap<String, i64>,
 }
 
 fn default_parameters() -> serde_json::Value {

@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    COUNT(*) FILTER (WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= now()))::bigint AS queued,\n    COUNT(*) FILTER (WHERE status = 'running')::bigint AS running,\n    COUNT(*) FILTER (WHERE status = 'queued' AND next_attempt_at > now())::bigint AS awaiting_retry,\n    MIN(next_attempt_at) FILTER (WHERE status = 'queued' AND next_attempt_at > now()) AS next_retry_at,\n    COUNT(*) FILTER (WHERE status = 'failed' AND finished_at > now() - interval '1 hour')::bigint AS failed_last_hour,\n    COALESCE(\n        (SELECT jsonb_object_agg(failure_class, cnt)\n         FROM (\n             SELECT failure_class, COUNT(*)::bigint AS cnt\n             FROM context69.document_extraction_jobs\n             WHERE status = 'failed' AND failure_class IS NOT NULL\n               AND finished_at > now() - interval '1 hour'\n             GROUP BY failure_class\n         ) sub),\n        '{}'::jsonb\n    ) AS failure_class_counts\nFROM context69.document_extraction_jobs\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "queued",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "running",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "awaiting_retry",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "next_retry_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed_last_hour",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "failure_class_counts",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cc0aeea7fbe04eda5177bea98161df8c94192889ac8c1e6b7ef15f46e3696add"
+}

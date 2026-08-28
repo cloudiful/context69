@@ -5,8 +5,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use context69_contracts::{
-    ExtractionJobResponse, ExtractionJobsResponse, ExtractionTemplateInput,
-    ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
+    ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobsResponse,
+    ExtractionTemplateInput, ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
 };
 use tokio::sync::{Mutex, Semaphore};
 use tracing::error;
@@ -26,18 +26,31 @@ pub struct ExtractionService {
     readiness: Arc<dyn ExtractionReadiness>,
     semaphore: Arc<Semaphore>,
     worker_lock: Arc<Mutex<()>>,
+    concurrency: usize,
 }
 
 impl ExtractionService {
     pub fn new(dependencies: ExtractionDependencies) -> Self {
+        let concurrency = dependencies.concurrency.max(1);
         Self {
             store: ExtractionStore::new(dependencies.pool),
             http_client: dependencies.http_client,
             publisher: dependencies.publisher,
             readiness: dependencies.readiness,
-            semaphore: Arc::new(Semaphore::new(dependencies.concurrency.max(1))),
+            semaphore: Arc::new(Semaphore::new(concurrency)),
             worker_lock: Arc::new(Mutex::new(())),
+            concurrency,
         }
+    }
+
+    /// Test seam: returns the configured max concurrency (semaphore size).
+    pub fn configured_concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    /// Test seam: current available permits (should equal configured when idle).
+    pub fn available_permits(&self) -> usize {
+        self.semaphore.available_permits()
     }
 
     pub async fn resume(&self) -> Result<()> {
@@ -92,6 +105,10 @@ impl ExtractionService {
             .context("extraction job is not retryable")?;
         self.spawn_worker();
         codec::job_response(job)
+    }
+
+    pub async fn health(&self) -> Result<ExtractionHealthResponse> {
+        self.store.health().await
     }
 
     pub async fn rebuild(

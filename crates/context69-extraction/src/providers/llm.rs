@@ -1,7 +1,9 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 
-use super::{ProviderExtractionRequest, ProviderExtractionResult};
+use super::{
+    ProviderExtractionRequest, ProviderExtractionResult, ProviderHttpError, ProviderPayloadError,
+};
 use crate::store::StoredExtractionProvider;
 
 const TOOL_NAME: &str = "submit_extraction";
@@ -134,8 +136,11 @@ impl LlmProvider {
             "anthropic_messages" => self.anthropic(request).await?,
             other => return Err(anyhow!("unsupported LLM api kind {other}")),
         };
-        let payload = extract_tool_payload(api_kind, &response)
-            .context("LLM response omitted submit_extraction payload")?;
+        let payload = extract_tool_payload(api_kind, &response).ok_or_else(|| {
+            anyhow::Error::new(ProviderPayloadError(
+                "LLM response omitted submit_extraction payload".to_string(),
+            ))
+        })?;
         Ok(ProviderExtractionResult {
             result: payload,
             model_name: self.config.model.clone(),
@@ -156,9 +161,16 @@ async fn parse_http_response(response: reqwest::Response) -> Result<Value> {
     let status = response.status();
     let text = response.text().await?;
     if !status.is_success() {
-        return Err(anyhow!("LLM provider returned {status}: {text}"));
+        return Err(anyhow::Error::new(ProviderHttpError {
+            status: status.as_u16(),
+            body: text,
+        }));
     }
-    serde_json::from_str(&text).context("LLM response is not JSON")
+    serde_json::from_str(&text).map_err(|err| {
+        anyhow::Error::new(ProviderPayloadError(format!(
+            "LLM response is not JSON: {err}"
+        )))
+    })
 }
 
 fn extract_tool_payload(api_kind: &str, value: &Value) -> Option<Value> {

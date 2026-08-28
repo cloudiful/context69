@@ -38,6 +38,24 @@
         }
       }
     },
+    "/v1/admin/extraction/health": {
+      "get": {
+        "tags": [],
+        "operationId": "get_extraction_health",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionHealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/tasks/cancel-active": {
       "post": {
         "tags": [],
@@ -6161,6 +6179,59 @@
           }
         }
       },
+      "ExtractionFailureClass": {
+        "type": "string",
+        "enum": [
+          "transient",
+          "quota_exceeded",
+          "permanent"
+        ]
+      },
+      "ExtractionHealthResponse": {
+        "type": "object",
+        "required": [
+          "queued",
+          "running",
+          "awaiting_retry",
+          "failed_last_hour",
+          "failure_class_counts"
+        ],
+        "properties": {
+          "awaiting_retry": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed_last_hour": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failure_class_counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "next_retry_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "running": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ExtractionJobResponse": {
         "type": "object",
         "required": [
@@ -6193,6 +6264,16 @@
               "null"
             ]
           },
+          "failure_class": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionFailureClass"
+              }
+            ]
+          },
           "finished_at": {
             "type": [
               "string",
@@ -6203,6 +6284,13 @@
           "job_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "source_record_hash": {
             "type": "string"

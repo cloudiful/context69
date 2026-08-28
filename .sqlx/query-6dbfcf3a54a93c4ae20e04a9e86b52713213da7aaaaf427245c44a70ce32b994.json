@@ -167,6 +167,28 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "failure_class",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "failure_class"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "next_attempt_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -190,7 +212,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
   "hash": "6dbfcf3a54a93c4ae20e04a9e86b52713213da7aaaaf427245c44a70ce32b994"

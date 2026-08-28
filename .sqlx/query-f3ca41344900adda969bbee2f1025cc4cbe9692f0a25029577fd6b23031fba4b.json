@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id\nFROM context69.document_extraction_jobs\nWHERE status = 'queued'\nORDER BY created_at, id\n\n",
+  "query": "SELECT id\nFROM context69.document_extraction_jobs\nWHERE status = 'queued'\n  AND (next_attempt_at IS NULL OR next_attempt_at <= now())\nORDER BY COALESCE(next_attempt_at, created_at), created_at, id\n\n",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "652d446cdffe9bf80fb1ec79fa6404d65e7a6a5ddf255abd1c97c9e4ac9e2fcf"
+  "hash": "f3ca41344900adda969bbee2f1025cc4cbe9692f0a25029577fd6b23031fba4b"
 }

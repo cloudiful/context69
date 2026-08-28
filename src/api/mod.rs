@@ -106,8 +106,8 @@ pub(crate) use documents::{
     retry_metadata_index, update_metadata_index,
 };
 pub(crate) use extractions::{
-    list_document_extraction_jobs, list_extraction_templates, rebuild_document_extractions,
-    upsert_extraction_template,
+    get_extraction_health, list_document_extraction_jobs, list_extraction_templates,
+    rebuild_document_extractions, upsert_extraction_template,
 };
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,

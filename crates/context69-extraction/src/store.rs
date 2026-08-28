@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use context69_contracts::{
-    ExtractionJobResponse, ExtractionJobStatus, ExtractionResultResponse, ExtractionTemplateInput,
-    ExtractionTemplateResponse,
+    ExtractionFailureClass, ExtractionJobResponse, ExtractionJobStatus, ExtractionResultResponse,
+    ExtractionTemplateInput, ExtractionTemplateResponse,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -25,6 +25,12 @@ pub mod codec {
             status: parse_status(&row.status)?,
             attempt_count: row.attempt_count,
             error_message: row.error_message,
+            failure_class: row
+                .failure_class
+                .as_deref()
+                .map(parse_failure_class)
+                .transpose()?,
+            next_attempt_at: row.next_attempt_at,
             created_at: row.created_at,
             started_at: row.started_at,
             finished_at: row.finished_at,
@@ -67,6 +73,15 @@ pub mod codec {
             "failed" => Ok(ExtractionJobStatus::Failed),
             "skipped" => Ok(ExtractionJobStatus::Skipped),
             _ => Err(anyhow!("invalid extraction job status")),
+        }
+    }
+
+    pub fn parse_failure_class(value: &str) -> Result<ExtractionFailureClass> {
+        match value {
+            "transient" => Ok(ExtractionFailureClass::Transient),
+            "quota_exceeded" => Ok(ExtractionFailureClass::QuotaExceeded),
+            "permanent" => Ok(ExtractionFailureClass::Permanent),
+            _ => Err(anyhow!("invalid extraction failure_class")),
         }
     }
 }
@@ -140,6 +155,8 @@ pub struct ExtractionJobRecord {
     pub provider_config_hash: Option<String>,
     pub attempt_count: i32,
     pub error_message: Option<String>,
+    pub failure_class: Option<String>,
+    pub next_attempt_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,

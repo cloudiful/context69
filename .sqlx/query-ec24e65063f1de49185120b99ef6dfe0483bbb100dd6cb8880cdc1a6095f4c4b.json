@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.document_extraction_jobs j\nSET status = 'queued', finished_at = NULL, error_message = NULL, updated_at = now()\nFROM context69.documents d\nWHERE j.id = $1 AND d.id = j.document_id AND d.group_id = $2\n  AND j.status IN ('failed', 'skipped')\nRETURNING j.*\n\n",
+  "query": "UPDATE context69.document_extraction_jobs j\nSET status = 'queued', finished_at = NULL, error_message = NULL,\n    failure_class = NULL, next_attempt_at = NULL, updated_at = now()\nFROM context69.documents d\nWHERE j.id = $1 AND d.id = j.document_id AND d.group_id = $2\n  AND j.status IN ('failed', 'skipped')\nRETURNING j.*\n\n",
   "describe": {
     "columns": [
       {
@@ -167,6 +167,28 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "failure_class",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "failure_class"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "next_attempt_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -190,8 +212,10 @@
       false,
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "4716994d76c7818eb43e6cfbebaa8f07fb1fb83366b8b2e28930806ddaa59967"
+  "hash": "ec24e65063f1de49185120b99ef6dfe0483bbb100dd6cb8880cdc1a6095f4c4b"
 }

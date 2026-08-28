@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT min(next_attempt_at)\nFROM context69.document_extraction_jobs\nWHERE status = 'queued' AND next_attempt_at > now()\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "min",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "02a6f0b8947f36e49e7b35b3e9f68c6253881256aac350bcc248f778cfed740b"
+}

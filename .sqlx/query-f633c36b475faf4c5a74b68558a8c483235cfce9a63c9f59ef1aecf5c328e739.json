@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.document_extraction_jobs\nSET status = 'running', attempt_count = attempt_count + 1,\n    started_at = COALESCE(started_at, now()), finished_at = NULL,\n    error_message = NULL, updated_at = now()\nWHERE id = $1 AND status = 'queued'\nRETURNING *\n\n",
+  "query": "UPDATE context69.document_extraction_jobs\nSET status = $2, provider_key = $3,\n    provider_config_hash = $4,\n    error_message = $5,\n    failure_class = $6,\n    next_attempt_at = $7,\n    finished_at = CASE WHEN $2 = 'queued' THEN NULL ELSE now() END,\n    updated_at = now()\nWHERE id = $1\nRETURNING *\n\n",
   "describe": {
     "columns": [
       {
@@ -167,11 +167,39 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "failure_class",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "failure_class"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_extraction_jobs",
+            "name": "next_attempt_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -189,8 +217,10 @@
       false,
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "eb28f62820c5e02561238f089276bf9c648bd4a81f974e391e78abfe66c7a30b"
+  "hash": "f633c36b475faf4c5a74b68558a8c483235cfce9a63c9f59ef1aecf5c328e739"
 }

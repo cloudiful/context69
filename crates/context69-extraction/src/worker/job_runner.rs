@@ -1,30 +1,53 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use chrono::Utc;
+use context69_contracts::ExtractionFailureClass;
 use serde_json::Value;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::ExtractionService;
 use crate::{
     ExtractionPublication,
-    providers::{ProviderExtractionRequest, extract},
+    providers::{
+        ProviderExtractionRequest, classify_error, extract, failure_class_as_str, next_retry_delay,
+    },
     store::{ExtractionAttempt, ExtractionVersionInput, FinishExtractionJob},
 };
 
 const READINESS_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const MAX_ATTEMPTS: i32 = 3;
 
 impl ExtractionService {
     pub(super) async fn run_pending(&self) -> Result<()> {
-        let Ok(_guard) = self.worker_lock.try_lock() else {
-            return Ok(());
-        };
         loop {
+            let guard = match self.worker_lock.try_lock() {
+                Ok(g) => g,
+                Err(_) => return Ok(()),
+            };
             let ids = self.store.pending_ids().await?;
             if ids.is_empty() {
+                let next_retry = self.store.next_pending_at().await?;
+                if let Some(next_at) = next_retry {
+                    // Release lock before sleeping so a newly enqueued due job can wake via spawn_worker.
+                    drop(guard);
+                    let now = Utc::now();
+                    let sleep_duration = if next_at > now {
+                        let diff = (next_at - now).to_std().unwrap_or(Duration::from_secs(0));
+                        diff.min(Duration::from_secs(5))
+                    } else {
+                        Duration::from_millis(200)
+                    };
+                    if sleep_duration > Duration::from_millis(0) {
+                        tokio::time::sleep(sleep_duration).await;
+                    }
+                    continue;
+                }
                 return Ok(());
             }
             if !self.readiness.is_ready().await? {
+                drop(guard);
                 tokio::time::sleep(READINESS_POLL_INTERVAL).await;
                 continue;
             }
@@ -36,11 +59,14 @@ impl ExtractionService {
                     service.run_job(id).await
                 }));
             }
+            // Keep guard held while tasks run to prevent concurrent run_pending loops;
+            // tasks themselves run concurrently but are bounded by the semaphore.
             for task in tasks {
                 if let Err(error) = task.await? {
                     warn!(%error, "extraction job failed");
                 }
             }
+            drop(guard);
         }
     }
 
@@ -61,8 +87,18 @@ impl ExtractionService {
                     provider_key: None,
                     provider_config_hash: None,
                     error_message: Some("source document changed"),
+                    failure_class: Some(failure_class_as_str(ExtractionFailureClass::Permanent)),
+                    next_attempt_at: None,
                 })
                 .await?;
+            warn!(
+                job_id = %id,
+                template_key = %job.template_key,
+                attempt = job.attempt_count,
+                failure_class = "permanent",
+                latency_ms = 0,
+                "extraction failed: source document changed"
+            );
             return Ok(false);
         }
         let Some(template) = self.store.template(&job.template_key).await? else {
@@ -73,8 +109,18 @@ impl ExtractionService {
                     provider_key: None,
                     provider_config_hash: None,
                     error_message: Some("extraction template missing"),
+                    failure_class: Some(failure_class_as_str(ExtractionFailureClass::Permanent)),
+                    next_attempt_at: None,
                 })
                 .await?;
+            warn!(
+                job_id = %id,
+                template_key = %job.template_key,
+                attempt = job.attempt_count,
+                failure_class = "permanent",
+                latency_ms = 0,
+                "extraction failed: template missing"
+            );
             return Ok(false);
         };
         if !template.enabled {
@@ -85,6 +131,8 @@ impl ExtractionService {
                     provider_key: None,
                     provider_config_hash: None,
                     error_message: None,
+                    failure_class: None,
+                    next_attempt_at: None,
                 })
                 .await?;
             return Ok(false);
@@ -97,8 +145,18 @@ impl ExtractionService {
                     provider_key: None,
                     provider_config_hash: None,
                     error_message: Some("LLM provider is not configured"),
+                    failure_class: Some(failure_class_as_str(ExtractionFailureClass::Permanent)),
+                    next_attempt_at: None,
                 })
                 .await?;
+            warn!(
+                job_id = %id,
+                template_key = %job.template_key,
+                attempt = job.attempt_count,
+                failure_class = "permanent",
+                latency_ms = 0,
+                "extraction failed: provider not configured"
+            );
             return Ok(false);
         };
         if !provider.enabled {
@@ -109,6 +167,8 @@ impl ExtractionService {
                     provider_key: None,
                     provider_config_hash: None,
                     error_message: Some("LLM provider is disabled"),
+                    failure_class: None,
+                    next_attempt_at: None,
                 })
                 .await?;
             return Ok(false);
@@ -174,15 +234,28 @@ impl ExtractionService {
                     })
                     .await
                 {
+                    let msg = format!("metadata publish failed: {error:#}");
                     self.store
                         .finish_job(FinishExtractionJob {
                             id,
                             status: "failed",
                             provider_key: Some("llm"),
                             provider_config_hash: Some(&config_hash),
-                            error_message: Some(&format!("metadata publish failed: {error:#}")),
+                            error_message: Some(&msg),
+                            failure_class: Some(failure_class_as_str(
+                                ExtractionFailureClass::Permanent,
+                            )),
+                            next_attempt_at: None,
                         })
                         .await?;
+                    warn!(
+                        job_id = %id,
+                        template_key = %job.template_key,
+                        attempt = job.attempt_count,
+                        failure_class = "permanent",
+                        latency_ms = latency,
+                        "extraction publish failed"
+                    );
                     return Ok(false);
                 }
                 self.store
@@ -192,33 +265,110 @@ impl ExtractionService {
                         provider_key: Some("llm"),
                         provider_config_hash: Some(&config_hash),
                         error_message: None,
+                        failure_class: None,
+                        next_attempt_at: None,
                     })
                     .await?;
+                info!(
+                    job_id = %id,
+                    template_key = %job.template_key,
+                    attempt = job.attempt_count,
+                    latency_ms = latency,
+                    "extraction succeeded"
+                );
                 Ok(true)
             }
             Err(error) => {
                 let message = format!("{error:#}");
+                let failure_class = classify_error(&error);
+                let failure_str = failure_class_as_str(failure_class);
+                let attempt_status = if failure_class == ExtractionFailureClass::QuotaExceeded {
+                    "quota_exceeded"
+                } else {
+                    "failed"
+                };
                 self.store
                     .insert_attempt(ExtractionAttempt {
                         job_id: id,
                         provider_key: "llm",
                         provider_config_hash: &config_hash,
                         attempt_number: job.attempt_count,
-                        status: "failed",
+                        status: attempt_status,
                         latency_ms: latency,
                         error_message: Some(&message),
                     })
                     .await?;
-                self.store
-                    .finish_job(FinishExtractionJob {
-                        id,
-                        status: "failed",
-                        provider_key: Some("llm"),
-                        provider_config_hash: Some(&config_hash),
-                        error_message: Some(&message),
-                    })
-                    .await?;
-                Ok(false)
+                if failure_class == ExtractionFailureClass::Transient
+                    && job.attempt_count < MAX_ATTEMPTS
+                {
+                    let delay = next_retry_delay(job.attempt_count);
+                    let next_attempt_at = Utc::now()
+                        + chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(5));
+                    self.store
+                        .finish_job(FinishExtractionJob {
+                            id,
+                            status: "queued",
+                            provider_key: Some("llm"),
+                            provider_config_hash: Some(&config_hash),
+                            error_message: Some(&message),
+                            failure_class: Some(failure_str),
+                            next_attempt_at: Some(next_attempt_at),
+                        })
+                        .await?;
+                    info!(
+                        job_id = %id,
+                        template_key = %job.template_key,
+                        attempt = job.attempt_count,
+                        failure_class = failure_str,
+                        latency_ms = latency,
+                        next_attempt_at = %next_attempt_at,
+                        "extraction transient failure, scheduled retry"
+                    );
+                    // No explicit spawn: the run_pending loop sleeps until next_attempt_at (capped)
+                    // and new enqueues wake via spawn_worker with lock handover.
+                    Ok(false)
+                } else {
+                    self.store
+                        .finish_job(FinishExtractionJob {
+                            id,
+                            status: "failed",
+                            provider_key: Some("llm"),
+                            provider_config_hash: Some(&config_hash),
+                            error_message: Some(&message),
+                            failure_class: Some(failure_str),
+                            next_attempt_at: None,
+                        })
+                        .await?;
+                    if failure_class == ExtractionFailureClass::QuotaExceeded {
+                        warn!(
+                            job_id = %id,
+                            template_key = %job.template_key,
+                            attempt = job.attempt_count,
+                            failure_class = failure_str,
+                            latency_ms = latency,
+                            "extraction quota exceeded"
+                        );
+                    } else if failure_class == ExtractionFailureClass::Transient {
+                        warn!(
+                            job_id = %id,
+                            template_key = %job.template_key,
+                            attempt = job.attempt_count,
+                            failure_class = failure_str,
+                            latency_ms = latency,
+                            "extraction transient failure exhausted retries"
+                        );
+                    } else {
+                        warn!(
+                            job_id = %id,
+                            template_key = %job.template_key,
+                            attempt = job.attempt_count,
+                            failure_class = failure_str,
+                            latency_ms = latency,
+                            "extraction permanent failure"
+                        );
+                    }
+                    Ok(false)
+                }
             }
         }
     }

@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/extraction/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_extraction_health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tasks/cancel-active": {
         parameters: {
             query?: never;
@@ -1600,6 +1616,23 @@ export interface components {
             parameters?: Record<string, never>;
             template_key: string;
         };
+        /** @enum {string} */
+        ExtractionFailureClass: "transient" | "quota_exceeded" | "permanent";
+        ExtractionHealthResponse: {
+            /** Format: int64 */
+            awaiting_retry: number;
+            /** Format: int64 */
+            failed_last_hour: number;
+            failure_class_counts: {
+                [key: string]: number;
+            };
+            /** Format: date-time */
+            next_retry_at?: string | null;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            running: number;
+        };
         ExtractionJobResponse: {
             /** Format: int32 */
             attempt_count: number;
@@ -1608,10 +1641,13 @@ export interface components {
             /** Format: int64 */
             document_id: number;
             error_message?: string | null;
+            failure_class?: null | components["schemas"]["ExtractionFailureClass"];
             /** Format: date-time */
             finished_at?: string | null;
             /** Format: uuid */
             job_id: string;
+            /** Format: date-time */
+            next_attempt_at?: string | null;
             source_record_hash: string;
             /** Format: date-time */
             started_at?: string | null;
@@ -2788,6 +2824,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    get_extraction_health: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionHealthResponse"];
                 };
             };
         };

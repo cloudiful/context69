@@ -28,9 +28,9 @@ pub use documents::{
     UpdateMetadataIndexRequest,
 };
 pub use extraction::{
-    ExtractionDirective, ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse,
-    ExtractionResultResponse, ExtractionTemplateInput, ExtractionTemplateResponse,
-    RebuildDocumentExtractionsRequest,
+    ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse,
+    ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse, ExtractionTemplateInput,
+    ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
 };
 pub use library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,

@@ -1,4 +1,4 @@
-mod providers;
+pub mod providers;
 mod store;
 mod worker;
 

@@ -12,8 +12,8 @@ use super::{
     group_access::{group_access_error_response, group_for_user, require_group_role},
 };
 use crate::contracts::{
-    ExtractionJobsResponse, ExtractionTemplateInput, ExtractionTemplateResponse, MembershipRole,
-    RebuildDocumentExtractionsRequest,
+    ExtractionHealthResponse, ExtractionJobsResponse, ExtractionTemplateInput,
+    ExtractionTemplateResponse, MembershipRole, RebuildDocumentExtractionsRequest,
 };
 
 #[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/extraction-templates", params(("group_path" = String, Path)), responses((status = 200, body = Vec<ExtractionTemplateResponse>)))]
@@ -66,6 +66,17 @@ pub(crate) async fn list_document_extraction_jobs(
         Err(error) => return group_access_error_response(error),
     };
     match state.app.extraction.jobs(group.id, document_id).await {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(get, path = "/v1/admin/extraction/health", responses((status = 200, body = ExtractionHealthResponse)))]
+pub(crate) async fn get_extraction_health(
+    State(state): State<ApiState>,
+    CurrentUser(_session): CurrentUser,
+) -> impl IntoResponse {
+    match state.app.extraction.health().await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(error) => library_management_error_response(error),
     }
