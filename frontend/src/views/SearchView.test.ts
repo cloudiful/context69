@@ -35,7 +35,10 @@ describe("SearchView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mocks.addToast.mockReset();
-    installMockStorage();
+    const storage = installMockStorage();
+    storage.clear();
+    window.sessionStorage.clear();
+    window.sessionStorage.removeItem("context69.search-session");
   });
 
   it("keeps the page empty before any search has been submitted", async () => {
@@ -229,5 +232,229 @@ describe("SearchView", () => {
     });
     expect(wrapper.text()).not.toContain("搜索运行时未配置。请先保存运行时设置，然后重启服务。");
     expect(wrapper.text()).not.toContain("search runtime is not configured");
+  });
+
+  it("does not write [object Object] when history entry object is selected", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("alpha", []));
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search");
+    await router.isReady();
+
+    const wrapper = mount(SearchView, {
+      global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] },
+    });
+    await flushPromises();
+
+    await wrapper.get("#query").setValue("alpha");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    const autocomplete = wrapper.getComponent({ name: "InputMenu" });
+    const suggestions = autocomplete.props("items") as SearchHistoryEntry[];
+    // simulate history object emission (old bug would have set query to "[object Object]")
+    autocomplete.vm.$emit("update:modelValue", suggestions[0] as unknown as string);
+    await flushPromises();
+
+    expect(search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "alpha" }),
+      expect.any(Object),
+    );
+    expect(wrapper.get("#query").element).toBeDefined();
+    expect(wrapper.text()).not.toContain("[object Object]");
+    const emittedQuery = (search.mock.calls[search.mock.calls.length - 1]?.[0] as { query: string })?.query;
+    expect(emittedQuery).toBe("alpha");
+    expect(emittedQuery).not.toBe("[object Object]");
+  });
+
+  it("persists page and limit in URL and reruns when same route query changes", async () => {
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("beta", [
+      {
+        chunk_id: "c1",
+        document_id: 1,
+        source_key: "src",
+        external_id: "e1",
+        group_key: "g",
+        group_path: "g/p",
+        visibility: "private",
+        title: "Beta",
+        summary: "",
+        source_uri: "https://example.com/beta",
+        published_at: null,
+        chunk_index: 0,
+        chunk_text: "t",
+        score: 0.5,
+        metadata_json: {},
+      },
+    ], 8));
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=beta&limit=16&page=2");
+    await router.isReady();
+
+    mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "beta", limit: 16, page: 2 }),
+      expect.any(Object),
+    );
+    expect(router.currentRoute.value.query.page).toBe("2");
+    expect(router.currentRoute.value.query.limit).toBe("16");
+  });
+
+  it("does not overwrite a fresh empty search with a stored session", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("gamma", []));
+    window.sessionStorage.setItem(
+      "context69.search-session",
+      JSON.stringify({ filters: { query: "gamma", sourceKey: "", publishedAfter: "", publishedBefore: "", limit: 8 }, page: 2 }),
+    );
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div>doc</div>" } },
+      ],
+    });
+    router.push("/search");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+
+    // proactive empty entry stays empty instead of rerunning the stored session
+    expect(search).not.toHaveBeenCalled();
+    expect(wrapper.find(".search-results-panel").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("[object Object]");
+  });
+
+  it("keeps lightweight return context when opening hits without embedding the hit", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const gammaHit = {
+      chunk_id: "c2",
+      document_id: 2,
+      source_key: "src",
+      external_id: "e2",
+      group_key: "g",
+      group_path: "g/p",
+      visibility: "private",
+      title: "Gamma",
+      summary: "",
+      source_uri: "https://example.com/gamma",
+      published_at: null,
+      chunk_index: 0,
+      chunk_text: "t2",
+      score: 0.6,
+      metadata_json: {},
+    };
+    vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("gamma", [gammaHit as SearchHit]));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/groups/:groupPath", name: "group-overview", component: { template: "<div>library</div>" } },
+        { path: "/documents/:id", name: "document", component: { template: "<div>doc</div>" } },
+      ],
+    });
+    router.push("/search?q=gamma");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="search-result-open"]').trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe("document");
+    expect(router.currentRoute.value.query.from).toBe("search");
+    expect(JSON.stringify(router.currentRoute.value.query)).not.toContain("chunk_id");
+    expect(JSON.stringify(router.currentRoute.value.fullPath)).not.toContain("[object Object]");
+    const rawSession = window.sessionStorage.getItem("context69.search-session") ?? "";
+    expect(rawSession).toContain("gamma");
+    expect(rawSession).not.toContain("chunk_id");
+  });
+
+  it("reruns when the same-route query changes", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("beta", []));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=beta&page=1");
+    await router.isReady();
+    mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+    expect(search).toHaveBeenCalledTimes(1);
+
+    search.mockResolvedValueOnce(searchPage("delta", []));
+    await router.push("/search?q=delta&page=1");
+    await flushPromises();
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ query: "delta", page: 1 }), expect.any(Object));
+  });
+
+  it("updates limit before requesting on page-size change and page in URL on page change", async () => {
+    const hits = [
+      {
+        chunk_id: "c9",
+        document_id: 9,
+        source_key: "src",
+        external_id: "e9",
+        group_key: "g",
+        group_path: "g/p",
+        visibility: "private",
+        title: "Paged",
+        summary: "",
+        source_uri: "https://example.com/paged",
+        published_at: null,
+        chunk_index: 0,
+        chunk_text: "t",
+        score: 0.5,
+        metadata_json: {},
+      },
+    ];
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("paged", hits as SearchHit[]));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=paged");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ query: "paged", limit: 8, page: 1 }), expect.any(Object));
+
+    const resultList = wrapper.getComponent({ name: "SearchResultList" });
+    resultList.vm.$emit("page-size", 16);
+    await flushPromises();
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ query: "paged", limit: 16, page: 1 }), expect.any(Object));
+    expect(router.currentRoute.value.query.limit).toBe("16");
+
+    const freshList = wrapper.getComponent({ name: "SearchResultList" });
+    await freshList.vm.$emit("page", 2);
+    await flushPromises();
+    await flushPromises();
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ query: "paged", limit: 16, page: 2 }), expect.any(Object));
+    expect(router.currentRoute.value.query.page).toBe("2");
   });
 });

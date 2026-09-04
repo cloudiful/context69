@@ -19,8 +19,9 @@ function getStorage(): Storage | null {
 }
 
 function normalizeFilters(filters: SearchFilters): SearchFilters {
+  const query = filters.query.trim();
   return {
-    query: filters.query.trim(),
+    query: query === "[object Object]" ? "" : query,
     sourceKey: filters.sourceKey,
     publishedAfter: filters.publishedAfter,
     publishedBefore: filters.publishedBefore,

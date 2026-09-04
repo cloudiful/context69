@@ -12,6 +12,7 @@ withDefaults(defineProps<{
   loading?: boolean;
   loadingTitle?: string;
   pagination?: Pagination | null;
+  pageSizeOptions?: number[];
 }>(), {
   empty: false,
   emptyMessage: "",
@@ -19,6 +20,7 @@ withDefaults(defineProps<{
   loading: false,
   loadingTitle: "",
   pagination: undefined,
+  pageSizeOptions: undefined,
 });
 
 const emit = defineEmits<{
@@ -31,7 +33,7 @@ const { t } = useI18n();
 </script>
 
 <template>
-  <div class="grid min-w-0 gap-2">
+  <div class="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
     <slot name="toolbar" />
 
     <AsyncStateBlock
@@ -47,12 +49,16 @@ const { t } = useI18n();
           <UButton color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :label="t('common.retry')" @click="emit('retry')" />
         </div>
       </template>
-      <slot />
+      <div class="min-w-0 overflow-hidden">
+        <slot />
+      </div>
     </AsyncStateBlock>
 
     <TablePagination
       v-if="pagination"
       :pagination="pagination"
+      :page-size-options="pageSizeOptions"
+      class="shrink-0"
       @update:page="emit('update:page', $event)"
       @update:page-size="emit('update:page-size', $event)"
     />

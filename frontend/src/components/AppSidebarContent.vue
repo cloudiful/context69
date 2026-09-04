@@ -34,33 +34,32 @@ async function signOut() {
 </script>
 
 <template>
-  <UNavigationMenu
-    orientation="vertical"
-    :collapsed="props.collapsed"
-    :items="navigationItems"
-    class="min-h-0 flex-1"
-  />
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <UNavigationMenu
+      orientation="vertical"
+      :collapsed="props.collapsed"
+      :items="navigationItems"
+      class="min-h-0 min-w-0 flex-1 overflow-hidden [&_a]:min-w-0 [&_a_span]:min-w-0 [&_a_span]:truncate"
+    />
 
-  <template v-if="authSessionState.user">
-    <div v-if="!props.collapsed" class="mt-auto grid min-w-0 gap-1 border-t border-default pt-3" data-testid="sidebar-user-card">
-      <div class="flex items-start justify-between gap-2">
-        <span data-testid="sidebar-user-name" class="truncate text-sm font-semibold">
+    <template v-if="authSessionState.user">
+      <div v-if="!props.collapsed" class="mt-auto grid min-w-0 gap-0.5 overflow-hidden border-t border-default pt-3" data-testid="sidebar-user-card">
+        <span data-testid="sidebar-user-name" class="block min-w-0 truncate text-sm font-semibold">
           {{ authSessionState.user.display_name }}
         </span>
-        <UBadge v-if="authSessionState.user.is_admin" data-testid="sidebar-user-badge" :label="t('adminUsers.isAdmin')" color="neutral" variant="subtle" />
+        <span data-testid="sidebar-user-login" class="block min-w-0 truncate text-xs text-muted">@{{ authSessionState.user.login_name }}</span>
       </div>
-      <span data-testid="sidebar-user-login" class="truncate text-xs text-muted">@{{ authSessionState.user.login_name }}</span>
-    </div>
-    <UButton
-      class="mt-2"
-      :block="!props.collapsed"
-      color="neutral"
-      variant="ghost"
-      icon="i-lucide-log-out"
-      :label="props.collapsed ? undefined : t('auth.logout')"
-      :aria-label="t('auth.logout')"
-      :title="t('auth.logout')"
-      @click="signOut"
-    />
-  </template>
+      <UButton
+        class="mt-2 min-w-0 shrink-0"
+        :block="!props.collapsed"
+        color="neutral"
+        variant="ghost"
+        icon="i-lucide-log-out"
+        :label="props.collapsed ? undefined : t('auth.logout')"
+        :aria-label="t('auth.logout')"
+        :title="t('auth.logout')"
+        @click="signOut"
+      />
+    </template>
+  </div>
 </template>

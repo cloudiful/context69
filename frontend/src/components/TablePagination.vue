@@ -16,33 +16,42 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const pageSizeItems = computed(() => props.pageSizeOptions.map((value) => ({ label: String(value), value })));
+const effectivePageSizeOptions = computed(() => {
+  const base = props.pageSizeOptions;
+  const current = props.pagination.page_size;
+  if (base.includes(current)) return base;
+  return [...base, current].sort((a, b) => a - b);
+});
+const pageSizeItems = computed(() => effectivePageSizeOptions.value.map((value) => ({ label: String(value), value })));
 
-function updatePageSize(value: number) {
-  if (value === props.pagination.page_size) return;
-  emit("update:page-size", value);
+function updatePageSize(value: unknown) {
+  const next = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(next) || next === props.pagination.page_size) return;
+  emit("update:page-size", next);
 }
 </script>
 
 <template>
-  <div v-if="props.pagination.total > 0" class="flex flex-wrap items-center justify-between gap-2">
-    <div class="flex items-center gap-2">
+  <div v-if="props.pagination && props.pagination.total >= 0" class="flex min-h-9 flex-wrap items-center justify-between gap-2 overflow-hidden">
+    <div v-if="props.pagination.total > 0" class="flex items-center gap-2">
       <span class="text-sm text-muted-color">{{ t("common.itemsPerPage") }}</span>
       <USelect
         :model-value="props.pagination.page_size"
         :items="pageSizeItems"
         value-key="value"
-        class="w-20"
+        class="w-20 min-w-0"
         :aria-label="t('common.itemsPerPage')"
-        @update:model-value="updatePageSize($event as number)"
+        @update:model-value="updatePageSize($event)"
       />
     </div>
+    <span v-else class="text-sm text-muted">{{ t("common.itemsPerPage") }}</span>
 
     <UPagination
       v-if="props.pagination.total > props.pagination.page_size"
       :page="props.pagination.page"
       :items-per-page="props.pagination.page_size"
       :total="props.pagination.total"
+      class="min-w-0"
       @update:page="emit('update:page', $event)"
     />
   </div>

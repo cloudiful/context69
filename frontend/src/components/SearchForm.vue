@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { parseDate } from "@internationalized/date";
+import type { DateValue } from "@internationalized/date";
 
 import AppFormField from "./AppFormField.vue";
 import type { SourceStatus } from "../services/api";
@@ -22,7 +24,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const advancedFiltersOpen = ref(false);
-const historySuggestions = ref<SearchHistoryEntry[]>([]);
 
 function patchFilters(next: Partial<SearchFilters>) {
   emit("update:filters", {
@@ -31,42 +32,49 @@ function patchFilters(next: Partial<SearchFilters>) {
   });
 }
 
-function parseDateValue(value: string): Date | null {
-  if (!value) {
-    return null;
+function parseCalendarDate(value: string): DateValue | undefined {
+  if (!value) return undefined;
+  try {
+    return parseDate(value);
+  } catch {
+    return undefined;
   }
-
-  const [year, month, day] = value.split("-").map((item) => Number.parseInt(item, 10));
-  if (!year || !month || !day) {
-    return null;
-  }
-
-  return new Date(year, month - 1, day);
 }
 
-function formatDateValue(value: Date | Date[] | null | undefined): string {
-  const date = Array.isArray(value) ? value[0] : value;
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+function formatCalendarDate(value: DateValue | undefined): string {
+  if (!value) return "";
+  const year = String(value.year).padStart(4, "0");
+  const month = String(value.month).padStart(2, "0");
+  const day = String(value.day).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-function completeHistory(event: { query: string }) {
-  const query = event.query.trim().toLocaleLowerCase();
-  historySuggestions.value = props.historyEntries.filter((entry) => !query || entry.query.toLocaleLowerCase().includes(query));
-}
+type SearchDateRange = {
+  start: DateValue | undefined;
+  end: DateValue | undefined;
+};
 
 function updateQuery(value: string | SearchHistoryEntry | null) {
-  if (value && typeof value === "object") {
-    emit("history-select", value);
+  if (value == null) {
+    patchFilters({ query: "" });
     return;
   }
-  patchFilters({ query: value ?? "" });
+  if (typeof value === "object") {
+    const entry = value as SearchHistoryEntry;
+    const query = typeof entry.query === "string" ? entry.query : String(entry.query ?? "");
+    if (!query || query === "[object Object]") {
+      patchFilters({ query: "" });
+      return;
+    }
+    patchFilters({ query });
+    emit("history-select", { ...entry, query });
+    return;
+  }
+  if (value === "[object Object]") {
+    return;
+  }
+  const stringValue = String(value);
+  patchFilters({ query: stringValue });
 }
 
 const sourceOptions = computed(() => [
@@ -93,14 +101,23 @@ const limitModel = computed({
   },
 });
 
-const publishedAfterModel = computed({
-  get: () => props.filters.publishedAfter,
-  set: (value: string) => patchFilters({ publishedAfter: value }),
-});
-
-const publishedBeforeModel = computed({
-  get: () => props.filters.publishedBefore,
-  set: (value: string) => patchFilters({ publishedBefore: value }),
+const dateRangeModel = computed<SearchDateRange | null | undefined>({
+  get: () => {
+    const start = parseCalendarDate(props.filters.publishedAfter);
+    const end = parseCalendarDate(props.filters.publishedBefore);
+    if (!start && !end) return undefined;
+    return { start, end };
+  },
+  set: (value) => {
+    if (!value || (!value.start && !value.end)) {
+      patchFilters({ publishedAfter: "", publishedBefore: "" });
+      return;
+    }
+    patchFilters({
+      publishedAfter: formatCalendarDate(value.start),
+      publishedBefore: formatCalendarDate(value.end),
+    });
+  },
 });
 
 watch(
@@ -126,9 +143,9 @@ function resetForm() {
 </script>
 
 <template>
-  <div class="block w-full">
-    <form class="grid w-full gap-2" @submit.prevent="emit('submit')">
-      <div class="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+  <div class="block w-full min-w-0 overflow-hidden">
+    <form class="grid w-full min-w-0 gap-2" @submit.prevent="emit('submit')">
+      <div class="grid min-w-0 items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
         <UInputMenu
           id="query"
           class="min-w-0"
@@ -139,21 +156,27 @@ function resetForm() {
           data-testid="search-query"
           size="sm"
           :placeholder="t('search.form.query')"
+          :filter-fields="['query']"
           @update:model-value="updateQuery"
-        />
+        >
+          <template #item-label="{ item }">
+            <span class="block truncate" :title="typeof item === 'string' ? item : (item as SearchHistoryEntry).query">{{ typeof item === 'string' ? item : (item as SearchHistoryEntry).query }}</span>
+          </template>
+        </UInputMenu>
 
-        <div class="flex items-stretch justify-end gap-1.5">
+        <div class="flex min-w-0 items-stretch justify-end gap-1.5">
           <UButton
-            class="min-w-0"
+            class="min-w-0 shrink-0"
             data-testid="search-toggle-advanced"
             type="button"
-      variant="ghost"            color="neutral"
+            variant="ghost"
+            color="neutral"
             @click="advancedFiltersOpen = !advancedFiltersOpen"
           >
             {{ advancedFiltersOpen ? t("search.form.hideFilters") : t("search.form.moreFilters") }}
           </UButton>
           <UButton
-            class="w-full min-w-0 lg:w-auto lg:min-w-[7.25rem]"
+            class="w-full min-w-0 lg:w-auto lg:min-w-[7.25rem] shrink-0"
             data-testid="search-submit"
             type="submit"
             :disabled="busy"
@@ -163,17 +186,25 @@ function resetForm() {
         </div>
       </div>
 
-      <div v-if="advancedFiltersOpen" class="grid gap-2 border-t border-surface pt-2">
-        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_8rem]">
+      <div v-if="advancedFiltersOpen" class="grid min-w-0 gap-2 overflow-hidden border-t border-default pt-2">
+        <div class="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_8rem]">
           <AppFormField input-id="source" :label="t('search.form.source')">
-            <USelect
-              id="source"
-              v-model="sourceModel"
-              data-testid="search-source"
-              :items="sourceOptions"
-              label-key="label"
-              value-key="value"
-            />
+            <div class="min-w-0">
+              <USelect
+                id="source"
+                v-model="sourceModel"
+                data-testid="search-source"
+                :items="sourceOptions"
+                label-key="label"
+                value-key="value"
+                class="w-full min-w-0"
+                :ui="{ content: 'max-w-[min(90vw,22rem)]' }"
+              >
+                <template #item-label="{ item }">
+                  <span class="block truncate" :title="item.label">{{ item.label }}</span>
+                </template>
+              </USelect>
+            </div>
           </AppFormField>
 
           <AppFormField input-id="limit" :label="t('search.form.limit')">
@@ -184,26 +215,19 @@ function resetForm() {
               :min="1"
               :max="50"
               :use-grouping="false"
+              class="w-full"
             />
           </AppFormField>
         </div>
 
-        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,12rem)_minmax(0,12rem)]">
-          <AppFormField input-id="published-after" :label="t('search.form.publishedAfter')">
-            <UInput
-              id="published-after"
-              v-model="publishedAfterModel"
-              data-testid="search-published-after"
-              type="date"
-            />
-          </AppFormField>
-
-          <AppFormField input-id="published-before" :label="t('search.form.publishedBefore')">
-            <UInput
-              id="published-before"
-              v-model="publishedBeforeModel"
-              data-testid="search-published-before"
-              type="date"
+        <div class="grid min-w-0 gap-2 sm:grid-cols-1">
+          <AppFormField input-id="published-range" :label="t('search.form.publishedRange')">
+            <UInputDate
+              id="published-range"
+              v-model="dateRangeModel"
+              data-testid="search-published-range"
+              range
+              class="w-full min-w-0"
             />
           </AppFormField>
         </div>

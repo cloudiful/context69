@@ -46,12 +46,12 @@ watch(locale, (value) => {
     <RouterView />
   </main>
 
-    <UDashboardGroup v-else class="min-h-screen">
+    <UDashboardGroup v-else class="min-h-screen min-w-0 overflow-hidden">
       <AppSidebar />
-      <UDashboardPanel class="min-w-0">
+      <UDashboardPanel class="min-w-0 overflow-hidden">
         <main
           :class="[
-            'flex min-h-0 min-w-0 flex-1 flex-col px-2 py-2 pb-20 md:px-3 md:pb-3',
+            'flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-2 py-2 pb-20 md:px-3 md:pb-3',
             isSettingsRoute
               ? 'h-screen overflow-hidden'
               : fillsRouteContent

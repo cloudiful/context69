@@ -6,6 +6,8 @@ import { useI18n } from "vue-i18n";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import { apiClient, ApiError, type DocumentResponse } from "../services/api";
 import { formatDate, formatJson, formatTimestamp } from "../utils/format";
+import { buildSearchReturnLocation, isSearchReturn, SEARCH_RETURN_QUERY_KEY, SEARCH_RETURN_QUERY_VALUE } from "../utils/search-target";
+import { loadSearchSession } from "../utils/search";
 import { useErrorToast } from "../composables/use-error-toast";
 
 const route = useRoute();
@@ -30,6 +32,8 @@ const visibleChunks = computed(() => {
   return documentData.value.chunks.slice(start, start + chunkPageSize);
 });
 
+const fromSearch = computed(() => isSearchReturn(route.query));
+
 const libraryRoute = computed(() => {
   if (!documentData.value?.is_library_file || !documentData.value.library_file_id) {
     return null;
@@ -42,9 +46,23 @@ const libraryRoute = computed(() => {
     },
     query: {
       file: documentData.value.library_file_id,
+      ...(fromSearch.value ? { [SEARCH_RETURN_QUERY_KEY]: SEARCH_RETURN_QUERY_VALUE } : {}),
     },
   };
 });
+
+function goBackToSearch() {
+  if (window.history.length > 1) {
+    router.back();
+    return;
+  }
+  const session = loadSearchSession();
+  if (session?.filters.query) {
+    void router.push(buildSearchReturnLocation(session.filters, session.page));
+    return;
+  }
+  void router.push({ name: "search" });
+}
 
 async function loadDocument() {
   const documentId = Number.parseInt(String(route.params.id), 10);
@@ -106,7 +124,23 @@ onBeforeUnmount(() => {
 
 <template>
   <UCard>
-    <template #header><h1 class="text-base font-semibold text-color">{{ t("document.title") }}</h1></template>
+    <template #header>
+      <div class="flex min-w-0 items-center justify-between gap-2">
+        <h1 class="min-w-0 truncate text-base font-semibold text-color">{{ t("document.title") }}</h1>
+        <UButton
+          v-if="fromSearch"
+          data-testid="document-back-to-search"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-arrow-left"
+          class="shrink-0"
+          @click="goBackToSearch"
+        >
+          {{ t("document.backToSearch") }}
+        </UButton>
+      </div>
+    </template>
     <AsyncStateBlock
       :loading="loading"
       :error="loadError"

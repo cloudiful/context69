@@ -51,7 +51,9 @@ describe("AppSidebarContent", () => {
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).toContain("Administrator");
     expect(wrapper.get('[data-testid="sidebar-user-login"]').text()).toBe("@admin");
-    expect(wrapper.get('[data-testid="sidebar-user-badge"]').text()).toContain("Administrator");
+    expect(wrapper.find('[data-testid="sidebar-user-badge"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="sidebar-user-name"]').text()).toBe("Administrator");
+    expect(wrapper.find('[data-testid="sidebar-user-card"]').classes().join(' ')).toContain('overflow-hidden');
     expect(wrapper.get('a[href="/search"]').attributes("aria-current")).toBe("page");
     expect(wrapper.get('[aria-label="Log Out"]').attributes("aria-label")).toBe("Log Out");
   });
