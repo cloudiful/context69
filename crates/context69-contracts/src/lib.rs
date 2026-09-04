@@ -76,6 +76,8 @@ pub use sources::{
 pub use tasks::{
     CancelActiveTasksResponse, DeleteBatchRequest, EnsureScopeResponse, ExternalJobInfo,
     FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest, PurgeTasksResponse,
+    QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse, QuarantinedExternalJob,
+    QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
     RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview, TaskMaintenanceSettings,

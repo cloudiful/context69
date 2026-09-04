@@ -3,7 +3,9 @@ use std::{error::Error, fmt, time::Duration};
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Days, Utc};
 use context69_contracts::{
-    CancelActiveTasksResponse, PurgeTasksResponse, RecoverDoclingTaskRequest,
+    CancelActiveTasksResponse, PurgeTasksResponse, QuarantineStaleSubmittingRequest,
+    QuarantineStaleSubmittingResponse, QuarantinedExternalJob, QueueDoclingRecoveryRequest,
+    QueueDoclingRecoveryResponse, QueuedDoclingTask, RecoverDoclingTaskRequest,
     RecoverDoclingTaskResponse, RecoveredDoclingTask, TaskMaintenanceOverview,
     TaskMaintenanceSettings, TaskMaintenanceStats, TaskPurgeMode,
     UpdateTaskMaintenanceSettingsRequest,
@@ -19,6 +21,14 @@ pub const CLEANUP_BATCH_SIZE: i64 = 1000;
 pub const STAGED_OBJECT_GRACE_HOURS: i64 = 24;
 pub const MIN_RETENTION_DAYS: i64 = 1;
 pub const MAX_RETENTION_DAYS: i64 = 3650;
+/// Default quarantine grace: only `submitting` rows older than this are
+/// eligible. Well past the 10-minute admission reservation window so no
+/// in-flight POST can still be completing.
+pub const QUARANTINE_DEFAULT_GRACE_MINUTES: i64 = 30;
+pub const QUARANTINE_MIN_GRACE_MINUTES: i64 = 10;
+pub const QUARANTINE_MAX_GRACE_MINUTES: i64 = 10080;
+pub const QUARANTINE_DEFAULT_LIMIT: i64 = 100;
+pub const QUARANTINE_MAX_LIMIT: i64 = 1000;
 
 #[derive(Debug)]
 pub(crate) enum TaskMaintenanceError {
@@ -104,6 +114,34 @@ pub(crate) fn validate_retention_days(retention_days: i64) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+pub(crate) fn quarantine_grace_minutes(requested: Option<i64>) -> Result<i64> {
+    let minutes = requested.unwrap_or(QUARANTINE_DEFAULT_GRACE_MINUTES);
+    if !(QUARANTINE_MIN_GRACE_MINUTES..=QUARANTINE_MAX_GRACE_MINUTES).contains(&minutes) {
+        return Err(anyhow!(
+            "grace_minutes must be between {} and {}",
+            QUARANTINE_MIN_GRACE_MINUTES,
+            QUARANTINE_MAX_GRACE_MINUTES
+        ));
+    }
+    Ok(minutes)
+}
+
+pub(crate) fn quarantine_limit(requested: Option<i64>) -> i64 {
+    requested
+        .unwrap_or(QUARANTINE_DEFAULT_LIMIT)
+        .clamp(1, QUARANTINE_MAX_LIMIT)
+}
+
+pub(crate) fn require_non_empty_reason(reason: &str, what: &str) -> Result<String> {
+    let trimmed = reason.trim();
+    if trimmed.is_empty() {
+        return Err(
+            TaskMaintenanceError::BadRequest(format!("{what} reason must not be empty")).into(),
+        );
+    }
+    Ok(trimmed.to_string())
 }
 
 pub(crate) fn require_no_active_tasks(active_count: i64, mode: TaskPurgeMode) -> Result<()> {
@@ -222,6 +260,13 @@ impl TaskService {
             "dependency_waiting" => {
                 return Err(TaskMaintenanceError::Conflict(
                     "task is already waiting for the Docling dependency probe".to_string(),
+                )
+                .into());
+            }
+            "uncertain_submission" => {
+                return Err(TaskMaintenanceError::Conflict(
+                    "Docling submission outcome is uncertain; quarantine the stale submitting job before recovery"
+                        .to_string(),
                 )
                 .into());
             }
@@ -432,6 +477,183 @@ impl TaskService {
         })
     }
 
+    /// Requeue a recoverable Docling item without touching the network.
+    ///
+    /// Queue-only recovery (issue #118 phase 4): the item is persisted back
+    /// to the `docling` scheduling queue and the dispatcher submits it later
+    /// under the persistent admission ceiling, so bulk recovery cannot flood
+    /// Docling with one POST per task. No attempt row and no remote job are
+    /// created; a repeat call returns the already-queued item unchanged.
+    /// The immediate POST path stays available via
+    /// [`TaskService::admin_recover_docling_task`].
+    pub async fn admin_queue_docling_recovery(
+        &self,
+        actor: &UserRecord,
+        task_id: Uuid,
+        request: &QueueDoclingRecoveryRequest,
+    ) -> Result<QueueDoclingRecoveryResponse> {
+        crate::services::auth::require_admin(actor)?;
+        let reason = require_non_empty_reason(&request.reason, "recovery")?;
+        let queued = self.db().queue_docling_recovery(task_id).await?;
+        match queued.reason.as_deref().unwrap_or("no_docling_item") {
+            "ok" => {}
+            "already_queued" => {
+                let item_id = queued.item_id.context("recovery returned no item id")?;
+                return Ok(QueueDoclingRecoveryResponse {
+                    queued: QueuedDoclingTask {
+                        task_id,
+                        item_id,
+                        stage: "docling".to_string(),
+                        file_id: queued.file_id,
+                        queued_at: Utc::now(),
+                        already_queued: true,
+                    },
+                });
+            }
+            "task_not_found" => {
+                return Err(TaskMaintenanceError::NotFound("task not found".to_string()).into());
+            }
+            "task_terminal" => {
+                return Err(
+                    TaskMaintenanceError::Conflict("task is already terminal".to_string()).into(),
+                );
+            }
+            "lease_active" => {
+                return Err(TaskMaintenanceError::Conflict(
+                    "task item has an active lease; wait for the worker to release it".to_string(),
+                )
+                .into());
+            }
+            "item_terminal" => {
+                return Err(TaskMaintenanceError::Conflict(
+                    "task item is already terminal".to_string(),
+                )
+                .into());
+            }
+            "active_external_job" => {
+                return Err(TaskMaintenanceError::Conflict(
+                    "task already has an active Docling external job".to_string(),
+                )
+                .into());
+            }
+            "uncertain_submission" => {
+                return Err(TaskMaintenanceError::Conflict(
+                    "Docling submission outcome is uncertain; quarantine the stale submitting job before recovery"
+                        .to_string(),
+                )
+                .into());
+            }
+            "missing_file" => {
+                return Err(TaskMaintenanceError::Conflict(
+                    "Docling recovery requires the item to carry a file_id".to_string(),
+                )
+                .into());
+            }
+            "dependency_waiting" => {
+                return Err(TaskMaintenanceError::Conflict(
+                    "task is already waiting for the Docling dependency probe".to_string(),
+                )
+                .into());
+            }
+            "no_docling_item" => {
+                return Err(
+                    TaskMaintenanceError::Conflict("task has no Docling item".to_string()).into(),
+                );
+            }
+            other => {
+                return Err(
+                    TaskMaintenanceError::Conflict(format!("recovery rejected: {other}")).into(),
+                );
+            }
+        }
+        let item_id = queued.item_id.context("recovery returned no item id")?;
+        tracing::info!(
+            task_id = %task_id,
+            item_id = %item_id,
+            reason = %reason,
+            actor = %actor.login_name,
+            "Docling queue-only recovery parked the item for dispatcher pickup",
+        );
+        self.notify_dispatch();
+        Ok(QueueDoclingRecoveryResponse {
+            queued: QueuedDoclingTask {
+                task_id,
+                item_id,
+                stage: "docling".to_string(),
+                file_id: queued.file_id,
+                queued_at: Utc::now(),
+                already_queued: false,
+            },
+        })
+    }
+
+    /// Isolate stale uncertain `submitting` Docling rows as `orphaned`.
+    ///
+    /// Only placeholder remote ids older than the grace cutoff on terminal
+    /// parents are moved; live jobs, fresh rows, real remote ids, and
+    /// non-terminal parents are left untouched and reported as skipped
+    /// counts. The transition never claims the remote job was cancelled, and
+    /// quarantined rows stop blocking terminal-task cleanup/purge. No
+    /// background job calls this automatically.
+    pub async fn admin_quarantine_stale_submitting(
+        &self,
+        actor: &UserRecord,
+        request: &QuarantineStaleSubmittingRequest,
+    ) -> Result<QuarantineStaleSubmittingResponse> {
+        crate::services::auth::require_admin(actor)?;
+        let reason = require_non_empty_reason(&request.reason, "quarantine")?;
+        let grace_minutes = quarantine_grace_minutes(request.grace_minutes)?;
+        let limit = quarantine_limit(request.limit);
+        let cutoff = Utc::now() - chrono::Duration::minutes(grace_minutes);
+        let pattern = crate::library_store::SUBMITTING_PLACEHOLDER_PATTERN;
+        let quarantined = self
+            .library()
+            .store()
+            .quarantine_stale_submitting(
+                &reason,
+                &actor.login_name,
+                actor.id,
+                cutoff,
+                pattern,
+                limit,
+            )
+            .await?;
+        let stats = self
+            .library()
+            .store()
+            .quarantine_submitting_stats(cutoff, pattern)
+            .await?;
+        tracing::info!(
+            quarantined = quarantined.len(),
+            uncertain_total = stats.uncertain_submitting_count,
+            quarantinable = stats.quarantinable_count,
+            orphaned_total = stats.orphaned_count,
+            skipped_non_terminal = stats.skipped_non_terminal_count,
+            skipped_fresh = stats.skipped_fresh_count,
+            skipped_real_remote = stats.skipped_real_remote_count,
+            grace_minutes = grace_minutes,
+            actor = %actor.login_name,
+            reason = %reason,
+            "stale Docling submitting quarantine completed",
+        );
+        Ok(QuarantineStaleSubmittingResponse {
+            quarantined: quarantined
+                .iter()
+                .map(|row| QuarantinedExternalJob {
+                    external_job_id: row.external_job_id,
+                    task_id: row.task_id,
+                    item_id: row.item_id,
+                    old_remote_task_id: row.old_remote_task_id.clone(),
+                    quarantined_at: row.quarantined_at.unwrap_or_else(Utc::now),
+                })
+                .collect::<Vec<_>>(),
+            quarantined_count: quarantined.len() as i64,
+            skipped_non_terminal: stats.skipped_non_terminal_count,
+            skipped_fresh: stats.skipped_fresh_count,
+            skipped_real_remote: stats.skipped_real_remote_count,
+        })
+    }
+
     pub async fn admin_purge_tasks(
         &self,
         actor: &UserRecord,
@@ -490,6 +712,9 @@ impl TaskService {
             cancelled: stats.cancelled_count,
             active: stats.active_count,
             expired_terminal: stats.expired_terminal_count,
+            uncertain_submitting: stats.uncertain_submitting_count,
+            quarantinable_submitting: stats.quarantinable_submitting_count,
+            orphaned_external_jobs: stats.orphaned_external_job_count,
         })
     }
 }
@@ -561,8 +786,10 @@ mod tests {
     use chrono::Utc;
 
     use super::{
-        MAX_RETENTION_DAYS, MIN_RETENTION_DAYS, cutoff_at, require_no_active_tasks,
-        validate_retention_days,
+        MAX_RETENTION_DAYS, MIN_RETENTION_DAYS, QUARANTINE_DEFAULT_GRACE_MINUTES,
+        QUARANTINE_DEFAULT_LIMIT, QUARANTINE_MAX_GRACE_MINUTES, QUARANTINE_MAX_LIMIT,
+        QUARANTINE_MIN_GRACE_MINUTES, cutoff_at, quarantine_grace_minutes, quarantine_limit,
+        require_no_active_tasks, require_non_empty_reason, validate_retention_days,
     };
     use context69_contracts::TaskPurgeMode;
 
@@ -596,5 +823,47 @@ mod tests {
         let error = require_no_active_tasks(1, TaskPurgeMode::AllTerminal)
             .expect_err("active tasks block all-terminal purge");
         assert!(error.to_string().contains("active tasks"));
+    }
+
+    #[test]
+    fn quarantine_grace_defaults_and_bounds() {
+        assert_eq!(
+            quarantine_grace_minutes(None).expect("default grace"),
+            QUARANTINE_DEFAULT_GRACE_MINUTES
+        );
+        assert_eq!(
+            quarantine_grace_minutes(Some(60)).expect("custom grace"),
+            60
+        );
+        for invalid in [
+            0,
+            QUARANTINE_MIN_GRACE_MINUTES - 1,
+            QUARANTINE_MAX_GRACE_MINUTES + 1,
+            i64::MAX,
+        ] {
+            let error = quarantine_grace_minutes(Some(invalid)).expect_err("invalid grace");
+            assert!(error.to_string().contains("grace_minutes"));
+        }
+    }
+
+    #[test]
+    fn quarantine_limit_defaults_and_clamps() {
+        assert_eq!(quarantine_limit(None), QUARANTINE_DEFAULT_LIMIT);
+        assert_eq!(quarantine_limit(Some(10)), 10);
+        assert_eq!(quarantine_limit(Some(0)), 1);
+        assert_eq!(quarantine_limit(Some(-5)), 1);
+        assert_eq!(quarantine_limit(Some(i64::MAX)), QUARANTINE_MAX_LIMIT);
+    }
+
+    #[test]
+    fn empty_reasons_are_rejected() {
+        for empty in ["", "   ", "\n\t "] {
+            let error = require_non_empty_reason(empty, "recovery").expect_err("empty reason");
+            assert!(error.to_string().contains("must not be empty"));
+        }
+        assert_eq!(
+            require_non_empty_reason("  bulk requeue  ", "recovery").expect("trimmed"),
+            "bulk requeue"
+        );
     }
 }

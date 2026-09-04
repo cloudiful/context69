@@ -259,6 +259,17 @@ impl LibraryService {
                 dependency_key: None,
             });
         }
+        // Quarantined rows are explicitly non-active: the uncertain submission
+        // was isolated by an administrator and must never be polled as if a
+        // live remote job existed. Resubmit a fresh job through admission.
+        if job.is_orphaned() {
+            return Ok(DoclingPollOutcome::ResubmitRequired {
+                message: format!(
+                    "docling job {} was quarantined as orphaned (uncertain submission isolated); resubmitting the item",
+                    job.remote_task_id
+                ),
+            });
+        }
         if !job.is_active() {
             return Ok(DoclingPollOutcome::ResubmitRequired {
                 message: match job.error_message {

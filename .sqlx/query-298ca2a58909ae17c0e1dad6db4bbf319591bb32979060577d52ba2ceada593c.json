@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Atomically requeue a recoverable Docling item without any network request.\n--\n-- Queue-only recovery (issue #118 phase 4): unlike `recover_docling_item.sql`\n-- (immediate recovery, which claims a real worker lease and bumps\n-- `attempt_count` before POSTing a fresh remote job), this statement only\n-- persists the item back to the `docling` scheduling queue with status\n-- `queued`, lease and waiting fields cleared, and failure details reset for\n-- the next attempt. No `task_attempts` row is inserted and `attempt_count`\n-- is never touched, so a repeat call observes `already_queued` and can never\n-- produce a new attempt or remote job. The dispatcher picks the item up\n-- later under the persistent Docling admission ceiling, which is what makes\n-- bulk recovery safe against submission floods.\n--\n-- Validation reuses the immediate-recovery boundaries: terminal tasks, active\n-- leases, terminal items, live `pending`/`running` remote jobs, the Docling\n-- dependency wait, and file presence all reject the request. Uncertain\n-- `submitting` rows are never treated as remotely cancelled and reject with\n-- `uncertain_submission`; quarantine them explicitly first.\nWITH requested_task AS (\n    SELECT id, status\n    FROM context69.tasks\n    WHERE id = $1\n    FOR UPDATE\n), target AS (\n    SELECT item.id,\n           item.task_id,\n           item.file_id,\n           item.stage,\n           item.status,\n           item.waiting_reason,\n           item.dependency_key,\n           item.failure_stage,\n           item.lease_token,\n           item.lease_until,\n           external_job.status AS external_job_status,\n           external_job.deadline_at AS external_job_deadline,\n            external_job.remote_task_id,\n            EXISTS (\n                SELECT 1\n                FROM context69.task_docling_recovery_audit audit\n                WHERE audit.task_id = item.task_id\n                  AND audit.item_id = item.id\n            ) AS has_recovery_audit\n    FROM context69.task_items item\n    JOIN requested_task task ON task.id = item.task_id\n    LEFT JOIN LATERAL (\n        SELECT job.status, job.deadline_at, job.remote_task_id\n        FROM context69.task_external_jobs job\n        WHERE job.item_id = item.id\n          AND job.provider = 'docling'\n        ORDER BY job.submitted_at DESC, job.created_at DESC\n        LIMIT 1\n    ) external_job ON TRUE\n    WHERE item.task_id = $1\n      AND item.stage IN ('docling', 'docling_poll')\n    ORDER BY item.ordinal\n    LIMIT 1\n    FOR UPDATE OF item\n), validation AS (\n    SELECT requested_task.id AS task_id,\n           target.id AS item_id,\n           target.file_id,\n           CASE\n               WHEN requested_task.status IN ('succeeded', 'cancelled')\n                   THEN 'task_terminal'\n               WHEN target.id IS NULL\n                   THEN 'no_docling_item'\n               WHEN requested_task.status = 'failed'\n                    AND target.status = 'failed'\n                    AND target.failure_stage IN ('docling', 'docling_poll')\n                    AND (target.lease_until IS NULL OR target.lease_until <= now())\n                   THEN 'ok'\n               WHEN target.status = 'running'\n                    AND target.stage IN ('docling', 'docling_poll')\n                    AND (target.lease_until IS NULL OR target.lease_until <= now())\n                   THEN 'ok'\n               WHEN target.lease_until > now()\n                   THEN 'lease_active'\n               WHEN target.status NOT IN ('queued', 'waiting')\n                   THEN 'item_terminal'\n               WHEN target.stage = 'docling'\n                    AND target.status = 'waiting'\n                    AND target.waiting_reason = 'dependency'\n                    AND target.dependency_key = 'docling'\n                    THEN 'dependency_waiting'\n               WHEN target.external_job_status = 'submitting'\n                    THEN 'uncertain_submission'\n               WHEN target.external_job_status IN ('pending', 'running')\n                    AND (\n                        target.external_job_deadline IS NULL\n                        OR target.external_job_deadline > now()\n                    )\n                    THEN 'active_external_job'\n               WHEN target.file_id IS NULL\n                    THEN 'missing_file'\n               WHEN target.status = 'queued'\n                    AND target.stage = 'docling'\n                    AND target.lease_token IS NULL\n                    THEN 'already_queued'\n               ELSE 'ok'\n           END AS reason\n    FROM requested_task\n    LEFT JOIN target ON TRUE\n), requeued AS (\n    UPDATE context69.task_items item\n    SET status = 'queued',\n        stage = 'docling',\n        lease_token = NULL,\n        lease_until = NULL,\n        started_at = coalesce(item.started_at, now()),\n        finished_at = NULL,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        waiting_since = NULL,\n        failure_stage = NULL,\n        error_message = NULL,\n        updated_at = now()\n    FROM validation\n    WHERE item.id = validation.item_id\n      AND validation.reason = 'ok'\n    RETURNING item.id, item.task_id, item.file_id\n)\nSELECT validation.task_id,\n       validation.item_id,\n       validation.file_id,\n       validation.reason,\n       target.remote_task_id,\n       requeued.id AS requeued_item_id\nFROM validation\nLEFT JOIN target ON target.id = validation.item_id\nLEFT JOIN requeued ON requeued.id = validation.item_id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "reason",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "requeued_item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "298ca2a58909ae17c0e1dad6db4bbf319591bb32979060577d52ba2ceada593c"
+}

@@ -1,5 +1,14 @@
 -- Mark a stale Docling external job as superseded by an admin recovery.
 --
+-- Only live remote states (`pending`/`running`) are moved to `cancelled`;
+-- uncertain local `submitting` rows are deliberately left untouched because
+-- the remote submission outcome is unknown and must never be claimed as
+-- remotely cancelled (issue #118 phase 4). Recovery validation rejects
+-- `submitting` with `uncertain_submission` before this statement runs, so a
+-- `submitting` row reaching here is returned unchanged for the caller to
+-- record without inventing a cancellation. Already-terminal rows
+-- (`success`/`failure`/`timed_out`/`cancelled`/`orphaned`) keep their status.
+--
 -- Returns the existing job's id, remote task id, remote status, and the
 -- submission count so the caller can:
 --   * insert a recovery audit row referencing the old job,
@@ -24,7 +33,7 @@ WITH locked AS (
 ), superseded AS (
     UPDATE context69.task_external_jobs job
     SET status = CASE
-            WHEN job.status IN ('submitting', 'pending', 'running') THEN 'cancelled'
+            WHEN job.status IN ('pending', 'running') THEN 'cancelled'
             WHEN job.status IS NULL OR job.status = '' THEN 'cancelled'
             ELSE job.status
         END,

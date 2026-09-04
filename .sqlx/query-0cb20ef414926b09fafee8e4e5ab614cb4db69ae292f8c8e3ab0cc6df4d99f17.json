@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Atomically claim a Docling item for administrator recovery.\n--\n-- The item remains protected by a real task lease while the caller performs\n-- the external submission. This prevents both the dispatcher and a second\n-- recovery request from creating another remote job concurrently.\nWITH requested_task AS (\n    SELECT id, status\n    FROM context69.tasks\n    WHERE id = $1\n    FOR UPDATE\n), target AS (\n    SELECT item.id,\n           item.task_id,\n           item.file_id,\n           item.stage,\n           item.status,\n           item.waiting_reason,\n           item.dependency_key,\n           item.failure_stage,\n           item.lease_token,\n           item.lease_until,\n           external_job.status AS external_job_status,\n           external_job.deadline_at AS external_job_deadline,\n            external_job.remote_task_id,\n            EXISTS (\n                SELECT 1\n                FROM context69.task_docling_recovery_audit audit\n                WHERE audit.task_id = item.task_id\n                  AND audit.item_id = item.id\n            ) AS has_recovery_audit\n    FROM context69.task_items item\n    JOIN requested_task task ON task.id = item.task_id\n    LEFT JOIN LATERAL (\n        SELECT job.status, job.deadline_at, job.remote_task_id\n        FROM context69.task_external_jobs job\n        WHERE job.item_id = item.id\n          AND job.provider = 'docling'\n        ORDER BY job.submitted_at DESC, job.created_at DESC\n        LIMIT 1\n    ) external_job ON TRUE\n    WHERE item.task_id = $1\n      AND item.stage IN ('docling', 'docling_poll')\n    ORDER BY item.ordinal\n    LIMIT 1\n    FOR UPDATE OF item\n), validation AS (\n    SELECT requested_task.id AS task_id,\n           target.id AS item_id,\n           target.file_id,\n           CASE\n               WHEN requested_task.status IN ('succeeded', 'cancelled')\n                   THEN 'task_terminal'\n               WHEN target.id IS NULL\n                   THEN 'no_docling_item'\n               WHEN requested_task.status = 'failed'\n                    AND target.status = 'failed'\n                    AND target.failure_stage IN ('docling', 'docling_poll')\n                    AND (target.lease_until IS NULL OR target.lease_until <= now())\n                   THEN 'ok'\n               WHEN target.status = 'running'\n                    AND target.stage IN ('docling', 'docling_poll')\n                    AND (target.lease_until IS NULL OR target.lease_until <= now())\n                   THEN 'ok'\n               WHEN target.lease_until > now()\n                   THEN 'lease_active'\n               WHEN target.status NOT IN ('queued', 'waiting')\n                   THEN 'item_terminal'\n               WHEN target.stage = 'docling'\n                    AND target.status = 'waiting'\n                    AND target.waiting_reason = 'dependency'\n                    AND target.dependency_key = 'docling'\n                    THEN 'dependency_waiting'\n               -- Uncertain local submissions are never treated as remotely\n               -- cancelled: neither immediate recovery nor the dispatcher may\n               -- supersede them. Quarantine them explicitly first (issue #118\n               -- phase 4), which moves them to the non-active `orphaned`\n               -- state with the reason preserved.\n               WHEN target.external_job_status = 'submitting'\n                    THEN 'uncertain_submission'\n               WHEN target.external_job_status IN ('pending', 'running')\n                    AND target.has_recovery_audit\n                    AND (\n                        target.external_job_deadline IS NULL\n                        OR target.external_job_deadline > now()\n                    )\n                    THEN 'already_recovered'\n               WHEN target.external_job_status IN ('pending', 'running')\n                    AND NOT target.has_recovery_audit\n                    AND (\n                        target.external_job_deadline IS NULL\n                        OR target.external_job_deadline > now()\n                    )\n                    THEN 'active_external_job'\n               ELSE 'ok'\n           END AS reason\n    FROM requested_task\n    LEFT JOIN target ON TRUE\n), claimed AS (\n    UPDATE context69.task_items item\n    SET status = 'running',\n        stage = 'docling',\n        attempt_count = item.attempt_count + 1,\n        lease_token = $2,\n        lease_until = now() + interval '5 minutes',\n        started_at = coalesce(item.started_at, now()),\n        finished_at = NULL,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        waiting_since = NULL,\n        failure_stage = NULL,\n        error_message = NULL,\n        updated_at = now()\n    FROM validation\n    WHERE item.id = validation.item_id\n      AND validation.reason = 'ok'\n    RETURNING item.id, item.task_id, item.file_id, item.lease_token, item.attempt_count\n), attempts AS (\n    INSERT INTO context69.task_attempts (task_id, item_id, attempt, status)\n    SELECT task_id, id, attempt_count, 'running'\n    FROM claimed\n    RETURNING item_id, id AS attempt_id\n), activated AS (\n    UPDATE context69.tasks task\n    SET status = 'running',\n        started_at = coalesce(task.started_at, now()),\n        stage = 'docling',\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        updated_at = now()\n    FROM claimed\n    WHERE task.id = claimed.task_id\n    RETURNING task.id\n)\nSELECT validation.task_id,\n       validation.item_id,\n       validation.file_id,\n       validation.reason,\n       target.remote_task_id,\n       claimed.lease_token,\n       attempts.attempt_id\nFROM validation\nLEFT JOIN target ON target.id = validation.item_id\nLEFT JOIN claimed ON claimed.id = validation.item_id\nLEFT JOIN attempts ON attempts.item_id = validation.item_id\nLEFT JOIN activated ON activated.id = validation.task_id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "reason",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "attempt_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "0cb20ef414926b09fafee8e4e5ab614cb4db69ae292f8c8e3ab0cc6df4d99f17"
+}

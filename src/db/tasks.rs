@@ -187,6 +187,19 @@ pub struct StoredTaskMaintenanceStats {
     pub cancelled_count: i64,
     pub active_count: i64,
     pub expired_terminal_count: i64,
+    pub uncertain_submitting_count: i64,
+    pub quarantinable_submitting_count: i64,
+    pub orphaned_external_job_count: i64,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct StoredQueuedDoclingRecovery {
+    pub task_id: Option<Uuid>,
+    pub item_id: Option<Uuid>,
+    pub file_id: Option<Uuid>,
+    pub reason: Option<String>,
+    pub remote_task_id: Option<String>,
+    pub requeued_item_id: Option<Uuid>,
 }
 
 impl Database {
@@ -1018,6 +1031,62 @@ impl Database {
         }
         tx.commit().await?;
         Ok(ids.len() as i64)
+    }
+
+    /// Atomically requeue a recoverable Docling item without a worker lease.
+    /// Unlike [`Database::recover_docling_item`], this never claims a lease,
+    /// bumps `attempt_count`, inserts a `task_attempts` row, or touches the
+    /// network: the item is only persisted back to the `docling` scheduling
+    /// queue for the dispatcher to submit later under admission control.
+    /// A repeat call observes `already_queued` and changes nothing.
+    pub async fn queue_docling_recovery(
+        &self,
+        task_id: Uuid,
+    ) -> Result<StoredQueuedDoclingRecovery> {
+        let precheck = sqlx::query_file!("src/sql/db/tasks/queue_docling_precheck.sql", task_id,)
+            .fetch_one(self.pool())
+            .await?;
+        if !precheck.task_exists {
+            return Ok(StoredQueuedDoclingRecovery {
+                task_id: None,
+                item_id: None,
+                file_id: None,
+                reason: Some("task_not_found".to_string()),
+                remote_task_id: None,
+                requeued_item_id: None,
+            });
+        }
+        if !precheck.has_docling_item {
+            return Ok(StoredQueuedDoclingRecovery {
+                task_id: Some(task_id),
+                item_id: None,
+                file_id: None,
+                reason: Some("no_docling_item".to_string()),
+                remote_task_id: None,
+                requeued_item_id: None,
+            });
+        }
+        let mut tx = self.pool().begin().await?;
+        let result = sqlx::query_file_as!(
+            StoredQueuedDoclingRecovery,
+            "src/sql/db/tasks/queue_docling_recovery.sql",
+            task_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let result = result.unwrap_or(StoredQueuedDoclingRecovery {
+            task_id: None,
+            item_id: None,
+            file_id: None,
+            reason: Some("task_not_found".to_string()),
+            remote_task_id: None,
+            requeued_item_id: None,
+        });
+        if result.reason.as_deref() == Some("ok") {
+            self.recompute_task(task_id).await?;
+        }
+        Ok(result)
     }
 
     /// Atomically claim a recoverable Docling item with a real worker lease.

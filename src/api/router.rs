@@ -41,13 +41,13 @@ use super::{
     list_personal_access_tokens, list_source_connections, list_sources, list_task_items,
     list_tasks, list_translation_providers, login, logout, me, move_group_library_file,
     move_group_library_folder, move_library_file, move_library_folder, openapi_json,
-    prepare_group_library_upload, purge_tasks, query_group_documents, rebuild_document_extractions,
-    rebuild_document_translations, recover_docling_task, require_admin_scope_middleware,
-    require_library_scope_middleware, require_search_scope_middleware,
-    require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, rerun_task, reset_admin_user_password,
-    retry_metadata_index, retry_task, revoke_personal_access_token, submit_delete_batch,
-    submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
+    prepare_group_library_upload, purge_tasks, quarantine_stale_submitting, query_group_documents,
+    queue_docling_recovery, rebuild_document_extractions, rebuild_document_translations,
+    recover_docling_task, require_admin_scope_middleware, require_library_scope_middleware,
+    require_search_scope_middleware, require_settings_scope_middleware,
+    require_sources_scope_middleware, require_workspace_scope_middleware, rerun_task,
+    reset_admin_user_password, retry_metadata_index, retry_task, revoke_personal_access_token,
+    submit_delete_batch, submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
     submit_vector_index_rebuild, sync_group_source_folder, sync_source,
     touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
     update_group_translation_settings, update_metadata_index, update_source,
@@ -292,6 +292,14 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/admin/tasks/{task_id}/recover",
             post(recover_docling_task),
+        )
+        .route(
+            "/v1/admin/tasks/{task_id}/recover/queue",
+            post(queue_docling_recovery),
+        )
+        .route(
+            "/v1/admin/tasks/quarantine-submitting",
+            post(quarantine_stale_submitting),
         )
         .route("/v1/admin/extraction/health", get(get_extraction_health))
         .layer(from_fn_with_state(

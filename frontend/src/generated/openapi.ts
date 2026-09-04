@@ -84,6 +84,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tasks/quarantine-submitting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["quarantine_stale_submitting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tasks/{task_id}/recover": {
         parameters: {
             query?: never;
@@ -94,6 +110,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["recover_docling_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tasks/{task_id}/recover/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["queue_docling_recovery"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1495,6 +1527,7 @@ export interface components {
         };
         DoclingConnectionSettingsResponse: {
             base_url?: string | null;
+            max_inflight: number;
             /** Format: int64 */
             poll_interval_secs: number;
             /** Format: int64 */
@@ -2162,6 +2195,78 @@ export interface components {
             /** Format: int64 */
             deleted_tasks: number;
         };
+        QuarantineStaleSubmittingRequest: {
+            /**
+             * Format: int64
+             * @description Only rows older than this many minutes are eligible. Defaults to 30,
+             *     must be between 10 and 10080 (one week).
+             */
+            grace_minutes?: number | null;
+            /**
+             * Format: int64
+             * @description Maximum rows to quarantine per call. Defaults to 100, clamped to
+             *     1..=1000.
+             */
+            limit?: number | null;
+            /** @description Free-form human justification stored on each row and its audit row. */
+            reason: string;
+        };
+        QuarantineStaleSubmittingResponse: {
+            quarantined: components["schemas"]["QuarantinedExternalJob"][];
+            /** Format: int64 */
+            quarantined_count: number;
+            /**
+             * Format: int64
+             * @description Still `submitting` because it is newer than the grace cutoff.
+             */
+            skipped_fresh: number;
+            /**
+             * Format: int64
+             * @description Still `submitting` because the parent task/item is not terminal.
+             */
+            skipped_non_terminal: number;
+            /**
+             * Format: int64
+             * @description Still `submitting` with a non-placeholder remote id; needs manual
+             *     review because a real remote job may exist.
+             */
+            skipped_real_remote: number;
+        };
+        QuarantinedExternalJob: {
+            /** Format: uuid */
+            external_job_id: string;
+            /** Format: uuid */
+            item_id: string;
+            old_remote_task_id?: string | null;
+            /** Format: date-time */
+            quarantined_at: string;
+            /** Format: uuid */
+            task_id: string;
+        };
+        QueueDoclingRecoveryRequest: {
+            /** @description Free-form human justification recorded in operator logs. */
+            reason: string;
+        };
+        QueueDoclingRecoveryResponse: {
+            queued: components["schemas"]["QueuedDoclingTask"];
+        };
+        QueuedDoclingTask: {
+            /**
+             * @description True when the item was already queued and no state changed: no new
+             *     attempt row and no new remote job were created.
+             */
+            already_queued?: boolean;
+            /** Format: uuid */
+            file_id?: string | null;
+            /** Format: uuid */
+            item_id: string;
+            /** Format: date-time */
+            queued_at: string;
+            /** @description Stage the item was parked on for dispatcher pickup (`docling`). */
+            stage: string;
+            /** Format: uuid */
+            task_id: string;
+        };
         RebuildDocumentExtractionsRequest: {
             template_keys?: string[];
         };
@@ -2479,6 +2584,18 @@ export interface components {
             expired_terminal: number;
             /** Format: int64 */
             failed: number;
+            /**
+             * Format: int64
+             * @description Rows already isolated as `orphaned`: non-active, no longer blocking
+             *     terminal-task cleanup/purge or Docling admission.
+             */
+            orphaned_external_jobs?: number;
+            /**
+             * Format: int64
+             * @description Stale placeholder `submitting` rows on terminal parents that the admin
+             *     quarantine API is allowed to isolate as `orphaned`.
+             */
+            quarantinable_submitting?: number;
             /** Format: int64 */
             queued: number;
             /** Format: int64 */
@@ -2487,6 +2604,12 @@ export interface components {
             succeeded: number;
             /** Format: int64 */
             total: number;
+            /**
+             * Format: int64
+             * @description Uncertain `submitting` Docling rows (all ages, terminal parents or not).
+             *     These rows never count as remotely cancelled and need explicit review.
+             */
+            uncertain_submitting?: number;
             /** Format: int64 */
             waiting: number;
         };
@@ -2690,6 +2813,7 @@ export interface components {
         };
         UpdateDoclingConnectionSettings: {
             base_url: string;
+            max_inflight?: number;
             /** Format: int64 */
             poll_interval_secs: number;
             /** Format: int64 */
@@ -3020,6 +3144,48 @@ export interface operations {
             };
         };
     };
+    quarantine_stale_submitting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuarantineStaleSubmittingRequest"];
+            };
+        };
+        responses: {
+            /** @description Quarantined stale submitting jobs as orphaned with skip counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantineStaleSubmittingResponse"];
+                };
+            };
+            /** @description Missing or empty reason, or grace_minutes out of bounds */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     recover_docling_task: {
         parameters: {
             query?: never;
@@ -3072,6 +3238,68 @@ export interface operations {
                 };
             };
             /** @description Task or item is terminal / has an active lease or external job / is not in a Docling stage */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    queue_docling_recovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueDoclingRecoveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Requeued Docling task for dispatcher pickup without contacting Docling */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueDoclingRecoveryResponse"];
+                };
+            };
+            /** @description Missing or empty reason */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Task or item is terminal / has an active lease or external job / carries an uncertain submitting job / is not in a Docling stage */
             409: {
                 headers: {
                     [name: string]: unknown;

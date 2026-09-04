@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Existence pre-check for queue-only Docling recovery (issue #118 phase 4).\n--\n-- The main `queue_docling_recovery.sql` statement returns an all-NULL\n-- outer-joined row when the task has no Docling-stage item; the typed macro\n-- decoder cannot consume that shape (the same pre-existing quirk immediate\n-- recovery has on its `no_docling_item` path), so the service checks\n-- existence first and only runs the main statement when a Docling-stage\n-- item exists. The main statement remains authoritative for every other\n-- boundary: a concurrent mutation between the two statements can only make\n-- the main statement re-validate, never corrupt state.\nSELECT EXISTS (\n    SELECT 1\n    FROM context69.tasks\n    WHERE id = $1\n) AS \"task_exists!\",\n       EXISTS (\n    SELECT 1\n    FROM context69.task_items\n    WHERE task_id = $1\n      AND stage IN ('docling', 'docling_poll')\n) AS \"has_docling_item!\";\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "has_docling_item!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "7a7af841db2fd521bdece9b27b73754509c947a6c02d94b82ae94186aa42d504"
+}

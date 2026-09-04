@@ -23,6 +23,7 @@ pub use resources::ResourceListQuery;
 
 pub use dependency_gates::{DependencyGateRecord, DependencyGateTransition};
 pub(crate) use external_jobs::RecoveryAudit;
+pub(crate) use external_jobs::SUBMITTING_PLACEHOLDER_PATTERN;
 pub(crate) use files::LegacyDirectPathFileRow;
 pub use files::MissingLegacySourceFileRow;
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format};

@@ -1,8 +1,21 @@
--- Atomically claim a Docling item for administrator recovery.
+-- Atomically requeue a recoverable Docling item without any network request.
 --
--- The item remains protected by a real task lease while the caller performs
--- the external submission. This prevents both the dispatcher and a second
--- recovery request from creating another remote job concurrently.
+-- Queue-only recovery (issue #118 phase 4): unlike `recover_docling_item.sql`
+-- (immediate recovery, which claims a real worker lease and bumps
+-- `attempt_count` before POSTing a fresh remote job), this statement only
+-- persists the item back to the `docling` scheduling queue with status
+-- `queued`, lease and waiting fields cleared, and failure details reset for
+-- the next attempt. No `task_attempts` row is inserted and `attempt_count`
+-- is never touched, so a repeat call observes `already_queued` and can never
+-- produce a new attempt or remote job. The dispatcher picks the item up
+-- later under the persistent Docling admission ceiling, which is what makes
+-- bulk recovery safe against submission floods.
+--
+-- Validation reuses the immediate-recovery boundaries: terminal tasks, active
+-- leases, terminal items, live `pending`/`running` remote jobs, the Docling
+-- dependency wait, and file presence all reject the request. Uncertain
+-- `submitting` rows are never treated as remotely cancelled and reject with
+-- `uncertain_submission`; quarantine them explicitly first.
 WITH requested_task AS (
     SELECT id, status
     FROM context69.tasks
@@ -70,38 +83,30 @@ WITH requested_task AS (
                     AND target.waiting_reason = 'dependency'
                     AND target.dependency_key = 'docling'
                     THEN 'dependency_waiting'
-               -- Uncertain local submissions are never treated as remotely
-               -- cancelled: neither immediate recovery nor the dispatcher may
-               -- supersede them. Quarantine them explicitly first (issue #118
-               -- phase 4), which moves them to the non-active `orphaned`
-               -- state with the reason preserved.
                WHEN target.external_job_status = 'submitting'
                     THEN 'uncertain_submission'
                WHEN target.external_job_status IN ('pending', 'running')
-                    AND target.has_recovery_audit
-                    AND (
-                        target.external_job_deadline IS NULL
-                        OR target.external_job_deadline > now()
-                    )
-                    THEN 'already_recovered'
-               WHEN target.external_job_status IN ('pending', 'running')
-                    AND NOT target.has_recovery_audit
                     AND (
                         target.external_job_deadline IS NULL
                         OR target.external_job_deadline > now()
                     )
                     THEN 'active_external_job'
+               WHEN target.file_id IS NULL
+                    THEN 'missing_file'
+               WHEN target.status = 'queued'
+                    AND target.stage = 'docling'
+                    AND target.lease_token IS NULL
+                    THEN 'already_queued'
                ELSE 'ok'
            END AS reason
     FROM requested_task
     LEFT JOIN target ON TRUE
-), claimed AS (
+), requeued AS (
     UPDATE context69.task_items item
-    SET status = 'running',
+    SET status = 'queued',
         stage = 'docling',
-        attempt_count = item.attempt_count + 1,
-        lease_token = $2,
-        lease_until = now() + interval '5 minutes',
+        lease_token = NULL,
+        lease_until = NULL,
         started_at = coalesce(item.started_at, now()),
         finished_at = NULL,
         waiting_reason = NULL,
@@ -114,34 +119,14 @@ WITH requested_task AS (
     FROM validation
     WHERE item.id = validation.item_id
       AND validation.reason = 'ok'
-    RETURNING item.id, item.task_id, item.file_id, item.lease_token, item.attempt_count
-), attempts AS (
-    INSERT INTO context69.task_attempts (task_id, item_id, attempt, status)
-    SELECT task_id, id, attempt_count, 'running'
-    FROM claimed
-    RETURNING item_id, id AS attempt_id
-), activated AS (
-    UPDATE context69.tasks task
-    SET status = 'running',
-        started_at = coalesce(task.started_at, now()),
-        stage = 'docling',
-        waiting_reason = NULL,
-        dependency_key = NULL,
-        next_attempt_at = NULL,
-        updated_at = now()
-    FROM claimed
-    WHERE task.id = claimed.task_id
-    RETURNING task.id
+    RETURNING item.id, item.task_id, item.file_id
 )
 SELECT validation.task_id,
        validation.item_id,
        validation.file_id,
        validation.reason,
        target.remote_task_id,
-       claimed.lease_token,
-       attempts.attempt_id
+       requeued.id AS requeued_item_id
 FROM validation
 LEFT JOIN target ON target.id = validation.item_id
-LEFT JOIN claimed ON claimed.id = validation.item_id
-LEFT JOIN attempts ON attempts.item_id = validation.item_id
-LEFT JOIN activated ON activated.id = validation.task_id;
+LEFT JOIN requeued ON requeued.id = validation.item_id;

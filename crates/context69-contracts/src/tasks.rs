@@ -395,6 +395,18 @@ pub struct TaskMaintenanceStats {
     pub cancelled: i64,
     pub active: i64,
     pub expired_terminal: i64,
+    /// Uncertain `submitting` Docling rows (all ages, terminal parents or not).
+    /// These rows never count as remotely cancelled and need explicit review.
+    #[serde(default)]
+    pub uncertain_submitting: i64,
+    /// Stale placeholder `submitting` rows on terminal parents that the admin
+    /// quarantine API is allowed to isolate as `orphaned`.
+    #[serde(default)]
+    pub quarantinable_submitting: i64,
+    /// Rows already isolated as `orphaned`: non-active, no longer blocking
+    /// terminal-task cleanup/purge or Docling admission.
+    #[serde(default)]
+    pub orphaned_external_jobs: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -445,6 +457,67 @@ pub struct RecoveredDoclingTask {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct RecoverDoclingTaskResponse {
     pub recovered: RecoveredDoclingTask,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct QueueDoclingRecoveryRequest {
+    /// Free-form human justification recorded in operator logs.
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct QueuedDoclingTask {
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    /// Stage the item was parked on for dispatcher pickup (`docling`).
+    pub stage: String,
+    pub file_id: Option<Uuid>,
+    pub queued_at: DateTime<Utc>,
+    /// True when the item was already queued and no state changed: no new
+    /// attempt row and no new remote job were created.
+    #[serde(default)]
+    pub already_queued: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct QueueDoclingRecoveryResponse {
+    pub queued: QueuedDoclingTask,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct QuarantineStaleSubmittingRequest {
+    /// Free-form human justification stored on each row and its audit row.
+    pub reason: String,
+    /// Only rows older than this many minutes are eligible. Defaults to 30,
+    /// must be between 10 and 10080 (one week).
+    #[serde(default)]
+    pub grace_minutes: Option<i64>,
+    /// Maximum rows to quarantine per call. Defaults to 100, clamped to
+    /// 1..=1000.
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct QuarantinedExternalJob {
+    pub external_job_id: Uuid,
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub old_remote_task_id: Option<String>,
+    pub quarantined_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct QuarantineStaleSubmittingResponse {
+    pub quarantined: Vec<QuarantinedExternalJob>,
+    pub quarantined_count: i64,
+    /// Still `submitting` because the parent task/item is not terminal.
+    pub skipped_non_terminal: i64,
+    /// Still `submitting` because it is newer than the grace cutoff.
+    pub skipped_fresh: i64,
+    /// Still `submitting` with a non-placeholder remote id; needs manual
+    /// review because a real remote job may exist.
+    pub skipped_real_remote: i64,
 }
 
 fn default_page() -> u32 {

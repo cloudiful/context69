@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Mark a stale Docling external job as superseded by an admin recovery.\n--\n-- Only live remote states (`pending`/`running`) are moved to `cancelled`;\n-- uncertain local `submitting` rows are deliberately left untouched because\n-- the remote submission outcome is unknown and must never be claimed as\n-- remotely cancelled (issue #118 phase 4). Recovery validation rejects\n-- `submitting` with `uncertain_submission` before this statement runs, so a\n-- `submitting` row reaching here is returned unchanged for the caller to\n-- record without inventing a cancellation. Already-terminal rows\n-- (`success`/`failure`/`timed_out`/`cancelled`/`orphaned`) keep their status.\n--\n-- Returns the existing job's id, remote task id, remote status, and the\n-- submission count so the caller can:\n--   * insert a recovery audit row referencing the old job,\n--   * insert the new `task_external_jobs` row with submission_count + 1.\n--\n-- If no row exists for (item_id, provider), the SQL still returns one row\n-- with all NULL/0 columns so the caller can detect the missing-row case\n-- without re-running a separate existence query.\n\nWITH locked AS (\n    SELECT job.id,\n           job.remote_task_id,\n           job.remote_status,\n           job.submission_count,\n           job.status\n    FROM context69.task_external_jobs job\n    WHERE job.item_id = $1\n      AND job.provider = $2\n    ORDER BY job.submitted_at DESC, job.created_at DESC\n    LIMIT 1\n    FOR UPDATE\n), superseded AS (\n    UPDATE context69.task_external_jobs job\n    SET status = CASE\n            WHEN job.status IN ('pending', 'running') THEN 'cancelled'\n            WHEN job.status IS NULL OR job.status = '' THEN 'cancelled'\n            ELSE job.status\n        END,\n        remote_status = COALESCE(job.remote_status, job.status),\n        error_message = COALESCE(job.error_message, $3),\n        last_polled_at = now(),\n        updated_at = now()\n    FROM locked\n    WHERE job.id = locked.id\n    RETURNING job.id, job.remote_task_id, job.remote_status, job.submission_count\n)\nSELECT\n    superseded.id AS old_external_job_id,\n    superseded.remote_task_id AS old_remote_task_id,\n    superseded.remote_status AS old_remote_status,\n    superseded.submission_count AS prior_submission_count\nFROM superseded\nUNION ALL\nSELECT NULL::uuid, NULL::text, NULL::text, 0\nWHERE NOT EXISTS (SELECT 1 FROM superseded)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "old_external_job_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "old_remote_task_id",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "old_remote_status",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "prior_submission_count",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cccc9e5ccfc15c5dbf17b25da26ae06d46200236c17d3bf017872bb9928de42b"
+}

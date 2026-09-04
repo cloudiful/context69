@@ -216,6 +216,54 @@
         }
       }
     },
+    "/v1/admin/tasks/quarantine-submitting": {
+      "post": {
+        "tags": [],
+        "operationId": "quarantine_stale_submitting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuarantineStaleSubmittingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Quarantined stale submitting jobs as orphaned with skip counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineStaleSubmittingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or empty reason, or grace_minutes out of bounds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/tasks/{task_id}/recover": {
       "post": {
         "tags": [],
@@ -284,6 +332,85 @@
           },
           "409": {
             "description": "Task or item is terminal / has an active lease or external job / is not in a Docling stage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/tasks/{task_id}/recover/queue": {
+      "post": {
+        "tags": [],
+        "operationId": "queue_docling_recovery",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueDoclingRecoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Requeued Docling task for dispatcher pickup without contacting Docling",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueDoclingRecoveryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or empty reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Task or item is terminal / has an active lease or external job / carries an uncertain submitting job / is not in a Docling stage",
             "content": {
               "application/json": {
                 "schema": {
@@ -5678,7 +5805,8 @@
         "required": [
           "timeout_secs",
           "poll_interval_secs",
-          "task_timeout_secs"
+          "task_timeout_secs",
+          "max_inflight"
         ],
         "properties": {
           "base_url": {
@@ -5686,6 +5814,10 @@
               "string",
               "null"
             ]
+          },
+          "max_inflight": {
+            "type": "integer",
+            "minimum": 0
           },
           "poll_interval_secs": {
             "type": "integer",
@@ -8238,6 +8370,165 @@
           }
         }
       },
+      "QuarantineStaleSubmittingRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "grace_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Only rows older than this many minutes are eligible. Defaults to 30,\nmust be between 10 and 10080 (one week)."
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Maximum rows to quarantine per call. Defaults to 100, clamped to\n1..=1000."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Free-form human justification stored on each row and its audit row."
+          }
+        }
+      },
+      "QuarantineStaleSubmittingResponse": {
+        "type": "object",
+        "required": [
+          "quarantined",
+          "quarantined_count",
+          "skipped_non_terminal",
+          "skipped_fresh",
+          "skipped_real_remote"
+        ],
+        "properties": {
+          "quarantined": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuarantinedExternalJob"
+            }
+          },
+          "quarantined_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "skipped_fresh": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Still `submitting` because it is newer than the grace cutoff."
+          },
+          "skipped_non_terminal": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Still `submitting` because the parent task/item is not terminal."
+          },
+          "skipped_real_remote": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Still `submitting` with a non-placeholder remote id; needs manual\nreview because a real remote job may exist."
+          }
+        }
+      },
+      "QuarantinedExternalJob": {
+        "type": "object",
+        "required": [
+          "external_job_id",
+          "task_id",
+          "item_id",
+          "quarantined_at"
+        ],
+        "properties": {
+          "external_job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "old_remote_task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quarantined_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "QueueDoclingRecoveryRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Free-form human justification recorded in operator logs."
+          }
+        }
+      },
+      "QueueDoclingRecoveryResponse": {
+        "type": "object",
+        "required": [
+          "queued"
+        ],
+        "properties": {
+          "queued": {
+            "$ref": "#/components/schemas/QueuedDoclingTask"
+          }
+        }
+      },
+      "QueuedDoclingTask": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "item_id",
+          "stage",
+          "queued_at"
+        ],
+        "properties": {
+          "already_queued": {
+            "type": "boolean",
+            "description": "True when the item was already queued and no state changed: no new\nattempt row and no new remote job were created."
+          },
+          "file_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stage": {
+            "type": "string",
+            "description": "Stage the item was parked on for dispatcher pickup (`docling`)."
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "RebuildDocumentExtractionsRequest": {
         "type": "object",
         "properties": {
@@ -9519,6 +9810,16 @@
             "type": "integer",
             "format": "int64"
           },
+          "orphaned_external_jobs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Rows already isolated as `orphaned`: non-active, no longer blocking\nterminal-task cleanup/purge or Docling admission."
+          },
+          "quarantinable_submitting": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Stale placeholder `submitting` rows on terminal parents that the admin\nquarantine API is allowed to isolate as `orphaned`."
+          },
           "queued": {
             "type": "integer",
             "format": "int64"
@@ -9534,6 +9835,11 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          },
+          "uncertain_submitting": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Uncertain `submitting` Docling rows (all ages, terminal parents or not).\nThese rows never count as remotely cancelled and need explicit review."
           },
           "waiting": {
             "type": "integer",
@@ -10384,6 +10690,10 @@
         "properties": {
           "base_url": {
             "type": "string"
+          },
+          "max_inflight": {
+            "type": "integer",
+            "minimum": 0
           },
           "poll_interval_secs": {
             "type": "integer",

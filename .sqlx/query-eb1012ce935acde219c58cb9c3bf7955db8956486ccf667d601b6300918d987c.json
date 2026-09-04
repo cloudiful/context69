@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Count uncertain `submitting` Docling rows by quarantine eligibility\n-- (issue #118 phase 4). Rows that do not meet the quarantine criteria are\n-- broken down by the exact reason they were skipped, so operators can see\n-- what remains `submitting` and why. The buckets partition every\n-- `submitting` row exactly once:\n--   * `quarantinable`: placeholder remote id ($2 LIKE pattern), older than\n--     the grace cutoff ($1), parent item AND task both terminal;\n--   * `skipped_non_terminal`: parent item or task is still active;\n--   * `skipped_fresh`: terminal parents but newer than the grace cutoff;\n--   * `skipped_real_remote`: terminal parents, old enough, but carrying a\n--     non-placeholder remote id that needs manual review.\n-- `orphaned` counts rows already isolated by a previous quarantine call.\nSELECT COALESCE(count(*) FILTER (WHERE job.status = 'submitting'), 0)::BIGINT\n       AS \"uncertain_submitting_count!\",\n       COALESCE(count(*) FILTER (\n           WHERE job.status = 'submitting'\n             AND job.remote_task_id LIKE $2\n             AND job.submitted_at < $1\n             AND item.status IN ('succeeded', 'failed', 'cancelled')\n             AND task.status IN ('succeeded', 'failed', 'cancelled')\n       ), 0)::BIGINT AS \"quarantinable_count!\",\n       COALESCE(count(*) FILTER (\n           WHERE job.status = 'submitting'\n             AND (item.status NOT IN ('succeeded', 'failed', 'cancelled')\n               OR task.status NOT IN ('succeeded', 'failed', 'cancelled'))\n       ), 0)::BIGINT AS \"skipped_non_terminal_count!\",\n       COALESCE(count(*) FILTER (\n           WHERE job.status = 'submitting'\n             AND item.status IN ('succeeded', 'failed', 'cancelled')\n             AND task.status IN ('succeeded', 'failed', 'cancelled')\n             AND job.submitted_at >= $1\n       ), 0)::BIGINT AS \"skipped_fresh_count!\",\n       COALESCE(count(*) FILTER (\n           WHERE job.status = 'submitting'\n             AND item.status IN ('succeeded', 'failed', 'cancelled')\n             AND task.status IN ('succeeded', 'failed', 'cancelled')\n             AND job.submitted_at < $1\n             AND job.remote_task_id NOT LIKE $2\n       ), 0)::BIGINT AS \"skipped_real_remote_count!\",\n       COALESCE(count(*) FILTER (WHERE job.status = 'orphaned'), 0)::BIGINT\n       AS \"orphaned_count!\"\nFROM context69.task_external_jobs job\nLEFT JOIN context69.task_items item ON item.id = job.item_id\nLEFT JOIN context69.tasks task ON task.id = item.task_id\nWHERE job.provider = 'docling'\n  AND job.status IN ('submitting', 'orphaned');\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "uncertain_submitting_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "quarantinable_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "skipped_non_terminal_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "skipped_fresh_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "skipped_real_remote_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "orphaned_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "eb1012ce935acde219c58cb9c3bf7955db8956486ccf667d601b6300918d987c"
+}
