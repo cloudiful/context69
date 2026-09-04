@@ -23,6 +23,7 @@ function makeDoclingResponse(
       timeout_secs: 120,
       poll_interval_secs: 2,
       task_timeout_secs: 600,
+      max_inflight: 1,
     },
     vlm: {
       openai_base_url: null,
@@ -100,6 +101,19 @@ describe("inferDoclingVlmMode", () => {
         picture_description_preset: null,
       }),
     ).toBe("disabled");
+  });
+});
+
+describe("doclingConnectionMaxInflight", () => {
+  it("round-trips the persistent remote admission ceiling", () => {
+    const draft = doclingResponseToDraft(makeDoclingResponse());
+    expect(draft.connection.max_inflight).toBe(1);
+    draft.connection.max_inflight = 3;
+    expect(buildDoclingPayload(draft).connection.max_inflight).toBe(3);
+  });
+
+  it("defaults a fresh draft to the single-worker safe ceiling", () => {
+    expect(createDoclingDraft().connection.max_inflight).toBe(1);
   });
 });
 

@@ -56,6 +56,7 @@ export type DraftDoclingSettings = {
     timeout_secs: number;
     poll_interval_secs: number;
     task_timeout_secs: number;
+    max_inflight: number;
   };
   /** Frontend-only draft mode selector; never persisted to the backend. */
   vlm_mode: DraftDoclingVlmMode;

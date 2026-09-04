@@ -57,6 +57,7 @@ declare module 'vue' {
     TablePagination: typeof import('./src/components/TablePagination.vue')['default']
     TaskItemAction: typeof import('./src/components/TaskItemAction.vue')['default']
     TaskItemsExpanded: typeof import('./src/components/TaskItemsExpanded.vue')['default']
+    TaskQuarantineDialog: typeof import('./src/components/TaskQuarantineDialog.vue')['default']
     UAlert: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Alert.vue')['default']
     UApp: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/App.vue')['default']
     UBadge: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Badge.vue')['default']

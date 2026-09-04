@@ -4,6 +4,7 @@ import * as nuxtUiComposables from "@nuxt/ui/composables";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import ProcessingQueueView from "./ProcessingQueueView.vue";
+import TaskQuarantineDialog from "../components/TaskQuarantineDialog.vue";
 import { apiClient, type TaskMaintenanceOverview, type TaskResponse } from "../services/api";
 import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
 import { createTestI18n } from "../test-utils/i18n";
@@ -14,6 +15,7 @@ const retryTask = vi.spyOn(apiClient, "retryTask");
 const recoverDoclingTask = vi.spyOn(apiClient, "recoverDoclingTask");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
 const getTaskMaintenance = vi.spyOn(apiClient, "getTaskMaintenance");
+const quarantineStaleSubmitting = vi.spyOn(apiClient, "quarantineStaleSubmitting");
 const getTaskItems = vi.spyOn(apiClient, "getTaskItems");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 const addToast = vi.fn();
@@ -86,7 +88,7 @@ function response(items: TaskResponse[]) {
 
 const maintenanceOverview: TaskMaintenanceOverview = {
   settings: { cleanup_enabled: true, retention_days: 30, updated_at: "2026-07-20T00:00:00Z" },
-  stats: { total: 40, queued: 2, running: 1, waiting: 3, succeeded: 25, failed: 5, cancelled: 4, active: 6, expired_terminal: 12 },
+  stats: { total: 40, queued: 2, running: 1, waiting: 3, succeeded: 25, failed: 5, cancelled: 4, active: 6, expired_terminal: 12, uncertain_submitting: 2, quarantinable_submitting: 1, orphaned_external_jobs: 3 },
 };
 
 async function mountQueue() {
@@ -109,6 +111,13 @@ describe("ProcessingQueueView", () => {
     recoverDoclingTask.mockReset().mockResolvedValue({ recovered: { task_id: "task-id" } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
     getTaskMaintenance.mockReset().mockResolvedValue(maintenanceOverview as never);
+    quarantineStaleSubmitting.mockReset().mockResolvedValue({
+      quarantined: [],
+      quarantined_count: 2,
+      skipped_non_terminal: 1,
+      skipped_fresh: 3,
+      skipped_real_remote: 4,
+    } as never);
     getTaskItems.mockReset();
     useOverlay.mockReset().mockReturnValue({
       create: () => ({ open: async () => true }),
@@ -322,6 +331,9 @@ describe("ProcessingQueueView", () => {
     expect(toolbar.text()).toContain("Total tasks: 40");
     expect(toolbar.text()).toContain("Active: 6");
     expect(toolbar.text()).toContain("Expired history: 12");
+    expect(toolbar.text()).toContain("Uncertain: 2");
+    expect(toolbar.text()).toContain("Quarantinable: 1");
+    expect(toolbar.text()).toContain("Quarantined: 3");
 
     // Inline settings form must not reserve page height; it lives in the modal.
     expect(wrapper.find('[data-testid="maintenance-cleanup-toggle"]').exists()).toBe(false);
@@ -337,6 +349,51 @@ describe("ProcessingQueueView", () => {
     expect(document.body.textContent).toContain("Auto-cleanup of expired tasks");
     expect(document.body.textContent).toContain("Retention (days)");
     expect(document.body.textContent).toContain("Save");
+    wrapper.unmount();
+  });
+
+  it("opens the quarantine dialog with a reason field and disabled confirm", async () => {
+    setAuthenticatedUser({ is_admin: true });
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="maintenance-quarantine-button"]').trigger("click");
+    await flushPromises();
+
+    expect(document.body.textContent).toContain("Quarantine stale submits");
+    expect(document.querySelector('[data-testid="maintenance-quarantine-reason"]')).not.toBeNull();
+    const confirm = document.querySelector('[data-testid="maintenance-quarantine-confirm"]') as HTMLButtonElement | null;
+    expect(confirm).not.toBeNull();
+    expect(confirm!.disabled).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("renders the inline quarantine summary with skip counts after a successful quarantine", async () => {
+    setAuthenticatedUser({ is_admin: true });
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="maintenance-quarantine-button"]').trigger("click");
+    await flushPromises();
+
+    const dialog = wrapper.findComponent(TaskQuarantineDialog);
+    expect(dialog.exists()).toBe(true);
+    await dialog.vm.$emit("update:reason", "stale placeholder review");
+    await flushPromises();
+    await dialog.vm.$emit("confirm");
+    await flushPromises();
+
+    expect(quarantineStaleSubmitting).toHaveBeenCalledWith({
+      reason: "stale placeholder review",
+      grace_minutes: 30,
+      limit: 100,
+    });
+    const toolbar = wrapper.find('[data-testid="task-maintenance-toolbar"]');
+    expect(toolbar.text()).toContain("Stale submits quarantined");
+    expect(toolbar.text()).toContain("2 quarantined");
+    expect(toolbar.text()).toContain("1 non-terminal skipped");
+    expect(toolbar.text()).toContain("3 fresh skipped");
+    expect(toolbar.text()).toContain("4 real-remote skipped");
     wrapper.unmount();
   });
 

@@ -26,6 +26,7 @@ export function buildDoclingPayload(
       timeout_secs: draft.connection.timeout_secs,
       poll_interval_secs: draft.connection.poll_interval_secs,
       task_timeout_secs: draft.connection.task_timeout_secs,
+      max_inflight: draft.connection.max_inflight,
     },
     vlm: projectDoclingVlmForPayload(draft.vlm_mode, draft.vlm),
   });

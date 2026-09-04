@@ -34,16 +34,56 @@ function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" |
   return "neutral";
 }
 
+type ExternalJob = NonNullable<TaskItemResponse["external_job"]>;
+
+function isPlaceholderRemoteId(remoteTaskId: string): boolean {
+  return remoteTaskId.startsWith("submitting-");
+}
+
+function externalJobKind(job: ExternalJob): "uncertain" | "quarantined" | "queued" | "running" | "failed" | "done" | "other" {
+  if (job.status === "submitting") return "uncertain";
+  if (job.status === "orphaned") return "quarantined";
+  if (job.status === "pending") return "queued";
+  if (job.status === "running") return "running";
+  if (job.status === "failed" || job.status === "error") return "failed";
+  if (job.status === "succeeded" || job.status === "success" || job.status === "complete" || job.status === "completed") return "done";
+  return "other";
+}
+
 function externalJobLabel(job: TaskItemResponse["external_job"]): string {
   if (!job) return "--";
-  return `${job.remote_task_id} · ${job.status}`;
+  const kind = externalJobKind(job);
+  if (kind === "uncertain") return t("processingQueue.remoteStatuses.uncertain");
+  if (kind === "quarantined") return t("processingQueue.remoteStatuses.quarantined");
+  if (kind === "queued") return t("processingQueue.remoteStatuses.doclingQueued");
+  if (kind === "running") return t("processingQueue.remoteStatuses.doclingRunning");
+  if (kind === "failed") return t("processingQueue.remoteStatuses.doclingFailed");
+  if (kind === "done") return t("processingQueue.remoteStatuses.doclingDone");
+  return job.remote_status ?? job.status;
+}
+
+function externalJobSeverity(job: TaskItemResponse["external_job"]): "success" | "error" | "warning" | "neutral" | "primary" {
+  if (!job) return "neutral";
+  const kind = externalJobKind(job);
+  if (kind === "done") return "success";
+  if (kind === "failed") return "error";
+  if (kind === "running") return "primary";
+  if (kind === "uncertain" || kind === "queued") return "warning";
+  return "neutral";
 }
 
 function externalJobTitle(job: TaskItemResponse["external_job"]): string | undefined {
   if (!job) return undefined;
+  const kind = externalJobKind(job);
   const parts = [
     `${job.provider} ${job.remote_task_id}`,
     `status: ${job.remote_status ?? job.status}`,
+    kind === "uncertain"
+      ? (isPlaceholderRemoteId(job.remote_task_id)
+        ? t("processingQueue.remoteStatuses.uncertainHintPlaceholder")
+        : t("processingQueue.remoteStatuses.uncertainHint"))
+      : null,
+    kind === "quarantined" ? t("processingQueue.remoteStatuses.quarantinedHint") : null,
     `submitted: ${job.submitted_at}`,
     job.last_polled_at ? `last polled: ${job.last_polled_at}` : null,
     job.deadline_at ? `deadline: ${job.deadline_at}` : null,
@@ -101,7 +141,14 @@ function clampText(value: string | null | undefined, max: number): string | null
         <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
         <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage ?? null) }}</span>
         <span class="block truncate text-xs text-muted" :title="clampText(item.error_message, 240) || undefined">{{ item.error_message || "--" }}</span>
-        <span class="block max-w-56 truncate text-xs text-muted" :title="externalJobTitle(item.external_job)">{{ externalJobLabel(item.external_job) }}</span>
+        <UBadge
+          v-if="item.external_job"
+          :label="externalJobLabel(item.external_job)"
+          :color="externalJobSeverity(item.external_job)"
+          variant="subtle"
+          :title="externalJobTitle(item.external_job)"
+        />
+        <span v-else class="text-xs text-muted">--</span>
         <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
         <TaskItemAction
           :item="item"

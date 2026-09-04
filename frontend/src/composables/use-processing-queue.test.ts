@@ -11,6 +11,7 @@ const listTasks = vi.spyOn(apiClient, "listTasks");
 const retryTask = vi.spyOn(apiClient, "retryTask");
 const rerunTask = vi.spyOn(apiClient, "rerunTask");
 const recoverDoclingTask = vi.spyOn(apiClient, "recoverDoclingTask");
+const queueDoclingRecovery = vi.spyOn(apiClient, "queueDoclingRecovery");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
 
 const failedTask: TaskResponse = {
@@ -83,6 +84,7 @@ describe("useProcessingQueue", () => {
     retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
     rerunTask.mockReset().mockResolvedValue({ task: { task_id: "new-task-id", item_ids: [] } } as never);
     recoverDoclingTask.mockReset().mockResolvedValue({ recovered: { task_id: "waiting-docling-poll-task-id" } } as never);
+    queueDoclingRecovery.mockReset().mockResolvedValue({ queued: { task_id: "failed-docling-task-id", item_id: "item-id", stage: "docling", queued_at: "2026-07-20T00:04:00Z", already_queued: false } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
   });
 
@@ -224,7 +226,26 @@ describe("useProcessingQueue", () => {
       "failed-docling-task-id",
       { reason: "manual recovery from the processing queue" },
     );
+    expect(queueDoclingRecovery).not.toHaveBeenCalled();
     expect(retryTask).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("refreshes and surfaces the quarantine path when immediate recovery hits an uncertain 409", async () => {
+    const { ApiError } = await import("../services/api/api-core");
+    listTasks
+      .mockResolvedValueOnce(page([failedDoclingTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    recoverDoclingTask.mockRejectedValueOnce(
+      new ApiError("Docling submission outcome is uncertain; quarantine the stale submitting job before recovery", 409),
+    );
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.recoverTask(failedDoclingTask);
+
+    expect(recoverDoclingTask).toHaveBeenCalledTimes(1);
+    expect(listTasks).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
@@ -346,15 +367,33 @@ describe("useProcessingQueue", () => {
 
     await state.recoverAll();
 
-    expect(recoverDoclingTask).toHaveBeenCalledTimes(1);
-    expect(recoverDoclingTask).toHaveBeenCalledWith(
+    expect(queueDoclingRecovery).toHaveBeenCalledTimes(1);
+    expect(queueDoclingRecovery).toHaveBeenCalledWith(
       "failed-docling-task-id",
-      { reason: "bulk recovery from the processing queue" },
+      { reason: "bulk queue-only recovery from the processing queue" },
     );
-    expect(recoverDoclingTask).not.toHaveBeenCalledWith(
+    expect(queueDoclingRecovery).not.toHaveBeenCalledWith(
       "waiting-docling-poll-task-id",
       expect.anything(),
     );
+    expect(recoverDoclingTask).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("treats an already-queued bulk response as idempotent success", async () => {
+    queueDoclingRecovery.mockResolvedValueOnce({
+      queued: { task_id: "failed-docling-task-id", item_id: "item-id", stage: "docling", queued_at: "2026-07-20T00:04:00Z", already_queued: true },
+    } as never);
+    listTasks
+      .mockResolvedValueOnce(page([failedDoclingTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.recoverAll();
+
+    expect(queueDoclingRecovery).toHaveBeenCalledTimes(1);
+    expect(listTasks).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
@@ -368,6 +407,7 @@ describe("useProcessingQueue", () => {
 
     await state.recoverAll();
 
+    expect(queueDoclingRecovery).not.toHaveBeenCalled();
     expect(recoverDoclingTask).not.toHaveBeenCalled();
     expect(retryTask).not.toHaveBeenCalled();
     expect(rerunTask).not.toHaveBeenCalled();

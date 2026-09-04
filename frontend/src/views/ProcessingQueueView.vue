@@ -5,11 +5,12 @@ import { useI18n } from "vue-i18n";
 
 import AppServerList from "../components/AppServerList.vue";
 import TaskItemsExpanded from "../components/TaskItemsExpanded.vue";
+import TaskQuarantineDialog from "../components/TaskQuarantineDialog.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
 import { useTaskMaintenance } from "../composables/use-task-maintenance";
 import { summarizeApiError, type ApiErrorSummary } from "../composables/use-error-toast";
 import { apiClient } from "../services/api";
-import type { TaskItemResponse, TaskKind, TaskResponse, TaskSortBy, TaskStatus } from "../services/api";
+import type { QuarantineStaleSubmittingResponse, TaskItemResponse, TaskKind, TaskResponse, TaskSortBy, TaskStatus } from "../services/api";
 import { formatTimestamp } from "../utils/format";
 import { LIBRARY_DEPENDENCY_KEYS, libraryDependencyLabel } from "../utils/library-status";
 
@@ -131,6 +132,42 @@ watch(
 const draftCleanup = ref(true);
 const draftRetentionDays = ref(30);
 const settingsOpen = ref(false);
+const quarantineOpen = ref(false);
+const quarantineReason = ref("");
+const quarantineGrace = ref(30);
+const quarantineLimit = ref(100);
+const quarantineGraceInvalid = computed(() => quarantineGrace.value < 10 || quarantineGrace.value > 10080);
+const quarantineLimitInvalid = computed(() => quarantineLimit.value < 1 || quarantineLimit.value > 1000);
+const quarantineReasonInvalid = computed(() => quarantineReason.value.trim().length === 0);
+const quarantineConfirmDisabled = computed(
+  () => quarantineReasonInvalid.value || quarantineGraceInvalid.value || quarantineLimitInvalid.value || !!maintenance.action,
+);
+// Opening the dialog keeps the last result visible but starts a fresh reason;
+// closing without confirming leaves stats untouched.
+watch(quarantineOpen, (open) => {
+  if (!open) return;
+  quarantineReason.value = "";
+  quarantineGrace.value = 30;
+  quarantineLimit.value = 100;
+});
+function submitQuarantine() {
+  if (quarantineConfirmDisabled.value) return;
+  void maintenance.quarantineStaleSubmitting(quarantineReason.value, quarantineGrace.value, quarantineLimit.value);
+}
+// Quarantine dialog lives in TaskQuarantineDialog.vue; only its draft stays here.
+// The inline maintenance alert renders the same result summary locally so a
+// successful quarantine stays visible even after the dialog is closed.
+function quarantineResultText(result: QuarantineStaleSubmittingResponse): string {
+  return t("taskMaintenance.quarantineResult", {
+    quarantined: result.quarantined_count,
+    nonTerminal: result.skipped_non_terminal,
+    fresh: result.skipped_fresh,
+    realRemote: result.skipped_real_remote,
+  });
+}
+function formatMaintenanceCount(value: number | null | undefined): string {
+  return value == null ? "--" : String(value);
+}
 watch(() => maintenance.settings, (settings) => {
   if (!settings) return;
   draftCleanup.value = settings.cleanup_enabled;
@@ -314,15 +351,41 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
           <span class="text-sm text-muted">{{ t("taskMaintenance.total") }}: {{ maintenance.stats?.total ?? "--" }}</span>
           <span class="text-sm text-muted">{{ t("taskMaintenance.active") }}: {{ maintenance.activeCount }}</span>
           <span class="text-sm text-muted">{{ t("taskMaintenance.expiredTerminal") }}: {{ maintenance.stats?.expired_terminal ?? "--" }}</span>
+          <span class="text-sm text-muted" data-testid="maintenance-uncertain">{{ t("taskMaintenance.uncertainSubmitting") }}: {{ formatMaintenanceCount(maintenance.uncertainSubmitting) }}</span>
+          <span class="text-sm text-muted" data-testid="maintenance-quarantinable">{{ t("taskMaintenance.quarantinableSubmitting") }}: {{ formatMaintenanceCount(maintenance.quarantinableSubmitting) }}</span>
+          <span class="text-sm text-muted" data-testid="maintenance-quarantined">{{ t("taskMaintenance.orphanedJobs") }}: {{ formatMaintenanceCount(maintenance.orphanedExternalJobs) }}</span>
         </div>
         <div class="flex min-w-0 flex-wrap items-center gap-2">
           <UButton color="error" variant="outline" size="sm" icon="i-lucide-ban" :loading="maintenance.action === 'cancel'" :disabled="maintenance.activeCount === 0 || !!maintenance.action" :label="t('taskMaintenance.cancelActiveAction') + ' (' + maintenance.activeCount + ')'" @click="maintenance.confirmCancelActive" />
           <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="!!maintenance.action" :label="t('taskMaintenance.purgeExpiredAction')" @click="maintenance.confirmPurge('expired')" />
           <UButton color="error" variant="outline" size="sm" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="maintenance.activeCount > 0 || !!maintenance.action" :label="t('taskMaintenance.purgeAllAction')" @click="maintenance.confirmPurge('all_terminal')" />
+          <UButton color="warning" variant="outline" size="sm" icon="i-lucide-shield-alert" :loading="maintenance.action === 'quarantine'" :disabled="!!maintenance.action" :label="t('taskMaintenance.quarantine')" data-testid="maintenance-quarantine-button" @click="quarantineOpen = true" />
           <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-settings" :aria-label="t('taskMaintenance.settings')" :title="t('taskMaintenance.settings')" data-testid="maintenance-settings-button" @click="settingsOpen = true" />
         </div>
       </div>
+      <UAlert
+        v-if="maintenance.lastQuarantine"
+        color="neutral"
+        variant="subtle"
+        :title="t('taskMaintenance.quarantineCompleted')"
+        :description="maintenance.lastQuarantine ? quarantineResultText(maintenance.lastQuarantine) : undefined"
+      />
     </section>
+
+    <TaskQuarantineDialog
+      :open="quarantineOpen"
+      :reason="quarantineReason"
+      :grace="quarantineGrace"
+      :limit="quarantineLimit"
+      :action="maintenance.action"
+      :last-quarantine="maintenance.lastQuarantine"
+      :confirm-disabled="quarantineConfirmDisabled"
+      @update:open="quarantineOpen = $event"
+      @update:reason="quarantineReason = $event"
+      @update:grace="quarantineGrace = $event ?? 30"
+      @update:limit="quarantineLimit = $event ?? 100"
+      @confirm="submitQuarantine"
+    />
 
     <UModal v-model:open="settingsOpen" :title="t('taskMaintenance.settings')" class="w-[30rem] max-w-[96vw]">
       <template #body>

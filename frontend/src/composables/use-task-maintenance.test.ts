@@ -12,6 +12,7 @@ const getTaskMaintenance = vi.spyOn(apiClient, "getTaskMaintenance");
 const updateTaskMaintenance = vi.spyOn(apiClient, "updateTaskMaintenance");
 const cancelActiveTasks = vi.spyOn(apiClient, "cancelActiveTasks");
 const purgeTasks = vi.spyOn(apiClient, "purgeTasks");
+const quarantineStaleSubmitting = vi.spyOn(apiClient, "quarantineStaleSubmitting");
 
 const overview: TaskMaintenanceOverview = {
   settings: {
@@ -29,6 +30,9 @@ const overview: TaskMaintenanceOverview = {
     cancelled: 4,
     active: 6,
     expired_terminal: 12,
+    uncertain_submitting: 2,
+    quarantinable_submitting: 1,
+    orphaned_external_jobs: 3,
   },
 };
 
@@ -39,6 +43,13 @@ describe("useTaskMaintenance", () => {
     updateTaskMaintenance.mockReset().mockResolvedValue(overview as never);
     cancelActiveTasks.mockReset().mockResolvedValue({ cancelled_tasks: 6 } as never);
     purgeTasks.mockReset().mockResolvedValue({ deleted_tasks: 12 } as never);
+    quarantineStaleSubmitting.mockReset().mockResolvedValue({
+      quarantined: [],
+      quarantined_count: 1,
+      skipped_non_terminal: 0,
+      skipped_fresh: 1,
+      skipped_real_remote: 0,
+    } as never);
   });
 
   function mountState(options: { onTasksChanged?: () => void } = {}) {
@@ -132,6 +143,39 @@ describe("useTaskMaintenance", () => {
     await state.load();
     await state.purge("all_terminal");
     expect(purgeTasks).toHaveBeenCalledWith({ mode: "all_terminal" });
+    wrapper.unmount();
+  });
+
+  it("exposes uncertain, quarantinable, and orphaned counts", async () => {
+    const { state, wrapper } = mountState();
+    await state.load();
+    expect(state.uncertainSubmitting.value).toBe(2);
+    expect(state.quarantinableSubmitting.value).toBe(1);
+    expect(state.orphanedExternalJobs.value).toBe(3);
+    wrapper.unmount();
+  });
+
+  it("quarantines stale submits with a reason and refreshes the overview", async () => {
+    const onTasksChanged = vi.fn();
+    const { state, wrapper } = mountState({ onTasksChanged });
+    await state.load();
+    await state.quarantineStaleSubmitting("stale placeholder review", 30, 100);
+    expect(quarantineStaleSubmitting).toHaveBeenCalledWith({
+      reason: "stale placeholder review",
+      grace_minutes: 30,
+      limit: 100,
+    });
+    expect(getTaskMaintenance).toHaveBeenCalledTimes(2);
+    expect(onTasksChanged).toHaveBeenCalledOnce();
+    expect(state.lastQuarantine.value?.quarantined_count).toBe(1);
+    wrapper.unmount();
+  });
+
+  it("refuses quarantine without a reason and never calls the API", async () => {
+    const { state, wrapper } = mountState();
+    await state.load();
+    await state.quarantineStaleSubmitting("   ");
+    expect(quarantineStaleSubmitting).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 });

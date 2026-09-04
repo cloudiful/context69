@@ -4,6 +4,7 @@ import { useToast } from "@nuxt/ui/composables";
 
 import {
   apiClient,
+  type QuarantineStaleSubmittingResponse,
   type TaskMaintenanceOverview,
   type TaskPurgeMode,
 } from "../services/api";
@@ -24,12 +25,16 @@ export function useTaskMaintenance({ t, onTasksChanged }: UseTaskMaintenanceOpti
   const loading = ref(false);
   const error = ref<string | null>(null);
   const saving = ref(false);
-  const action = ref<"cancel" | "purge" | null>(null);
+  const action = ref<"cancel" | "purge" | "quarantine" | null>(null);
+  const lastQuarantine = ref<QuarantineStaleSubmittingResponse | null>(null);
 
   const isAdmin = computed(() => authSessionState.user?.is_admin === true);
   const settings = computed(() => overview.value?.settings ?? null);
   const stats = computed(() => overview.value?.stats ?? null);
   const activeCount = computed(() => stats.value?.active ?? 0);
+  const uncertainSubmitting = computed(() => stats.value?.uncertain_submitting ?? null);
+  const quarantinableSubmitting = computed(() => stats.value?.quarantinable_submitting ?? null);
+  const orphanedExternalJobs = computed(() => stats.value?.orphaned_external_jobs ?? null);
 
   async function load() {
     if (!isAdmin.value) return;
@@ -126,12 +131,53 @@ export function useTaskMaintenance({ t, onTasksChanged }: UseTaskMaintenanceOpti
     });
   }
 
+  // Controlled stale-`submitting` quarantine. Only an explicit admin call
+  // with a non-empty reason isolates placeholder rows older than the grace
+  // cutoff on terminal parents as `orphaned`; nothing runs automatically
+  // and the transition never claims the remote job was cancelled. The
+  // response carries quarantined rows plus skip counts so the UI can show
+  // exactly what stayed `submitting` and why.
+  async function quarantineStaleSubmitting(reason: string, graceMinutes?: number, limit?: number) {
+    if (action.value) return;
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      showErrorToast(new Error("empty reason"), t("taskMaintenance.quarantineReasonRequired"));
+      return;
+    }
+    action.value = "quarantine";
+    try {
+      const response = await apiClient.quarantineStaleSubmitting({
+        reason: trimmed,
+        grace_minutes: graceMinutes ?? null,
+        limit: limit ?? null,
+      });
+      lastQuarantine.value = response;
+      await load();
+      onTasksChanged?.();
+      toast.add({
+        color: "success",
+        title: t("taskMaintenance.quarantineCompleted"),
+        description: String(response.quarantined_count),
+        duration: 3000,
+      });
+    } catch (quarantineError) {
+      showErrorToast(quarantineError, t("taskMaintenance.quarantineFailed"));
+      await load();
+    } finally {
+      action.value = null;
+    }
+  }
+
   return {
     isAdmin,
     overview,
     settings,
     stats,
     activeCount,
+    uncertainSubmitting,
+    quarantinableSubmitting,
+    orphanedExternalJobs,
+    lastQuarantine,
     loading,
     error,
     saving,
@@ -142,5 +188,6 @@ export function useTaskMaintenance({ t, onTasksChanged }: UseTaskMaintenanceOpti
     confirmCancelActive,
     purge,
     confirmPurge,
+    quarantineStaleSubmitting,
   };
 }

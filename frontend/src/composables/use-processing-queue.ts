@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { apiClient, type TaskKind, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
+import { ApiError } from "../services/api/api-core";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
 import { useToast } from "@nuxt/ui/composables";
@@ -24,6 +25,12 @@ interface RecoverySummary {
 }
 
 const ACTIVE_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
+
+function isUncertainSubmissionError(error: unknown): boolean {
+  return error instanceof ApiError
+    && error.status === 409
+    && /uncertain/i.test(error.message);
+}
 
 export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const showErrorToast = useErrorToast();
@@ -145,6 +152,8 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     return actionTaskIds.value.includes(task.task_id);
   }
 
+  // Single-item immediate recovery. A 409 uncertain rejection refreshes
+  // first: the row must be quarantined, never assumed remotely cancelled.
   async function recoverTask(task: TaskResponse) {
     if (!isRecoverableTask(task) || isActing(task)) return;
     actionTaskIds.value = [...actionTaskIds.value, task.task_id];
@@ -170,11 +179,16 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         duration: 2500,
       });
     } catch (recoverError) {
-      showErrorToast(recoverError, t(isDoclingRecoveryTask(task)
-        ? "processingQueue.doclingRecoveryFailed"
-        : task.status === "cancelled"
-          ? "processingQueue.resubmitFailed"
-          : "processingQueue.retryFailed"));
+      if (isDoclingRecoveryTask(task) && isUncertainSubmissionError(recoverError)) {
+        await load();
+        showErrorToast(recoverError, t("processingQueue.uncertainRecoveryBlocked"));
+      } else {
+        showErrorToast(recoverError, t(isDoclingRecoveryTask(task)
+          ? "processingQueue.doclingRecoveryFailed"
+          : task.status === "cancelled"
+            ? "processingQueue.resubmitFailed"
+            : "processingQueue.retryFailed"));
+      }
     } finally {
       actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
     }
@@ -200,7 +214,12 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         duration: 2500,
       });
     } catch (recoverError) {
-      showErrorToast(recoverError, t("processingQueue.doclingRecoveryFailed"));
+      if (isUncertainSubmissionError(recoverError)) {
+        await load();
+        showErrorToast(recoverError, t("processingQueue.uncertainRecoveryBlocked"));
+      } else {
+        showErrorToast(recoverError, t("processingQueue.doclingRecoveryFailed"));
+      }
     } finally {
       actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
     }
@@ -220,10 +239,13 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   }
 
+  // Bulk Docling recovery is queue-only: park on `docling` for dispatcher
+  // pickup under max_inflight, no POST or new attempt/job. `already_queued`
+  // stays fulfilled and counts as succeeded. Others keep retry/rerun.
   async function submitRecovery(task: TaskResponse): Promise<void> {
     if (isDoclingRecoveryTask(task)) {
-      await apiClient.recoverDoclingTask(task.task_id, {
-        reason: "bulk recovery from the processing queue",
+      await apiClient.queueDoclingRecovery(task.task_id, {
+        reason: "bulk queue-only recovery from the processing queue",
       });
     } else if (task.status === "cancelled") {
       await apiClient.rerunTask(task.task_id);

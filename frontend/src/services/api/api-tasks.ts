@@ -2,6 +2,10 @@ import type {
   CancelActiveTasksResponse,
   PurgeTasksRequest,
   PurgeTasksResponse,
+  QuarantineStaleSubmittingRequest,
+  QuarantineStaleSubmittingResponse,
+  QueueDoclingRecoveryRequest,
+  QueueDoclingRecoveryResponse,
   RecoverDoclingTaskRequest,
   RecoverDoclingTaskResponse,
   RequestOptions,
@@ -127,6 +131,26 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         body: payload,
         signal: options?.signal,
       })) as Promise<RecoverDoclingTaskResponse>;
+    },
+    queueDoclingRecovery(
+      taskId: string,
+      payload: QueueDoclingRecoveryRequest,
+      options?: RequestOptions,
+    ) {
+      return unwrapResponse(openapiClient.POST("/v1/admin/tasks/{task_id}/recover/queue", {
+        params: { path: { task_id: taskId } },
+        body: payload,
+        signal: options?.signal,
+      })) as Promise<QueueDoclingRecoveryResponse>;
+    },
+    quarantineStaleSubmitting(
+      payload: QuarantineStaleSubmittingRequest,
+      options?: RequestOptions,
+    ) {
+      return unwrapResponse(openapiClient.POST("/v1/admin/tasks/quarantine-submitting", {
+        body: payload,
+        signal: options?.signal,
+      })) as Promise<QuarantineStaleSubmittingResponse>;
     },
   };
 }
