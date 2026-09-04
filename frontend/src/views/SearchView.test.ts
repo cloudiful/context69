@@ -457,4 +457,217 @@ describe("SearchView", () => {
     expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ query: "paged", limit: 16, page: 2 }), expect.any(Object));
     expect(router.currentRoute.value.query.page).toBe("2");
   });
+
+  it("labels lower-bound totals as at least instead of exact", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    vi.spyOn(apiClient, "search").mockResolvedValue({
+      query: "policy",
+      items: [
+        {
+          chunk_id: "c-lower",
+          document_id: 11,
+          source_key: "src",
+          external_id: "e11",
+          group_key: "g",
+          group_path: "g/p",
+          visibility: "private",
+          title: "Lower Bound",
+          summary: "",
+          source_uri: "https://example.com/lower",
+          published_at: null,
+          chunk_index: 0,
+          chunk_text: "lower bound text",
+          score: 0.6,
+          metadata_json: {},
+        } as SearchHit,
+      ],
+      pagination: {
+        page: 1,
+        page_size: 8,
+        total: 9,
+        total_pages: 2,
+        has_more: true,
+        total_is_exact: false,
+      },
+    });
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=policy");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("At least 9 results");
+    expect(wrapper.text()).not.toContain("Results: 9");
+  });
+
+  it("keeps exact labels for legacy responses without window signals", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    vi.spyOn(apiClient, "search").mockResolvedValue(searchPage("legacy", [
+      {
+        chunk_id: "c-legacy",
+        document_id: 12,
+        source_key: "src",
+        external_id: "e12",
+        group_key: "g",
+        group_path: "g/p",
+        visibility: "private",
+        title: "Legacy",
+        summary: "",
+        source_uri: "https://example.com/legacy",
+        published_at: null,
+        chunk_index: 0,
+        chunk_text: "legacy text",
+        score: 0.5,
+        metadata_json: {},
+      } as SearchHit,
+    ]));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=legacy");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Results");
+    expect(wrapper.text()).not.toContain("At least");
+  });
+
+  it("renders Chinese lower-bound copy for inexact windows", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    vi.spyOn(apiClient, "search").mockResolvedValue({
+      query: "policy",
+      items: [],
+      pagination: {
+        page: 1,
+        page_size: 8,
+        total: 9,
+        total_pages: 2,
+        has_more: true,
+        total_is_exact: false,
+      },
+    });
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=policy");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n("zh-CN")] } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("至少 9 条");
+  });
+
+  it("labels capped windows with unknown has_more as at least", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    vi.spyOn(apiClient, "search").mockResolvedValue({
+      query: "policy",
+      items: [
+        {
+          chunk_id: "c-capped",
+          document_id: 14,
+          source_key: "src",
+          external_id: "e14",
+          group_key: "g",
+          group_path: "g/p",
+          visibility: "private",
+          title: "Capped",
+          summary: "",
+          source_uri: "https://example.com/capped",
+          published_at: null,
+          chunk_index: 0,
+          chunk_text: "capped text",
+          score: 0.5,
+          metadata_json: {},
+        } as SearchHit,
+      ],
+      pagination: {
+        page: 1,
+        page_size: 8,
+        total: 5,
+        total_pages: 1,
+        total_is_exact: false,
+      },
+    });
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=policy");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("At least 5 results");
+    expect(wrapper.text()).not.toContain("Results: 5");
+  });
+
+  it("keeps paging on backend totals when the window is inexact", async () => {
+    vi.spyOn(apiClient, "listSources").mockResolvedValue(sourcePage([]));
+    const search = vi.spyOn(apiClient, "search").mockResolvedValue({
+      query: "paged",
+      items: [
+        {
+          chunk_id: "c-paged",
+          document_id: 13,
+          source_key: "src",
+          external_id: "e13",
+          group_key: "g",
+          group_path: "g/p",
+          visibility: "private",
+          title: "Paged Inexact",
+          summary: "",
+          source_uri: "https://example.com/paged-inexact",
+          published_at: null,
+          chunk_index: 0,
+          chunk_text: "paged text",
+          score: 0.5,
+          metadata_json: {},
+        } as SearchHit,
+      ],
+      pagination: {
+        page: 1,
+        page_size: 8,
+        total: 9,
+        total_pages: 2,
+        has_more: true,
+        total_is_exact: false,
+      },
+    });
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/search", name: "search", component: SearchView },
+        { path: "/documents/:id", name: "document", component: { template: "<div />" } },
+      ],
+    });
+    router.push("/search?q=paged");
+    await router.isReady();
+    const wrapper = mount(SearchView, { global: { plugins: [testNuxtUiPlugin, router, createTestI18n()] } });
+    await flushPromises();
+
+    const resultList = wrapper.getComponent({ name: "SearchResultList" });
+    resultList.vm.$emit("page", 2);
+    await flushPromises();
+    await flushPromises();
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ query: "paged", page: 2 }), expect.any(Object));
+    expect(router.currentRoute.value.query.page).toBe("2");
+  });
 });

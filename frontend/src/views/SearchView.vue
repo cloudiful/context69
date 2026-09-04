@@ -38,6 +38,15 @@ const selectedHit = ref<SearchHit | null>(null);
 const historyEntries = ref<SearchHistoryEntry[]>([]);
 const showResultsPanel = computed(() => loading.value || searched.value);
 const visibleHistoryEntries = computed(() => historyEntries.value.slice(0, 8));
+// Lower-bound totals must not be presented as exact counts.
+const resultsSummary = computed(() => {
+  if (!results.value) return "";
+  const pagination = results.value.pagination;
+  if (pagination.total_is_exact === false) {
+    return t("search.resultsAtLeast", { count: pagination.total });
+  }
+  return `${t("search.workspace.resultsLabel")}: ${pagination.total}`;
+});
 
 let controller: AbortController | null = null;
 let searchSequence = 0;
@@ -230,7 +239,7 @@ onBeforeUnmount(() => {
       <template #header>
         <div class="flex items-center justify-between gap-2">
           <h2 class="text-base font-semibold text-color">{{ t("search.resultsTitle") }}</h2>
-          <span v-if="results" class="text-xs text-muted">{{ t("search.workspace.resultsLabel") }}: {{ results.pagination.total }}</span>
+          <span v-if="results" class="text-xs text-muted">{{ resultsSummary }}</span>
         </div>
       </template>
       <AsyncStateBlock

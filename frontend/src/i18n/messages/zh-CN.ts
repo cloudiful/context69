@@ -292,6 +292,7 @@ export const zhCN = {
     inputLabel: "筛选条件",
     consoleTitle: "搜索",
     resultsTitle: "搜索结果",
+    resultsAtLeast: "至少 {count} 条",
     sourceErrorTitle: "来源状态错误",
     sourceLoadFailed: "加载来源失败",
     searchFailed: "搜索失败",

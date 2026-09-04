@@ -6,8 +6,24 @@ use utoipa::ToSchema;
 pub struct Pagination {
     pub page: u32,
     pub page_size: u32,
+    /// Known result count for the current window. For search windows with
+    /// `total_is_exact=false`, this is a lower bound, not an exact match count.
     pub total: u64,
+    /// Page count derived from `total`. For search windows with
+    /// `total_is_exact=false`, this is also a lower bound.
     pub total_pages: u32,
+    /// `true` when the service observed at least one extra candidate beyond
+    /// `offset + limit`; `false` when the probed window was exhausted.
+    /// When absent, the service could not safely probe (for example the fixed
+    /// candidate window hit its cap), so callers must not infer end-of-results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_more: Option<bool>,
+    /// `false` means `total` and `total_pages` are lower bounds over the
+    /// currently known candidate window, not exact database counts.
+    /// When absent, preserves the legacy exact-total semantics for existing
+    /// paginated endpoints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_is_exact: Option<bool>,
 }
 
 impl Pagination {
@@ -28,7 +44,23 @@ impl Pagination {
             page_size,
             total,
             total_pages,
+            has_more: None,
+            total_is_exact: None,
         })
+    }
+
+    /// Build a search window where `total` and the derived `total_pages` are
+    /// known lower bounds, not exact counts.
+    pub fn try_new_search_window(
+        page: u32,
+        page_size: u32,
+        total: u64,
+        has_more: Option<bool>,
+    ) -> anyhow::Result<Self> {
+        let mut pagination = Self::try_new(page, page_size, total)?;
+        pagination.has_more = has_more;
+        pagination.total_is_exact = Some(false);
+        Ok(pagination)
     }
 
     pub fn offset(page: u32, page_size: u32) -> anyhow::Result<i64> {

@@ -2078,13 +2078,35 @@ export interface components {
             visibility?: null | components["schemas"]["Visibility"];
         };
         Pagination: {
+            /**
+             * @description `true` when the service observed at least one extra candidate beyond
+             *     `offset + limit`; `false` when the probed window was exhausted.
+             *     When absent, the service could not safely probe (for example the fixed
+             *     candidate window hit its cap), so callers must not infer end-of-results.
+             */
+            has_more?: boolean | null;
             /** Format: int32 */
             page: number;
             /** Format: int32 */
             page_size: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Known result count for the current window. For search windows with
+             *     `total_is_exact=false`, this is a lower bound, not an exact match count.
+             */
             total: number;
-            /** Format: int32 */
+            /**
+             * @description `false` means `total` and `total_pages` are lower bounds over the
+             *     currently known candidate window, not exact database counts.
+             *     When absent, preserves the legacy exact-total semantics for existing
+             *     paginated endpoints.
+             */
+            total_is_exact?: boolean | null;
+            /**
+             * Format: int32
+             * @description Page count derived from `total`. For search windows with
+             *     `total_is_exact=false`, this is also a lower bound.
+             */
             total_pages: number;
         };
         PersonalAccessTokenPageQuery: {

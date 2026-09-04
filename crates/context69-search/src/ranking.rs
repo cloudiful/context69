@@ -163,7 +163,9 @@ mod tests {
 
     use crate::{CachedRerankItemScore, RerankHit};
 
-    use super::{apply_rerank, local_score, merge_cached_item_scores, merge_candidates};
+    use super::{
+        apply_rerank, compare_hits, local_score, merge_cached_item_scores, merge_candidates,
+    };
 
     fn hit(chunk_id: Uuid, title: &str, chunk_text: &str) -> SearchHit {
         SearchHit {
@@ -290,5 +292,78 @@ mod tests {
 
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].score, 0.8);
+    }
+
+    #[test]
+    fn compare_hits_breaks_score_ties_deterministically() {
+        let mut older = hit(Uuid::new_v4(), "older", "text older");
+        older.score = 0.5;
+        older.document_id = 2;
+        older.chunk_index = 1;
+        older.published_at = chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+            .ok()
+            .map(|value| value.with_timezone(&chrono::Utc));
+        let mut newer = hit(Uuid::new_v4(), "newer", "text newer");
+        newer.score = 0.5;
+        newer.document_id = 1;
+        newer.chunk_index = 0;
+        newer.published_at = chrono::DateTime::parse_from_rfc3339("2025-02-01T00:00:00Z")
+            .ok()
+            .map(|value| value.with_timezone(&chrono::Utc));
+
+        // Newer published date wins when scores tie.
+        assert_eq!(compare_hits(&older, &newer), std::cmp::Ordering::Greater);
+
+        // Same score and date falls back to document/chunk order.
+        newer.published_at = older.published_at;
+        assert_eq!(compare_hits(&older, &newer), std::cmp::Ordering::Greater);
+        assert_eq!(compare_hits(&newer, &older), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn merged_sorted_order_does_not_depend_on_input_order() {
+        fn scored(title: &str, document_id: i64, chunk_index: i32, score: f32) -> SearchHit {
+            let mut item = hit(Uuid::new_v4(), title, "body text");
+            item.document_id = document_id;
+            item.chunk_index = chunk_index;
+            item.score = score;
+            item.vector_score = Some(score);
+            item
+        }
+
+        let first = scored("first", 1, 0, 0.9);
+        let second = scored("second", 2, 0, 0.7);
+        let third = scored("third", 3, 0, 0.9);
+        // `first` and `third` tie on score/date; document_id decides.
+        let forward = {
+            let mut merged = merge_candidates(
+                vec![first.clone(), second.clone()],
+                vec![third.clone()],
+                "query",
+            );
+            merged.sort_by(compare_hits);
+            merged
+                .iter()
+                .map(|item| item.document_id)
+                .collect::<Vec<_>>()
+        };
+        let reverse = {
+            let mut merged = merge_candidates(
+                vec![second.clone(), first.clone()],
+                vec![third.clone()],
+                "query",
+            );
+            merged.sort_by(compare_hits);
+            merged
+                .iter()
+                .map(|item| item.document_id)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(forward, reverse);
+        // Highest score first, tie broken by smaller document_id.
+        assert_eq!(forward[0], 1);
+        assert_eq!(forward[1], 3);
+        assert_eq!(forward[2], 2);
     }
 }

@@ -292,6 +292,7 @@ export const en = {
     inputLabel: "Filters",
     consoleTitle: "Search",
     resultsTitle: "Search Results",
+    resultsAtLeast: "At least {count} results",
     sourceErrorTitle: "Source Status Error",
     sourceLoadFailed: "Failed to load sources",
     searchFailed: "Search failed",

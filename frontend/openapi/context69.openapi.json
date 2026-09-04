@@ -7985,6 +7985,13 @@
           "total_pages"
         ],
         "properties": {
+          "has_more": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` when the service observed at least one extra candidate beyond\n`offset + limit`; `false` when the probed window was exhausted.\nWhen absent, the service could not safely probe (for example the fixed\ncandidate window hit its cap), so callers must not infer end-of-results."
+          },
           "page": {
             "type": "integer",
             "format": "int32",
@@ -7998,11 +8005,20 @@
           "total": {
             "type": "integer",
             "format": "int64",
+            "description": "Known result count for the current window. For search windows with\n`total_is_exact=false`, this is a lower bound, not an exact match count.",
             "minimum": 0
+          },
+          "total_is_exact": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`false` means `total` and `total_pages` are lower bounds over the\ncurrently known candidate window, not exact database counts.\nWhen absent, preserves the legacy exact-total semantics for existing\npaginated endpoints."
           },
           "total_pages": {
             "type": "integer",
             "format": "int32",
+            "description": "Page count derived from `total`. For search windows with\n`total_is_exact=false`, this is also a lower bound.",
             "minimum": 0
           }
         }
