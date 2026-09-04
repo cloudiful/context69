@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lock the singleton Docling settings row so concurrent submitters serialize\n-- their admission check. Returns zero rows when Docling is unconfigured;\n-- callers fall back to the single-worker default (1).\nSELECT max_inflight\nFROM context69.docling_settings\nWHERE singleton = TRUE\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max_inflight",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.docling_settings",
+            "name": "max_inflight"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "91d6de32ba2f806a102251da36f7ee5d84a49340dabf10ff291cfe6ec80f7e43"
+}

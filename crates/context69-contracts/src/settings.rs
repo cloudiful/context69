@@ -198,6 +198,7 @@ pub struct DoclingConnectionSettingsResponse {
     pub timeout_secs: u64,
     pub poll_interval_secs: u64,
     pub task_timeout_secs: u64,
+    pub max_inflight: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -206,6 +207,22 @@ pub struct UpdateDoclingConnectionSettings {
     pub timeout_secs: u64,
     pub poll_interval_secs: u64,
     pub task_timeout_secs: u64,
+    #[serde(default = "default_docling_max_inflight")]
+    pub max_inflight: usize,
+}
+
+/// Persistent Docling remote admission ceiling (issue #118).
+///
+/// The Mac mini runs Docling Serve with a single RQ worker, so the safe
+/// initial value is 1. The bound is intentionally small (1..=32) to keep
+/// remote backpressure effective while still allowing larger hosts to raise
+/// it via settings.
+pub const DOCLING_MAX_INFLIGHT_DEFAULT: usize = 1;
+pub const DOCLING_MAX_INFLIGHT_MIN: usize = 1;
+pub const DOCLING_MAX_INFLIGHT_MAX: usize = 32;
+
+fn default_docling_max_inflight() -> usize {
+    DOCLING_MAX_INFLIGHT_DEFAULT
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

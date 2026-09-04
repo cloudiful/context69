@@ -125,6 +125,7 @@ pub(super) struct DoclingSettingsRow {
     pub(super) timeout_secs: i64,
     pub(super) poll_interval_secs: i64,
     pub(super) task_timeout_secs: i64,
+    pub(super) max_inflight: i64,
     pub(super) pdf_backend: Option<String>,
     pub(super) images_scale: Option<f64>,
     pub(super) image_export_mode: Option<String>,

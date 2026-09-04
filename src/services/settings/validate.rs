@@ -115,6 +115,15 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
     if request.connection.task_timeout_secs == 0 {
         return Err(anyhow!("docling.task_timeout_secs must be greater than 0"));
     }
+    if request.connection.max_inflight < context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN
+        || request.connection.max_inflight > context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX
+    {
+        return Err(anyhow!(
+            "docling.max_inflight must be between {} and {}",
+            context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN,
+            context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX
+        ));
+    }
 
     Ok(())
 }

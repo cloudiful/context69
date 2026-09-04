@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Count Docling remote jobs holding a slot (issue #118).\n--\n-- `pending`/`running` are remote non-terminal states that occupy Docling Serve.\n-- Fresh `submitting` rows (last 10 minutes) are reservations between the\n-- atomic admission insert and the remote POST; they must count so concurrent\n-- submitters cannot both slip through. Older `submitting` rows are uncertain\n-- historical leftovers (phase 4 handles them) and are deliberately ignored\n-- so they cannot permanently wedge admission.\nSELECT COUNT(*) AS \"count!\"\nFROM context69.task_external_jobs\nWHERE provider = $1\n  AND (\n    status IN ('pending', 'running')\n    OR (status = 'submitting' AND submitted_at > now() - interval '10 minutes')\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "605db76a79b17c6f46cc8e1348b33c27c3d8bb54ecfbb936bb62ea8692304bb6"
+}

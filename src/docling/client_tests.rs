@@ -129,6 +129,7 @@ fn client(base_url: String, task_timeout: Duration, poll_interval: Duration) -> 
             timeout: Duration::from_secs(2),
             poll_interval,
             task_timeout,
+            max_inflight: super::DEFAULT_DOCLING_MAX_INFLIGHT,
         },
         vlm: DoclingVlmConfig::default(),
     })

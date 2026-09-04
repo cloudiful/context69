@@ -3,6 +3,18 @@ use anyhow::{Context, Result};
 use super::{Database, DoclingSettingsRow, StoredDoclingSettings};
 
 impl Database {
+    pub async fn get_docling_max_inflight(&self) -> Result<usize> {
+        Ok(self
+            .get_docling_settings()
+            .await?
+            .map(|settings| settings.max_inflight)
+            .unwrap_or(context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT)
+            .clamp(
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN,
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX,
+            ))
+    }
+
     pub async fn get_docling_settings(&self) -> Result<Option<StoredDoclingSettings>> {
         let row = sqlx::query_file_as!(
             DoclingSettingsRow,
@@ -20,6 +32,8 @@ impl Database {
                     .context("docling poll_interval_secs must be non-negative")?,
                 task_timeout_secs: u64::try_from(row.task_timeout_secs)
                     .context("docling task_timeout_secs must be non-negative")?,
+                max_inflight: usize::try_from(row.max_inflight)
+                    .context("docling max_inflight must be non-negative")?,
                 pdf_backend: row.pdf_backend,
                 images_scale: row.images_scale,
                 image_export_mode: row.image_export_mode,
@@ -51,6 +65,8 @@ impl Database {
             .context("docling poll interval is too large")?;
         let task_timeout_secs = i64::try_from(settings.task_timeout_secs)
             .context("docling task timeout is too large")?;
+        let max_inflight =
+            i64::try_from(settings.max_inflight).context("docling max_inflight is too large")?;
 
         let row = sqlx::query_file_as!(
             DoclingSettingsRow,
@@ -59,6 +75,7 @@ impl Database {
             timeout_secs,
             poll_interval_secs,
             task_timeout_secs,
+            max_inflight,
             settings.pdf_backend,
             settings.images_scale,
             settings.image_export_mode,
@@ -87,6 +104,8 @@ impl Database {
                 .context("docling poll_interval_secs must be non-negative")?,
             task_timeout_secs: u64::try_from(row.task_timeout_secs)
                 .context("docling task_timeout_secs must be non-negative")?,
+            max_inflight: usize::try_from(row.max_inflight)
+                .context("docling max_inflight must be non-negative")?,
             pdf_backend: row.pdf_backend,
             images_scale: row.images_scale,
             image_export_mode: row.image_export_mode,

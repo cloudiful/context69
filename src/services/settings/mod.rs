@@ -364,6 +364,7 @@ mod tests {
                 timeout_secs: 120,
                 poll_interval_secs: 2,
                 task_timeout_secs: 3600,
+                max_inflight: context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT,
             },
             vlm: UpdateDoclingVlmSettings::default(),
         }
@@ -375,6 +376,7 @@ mod tests {
             timeout_secs: 120,
             poll_interval_secs: 2,
             task_timeout_secs: 3600,
+            max_inflight: context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT,
             pdf_backend: None,
             images_scale: None,
             image_export_mode: None,
@@ -709,5 +711,68 @@ mod tests {
             message.contains("fully configured together"),
             "error must call out the all-or-none model rule but was: {message}"
         );
+    }
+
+    #[test]
+    fn docling_request_accepts_bounded_max_inflight() {
+        let mut request = sample_request();
+        for limit in [
+            context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN,
+            context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT,
+            context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX,
+        ] {
+            request.connection.max_inflight = limit;
+            validate_docling_request(&request).expect("bounded max_inflight should be valid");
+        }
+    }
+
+    #[test]
+    fn docling_request_rejects_out_of_range_max_inflight() {
+        let mut request = sample_request();
+        request.connection.max_inflight = 0;
+        let error =
+            validate_docling_request(&request).expect_err("zero max_inflight must be rejected");
+        assert!(error.to_string().contains("max_inflight"));
+
+        request.connection.max_inflight =
+            context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX + 1;
+        let error = validate_docling_request(&request)
+            .expect_err("over-ceiling max_inflight must be rejected");
+        assert!(error.to_string().contains("max_inflight"));
+    }
+
+    #[test]
+    fn docling_mapper_round_trips_max_inflight() {
+        let mut request = sample_request();
+        request.connection.max_inflight = 3;
+        let stored = docling_settings_from_request(&request, None);
+        assert_eq!(stored.max_inflight, 3);
+
+        let response = response_from_stored(DoclingSettingsSource::Database, true, stored.clone());
+        assert_eq!(response.connection.max_inflight, 3);
+
+        let config = config_from_stored(stored);
+        assert_eq!(config.connection.max_inflight, 3);
+    }
+
+    #[test]
+    fn legacy_docling_request_without_max_inflight_defaults_to_single_worker() {
+        let payload = serde_json::json!({
+            "connection": {
+                "base_url": "http://docling:5001",
+                "timeout_secs": 120,
+                "poll_interval_secs": 2,
+                "task_timeout_secs": 3600
+            },
+            "vlm": {}
+        });
+        let request: UpdateDoclingSettingsRequest =
+            serde_json::from_value(payload).expect("legacy request without max_inflight");
+        assert_eq!(
+            request.connection.max_inflight,
+            context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT,
+            "legacy API payloads must default to the single-worker ceiling"
+        );
+        validate_docling_request(&request).expect("defaulted request should be valid");
     }
 }

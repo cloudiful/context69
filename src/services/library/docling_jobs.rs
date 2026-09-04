@@ -139,9 +139,13 @@ impl LibraryService {
             .await
             .map_err(|error| task_failure("docling", error, true))?;
         let submission_marker = format!("submitting-{}", Uuid::new_v4());
-        let submission = self
+        // Persistent remote admission (issue #118): claim a global Docling slot
+        // atomically before touching the network. When the ceiling is reached
+        // the worker must wait and must not POST, so the local permit is
+        // released via the retryable error path and the item backs off.
+        let submission = match self
             .store
-            .begin_external_job_submission(
+            .try_begin_external_job_submission(
                 item_id,
                 DOCLING_EXTERNAL_JOB_PROVIDER,
                 &submission_marker,
@@ -149,7 +153,22 @@ impl LibraryService {
                 deadline,
             )
             .await
-            .map_err(|error| task_failure("docling", error, true))?;
+            .map_err(|error| task_failure("docling", error, true))?
+        {
+            Ok(submission) => submission,
+            Err(denied) => {
+                drop(permit);
+                return Err(task_failure(
+                    "docling",
+                    anyhow!(
+                        "docling remote admission is full ({}/{}) for item {item_id}; waiting for a remote slot without submitting",
+                        denied.inflight,
+                        denied.limit,
+                    ),
+                    true,
+                ));
+            }
+        };
         let input = InputDocument::new(&file.filename, &file.media_type, bytes);
         let handle = match converter.submit_async(input).await {
             Ok(handle) => handle,

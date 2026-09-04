@@ -18,7 +18,19 @@ pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
 pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 3600;
+/// Persistent remote admission ceiling for Docling (issue #118).
+///
+/// Mirrors `context69_contracts::settings::DOCLING_MAX_INFLIGHT_*`: the Mac
+/// mini single-RQ-worker default is 1, adjustable within 1..=32.
+pub const DEFAULT_DOCLING_MAX_INFLIGHT: usize =
+    context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT;
+pub const MIN_DOCLING_MAX_INFLIGHT: usize = context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN;
+pub const MAX_DOCLING_MAX_INFLIGHT: usize = context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX;
 pub(crate) const MAX_DOCLING_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
+
+fn default_docling_max_inflight() -> usize {
+    DEFAULT_DOCLING_MAX_INFLIGHT
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -30,6 +42,8 @@ pub struct DoclingConnectionConfig {
     pub poll_interval: Duration,
     #[serde(rename = "task_timeout_secs", with = "serde_helpers::seconds")]
     pub task_timeout: Duration,
+    #[serde(default = "default_docling_max_inflight")]
+    pub max_inflight: usize,
 }
 
 impl Default for DoclingConnectionConfig {
@@ -39,6 +53,7 @@ impl Default for DoclingConnectionConfig {
             timeout: Duration::from_secs(DEFAULT_DOCLING_TIMEOUT_SECS),
             poll_interval: Duration::from_secs(DEFAULT_DOCLING_POLL_INTERVAL_SECS),
             task_timeout: Duration::from_secs(DEFAULT_DOCLING_TASK_TIMEOUT_SECS),
+            max_inflight: DEFAULT_DOCLING_MAX_INFLIGHT,
         }
     }
 }
@@ -168,6 +183,7 @@ mod tests {
                 timeout: Duration::from_secs(120),
                 poll_interval: Duration::from_secs(2),
                 task_timeout: Duration::from_secs(3600),
+                max_inflight: super::DEFAULT_DOCLING_MAX_INFLIGHT,
             },
             vlm: DoclingVlmConfig {
                 openai_base_url: Some("https://example.com/v1".to_string()),
@@ -202,6 +218,7 @@ mod tests {
                 timeout: Duration::from_secs(120),
                 poll_interval: Duration::from_secs(2),
                 task_timeout: Duration::from_secs(3600),
+                max_inflight: super::DEFAULT_DOCLING_MAX_INFLIGHT,
             },
             vlm: DoclingVlmConfig::default(),
         };
@@ -279,5 +296,30 @@ mod tests {
         let config: DoclingConfig =
             serde_json::from_str(json).expect("legacy config without preset should deserialize");
         assert!(config.vlm.picture_description_preset.is_none());
+        assert_eq!(
+            config.connection.max_inflight,
+            super::DEFAULT_DOCLING_MAX_INFLIGHT,
+            "legacy files without max_inflight must default to the single-worker ceiling"
+        );
+    }
+
+    #[test]
+    fn legacy_config_files_without_max_inflight_default_to_single_worker() {
+        let json = r#"{
+            "connection": {
+                "base_url": "http://localhost:5001",
+                "timeout_secs": 120,
+                "poll_interval_secs": 2,
+                "task_timeout_secs": 3600
+            },
+            "vlm": {}
+        }"#;
+
+        let config: DoclingConfig = serde_json::from_str(json)
+            .expect("legacy config without max_inflight should deserialize");
+        assert_eq!(
+            config.connection.max_inflight,
+            super::DEFAULT_DOCLING_MAX_INFLIGHT
+        );
     }
 }

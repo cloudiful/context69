@@ -571,6 +571,10 @@ async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Resu
             timeout_secs: docling.connection.timeout.as_secs(),
             poll_interval_secs: docling.connection.poll_interval.as_secs(),
             task_timeout_secs: docling.connection.task_timeout.as_secs(),
+            max_inflight: docling.connection.max_inflight.clamp(
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN,
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX,
+            ),
             pdf_backend: None,
             images_scale: None,
             image_export_mode: Some("placeholder".to_string()),

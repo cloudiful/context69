@@ -3,6 +3,7 @@ SELECT
     timeout_secs,
     poll_interval_secs,
     task_timeout_secs,
+    max_inflight,
     pdf_backend,
     images_scale,
     image_export_mode,
