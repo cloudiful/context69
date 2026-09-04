@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Atomically reserve this job's poll HTTP slot (issue #118 poll-limits).\n--\n-- Sets `last_polled_at=now()` so concurrent claimants in the trailing\n-- window observe this reservation via `count_recent_polls.sql`, and pushes\n-- `next_poll_at` to the caller-computed reservation so a raced second\n-- claimant for the same job sees `next_poll_at > now()` and defers. Returns\n-- zero rows when another worker already reserved this poll window.\nUPDATE context69.task_external_jobs\nSET last_polled_at = now(),\n    next_poll_at = $2,\n    updated_at = now()\nWHERE id = $1\n  AND next_poll_at <= now()\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "76f1596837c82e335a87c98d0bf60c8a233c6ff7428d2a727db4f5e23372523c"
+}

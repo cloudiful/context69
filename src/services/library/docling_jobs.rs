@@ -20,6 +20,20 @@ pub(crate) const DOCLING_EXTERNAL_JOB_PROVIDER: &str = "docling";
 /// for up to 30 seconds server-side, so a shorter cadence would only churn
 /// worker slots without gaining freshness.
 const MIN_DOCLING_POLL_CADENCE: Duration = Duration::from_secs(30);
+/// Stable per-item jitter ceiling that desynchronizes polls without moving
+/// the minimum cadence. Derived deterministically from the item id so polls
+/// do not thunder after a restart.
+const DOCLING_POLL_JITTER_MAX_SECS: i64 = 5;
+/// Bounded growth for sustained pending polls: `elapsed_secs / 10` capped at
+/// 90 seconds, so a fresh job polls every ~30s while an hour-old job polls
+/// every ~120s. Keeps deadline/404/terminal checks live while cutting
+/// long-tail request pressure.
+const DOCLING_POLL_BACKOFF_DIVISOR: i64 = 10;
+const DOCLING_POLL_MAX_BACKOFF_SECS: i64 = 90;
+/// Deferral when a poll slot is unavailable (in-process semaphore busy or
+/// DB window full). Short enough to stay fair to polls, long enough to avoid
+/// a tight claim loop; no Docling HTTP is made on this path.
+const DOCLING_POLL_DEFERRAL_SECS: i64 = 10;
 
 pub(crate) struct DoclingJobSubmitted {
     pub external_job_id: Uuid,
@@ -129,7 +143,8 @@ impl LibraryService {
         let deadline = now
             + chrono::Duration::from_std(config.connection.task_timeout)
                 .unwrap_or_else(|_| chrono::Duration::seconds(3600));
-        let next_poll_at = now + poll_cadence(config.connection.poll_interval);
+        let next_poll_at =
+            now + poll_cadence_for_item(config.connection.poll_interval, item_id, now, now);
         let permit = self
             .acquire_docling_permit()
             .await
@@ -286,6 +301,47 @@ impl LibraryService {
             .map_err(|error| task_failure("docling", error, true))?
             .context("docling is not configured")
             .map_err(|error| task_failure("docling", error, false))?;
+        // Independent poll control plane (issue #118 poll-limits): the
+        // in-process `docling_poll_slots` semaphore (capacity 1) bounds poll
+        // HTTPs without touching `docling_slots`, and the DB reservation
+        // below bounds them across processes. Both defer without HTTP so a
+        // busy poll never pins a worker that could run an ordinary task.
+        let now = Utc::now();
+        let reserved_next_poll_at = now
+            + poll_cadence_for_item(
+                config.connection.poll_interval,
+                item_id,
+                job.submitted_at,
+                now,
+            );
+        let Some(poll_permit) = self.try_acquire_docling_poll_permit() else {
+            return Ok(DoclingPollOutcome::Pending {
+                next_poll_at: poll_deferral_for_item(item_id, now),
+            });
+        };
+        match self
+            .store
+            .try_claim_docling_poll(DOCLING_EXTERNAL_JOB_PROVIDER, job.id, reserved_next_poll_at)
+            .await
+            .map_err(|error| task_failure("docling_poll", error, true))?
+        {
+            Ok(()) => {}
+            Err(denied) => {
+                drop(poll_permit);
+                tracing::debug!(
+                    target: "docling",
+                    item_id = %item_id,
+                    remote_task_id = %job.remote_task_id,
+                    recent = denied.recent,
+                    limit = denied.limit,
+                    reason = ?denied.reason,
+                    "deferring docling poll without HTTP; poll window is full or already reserved",
+                );
+                return Ok(DoclingPollOutcome::Pending {
+                    next_poll_at: poll_deferral_for_item(item_id, Utc::now()),
+                });
+            }
+        }
         let converter = self
             .load_docling_pdf_converter()
             .await
@@ -361,8 +417,15 @@ impl LibraryService {
                 .await);
             }
         };
+        drop(poll_permit);
         let now = Utc::now();
-        let next_poll_at = now + poll_cadence(config.connection.poll_interval);
+        let next_poll_at = now
+            + poll_cadence_for_item(
+                config.connection.poll_interval,
+                item_id,
+                job.submitted_at,
+                now,
+            );
         match status.task_status {
             ConversionStatus::Pending | ConversionStatus::Started => {
                 if job.deadline_at.is_some_and(|deadline| now >= deadline) {
@@ -487,6 +550,52 @@ impl LibraryService {
 fn poll_cadence(poll_interval: Duration) -> chrono::Duration {
     let cadence = poll_interval.max(MIN_DOCLING_POLL_CADENCE);
     chrono::Duration::from_std(cadence).unwrap_or_else(|_| chrono::Duration::seconds(30))
+}
+
+/// Stable per-item jitter in 0..=5s derived from the item id. Keeps the 30s
+/// minimum intact while desynchronizing polls that became due together
+/// (e.g. after a batch submit or a restart).
+fn poll_jitter_for_item(item_id: Uuid) -> i64 {
+    let bytes = item_id.as_bytes();
+    let mut acc: u32 = 0;
+    for chunk in bytes.chunks(4) {
+        let mut word = [0u8; 4];
+        for (i, b) in chunk.iter().enumerate() {
+            word[i] = *b;
+        }
+        acc = acc.wrapping_add(u32::from_le_bytes(word));
+    }
+    (acc % (DOCLING_POLL_JITTER_MAX_SECS as u32 + 1)) as i64
+}
+
+/// Full poll cadence for sustained pending polls: 30s minimum plus bounded
+/// age backoff plus stable jitter. `submitted_at` is the remote job creation
+/// time; `now` is the current poll time. Capped so deadline/404/terminal
+/// checks stay live (an hour-old job still polls roughly every 2 minutes).
+fn poll_cadence_for_item(
+    poll_interval: Duration,
+    item_id: Uuid,
+    submitted_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> chrono::Duration {
+    let base = poll_cadence(poll_interval);
+    let elapsed_secs = now.signed_duration_since(submitted_at).num_seconds().max(0);
+    let backoff_secs =
+        (elapsed_secs / DOCLING_POLL_BACKOFF_DIVISOR).min(DOCLING_POLL_MAX_BACKOFF_SECS);
+    let jitter_secs = poll_jitter_for_item(item_id);
+    let total = base
+        .checked_add(&chrono::Duration::seconds(backoff_secs))
+        .unwrap_or(base)
+        .checked_add(&chrono::Duration::seconds(jitter_secs))
+        .unwrap_or(base);
+    total
+}
+
+/// Short deferral when a poll slot is unavailable. Not a Docling HTTP, so it
+/// may be shorter than the 30s minimum; jitter keeps concurrent deferrals
+/// from re-claiming in lockstep.
+fn poll_deferral_for_item(item_id: Uuid, now: DateTime<Utc>) -> DateTime<Utc> {
+    now + chrono::Duration::seconds(DOCLING_POLL_DEFERRAL_SECS + poll_jitter_for_item(item_id))
 }
 
 fn conversion_status_str(status: ConversionStatus) -> &'static str {
@@ -636,9 +745,17 @@ async fn classify_docling_poll_error(
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
-    use docling_convert::PdfConvertError;
+    use std::time::Duration;
 
+    use anyhow::anyhow;
+    use chrono::{TimeZone, Utc};
+    use docling_convert::PdfConvertError;
+    use uuid::Uuid;
+
+    use super::{
+        DOCLING_POLL_JITTER_MAX_SECS, poll_cadence, poll_cadence_for_item, poll_deferral_for_item,
+        poll_jitter_for_item,
+    };
     use crate::services::library::dependency_runtime::{
         docling_error_status_code, is_docling_remote_task_not_found,
         is_docling_transient_error_for_test,
@@ -696,5 +813,71 @@ mod tests {
                 "expected transient classification for {message}"
             );
         }
+    }
+
+    #[test]
+    fn poll_cadence_respects_30s_minimum() {
+        assert_eq!(
+            poll_cadence(Duration::from_secs(2)),
+            chrono::Duration::seconds(30)
+        );
+        assert_eq!(
+            poll_cadence(Duration::from_secs(60)),
+            chrono::Duration::seconds(60)
+        );
+    }
+
+    #[test]
+    fn poll_jitter_is_stable_and_bounded() {
+        let item = Uuid::parse_str("12345678-1234-5678-1234-567812345678").expect("uuid");
+        let first = poll_jitter_for_item(item);
+        assert_eq!(
+            first,
+            poll_jitter_for_item(item),
+            "jitter must be stable per item"
+        );
+        assert!(
+            (0..=DOCLING_POLL_JITTER_MAX_SECS).contains(&first),
+            "jitter {first} must stay within 0..=5s"
+        );
+    }
+
+    #[test]
+    fn poll_cadence_grows_with_age_but_stays_bounded() {
+        let item = Uuid::parse_str("12345678-1234-5678-1234-567812345678").expect("uuid");
+        let submitted = Utc.with_ymd_and_hms(2026, 9, 5, 0, 0, 0).unwrap();
+        let fresh = poll_cadence_for_item(Duration::from_secs(2), item, submitted, submitted);
+        assert!(
+            fresh >= chrono::Duration::seconds(30) && fresh <= chrono::Duration::seconds(35),
+            "fresh job must poll near the 30s minimum plus jitter, got {fresh}"
+        );
+        let aged = submitted + chrono::Duration::minutes(30);
+        let aged_cadence = poll_cadence_for_item(Duration::from_secs(2), item, submitted, aged);
+        assert!(
+            aged_cadence > fresh,
+            "sustained pending must back off, fresh={fresh} aged={aged_cadence}"
+        );
+        assert!(
+            aged_cadence <= chrono::Duration::seconds(125),
+            "backoff must stay capped so deadline checks stay live, got {aged_cadence}"
+        );
+        let hour = submitted + chrono::Duration::hours(2);
+        let capped = poll_cadence_for_item(Duration::from_secs(2), item, submitted, hour);
+        assert!(
+            capped <= chrono::Duration::seconds(125),
+            "long-tail backoff must not grow without bound, got {capped}"
+        );
+    }
+
+    #[test]
+    fn poll_deferral_is_shorter_than_min_cadence_and_jittered() {
+        let item = Uuid::parse_str("12345678-1234-5678-1234-567812345678").expect("uuid");
+        let now = Utc.with_ymd_and_hms(2026, 9, 5, 0, 0, 0).unwrap();
+        let deferred = poll_deferral_for_item(item, now);
+        let secs = (deferred - now).num_seconds();
+        assert!(
+            secs >= 10 && secs <= 15,
+            "deferral must be short (10s plus 0..=5s jitter) without hitting Docling, got {secs}s"
+        );
     }
 }

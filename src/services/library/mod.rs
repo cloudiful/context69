@@ -118,6 +118,15 @@ pub struct LibraryService {
     translation: TranslationService,
     extraction: ExtractionService,
     docling_slots: Arc<Semaphore>,
+    /// Independent in-process bound for Docling poll HTTP requests (issue
+    /// #118 poll-limits). `docling_slots` guards submit POSTs; this guards
+    /// status/result polls so the two control planes do not share a permit.
+    /// Capacity 1 reserves a worker for ordinary tasks when
+    /// `scheduler.max_concurrency=2` and matches the Mac mini single RQ
+    /// worker. Single-process only: cross-process safety comes from the
+    /// DB poll gate (`try_claim_docling_poll` with a dedicated advisory
+    /// lock plus a recent-poll window count).
+    docling_poll_slots: Arc<Semaphore>,
 }
 
 pub struct LibraryServiceConfig {
@@ -406,6 +415,7 @@ impl LibraryService {
             translation,
             extraction,
             docling_slots: Arc::new(Semaphore::new(1)),
+            docling_poll_slots: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -433,6 +443,14 @@ impl LibraryService {
             .acquire_owned()
             .await
             .map_err(anyhow::Error::from)
+    }
+
+    /// Non-blocking acquire for a Docling poll HTTP slot. Returns `None`
+    /// when another poll holds the single in-process permit so the caller
+    /// can defer without HTTP instead of pinning a worker. Never touches
+    /// `docling_slots`; submit and poll limits stay independent.
+    pub(super) fn try_acquire_docling_poll_permit(&self) -> Option<OwnedSemaphorePermit> {
+        self.docling_poll_slots.clone().try_acquire_owned().ok()
     }
 
     /// Borrow the underlying `LibraryStore` so caller modules in the task

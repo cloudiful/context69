@@ -10,6 +10,7 @@ pub(crate) struct StoredExternalJob {
     pub remote_task_id: String,
     pub status: String,
     pub remote_status: Option<String>,
+    pub submitted_at: DateTime<Utc>,
     pub next_poll_at: DateTime<Utc>,
     pub deadline_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
@@ -59,6 +60,19 @@ pub(crate) struct RecoveryAudit<'a> {
 pub(crate) struct DoclingAdmissionDenied {
     pub inflight: i64,
     pub limit: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DoclingPollDenyReason {
+    RateLimited,
+    AlreadyReserved,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DoclingPollDenied {
+    pub recent: i64,
+    pub limit: usize,
+    pub reason: DoclingPollDenyReason,
 }
 
 impl LibraryStore {
@@ -133,6 +147,71 @@ impl LibraryStore {
             id: row.id,
             submission_count: row.submission_count,
         }))
+    }
+
+    /// Atomically reserve one Docling poll HTTP slot for `job_id`.
+    ///
+    /// Multi-instance safe counterpart to the in-process
+    /// `docling_poll_slots` semaphore: holds a dedicated advisory lock
+    /// (727335733, never the submit key 727335732) while it reads the
+    /// persisted `max_inflight` ceiling, counts trailing-window poll
+    /// reservations, and conditionally reserves this job. Returns
+    /// `Ok(Err(denied))` without touching the network when the window is
+    /// full (`RateLimited`) or another worker already reserved this poll
+    /// (`AlreadyReserved`); the caller must defer without HTTP.
+    pub(crate) async fn try_claim_docling_poll(
+        &self,
+        provider: &str,
+        job_id: Uuid,
+        reserved_next_poll_at: DateTime<Utc>,
+    ) -> anyhow::Result<Result<(), DoclingPollDenied>> {
+        let mut tx = self.db.pool().begin().await?;
+        sqlx::query_file!("src/sql/library_store/external_jobs/lock_docling_poll.sql")
+            .execute(&mut *tx)
+            .await?;
+        let limit_row: Option<i64> = sqlx::query_file_scalar!(
+            "src/sql/db/docling_settings/get_max_inflight_for_update.sql",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        let limit = limit_row
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT)
+            .clamp(
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN,
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX,
+            );
+        let recent: i64 = sqlx::query_file_scalar!(
+            "src/sql/library_store/external_jobs/count_recent_polls.sql",
+            provider,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if recent >= limit as i64 {
+            tx.rollback().await?;
+            return Ok(Err(DoclingPollDenied {
+                recent,
+                limit,
+                reason: DoclingPollDenyReason::RateLimited,
+            }));
+        }
+        let reserved = sqlx::query_file!(
+            "src/sql/library_store/external_jobs/claim_poll_reservation.sql",
+            job_id,
+            reserved_next_poll_at,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if reserved.is_none() {
+            tx.rollback().await?;
+            return Ok(Err(DoclingPollDenied {
+                recent,
+                limit,
+                reason: DoclingPollDenyReason::AlreadyReserved,
+            }));
+        }
+        tx.commit().await?;
+        Ok(Ok(()))
     }
 
     pub(crate) async fn complete_external_job_submission(
@@ -635,6 +714,134 @@ mod admission_tests {
             1,
             "exactly one concurrent admission must win under limit 1"
         );
+
+        restore_max_inflight(&db, previous).await;
+        cleanup_tasks_and_user(&db, &[task_id], user_id).await;
+    }
+
+    async fn insert_due_poll_job(db: &Database, item_id: Uuid) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO context69.task_external_jobs \
+             (id, item_id, provider, remote_task_id, status, submitted_at, last_polled_at, next_poll_at, deadline_at, submission_count) \
+             VALUES ($1, $2, $3, $4, 'running', now() - interval '10 minutes', NULL, now() - interval '1 minute', now() + interval '1 hour', 1)",
+        )
+        .bind(id)
+        .bind(item_id)
+        .bind(TEST_PROVIDER)
+        .bind(format!("remote-poll-{id}"))
+        .execute(db.pool())
+        .await
+        .expect("insert due poll job");
+        id
+    }
+
+    #[tokio::test]
+    async fn poll_claim_reserves_slot_and_second_claim_for_same_job_defers() {
+        let Some(url) = test_database_url() else {
+            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping poll reservation test");
+            return;
+        };
+        let _guard = ADMISSION_LOCK.lock().await;
+        let db = Database::connect(&url).await.expect("connect");
+        let previous = stash_max_inflight(&db).await;
+        let store = LibraryStore::new(db.clone());
+        let user_id = seed_user(&db).await;
+        let task_id = Uuid::new_v4();
+        let (task_id, _reused, item_ids) = db
+            .create_task_submission(
+                task_id,
+                user_id,
+                None,
+                "text_batch",
+                Some("test/poll-reserve"),
+                None,
+                &[json!({"external_id": "poll-reserve"})],
+                None,
+                "poll-reserve-hash",
+            )
+            .await
+            .expect("create poll task");
+        let job_id = insert_due_poll_job(&db, item_ids[0]).await;
+
+        let reserved = Utc::now() + chrono::Duration::seconds(35);
+        store
+            .try_claim_docling_poll(TEST_PROVIDER, job_id, reserved)
+            .await
+            .expect("first poll claim")
+            .expect("first due poll must be claimable when the window is empty");
+
+        let retry_reserved = Utc::now() + chrono::Duration::seconds(35);
+        let denied = store
+            .try_claim_docling_poll(TEST_PROVIDER, job_id, retry_reserved)
+            .await
+            .expect("second poll claim");
+        // Under limit 1 the first reservation fills the trailing window, so
+        // the immediate second claim defers regardless of reason; it must
+        // never trigger a second HTTP for the same poll window.
+        assert!(
+            denied.is_err(),
+            "second claim for the same poll window must defer without HTTP"
+        );
+
+        restore_max_inflight(&db, previous).await;
+        cleanup_tasks_and_user(&db, &[task_id], user_id).await;
+    }
+
+    #[tokio::test]
+    async fn poll_claim_rate_limits_across_jobs_under_single_slot() {
+        let Some(url) = test_database_url() else {
+            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping poll rate-limit test");
+            return;
+        };
+        let _guard = ADMISSION_LOCK.lock().await;
+        let db = Database::connect(&url).await.expect("connect");
+        let previous = stash_max_inflight(&db).await;
+        let store = LibraryStore::new(db.clone());
+        let user_id = seed_user(&db).await;
+        let task_id = Uuid::new_v4();
+        let (task_id, _reused, item_ids) = db
+            .create_task_submission(
+                task_id,
+                user_id,
+                None,
+                "text_batch",
+                Some("test/poll-rate"),
+                None,
+                &[
+                    json!({"external_id": "poll-rate-a"}),
+                    json!({"external_id": "poll-rate-b"}),
+                ],
+                None,
+                "poll-rate-hash",
+            )
+            .await
+            .expect("create poll rate task");
+        let first_job = insert_due_poll_job(&db, item_ids[0]).await;
+        let second_job = insert_due_poll_job(&db, item_ids[1]).await;
+
+        let reserved = Utc::now() + chrono::Duration::seconds(35);
+        store
+            .try_claim_docling_poll(TEST_PROVIDER, first_job, reserved)
+            .await
+            .expect("first job claim")
+            .expect("first job must win the single poll slot");
+
+        let denied = store
+            .try_claim_docling_poll(
+                TEST_PROVIDER,
+                second_job,
+                Utc::now() + chrono::Duration::seconds(35),
+            )
+            .await
+            .expect("second job claim");
+        let denied = denied.expect_err("second concurrent poll must defer under limit 1");
+        assert_eq!(
+            denied.reason,
+            super::DoclingPollDenyReason::RateLimited,
+            "second job must defer as rate-limited, not as already-reserved"
+        );
+        assert_eq!(denied.limit, 1);
 
         restore_max_inflight(&db, previous).await;
         cleanup_tasks_and_user(&db, &[task_id], user_id).await;

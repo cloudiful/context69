@@ -25,6 +25,17 @@
 -- task-state predicates, and maintenance will not exhaust it either, so a
 -- terminal or missing remote job can still be observed and resubmitted
 -- through the existing poll code.
+--
+-- Fairness (issue #118 poll-limits): eligible rows are claimed FIFO by
+-- creation time with no systematic poll priority, so due polls and ordinary
+-- tasks interleave by age instead of polls monopolizing every batch when
+-- `scheduler.max_concurrency` is small. Explicit poll quota lives one layer
+-- up: the in-process `docling_poll_slots` semaphore (capacity 1) plus the
+-- DB trailing-window reservation (`count_recent_polls.sql` bounded by the
+-- persisted `max_inflight`) cap poll HTTPs across processes, and sustained
+-- pending polls back off (30s minimum plus bounded age backoff plus stable
+-- jitter) so ordinary tasks keep worker slots while due polls stay
+-- claimable for deadline/404/terminal resubmit handling.
 WITH eligible AS (
     SELECT ti.id, ti.task_id
     FROM context69.task_items ti
@@ -53,11 +64,7 @@ WITH eligible AS (
               AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
           )
       )
-    ORDER BY CASE
-                 WHEN ti.waiting_reason = 'external_job' THEN 0
-                 ELSE 1
-             END,
-             ti.created_at
+    ORDER BY ti.created_at
     LIMIT $1
     FOR UPDATE OF ti SKIP LOCKED
 ), activated AS (

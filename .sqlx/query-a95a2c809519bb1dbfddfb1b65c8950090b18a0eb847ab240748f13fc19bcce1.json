@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Serialize Docling poll reservations across processes (issue #118\n-- poll-limits). Uses a dedicated advisory key so poll claims never contend\n-- with submit admission (727335732). Held only for the short check-and-\n-- reserve transaction, never across the Docling HTTP request.\nSELECT pg_advisory_xact_lock(727335733)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_advisory_xact_lock",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a95a2c809519bb1dbfddfb1b65c8950090b18a0eb847ab240748f13fc19bcce1"
+}

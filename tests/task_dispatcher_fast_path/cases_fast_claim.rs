@@ -32,6 +32,117 @@ async fn insert_docling_external_job(
 }
 
 #[tokio::test]
+async fn claim_items_fast_does_not_starve_ordinary_tasks_when_polls_are_due() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping poll fairness test");
+        return;
+    };
+    let _guard = FAST_PATH_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+
+    // Ordinary queued item first so FIFO age puts it before the polls. With
+    // the old poll-first ordering a limit-2 claim would return only polls.
+    let ordinary_task = Uuid::new_v4();
+    let (ordinary_task, _reused, ordinary_items) = db
+        .create_task_submission(
+            ordinary_task,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/fast-path"),
+            None,
+            &[json!({"external_id": "fair-ordinary"})],
+            None,
+            &format!("fast-path-fair-ordinary-{}", Uuid::new_v4()),
+        )
+        .await
+        .expect("create ordinary task");
+
+    let poll_task = Uuid::new_v4();
+    let (poll_task, _reused, poll_items) = db
+        .create_task_submission(
+            poll_task,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/fast-path"),
+            None,
+            &[
+                json!({"external_id": "fair-poll-a"}),
+                json!({"external_id": "fair-poll-b"}),
+            ],
+            None,
+            &format!("fast-path-fair-poll-{}", Uuid::new_v4()),
+        )
+        .await
+        .expect("create poll task");
+    for item_id in &poll_items {
+        sqlx::query(
+            "UPDATE context69.task_items \
+             SET status = 'waiting', stage = 'docling_poll', waiting_reason = 'external_job', \
+                 attempt_count = 6, next_attempt_at = now() - interval '1 minute', waiting_since = now() \
+             WHERE id = $1",
+        )
+        .bind(*item_id)
+        .execute(db.pool())
+        .await
+        .expect("park poll item");
+    }
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'waiting', stage = 'docling_poll', waiting_reason = 'external_job', \
+             next_attempt_at = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(poll_task)
+    .execute(db.pool())
+    .await
+    .expect("park poll task");
+    let deadline = chrono::Utc::now() + chrono::Duration::hours(1);
+    let next_poll = chrono::Utc::now() - chrono::Duration::seconds(30);
+    let mut poll_jobs = Vec::new();
+    for item_id in &poll_items {
+        poll_jobs
+            .push(insert_docling_external_job(&db, *item_id, "running", next_poll, deadline).await);
+    }
+
+    let claimed = db.claim_items_fast(2).await.expect("fair claim");
+    let claimed_ordinary = claimed.iter().any(|item| item.task_id == ordinary_task);
+    let claimed_poll = claimed.iter().any(|item| item.task_id == poll_task);
+    assert!(
+        claimed_ordinary && claimed_poll,
+        "limit-2 claim with 1 ordinary + 2 due polls must interleave (got {} ordinary, {} poll in {:?}); polls must not monopolize the batch",
+        claimed_ordinary as u8,
+        claimed_poll as u8,
+        claimed
+            .iter()
+            .map(|item| (item.task_id, item.id))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(claimed.len(), 2);
+
+    for job_id in poll_jobs {
+        sqlx::query("DELETE FROM context69.task_external_jobs WHERE id = $1")
+            .bind(job_id)
+            .execute(db.pool())
+            .await
+            .expect("clean up poll job");
+    }
+    for item_id in ordinary_items.iter().chain(poll_items.iter()) {
+        sqlx::query("DELETE FROM context69.task_attempts WHERE item_id = $1")
+            .bind(*item_id)
+            .execute(db.pool())
+            .await
+            .expect("clean up attempts");
+    }
+    cleanup_task(&db, poll_task, user_id).await;
+    cleanup_task(&db, ordinary_task, user_id).await;
+    let _ = ordinary_items;
+    cleanup_user(&db, user_id).await;
+}
+
+#[tokio::test]
 async fn claim_items_fast_claims_and_activates_a_fresh_task() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping fast claim activation test");

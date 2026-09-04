@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Count Docling poll HTTP reservations in the trailing 30 second window\n-- (issue #118 poll-limits). `last_polled_at` is set on reservation and on\n-- every poll completion, so the count bounds concurrent poll HTTPs across\n-- processes without a new settings knob; the ceiling is the persisted\n-- `max_inflight` read by the caller in the same transaction.\nSELECT COUNT(*) AS \"count!\"\nFROM context69.task_external_jobs\nWHERE provider = $1\n  AND last_polled_at > now() - interval '30 seconds'\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ff468e5d7ba1090eb324479f8897988311073cc6acbe4191e0dea6bf641121dc"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id,\n       remote_task_id,\n       status,\n       remote_status,\n       next_poll_at,\n       deadline_at,\n       error_message,\n       submission_count\nFROM context69.task_external_jobs\nWHERE item_id = $1\n  AND provider = $2\nORDER BY submitted_at DESC, created_at DESC\nLIMIT 1\n",
+  "query": "SELECT id,\n       remote_task_id,\n       status,\n       remote_status,\n       submitted_at,\n       next_poll_at,\n       deadline_at,\n       error_message,\n       submission_count\nFROM context69.task_external_jobs\nWHERE item_id = $1\n  AND provider = $2\nORDER BY submitted_at DESC, created_at DESC\nLIMIT 1\n",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "submitted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_external_jobs",
+            "name": "submitted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "next_poll_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "deadline_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "error_message",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "submission_count",
         "type_info": "Int4",
         "origin": {
@@ -104,10 +115,11 @@
       false,
       true,
       false,
+      false,
       true,
       true,
       false
     ]
   },
-  "hash": "400b57c1010b457919a3b2bfe5cfe0f796fb2cf868ab61d01b654d30b9518314"
+  "hash": "0e354fbb8bc9d0f96362a71c17053f0ee7cf4f3af72e91b2a9785bbf84e61f69"
 }
