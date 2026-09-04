@@ -41,37 +41,48 @@ function selectRow(_event: Event, row: { original: SearchHit }) {
 function isSelected(hit: SearchHit): boolean {
   return !!props.selectedHit && props.selectedHit.chunk_id === hit.chunk_id;
 }
+
+function isHttpUri(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /^https?:\/\//i.test(value.trim());
+}
 </script>
 
 <template>
   <AppServerList
     data-testid="search-results-list"
+    class="h-full min-h-0"
     :pagination="pagination"
     :page-size-options="pageSizeOptions"
     @update:page="emit('page', $event)"
     @update:page-size="emit('page-size', $event)"
   >
-    <div class="min-h-[220px] max-h-[min(56vh,620px)] min-w-0 overflow-y-auto overscroll-contain">
+    <div data-testid="search-results-scroll" class="h-full min-h-[220px] min-w-0 overflow-y-auto overscroll-contain">
       <UTable
         :data="hits"
         :columns="columns"
         class="min-w-0 max-w-full overflow-hidden"
-        :ui="{ td: 'align-top' }"
+        :ui="{
+          tbody: 'isolate divide-y divide-default [&>tr]:data-[selectable=true]:hover:bg-transparent [&>tr]:data-[selectable=true]:focus-visible:outline-3',
+          th: 'px-2 py-1.5 text-xs',
+          td: 'px-2 py-1.5 align-top whitespace-normal',
+        }"
         @select="selectRow"
       >
       <template #title-cell="{ row }">
         <template v-if="row.original">
           <div
-            class="grid min-w-0 gap-1.5 rounded-md px-2 py-1.5"
+            class="grid min-w-0 gap-1 rounded-md px-2 py-1"
             :class="isSelected(row.original) ? 'bg-muted/40 ring-1 ring-default' : ''"
             :data-selected="isSelected(row.original) ? '' : undefined"
             data-testid="search-result-item"
           >
             <div class="flex min-w-0 flex-wrap items-start gap-2">
               <UButton
+                data-testid="search-result-select"
                 class="min-w-0 flex-1 justify-start px-0 text-left text-sm font-semibold leading-6 [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
                 type="button"
-                variant="ghost"
+                variant="link"
                 size="sm"
                 color="neutral"
                 :aria-selected="isSelected(row.original)"
@@ -79,24 +90,19 @@ function isSelected(hit: SearchHit): boolean {
               >
                 {{ row.original.title }}
               </UButton>
-              <div class="flex max-w-full shrink-0 flex-wrap items-center gap-1">
-                <UBadge :label="row.original.source_key" color="neutral" variant="subtle" class="max-w-[10rem] truncate" :title="row.original.source_key" />
-                <UBadge :label="row.original.external_id" color="neutral" variant="subtle" class="max-w-[10rem] truncate" :title="row.original.external_id" />
+              <div class="flex shrink-0 items-center">
                 <UBadge :label="formatScore(row.original.score)" color="neutral" variant="subtle" />
               </div>
             </div>
             <a
-              v-if="row.original.source_uri"
-              :href="row.original.source_uri"
+              v-if="isHttpUri(row.original.source_uri)"
+              :href="row.original.source_uri ?? undefined"
               target="_blank"
               rel="noopener noreferrer"
               class="block max-w-full truncate text-xs text-muted underline decoration-dotted underline-offset-2 hover:text-color"
-              :title="row.original.source_uri"
+              :title="row.original.source_uri ?? undefined"
               @click.stop
             >{{ row.original.source_uri }}</a>
-            <p v-if="row.original.library_path" class="min-w-0 break-words text-xs text-muted">
-              {{ row.original.library_path }}<span v-if="row.original.library_section_label"> · {{ row.original.library_section_label }}</span>
-            </p>
             <p class="min-w-0 break-words text-[0.88rem] leading-[1.5rem] text-muted-color [display:-webkit-box] [overflow:hidden] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
               {{ row.original.chunk_text }}
             </p>

@@ -49,7 +49,7 @@ const { t } = useI18n();
           <UButton color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :label="t('common.retry')" @click="emit('retry')" />
         </div>
       </template>
-      <div class="min-w-0 overflow-hidden">
+      <div class="min-h-0 min-w-0 flex-1 overflow-hidden">
         <slot />
       </div>
     </AsyncStateBlock>

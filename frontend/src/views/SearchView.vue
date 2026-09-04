@@ -234,7 +234,7 @@ onBeforeUnmount(() => {
     <UCard
       v-if="showResultsPanel"
       class="search-results-panel flex min-h-0 flex-1 flex-col overflow-hidden"
-      :ui="{ body: 'min-h-0 flex-1 overflow-hidden p-0 sm:p-0' }"
+      :ui="{ body: 'flex min-h-0 flex-1 flex-col overflow-hidden p-0 sm:p-0' }"
     >
       <template #header>
         <div class="flex items-center justify-between gap-2">
@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
 
         <div v-if="results" class="grid min-h-0 flex-1 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)] xl:items-start">
           <SearchResultList
-            class="min-w-0 overflow-hidden"
+            class="h-full min-h-0 min-w-0 overflow-hidden"
             :hits="results.items"
             :pagination="results.pagination"
             :selected-hit="selectedHit"
@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
           />
 
           <SearchSelectionPreview
-            class="hidden min-w-0 xl:block"
+            class="hidden min-w-0 self-start xl:block"
             :selected-hit="selectedHit"
             @open="openHit"
           />

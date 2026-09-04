@@ -318,13 +318,11 @@ export const en = {
       publishedAfter: "Published After",
       publishedBefore: "Published Before",
       publishedRange: "Published Range",
-      publishedRangePlaceholder: "Select date range",
       moreFilters: "More Filters",
       hideFilters: "Hide Filters",
       run: "Run Search",
       running: "Running...",
       cancel: "Cancel",
-      elapsed: "Elapsed {time}",
       waiting: "Retrieving matches...",
     },
     result: {

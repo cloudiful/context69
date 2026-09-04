@@ -318,13 +318,11 @@ export const zhCN = {
       publishedAfter: "发布时间起",
       publishedBefore: "发布时间止",
       publishedRange: "发布时间范围",
-      publishedRangePlaceholder: "选择日期范围",
       moreFilters: "更多筛选",
       hideFilters: "收起筛选",
       run: "搜索",
       running: "搜索中...",
       cancel: "取消",
-      elapsed: "已耗时 {time}",
       waiting: "正在检索匹配内容...",
     },
     result: {
