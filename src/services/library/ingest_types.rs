@@ -69,17 +69,6 @@ impl LibraryDependency {
             other => other,
         }
     }
-
-    #[allow(dead_code)]
-    pub fn from_canonical_key(key: &str) -> Option<Self> {
-        match Self::canonical_key(key) {
-            "s3" => Some(Self::S3),
-            "docling" => Some(Self::Docling),
-            "embedding" => Some(Self::Embedding),
-            "qdrant" => Some(Self::Qdrant),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug)]

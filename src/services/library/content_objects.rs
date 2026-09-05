@@ -277,11 +277,11 @@ impl LibraryService {
         let key = object_storage::content_object_key(group_id, sha256);
         let mut tx = self.db.pool().begin().await?;
         self.store
-            .lock_storage_object(&mut *tx, &format!("{group_id}:{sha256}"))
+            .lock_storage_object(&mut tx, &format!("{group_id}:{sha256}"))
             .await?;
         let existing = self
             .store
-            .get_storage_object_on_connection(&mut *tx, group_id, sha256)
+            .get_storage_object_on_connection(&mut tx, group_id, sha256)
             .await?;
         let reusable = existing
             .as_ref()
@@ -313,7 +313,7 @@ impl LibraryService {
         let object = match self
             .store
             .upsert_storage_object_on_connection(
-                &mut *tx,
+                &mut tx,
                 Uuid::new_v4(),
                 group_id,
                 sha256,
@@ -326,15 +326,15 @@ impl LibraryService {
             Ok(object) => object,
             Err(error) => {
                 tx.rollback().await?;
-                if existing.is_none() {
-                    if let Err(cleanup_error) = self.delete_active_storage(&key).await {
-                        warn!(
-                            group_id,
-                            sha256,
-                            %cleanup_error,
-                            "failed to remove storage object after object record creation failure"
-                        );
-                    }
+                if existing.is_none()
+                    && let Err(cleanup_error) = self.delete_active_storage(&key).await
+                {
+                    warn!(
+                        group_id,
+                        sha256,
+                        %cleanup_error,
+                        "failed to remove storage object after object record creation failure"
+                    );
                 }
                 return Err(error);
             }

@@ -135,16 +135,6 @@ pub fn payload_with_checkpoint(
     Ok(next)
 }
 
-/// Hex sha256 of the JSON-serialized section payload. Exposed for callers
-/// that want to verify the same hash the indexing pipeline computes against
-/// the `section_payload` they persisted themselves.
-#[allow(dead_code)]
-pub fn compute_section_payload_record_hash(section_payload: &Value) -> String {
-    let json = serde_json::to_string(section_payload).unwrap_or_default();
-    let digest = Sha256::digest(json.as_bytes());
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 /// Hex sha256 across the `record_hash` chain of prepared sections.
 pub fn compute_prepared_record_hash(prepared: &[PreparedIngestSection]) -> String {
     let mut hasher = Sha256::new();

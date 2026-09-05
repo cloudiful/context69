@@ -149,13 +149,11 @@ fn runtime_aware_status(message: &str) -> Option<StatusCode> {
         Some(StatusCode::GATEWAY_TIMEOUT)
     } else if normalized.contains("qdrant") && normalized.contains("429") {
         Some(StatusCode::TOO_MANY_REQUESTS)
-    } else if normalized.contains("qdrant")
+    } else if (normalized.contains("qdrant")
         && (normalized.contains("transport")
             || normalized.contains("connect")
-            || normalized.contains("connection"))
-    {
-        Some(StatusCode::BAD_GATEWAY)
-    } else if normalized.contains("embedding request failed:")
+            || normalized.contains("connection")))
+        || normalized.contains("embedding request failed:")
         || normalized.contains("failed to parse embedding response:")
     {
         Some(StatusCode::BAD_GATEWAY)

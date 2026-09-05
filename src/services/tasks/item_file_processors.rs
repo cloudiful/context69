@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use bytes::Bytes;
 use context69_contracts::{LibraryIngestStatus, UpsertLibraryTextRequest};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -107,7 +106,7 @@ pub(super) async fn process_file(
                         folder_id: request.folder_id,
                         filename: request.filename,
                         media_type: request.media_type,
-                        bytes: Bytes::from(bytes),
+                        bytes,
                         declared_sha256: request.declared_sha256,
                         metadata: request.metadata,
                         translation: request.translation,

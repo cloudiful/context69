@@ -2,7 +2,7 @@ pub mod providers;
 mod store;
 mod worker;
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -59,5 +59,3 @@ pub struct EnqueueExtraction {
 pub trait ExtractionCoordinator: Send + Sync {
     async fn enqueue(&self, input: EnqueueExtraction) -> Result<Vec<ExtractionJobResponse>>;
 }
-
-pub type ExtractionRollback = Pin<Box<dyn Future<Output = Result<()>> + Send>>;

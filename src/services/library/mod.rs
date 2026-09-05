@@ -49,8 +49,8 @@ mod folders;
 mod ingest_batches;
 mod ingest_checkpoint;
 pub use ingest_checkpoint::{
-    IndexingCheckpoint, compute_section_payload_record_hash, indexing_checkpoint_to_value,
-    parse_indexing_checkpoint, payload_with_checkpoint,
+    IndexingCheckpoint, indexing_checkpoint_to_value, parse_indexing_checkpoint,
+    payload_with_checkpoint,
 };
 mod ingest_checkpoint_persistence;
 mod ingest_documents;
@@ -168,12 +168,12 @@ impl LibraryService {
         let (_kind, sha256) = self.prepare_uploaded_file(&upload).await?;
         let mut lock_tx = self.db.pool().begin().await?;
         self.store
-            .lock_storage_object(&mut *lock_tx, &format!("{group_id}:{sha256}"))
+            .lock_storage_object(&mut lock_tx, &format!("{group_id}:{sha256}"))
             .await?;
         let key = object_storage::content_object_key(group_id, &sha256);
         let existing = self
             .store
-            .get_storage_object_on_connection(&mut *lock_tx, group_id, &sha256)
+            .get_storage_object_on_connection(&mut lock_tx, group_id, &sha256)
             .await?;
         let physical_exists = match existing.as_ref() {
             Some(object)
@@ -187,7 +187,7 @@ impl LibraryService {
         let object = self
             .store
             .upsert_staged_storage_object_on_connection(
-                &mut *lock_tx,
+                &mut lock_tx,
                 Uuid::new_v4(),
                 group_id,
                 &sha256,
@@ -246,13 +246,13 @@ impl LibraryService {
         let mut tx = self.db.pool().begin().await?;
         self.store
             .lock_storage_object(
-                &mut *tx,
+                &mut tx,
                 &format!("{}:{}", identity.group_id, identity.sha256),
             )
             .await?;
         let Some(object) = self
             .store
-            .get_staged_storage_object_for_update(&mut *tx, object_id)
+            .get_staged_storage_object_for_update(&mut tx, object_id)
             .await?
         else {
             tx.rollback().await?;
@@ -265,7 +265,7 @@ impl LibraryService {
         self.delete_active_storage(&object.object_key).await?;
         if !self
             .store
-            .delete_released_staged_storage_object(&mut *tx, object.id)
+            .delete_released_staged_storage_object(&mut tx, object.id)
             .await?
         {
             tx.rollback().await?;
@@ -295,13 +295,13 @@ impl LibraryService {
             let mut lock_tx = self.db.pool().begin().await?;
             self.store
                 .lock_storage_object(
-                    &mut *lock_tx,
+                    &mut lock_tx,
                     &format!("{}:{}", object.group_id, object.sha256),
                 )
                 .await?;
             let Some(object) = self
                 .store
-                .get_storage_object_by_id_for_update(&mut *lock_tx, object.id, before)
+                .get_storage_object_by_id_for_update(&mut lock_tx, object.id, before)
                 .await?
             else {
                 lock_tx.rollback().await?;
@@ -321,7 +321,7 @@ impl LibraryService {
                 Ok(()) => match self
                     .store
                     .delete_orphaned_storage_object_record_for_update(
-                        &mut *lock_tx,
+                        &mut lock_tx,
                         object.id,
                         before,
                     )

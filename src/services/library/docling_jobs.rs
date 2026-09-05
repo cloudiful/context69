@@ -591,12 +591,10 @@ fn poll_cadence_for_item(
     let backoff_secs =
         (elapsed_secs / DOCLING_POLL_BACKOFF_DIVISOR).min(DOCLING_POLL_MAX_BACKOFF_SECS);
     let jitter_secs = poll_jitter_for_item(item_id);
-    let total = base
-        .checked_add(&chrono::Duration::seconds(backoff_secs))
+    base.checked_add(&chrono::Duration::seconds(backoff_secs))
         .unwrap_or(base)
         .checked_add(&chrono::Duration::seconds(jitter_secs))
-        .unwrap_or(base);
-    total
+        .unwrap_or(base)
 }
 
 /// Short deferral when a poll slot is unavailable. Not a Docling HTTP, so it
