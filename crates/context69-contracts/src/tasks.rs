@@ -407,6 +407,25 @@ pub struct TaskMaintenanceStats {
     /// terminal-task cleanup/purge or Docling admission.
     #[serde(default)]
     pub orphaned_external_jobs: i64,
+    /// Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,
+    /// default 1 when unconfigured). Read-only capacity signal; the overview
+    /// never tunes admission.
+    #[serde(default)]
+    pub docling_max_inflight: i64,
+    /// Due admission-deferred `waiting/backoff` items carrying the
+    /// `remote admission is full` marker whose deferral delay has elapsed.
+    /// Read-only backpressure signal paired with `docling_max_inflight`.
+    #[serde(default)]
+    pub due_docling_waiting_count: i64,
+    /// Oldest `submitted_at` among uncertain `submitting` Docling rows.
+    /// `None` when no such row exists. Read-only age signal.
+    #[serde(default)]
+    pub oldest_uncertain_submitting_at: Option<DateTime<Utc>>,
+    /// Oldest `submitted_at` among quarantinable `submitting` rows (same
+    /// eligibility as `quarantinable_submitting`). `None` when empty.
+    /// Read-only age signal.
+    #[serde(default)]
+    pub oldest_quarantinable_submitting_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

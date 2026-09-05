@@ -190,6 +190,18 @@ pub struct StoredTaskMaintenanceStats {
     pub uncertain_submitting_count: i64,
     pub quarantinable_submitting_count: i64,
     pub orphaned_external_job_count: i64,
+    /// Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,
+    /// default 1 when unconfigured). Read-only capacity signal.
+    pub docling_max_inflight: i64,
+    /// Due admission-deferred `waiting/backoff` items carrying the
+    /// `remote admission is full` marker. Read-only backpressure signal.
+    pub due_docling_waiting_count: i64,
+    /// Oldest `submitted_at` among uncertain `submitting` Docling rows.
+    /// `None` when no such row exists.
+    pub oldest_uncertain_submitting_at: Option<DateTime<Utc>>,
+    /// Oldest `submitted_at` among quarantinable `submitting` rows (same
+    /// eligibility as `quarantinable_submitting_count`). `None` when empty.
+    pub oldest_quarantinable_submitting_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, FromRow)]

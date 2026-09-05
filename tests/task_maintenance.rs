@@ -165,3 +165,48 @@ fn maintenance_stats_reports_quarantine_counters() {
         );
     }
 }
+
+#[test]
+fn maintenance_stats_reports_capacity_and_backpressure_signals() {
+    let sql = normalized_sql(include_str!("../src/sql/db/tasks/maintenance_stats.sql"));
+    // Persisted admission ceiling with single-worker fallback; never tunes.
+    assert!(
+        sql.contains("\"docling_max_inflight!\""),
+        "maintenance stats must report docling_max_inflight"
+    );
+    assert!(sql.contains("FROM context69.docling_settings"));
+    assert!(sql.contains("WHERE singleton = TRUE"));
+    // Due admission-deferred backlog only: waiting/backoff + denial marker +
+    // elapsed deferral. Ordinary backoff, dependency, and external_job waits
+    // must not leak into this backpressure gauge.
+    assert!(
+        sql.contains("\"due_docling_waiting_count!\""),
+        "maintenance stats must report due_docling_waiting_count"
+    );
+    assert!(sql.contains("item.status = 'waiting'"));
+    assert!(sql.contains("item.waiting_reason = 'backoff'"));
+    assert!(sql.contains("remote admission is full"));
+    assert!(sql.contains("item.next_attempt_at IS NULL OR item.next_attempt_at <= now()"));
+}
+
+#[test]
+fn maintenance_stats_reports_stale_submission_age_signals() {
+    let sql = normalized_sql(include_str!("../src/sql/db/tasks/maintenance_stats.sql"));
+    // Nullable age signals: oldest uncertain submitting and oldest
+    // quarantinable subset. MIN over submitted_at; NULL when bucket is empty.
+    assert!(
+        sql.contains("oldest_uncertain_submitting_at"),
+        "maintenance stats must report oldest_uncertain_submitting_at"
+    );
+    assert!(
+        sql.contains("oldest_quarantinable_submitting_at"),
+        "maintenance stats must report oldest_quarantinable_submitting_at"
+    );
+    assert!(sql.contains("min(job.submitted_at)"));
+    // Quarantinable age uses the same eligibility as the quarantinable count:
+    // placeholder remote id, 30-minute grace, terminal parents.
+    assert!(sql.contains("AND job.remote_task_id LIKE 'submitting-%'"));
+    assert!(sql.contains("AND job.submitted_at < now() - interval '30 minutes'"));
+    assert!(sql.contains("AND item.status IN ('succeeded', 'failed', 'cancelled')"));
+    assert!(sql.contains("AND task.status IN ('succeeded', 'failed', 'cancelled')"));
+}

@@ -9818,6 +9818,16 @@
             "type": "integer",
             "format": "int64"
           },
+          "docling_max_inflight": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,\ndefault 1 when unconfigured). Read-only capacity signal; the overview\nnever tunes admission."
+          },
+          "due_docling_waiting_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Due admission-deferred `waiting/backoff` items carrying the\n`remote admission is full` marker whose deferral delay has elapsed.\nRead-only backpressure signal paired with `docling_max_inflight`."
+          },
           "expired_terminal": {
             "type": "integer",
             "format": "int64"
@@ -9825,6 +9835,22 @@
           "failed": {
             "type": "integer",
             "format": "int64"
+          },
+          "oldest_quarantinable_submitting_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Oldest `submitted_at` among quarantinable `submitting` rows (same\neligibility as `quarantinable_submitting`). `None` when empty.\nRead-only age signal."
+          },
+          "oldest_uncertain_submitting_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Oldest `submitted_at` among uncertain `submitting` Docling rows.\n`None` when no such row exists. Read-only age signal."
           },
           "orphaned_external_jobs": {
             "type": "integer",

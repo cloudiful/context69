@@ -2602,10 +2602,37 @@ export interface components {
             active: number;
             /** Format: int64 */
             cancelled: number;
+            /**
+             * Format: int64
+             * @description Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,
+             *     default 1 when unconfigured). Read-only capacity signal; the overview
+             *     never tunes admission.
+             */
+            docling_max_inflight?: number;
+            /**
+             * Format: int64
+             * @description Due admission-deferred `waiting/backoff` items carrying the
+             *     `remote admission is full` marker whose deferral delay has elapsed.
+             *     Read-only backpressure signal paired with `docling_max_inflight`.
+             */
+            due_docling_waiting_count?: number;
             /** Format: int64 */
             expired_terminal: number;
             /** Format: int64 */
             failed: number;
+            /**
+             * Format: date-time
+             * @description Oldest `submitted_at` among quarantinable `submitting` rows (same
+             *     eligibility as `quarantinable_submitting`). `None` when empty.
+             *     Read-only age signal.
+             */
+            oldest_quarantinable_submitting_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Oldest `submitted_at` among uncertain `submitting` Docling rows.
+             *     `None` when no such row exists. Read-only age signal.
+             */
+            oldest_uncertain_submitting_at?: string | null;
             /**
              * Format: int64
              * @description Rows already isolated as `orphaned`: non-active, no longer blocking

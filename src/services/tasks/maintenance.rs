@@ -761,6 +761,12 @@ impl TaskService {
             uncertain_submitting: stats.uncertain_submitting_count,
             quarantinable_submitting: stats.quarantinable_submitting_count,
             orphaned_external_jobs: stats.orphaned_external_job_count,
+            // Read-only observability passthrough (issue #129 phase 4): no
+            // tuning, no state mutation, no scheduling change.
+            docling_max_inflight: stats.docling_max_inflight,
+            due_docling_waiting_count: stats.due_docling_waiting_count,
+            oldest_uncertain_submitting_at: stats.oldest_uncertain_submitting_at,
+            oldest_quarantinable_submitting_at: stats.oldest_quarantinable_submitting_at,
         })
     }
 }
