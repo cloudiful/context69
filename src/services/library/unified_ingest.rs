@@ -36,6 +36,14 @@ impl UnifiedIngestError {
             message: failure.to_string(),
         }
     }
+
+    /// True only for the Docling persistent-admission denial produced when
+    /// the remote slot is full before any POST (issue #123). The worker
+    /// must defer without consuming the business attempt budget; every
+    /// other retryable Docling failure keeps ordinary backoff exhaustion.
+    pub(crate) fn is_docling_admission_denied(&self) -> bool {
+        self.stage == "docling" && self.message.contains("remote admission is full")
+    }
 }
 
 impl LibraryService {

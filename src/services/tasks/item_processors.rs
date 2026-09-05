@@ -16,6 +16,13 @@ pub(super) enum ProcessResult {
         next_attempt_at: DateTime<Utc>,
         message: Option<String>,
     },
+    /// Scheduler deferral that releases the just-claimed lease without
+    /// consuming the business attempt (issue #123). Persisted as
+    /// waiting/backoff; only the Docling admission-denied path maps here.
+    Deferred {
+        next_attempt_at: DateTime<Utc>,
+        message: String,
+    },
     Failed {
         stage: String,
         message: String,
@@ -165,6 +172,16 @@ pub(super) fn waiting_for_error(
     item: &crate::db::ClaimedItem,
     error: UnifiedIngestError,
 ) -> ProcessResult {
+    // Admission-full never consumed a remote slot or POSTed, so it must not
+    // consume the five-attempt business budget. Route only this narrow
+    // Docling marker to the scheduler-deferral contract; every other
+    // retryable error keeps ordinary backoff exhaustion.
+    if error.is_docling_admission_denied() {
+        return ProcessResult::Deferred {
+            next_attempt_at: admission_deferral_until(),
+            message: error.message,
+        };
+    }
     let attempt = item.attempt_count.clamp(1, 8) as u32;
     let seconds = 5_i64.saturating_mul(1_i64 << (attempt - 1));
     ProcessResult::Waiting {
@@ -203,6 +220,13 @@ pub(super) fn process_source_sync_error(
         };
     }
     process_error("sync", error)
+}
+
+/// Short fairness delay for admission deferral. No Docling HTTP is made on
+/// this path, so it stays short enough to reuse a freed remote slot
+/// promptly without tight-looping the claim path.
+fn admission_deferral_until() -> DateTime<Utc> {
+    Utc::now() + ChronoDuration::seconds(15)
 }
 
 fn is_retryable_error(error: &anyhow::Error) -> bool {

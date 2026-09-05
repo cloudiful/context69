@@ -239,6 +239,27 @@ pub(crate) fn task_failure_with_dependency(
     }
 }
 
+/// Retryable Docling error for the persistent remote-admission denial
+/// (issue #123). The message marker must stay in sync with
+/// [`UnifiedIngestError::is_docling_admission_denied`]: only this path
+/// maps to the scheduler-deferral contract that releases the claim
+/// without consuming the business attempt. No Docling POST is made.
+pub(crate) fn docling_admission_denied(
+    item_id: Uuid,
+    inflight: i64,
+    limit: usize,
+) -> UnifiedIngestError {
+    task_failure(
+        "docling",
+        anyhow!(
+            "docling remote admission is full ({}/{}) for item {item_id}; waiting for a remote slot without submitting",
+            inflight,
+            limit,
+        ),
+        true,
+    )
+}
+
 impl std::str::FromStr for LibraryDependency {
     type Err = anyhow::Error;
 

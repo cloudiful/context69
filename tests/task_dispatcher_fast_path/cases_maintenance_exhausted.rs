@@ -639,3 +639,166 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
+
+#[tokio::test]
+async fn maintain_claim_state_exhausts_ordinary_backoff_but_not_admission_deferred_backoff() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping admission exhaustion test");
+        return;
+    };
+    let _guard = FAST_PATH_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+
+    // Ordinary waiting/backoff at the cap must still exhaust.
+    let ordinary_task = Uuid::new_v4();
+    let (ordinary_task, _reused, ordinary_items) = db
+        .create_task_submission(
+            ordinary_task,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/fast-path"),
+            None,
+            &[json!({"external_id": "ordinary-backoff-cap"})],
+            None,
+            &format!("fast-path-ordinary-cap-{}", Uuid::new_v4()),
+        )
+        .await
+        .expect("create ordinary task");
+    let ordinary_item = ordinary_items[0];
+    sqlx::query(
+        "UPDATE context69.task_items \
+         SET status = 'waiting', stage = 'indexing', waiting_reason = 'backoff', \
+             attempt_count = 5, next_attempt_at = now() - interval '1 minute', waiting_since = now() \
+         WHERE id = $1",
+    )
+    .bind(ordinary_item)
+    .execute(db.pool())
+    .await
+    .expect("park ordinary waiting item");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'waiting', stage = 'indexing', waiting_reason = 'backoff', \
+             next_attempt_at = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(ordinary_task)
+    .execute(db.pool())
+    .await
+    .expect("park ordinary task");
+
+    // Admission-deferred backoff carries no consumed attempt (claim 1 was
+    // decremented back to 0 by release_attempt_wait) and must not exhaust.
+    let deferred_task = Uuid::new_v4();
+    let (deferred_task, _reused, deferred_items) = db
+        .create_task_submission(
+            deferred_task,
+            user_id,
+            None,
+            "text_batch",
+            Some("test/fast-path"),
+            None,
+            &[json!({"external_id": "admission-deferred"})],
+            None,
+            &format!("fast-path-deferred-cap-{}", Uuid::new_v4()),
+        )
+        .await
+        .expect("create deferred task");
+    let deferred_item = deferred_items[0];
+    sqlx::query(
+        "UPDATE context69.task_items \
+         SET status = 'waiting', waiting_reason = 'backoff', \
+             attempt_count = 0, next_attempt_at = now() - interval '1 minute', waiting_since = now(), \
+             error_message = 'docling remote admission is full (1/1); waiting for a remote slot without submitting' \
+         WHERE id = $1",
+    )
+    .bind(deferred_item)
+    .execute(db.pool())
+    .await
+    .expect("park deferred waiting item");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'waiting', waiting_reason = 'backoff', \
+             next_attempt_at = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(deferred_task)
+    .execute(db.pool())
+    .await
+    .expect("park deferred task");
+    db.recompute_task(deferred_task)
+        .await
+        .expect("recompute deferred task");
+    db.recompute_task(ordinary_task)
+        .await
+        .expect("recompute ordinary task");
+
+    let outcome = db
+        .maintain_claim_state()
+        .await
+        .expect("maintenance succeeds");
+    assert!(
+        outcome.exhausted_items >= 1,
+        "ordinary waiting backoff at the cap must be exhausted"
+    );
+
+    let ordinary_status: String =
+        sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
+            .bind(ordinary_item)
+            .fetch_one(db.pool())
+            .await
+            .expect("load ordinary status");
+    assert_eq!(
+        ordinary_status, "failed",
+        "ordinary waiting backoff at attempt 5 must become failed"
+    );
+
+    let deferred_status: String =
+        sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
+            .bind(deferred_item)
+            .fetch_one(db.pool())
+            .await
+            .expect("load deferred status");
+    assert_eq!(
+        deferred_status, "waiting",
+        "admission-deferred backoff with no consumed attempt must stay waiting"
+    );
+    let deferred_reason: Option<String> =
+        sqlx::query_scalar("SELECT waiting_reason FROM context69.task_items WHERE id = $1")
+            .bind(deferred_item)
+            .fetch_one(db.pool())
+            .await
+            .expect("load deferred reason");
+    assert_eq!(
+        deferred_reason.as_deref(),
+        Some("backoff"),
+        "deferred item must reuse waiting/backoff"
+    );
+
+    let deferred_task_row = db
+        .get_task_internal(deferred_task)
+        .await
+        .expect("load deferred task")
+        .expect("deferred task exists");
+    assert_eq!(deferred_task_row.waiting_count, 1);
+    assert_eq!(deferred_task_row.failed_count, 0);
+    assert_eq!(deferred_task_row.status, "waiting");
+
+    // The deferred item must still be claimable despite the maintenance run.
+    let claimed = db
+        .claim_items_fast(100)
+        .await
+        .expect("fast claim")
+        .into_iter()
+        .find(|item| item.task_id == deferred_task)
+        .expect("deferred backoff must remain claimable after maintenance");
+    assert_eq!(claimed.id, deferred_item);
+
+    sqlx::query("DELETE FROM context69.task_attempts WHERE item_id = $1")
+        .bind(deferred_item)
+        .execute(db.pool())
+        .await
+        .expect("clean up deferred attempts");
+    cleanup_task(&db, deferred_task, user_id).await;
+    cleanup_task(&db, ordinary_task, user_id).await;
+    cleanup_user(&db, user_id).await;
+}

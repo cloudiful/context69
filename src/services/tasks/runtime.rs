@@ -92,6 +92,33 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
                 return Ok(());
             }
         }
+        Ok(ProcessResult::Deferred {
+            next_attempt_at,
+            message,
+        }) => {
+            info!(
+                task_id = %item.task_id,
+                item_id = %item.id,
+                stage = item.stage.as_deref().unwrap_or("unknown"),
+                next_attempt_at = %next_attempt_at,
+                message = %message,
+                "task item admission deferred without consuming attempt"
+            );
+            if !service
+                .db()
+                .release_attempt_wait(
+                    item.task_id,
+                    item.id,
+                    item.lease_token,
+                    item.attempt_id,
+                    next_attempt_at,
+                    Some(&message),
+                )
+                .await?
+            {
+                return Ok(());
+            }
+        }
         Ok(ProcessResult::Failed {
             stage,
             message,

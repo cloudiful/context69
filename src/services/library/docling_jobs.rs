@@ -11,7 +11,7 @@ use super::dependency_runtime::{
     docling_error_status_code, is_docling_remote_task_not_found, is_docling_transient,
 };
 use super::ingest_documents::sections_from_converted_document;
-use super::task_ingest::{normalize_task_failure, task_failure};
+use super::task_ingest::{docling_admission_denied, normalize_task_failure, task_failure};
 use super::*;
 
 pub(crate) const DOCLING_EXTERNAL_JOB_PROVIDER: &str = "docling";
@@ -156,8 +156,9 @@ impl LibraryService {
         let submission_marker = format!("submitting-{}", Uuid::new_v4());
         // Persistent remote admission (issue #118): claim a global Docling slot
         // atomically before touching the network. When the ceiling is reached
-        // the worker must wait and must not POST, so the local permit is
-        // released via the retryable error path and the item backs off.
+        // the worker defers via the scheduler-deferral contract (issue #123)
+        // without consuming the business attempt and without POSTing, so the
+        // local permit is released here and no Docling HTTP is made.
         let submission = match self
             .store
             .try_begin_external_job_submission(
@@ -173,14 +174,10 @@ impl LibraryService {
             Ok(submission) => submission,
             Err(denied) => {
                 drop(permit);
-                return Err(task_failure(
-                    "docling",
-                    anyhow!(
-                        "docling remote admission is full ({}/{}) for item {item_id}; waiting for a remote slot without submitting",
-                        denied.inflight,
-                        denied.limit,
-                    ),
-                    true,
+                return Err(docling_admission_denied(
+                    item_id,
+                    denied.inflight,
+                    denied.limit,
                 ));
             }
         };
