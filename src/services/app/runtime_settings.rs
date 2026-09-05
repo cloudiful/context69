@@ -1,0 +1,207 @@
+use std::{path::PathBuf, time::Duration};
+
+use anyhow::Result;
+use tracing::warn;
+
+use crate::{
+    chunking::ChunkingConfig,
+    config::{Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig, SchedulerConfig},
+    db::{Database, StoredDoclingSettings, StoredRuntimeSettings, StoredSourceConnection},
+    source_store::SourceStore,
+};
+
+pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Result<()> {
+    if db.runtime_settings_initialized().await? {
+        return Ok(());
+    }
+
+    db.save_runtime_settings(&StoredRuntimeSettings {
+        qdrant: crate::db::StoredRuntimeQdrantSettings {
+            url: config.qdrant.url.clone(),
+            collection_name: config.qdrant.collection_name.clone(),
+            recreate_on_dimension_mismatch: config.qdrant.recreate_on_dimension_mismatch,
+        },
+        embedding: crate::db::StoredRuntimeEmbeddingSettings {
+            base_url: config.embedding.base_url.clone(),
+            api_key: config.embedding.api_key.clone(),
+            model: config.embedding.model.clone(),
+            dimensions: config.embedding.dimensions,
+            timeout_secs: config.embedding.timeout.as_secs(),
+        },
+        scheduler: crate::db::StoredRuntimeSchedulerSettings {
+            interval_secs: config.scheduler.interval.as_secs(),
+            run_on_start: config.scheduler.run_on_start,
+            max_concurrency: config.scheduler.max_concurrency,
+            job_id: config.scheduler.job_id.clone(),
+            valkey_url: config.scheduler.valkey_url.clone(),
+        },
+        chunking: crate::db::StoredRuntimeChunkingSettings {
+            max_chars: config.chunking.max_chars,
+            overlap_chars: config.chunking.overlap_chars,
+        },
+        file_library: crate::db::StoredRuntimeFileLibrarySettings {
+            storage_root: config.file_library.storage_root.display().to_string(),
+            max_upload_size_mb: config.file_library.max_upload_size_mb,
+            max_upload_request_size_mb: config.file_library.max_upload_request_size_mb,
+            ingest_concurrency: config.file_library.ingest_concurrency,
+            url_import_concurrency: config.file_library.url_import_concurrency,
+            url_import_min_interval_ms: config.file_library.url_import_min_interval_ms,
+            trusted_proxy_enabled: config.file_library.trusted_proxy_enabled,
+            s3: config
+                .file_library
+                .s3
+                .as_ref()
+                .map(|s3| crate::db::StoredRuntimeS3Settings {
+                    endpoint: s3.endpoint.clone(),
+                    region: s3.region.clone(),
+                    bucket: s3.bucket.clone(),
+                    prefix: s3.prefix.clone(),
+                    path_style: s3.path_style,
+                    access_key: s3.access_key.clone(),
+                    secret_key: s3.secret_key.clone(),
+                }),
+        },
+    })
+    .await?;
+
+    for connection in &config.connections {
+        db.save_source_connection(&StoredSourceConnection {
+            name: connection.name.clone(),
+            database_url: connection.database_url.clone(),
+        })
+        .await?;
+    }
+
+    if let Some(docling) = &config.docling {
+        db.save_docling_settings(&StoredDoclingSettings {
+            base_url: docling.connection.base_url.clone(),
+            timeout_secs: docling.connection.timeout.as_secs(),
+            poll_interval_secs: docling.connection.poll_interval.as_secs(),
+            task_timeout_secs: docling.connection.task_timeout.as_secs(),
+            max_inflight: docling.connection.max_inflight.clamp(
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN,
+                context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX,
+            ),
+            pdf_backend: None,
+            images_scale: None,
+            image_export_mode: Some("placeholder".to_string()),
+            do_ocr: true,
+            force_ocr: false,
+            ocr_engine: Some("rapidocr".to_string()),
+            ocr_lang: Vec::new(),
+            do_code_enrichment: true,
+            do_formula_enrichment: true,
+            do_picture_description: true,
+            openai_base_url: docling.vlm.openai_base_url.clone(),
+            api_key: docling.vlm.api_key.clone(),
+            vlm_pipeline_model: docling.vlm.vlm_pipeline_model.clone(),
+            picture_description_model: docling.vlm.picture_description_model.clone(),
+            code_formula_model: docling.vlm.code_formula_model.clone(),
+            picture_description_preset: docling.vlm.picture_description_preset.clone(),
+        })
+        .await?;
+    }
+
+    SourceStore::new(db.clone())
+        .seed_sources_if_empty(&config.sources)
+        .await?;
+    Ok(())
+}
+
+pub async fn load_runtime_settings(db: &Database) -> Result<Option<StoredRuntimeSettings>> {
+    let Some(mut runtime) = db.get_runtime_settings().await? else {
+        return Ok(None);
+    };
+
+    if let Some(grpc_url) = qdrant_grpc_url_from_rest_port(&runtime.qdrant.url) {
+        warn!(
+            old_url = runtime.qdrant.url,
+            new_url = grpc_url,
+            "upgrading legacy qdrant runtime URL from REST port to gRPC port"
+        );
+        runtime.qdrant.url = grpc_url;
+        runtime = db.save_runtime_settings(&runtime).await?;
+    }
+
+    Ok(Some(runtime))
+}
+
+pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) {
+    config.qdrant = QdrantConfig {
+        url: runtime.qdrant.url.clone(),
+        collection_name: runtime.qdrant.collection_name.clone(),
+        recreate_on_dimension_mismatch: runtime.qdrant.recreate_on_dimension_mismatch,
+    };
+    config.embedding = EmbeddingConfig {
+        base_url: runtime.embedding.base_url.clone(),
+        api_key: runtime.embedding.api_key.clone(),
+        model: runtime.embedding.model.clone(),
+        dimensions: runtime.embedding.dimensions,
+        timeout: Duration::from_secs(runtime.embedding.timeout_secs),
+    };
+    config.scheduler = SchedulerConfig {
+        interval: Duration::from_secs(runtime.scheduler.interval_secs),
+        run_on_start: runtime.scheduler.run_on_start,
+        max_concurrency: runtime.scheduler.max_concurrency,
+        job_id: runtime.scheduler.job_id.clone(),
+        valkey_url: runtime.scheduler.valkey_url.clone(),
+        execution_guard_ttl: config.scheduler.execution_guard_ttl,
+        execution_guard_renew_interval: config.scheduler.execution_guard_renew_interval,
+    };
+    config.chunking = ChunkingConfig {
+        max_chars: runtime.chunking.max_chars,
+        overlap_chars: runtime.chunking.overlap_chars,
+    };
+    config.file_library = FileLibraryConfig {
+        storage_root: PathBuf::from(&runtime.file_library.storage_root),
+        max_upload_size_mb: runtime.file_library.max_upload_size_mb,
+        max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
+        ingest_concurrency: runtime.file_library.ingest_concurrency,
+        url_import_concurrency: runtime.file_library.url_import_concurrency,
+        url_import_min_interval_ms: runtime.file_library.url_import_min_interval_ms,
+        trusted_proxy_enabled: runtime.file_library.trusted_proxy_enabled,
+        s3: runtime
+            .file_library
+            .s3
+            .as_ref()
+            .map(|s3| crate::config::S3StorageConfig {
+                endpoint: s3.endpoint.clone(),
+                region: s3.region.clone(),
+                bucket: s3.bucket.clone(),
+                prefix: s3.prefix.clone(),
+                path_style: s3.path_style,
+                access_key: s3.access_key.clone(),
+                secret_key: s3.secret_key.clone(),
+            }),
+    };
+}
+
+fn qdrant_grpc_url_from_rest_port(url: &str) -> Option<String> {
+    let trimmed = url.trim();
+    let without_trailing_slash = trimmed.strip_suffix('/').unwrap_or(trimmed);
+    without_trailing_slash
+        .strip_suffix(":6333")
+        .map(|prefix| format!("{prefix}:6334"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::qdrant_grpc_url_from_rest_port;
+
+    #[test]
+    fn upgrades_qdrant_rest_port_to_grpc_port() {
+        assert_eq!(
+            qdrant_grpc_url_from_rest_port("http://qdrant:6333").as_deref(),
+            Some("http://qdrant:6334")
+        );
+        assert_eq!(
+            qdrant_grpc_url_from_rest_port("http://qdrant:6333/").as_deref(),
+            Some("http://qdrant:6334")
+        );
+    }
+
+    #[test]
+    fn keeps_qdrant_grpc_port_unchanged() {
+        assert_eq!(qdrant_grpc_url_from_rest_port("http://qdrant:6334"), None);
+    }
+}
