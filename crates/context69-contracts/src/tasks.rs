@@ -496,6 +496,11 @@ pub struct QuarantineStaleSubmittingRequest {
     /// 1..=1000.
     #[serde(default)]
     pub limit: Option<i64>,
+    /// When true, only read eligibility counts and return a preview without
+    /// mutating any row or writing any audit row. Optional for backward
+    /// compatibility; omitted or false preserves the mutating behavior.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -518,6 +523,19 @@ pub struct QuarantineStaleSubmittingResponse {
     /// Still `submitting` with a non-placeholder remote id; needs manual
     /// review because a real remote job may exist.
     pub skipped_real_remote: i64,
+    /// True when this response is a dry-run preview: no row was mutated and
+    /// no audit row was written. Always present; false for mutating calls so
+    /// callers never conflate eligible rows with changed rows.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Total eligible (`quarantinable`) `submitting` rows at read time:
+    /// placeholder remote id, older than the grace cutoff, terminal parents.
+    /// Uncapped by `limit`. In dry-run mode this is the full preview total
+    /// with `quarantined` empty and `quarantined_count` zero. In mutating
+    /// mode this is the remainder still eligible after this call, while
+    /// `quarantined_count` is the actual number of rows changed.
+    #[serde(default)]
+    pub quarantinable_count: i64,
 }
 
 fn default_page() -> u32 {

@@ -232,7 +232,7 @@
         },
         "responses": {
           "200": {
-            "description": "Quarantined stale submitting jobs as orphaned with skip counts",
+            "description": "Quarantined stale submitting jobs as orphaned with skip counts; dry_run=true returns only eligibility counts with zero writes",
             "content": {
               "application/json": {
                 "schema": {
@@ -8376,6 +8376,13 @@
           "reason"
         ],
         "properties": {
+          "dry_run": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "When true, only read eligibility counts and return a preview without\nmutating any row or writing any audit row. Optional for backward\ncompatibility; omitted or false preserves the mutating behavior."
+          },
           "grace_minutes": {
             "type": [
               "integer",
@@ -8408,6 +8415,15 @@
           "skipped_real_remote"
         ],
         "properties": {
+          "dry_run": {
+            "type": "boolean",
+            "description": "True when this response is a dry-run preview: no row was mutated and\nno audit row was written. Always present; false for mutating calls so\ncallers never conflate eligible rows with changed rows."
+          },
+          "quarantinable_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total eligible (`quarantinable`) `submitting` rows at read time:\nplaceholder remote id, older than the grace cutoff, terminal parents.\nUncapped by `limit`. In dry-run mode this is the full preview total\nwith `quarantined` empty and `quarantined_count` zero. In mutating\nmode this is the remainder still eligible after this call, while\n`quarantined_count` is the actual number of rows changed."
+          },
           "quarantined": {
             "type": "array",
             "items": {

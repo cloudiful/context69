@@ -2197,6 +2197,12 @@ export interface components {
         };
         QuarantineStaleSubmittingRequest: {
             /**
+             * @description When true, only read eligibility counts and return a preview without
+             *     mutating any row or writing any audit row. Optional for backward
+             *     compatibility; omitted or false preserves the mutating behavior.
+             */
+            dry_run?: boolean | null;
+            /**
              * Format: int64
              * @description Only rows older than this many minutes are eligible. Defaults to 30,
              *     must be between 10 and 10080 (one week).
@@ -2212,6 +2218,22 @@ export interface components {
             reason: string;
         };
         QuarantineStaleSubmittingResponse: {
+            /**
+             * @description True when this response is a dry-run preview: no row was mutated and
+             *     no audit row was written. Always present; false for mutating calls so
+             *     callers never conflate eligible rows with changed rows.
+             */
+            dry_run?: boolean;
+            /**
+             * Format: int64
+             * @description Total eligible (`quarantinable`) `submitting` rows at read time:
+             *     placeholder remote id, older than the grace cutoff, terminal parents.
+             *     Uncapped by `limit`. In dry-run mode this is the full preview total
+             *     with `quarantined` empty and `quarantined_count` zero. In mutating
+             *     mode this is the remainder still eligible after this call, while
+             *     `quarantined_count` is the actual number of rows changed.
+             */
+            quarantinable_count?: number;
             quarantined: components["schemas"]["QuarantinedExternalJob"][];
             /** Format: int64 */
             quarantined_count: number;
@@ -3157,7 +3179,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Quarantined stale submitting jobs as orphaned with skip counts */
+            /** @description Quarantined stale submitting jobs as orphaned with skip counts; dry_run=true returns only eligibility counts with zero writes */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -179,7 +179,7 @@ pub(crate) async fn queue_docling_recovery(
     path = "/v1/admin/tasks/quarantine-submitting",
     request_body = QuarantineStaleSubmittingRequest,
     responses(
-        (status = 200, description = "Quarantined stale submitting jobs as orphaned with skip counts", body = QuarantineStaleSubmittingResponse),
+        (status = 200, description = "Quarantined stale submitting jobs as orphaned with skip counts; dry_run=true returns only eligibility counts with zero writes", body = QuarantineStaleSubmittingResponse),
         (status = 400, description = "Missing or empty reason, or grace_minutes out of bounds", body = ApiErrorResponse),
         (status = 403, description = "Admin access required", body = ApiErrorResponse)
     )

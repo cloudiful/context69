@@ -597,6 +597,12 @@ impl TaskService {
     /// counts. The transition never claims the remote job was cancelled, and
     /// quarantined rows stop blocking terminal-task cleanup/purge. No
     /// background job calls this automatically.
+    ///
+    /// When `request.dry_run` is true, only eligibility stats are read and no
+    /// row or audit row is written: the response carries `dry_run=true`, an
+    /// empty `quarantined` list, `quarantined_count=0`, and the full
+    /// `quarantinable_count` preview plus skipped counts. Admin authorization
+    /// and `reason`/`grace_minutes`/`limit` validation still apply.
     pub async fn admin_quarantine_stale_submitting(
         &self,
         actor: &UserRecord,
@@ -606,8 +612,39 @@ impl TaskService {
         let reason = require_non_empty_reason(&request.reason, "quarantine")?;
         let grace_minutes = quarantine_grace_minutes(request.grace_minutes)?;
         let limit = quarantine_limit(request.limit);
+        let dry_run = request.dry_run.unwrap_or(false);
         let cutoff = Utc::now() - chrono::Duration::minutes(grace_minutes);
         let pattern = crate::library_store::SUBMITTING_PLACEHOLDER_PATTERN;
+        if dry_run {
+            let stats = self
+                .library()
+                .store()
+                .quarantine_submitting_stats(cutoff, pattern)
+                .await?;
+            tracing::info!(
+                dry_run = true,
+                quarantinable = stats.quarantinable_count,
+                uncertain_total = stats.uncertain_submitting_count,
+                orphaned_total = stats.orphaned_count,
+                skipped_non_terminal = stats.skipped_non_terminal_count,
+                skipped_fresh = stats.skipped_fresh_count,
+                skipped_real_remote = stats.skipped_real_remote_count,
+                grace_minutes = grace_minutes,
+                limit = limit,
+                actor = %actor.login_name,
+                reason = %reason,
+                "stale Docling submitting quarantine dry-run preview",
+            );
+            return Ok(QuarantineStaleSubmittingResponse {
+                quarantined: Vec::new(),
+                quarantined_count: 0,
+                skipped_non_terminal: stats.skipped_non_terminal_count,
+                skipped_fresh: stats.skipped_fresh_count,
+                skipped_real_remote: stats.skipped_real_remote_count,
+                dry_run: true,
+                quarantinable_count: stats.quarantinable_count,
+            });
+        }
         let quarantined = self
             .library()
             .store()
@@ -626,6 +663,7 @@ impl TaskService {
             .quarantine_submitting_stats(cutoff, pattern)
             .await?;
         tracing::info!(
+            dry_run = false,
             quarantined = quarantined.len(),
             old_status_sample = quarantined
                 .first()
@@ -657,6 +695,8 @@ impl TaskService {
             skipped_non_terminal: stats.skipped_non_terminal_count,
             skipped_fresh: stats.skipped_fresh_count,
             skipped_real_remote: stats.skipped_real_remote_count,
+            dry_run: false,
+            quarantinable_count: stats.quarantinable_count,
         })
     }
 

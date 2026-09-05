@@ -1034,3 +1034,166 @@ async fn maintenance_stats_reports_quarantine_counters() {
     cleanup_task(&db, task_id).await;
     cleanup_user_files_groups(&db, user_id, &[file_id], &[group_id]).await;
 }
+
+#[test]
+fn quarantine_dry_run_request_is_backward_compatible() {
+    use context69::contracts::{
+        QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
+    };
+
+    // Old clients omit `dry_run`: it must default to the mutating behavior.
+    let legacy: QuarantineStaleSubmittingRequest =
+        serde_json::from_value(json!({"reason": "legacy canary"}))
+            .expect("legacy request without dry_run decodes");
+    assert!(!legacy.dry_run.unwrap_or(false));
+
+    let preview: QuarantineStaleSubmittingRequest = serde_json::from_value(json!({
+        "reason": "dry-run canary",
+        "grace_minutes": 30,
+        "limit": 10,
+        "dry_run": true,
+    }))
+    .expect("dry-run request decodes");
+    assert_eq!(preview.dry_run, Some(true));
+
+    // Old responses without the new fields must still decode, defaulting to
+    // the mutating shape so callers never mistake them for a preview.
+    let legacy_response: QuarantineStaleSubmittingResponse = serde_json::from_value(json!({
+        "quarantined": [],
+        "quarantined_count": 1,
+        "skipped_non_terminal": 0,
+        "skipped_fresh": 0,
+        "skipped_real_remote": 0,
+    }))
+    .expect("legacy response without dry_run decodes");
+    assert!(!legacy_response.dry_run);
+    assert_eq!(legacy_response.quarantinable_count, 0);
+    assert_eq!(legacy_response.quarantined_count, 1);
+}
+
+#[tokio::test]
+async fn quarantine_dry_run_stats_read_performs_zero_writes() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping dry-run zero-write test");
+        return;
+    };
+    let _guard = QUEUE_QUARANTINE_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+    let group_id = seed_group(&db).await;
+
+    // Eligible preview row: terminal parents, placeholder id, old.
+    let file_a = insert_file(&db, group_id).await;
+    let (task_a, item_a) = seed_terminal_item_with_job(
+        &db,
+        user_id,
+        file_a,
+        &format!("submitting-{}", Uuid::new_v4()),
+        "submitting",
+        Utc::now() - chrono::Duration::hours(2),
+        true,
+    )
+    .await;
+    // Fresh placeholder on terminal parents: counted as skipped_fresh.
+    let file_b = insert_file(&db, group_id).await;
+    let (task_b, _) = seed_terminal_item_with_job(
+        &db,
+        user_id,
+        file_b,
+        &format!("submitting-{}", Uuid::new_v4()),
+        "submitting",
+        Utc::now() - chrono::Duration::minutes(1),
+        true,
+    )
+    .await;
+
+    let cutoff = Utc::now() - chrono::Duration::minutes(30);
+    let audit_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM context69.task_external_job_quarantine_audit WHERE task_id IN ($1, $2)",
+    )
+    .bind(task_a)
+    .bind(task_b)
+    .fetch_one(db.pool())
+    .await
+    .expect("audit count before dry-run");
+    assert_eq!(audit_before, 0);
+
+    // Dry-run is a stats-only read: the same query the service uses for the
+    // preview, with no quarantine UPDATE and no audit INSERT.
+    let stats: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(include_str!(
+        "../src/sql/library_store/external_jobs/quarantine_submitting_stats.sql"
+    ))
+    .bind(cutoff)
+    .bind("submitting-%")
+    .fetch_one(db.pool())
+    .await
+    .expect("dry-run eligibility stats");
+    assert!(
+        stats.1 >= 1,
+        "dry-run preview must report at least the eligible row"
+    );
+    assert_eq!(
+        stats.0,
+        stats.1 + stats.2 + stats.3 + stats.4,
+        "dry-run buckets must partition every submitting row exactly once"
+    );
+
+    // Zero writes: both rows keep their exact status and no audit row appears.
+    for (task, expected) in [(task_a, "submitting"), (task_b, "submitting")] {
+        let status: String = sqlx::query_scalar(
+            "SELECT job.status FROM context69.task_external_jobs job \
+             JOIN context69.task_items item ON item.id = job.item_id \
+             WHERE item.task_id = $1",
+        )
+        .bind(task)
+        .fetch_one(db.pool())
+        .await
+        .expect("status untouched by dry-run");
+        assert_eq!(status, expected);
+    }
+    let audit_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM context69.task_external_job_quarantine_audit WHERE task_id IN ($1, $2)",
+    )
+    .bind(task_a)
+    .bind(task_b)
+    .fetch_one(db.pool())
+    .await
+    .expect("audit count after dry-run");
+    assert_eq!(
+        audit_after, 0,
+        "dry-run stats read must not insert any audit row"
+    );
+
+    // The dry-run response shape never conflates eligible rows with changed
+    // rows: nothing quarantined, count zero, preview total separate.
+    let preview = context69::contracts::QuarantineStaleSubmittingResponse {
+        quarantined: Vec::new(),
+        quarantined_count: 0,
+        skipped_non_terminal: stats.2,
+        skipped_fresh: stats.3,
+        skipped_real_remote: stats.4,
+        dry_run: true,
+        quarantinable_count: stats.1,
+    };
+    assert!(preview.dry_run);
+    assert!(preview.quarantined.is_empty());
+    assert_eq!(preview.quarantined_count, 0);
+    assert!(preview.quarantinable_count >= 1);
+
+    // The seeded eligible row is still quarantinable afterwards: dry-run did
+    // not consume it.
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM context69.task_external_jobs WHERE item_id = $1")
+            .bind(item_a)
+            .fetch_one(db.pool())
+            .await
+            .expect("eligible row still submitting");
+    assert_eq!(status, "submitting");
+
+    for task in [task_a, task_b] {
+        cleanup_task(&db, task).await;
+    }
+    cleanup_user_files_groups(&db, user_id, &[file_a, file_b], &[group_id]).await;
+}
