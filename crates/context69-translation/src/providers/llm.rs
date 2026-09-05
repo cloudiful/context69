@@ -2,6 +2,10 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
+use context69_llm_support::{
+    extract_tool_payload, normalize_endpoint, require_api_key, require_api_kind, require_model,
+    send_and_decode,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -19,36 +23,23 @@ impl LlmProvider {
     }
 
     fn endpoint(&self, suffix: &str) -> Result<String> {
-        let endpoint = self
-            .config
-            .endpoint
-            .as_deref()
-            .context("LLM endpoint is not configured")?;
-        if endpoint.ends_with(suffix) {
-            Ok(endpoint.to_string())
-        } else {
-            Ok(format!("{}{}", endpoint.trim_end_matches('/'), suffix))
-        }
+        normalize_endpoint(self.config.endpoint.as_deref(), suffix)
     }
 
     fn model(&self) -> Result<&str> {
-        self.config
-            .model
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .context("LLM model is not configured")
+        require_model(self.config.model.as_deref())
     }
 
     fn api_key(&self) -> Result<&str> {
-        self.config
-            .api_key
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .context("LLM api_key is not configured")
+        require_api_key(self.config.api_key.as_deref())
+    }
+
+    fn api_kind(&self) -> Result<&str> {
+        require_api_kind(self.config.llm_api_kind.as_deref())
     }
 
     async fn openai_chat(&self, request: &ProviderTranslationRequest<'_>) -> Result<Value> {
-        let response = self
+        let builder = self
             .client
             .post(self.endpoint("/chat/completions")?)
             .bearer_auth(self.api_key()?)
@@ -59,14 +50,12 @@ impl LlmProvider {
                 "tool_choice": {"type":"function", "function":{"name":"submit_translations"}},
                 "temperature": 0,
                 "stream": false
-            }))
-            .send()
-            .await?;
-        parse_http_response(response).await
+            }));
+        send_and_decode(builder).await
     }
 
     async fn openai_responses(&self, request: &ProviderTranslationRequest<'_>) -> Result<Value> {
-        let response = self
+        let builder = self
             .client
             .post(self.endpoint("/responses")?)
             .bearer_auth(self.api_key()?)
@@ -80,14 +69,12 @@ impl LlmProvider {
                     "parameters": tool_parameters()
                 }],
                 "tool_choice": {"type":"function", "name":"submit_translations"}
-            }))
-            .send()
-            .await?;
-        parse_http_response(response).await
+            }));
+        send_and_decode(builder).await
     }
 
     async fn anthropic(&self, request: &ProviderTranslationRequest<'_>) -> Result<Value> {
-        let response = self
+        let builder = self
             .client
             .post(self.endpoint("/v1/messages")?)
             .header("x-api-key", self.api_key()?)
@@ -104,10 +91,8 @@ impl LlmProvider {
                 "tool_choice":{"type":"tool", "name":"submit_translations"},
                 "max_tokens": 8192,
                 "temperature": 0
-            }))
-            .send()
-            .await?;
-        parse_http_response(response).await
+            }));
+        send_and_decode(builder).await
     }
 }
 
@@ -117,11 +102,7 @@ impl TranslationProvider for LlmProvider {
         &self,
         request: &ProviderTranslationRequest<'_>,
     ) -> Result<ProviderTranslationResult> {
-        let api_kind = self
-            .config
-            .llm_api_kind
-            .as_deref()
-            .context("LLM api kind is not configured")?;
+        let api_kind = self.api_kind()?;
         let response = match api_kind {
             "openai_chat_completions" => self.openai_chat(request).await?,
             "openai_responses" => self.openai_responses(request).await?,
@@ -152,15 +133,6 @@ struct TranslationPayload {
 struct TranslatedSegment {
     id: String,
     text: String,
-}
-
-async fn parse_http_response(response: reqwest::Response) -> Result<Value> {
-    let status = response.status();
-    let text = response.text().await?;
-    if !status.is_success() {
-        return Err(anyhow!("LLM provider returned {status}: {text}"));
-    }
-    serde_json::from_str(&text).context("LLM response is not JSON")
 }
 
 fn messages(request: &ProviderTranslationRequest<'_>) -> Value {
@@ -215,31 +187,6 @@ fn tool_parameters() -> Value {
         "required":["segments"],
         "additionalProperties":false
     })
-}
-
-fn extract_tool_payload(api_kind: &str, value: &Value) -> Option<Value> {
-    match api_kind {
-        "openai_chat_completions" => value
-            .pointer("/choices/0/message/tool_calls/0/function/arguments")
-            .and_then(Value::as_str)
-            .and_then(|text| serde_json::from_str(text).ok()),
-        "openai_responses" => value
-            .get("output")?
-            .as_array()?
-            .iter()
-            .find(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))?
-            .get("arguments")
-            .and_then(Value::as_str)
-            .and_then(|text| serde_json::from_str(text).ok()),
-        "anthropic_messages" => value
-            .get("content")?
-            .as_array()?
-            .iter()
-            .find(|item| item.get("type").and_then(Value::as_str) == Some("tool_use"))?
-            .get("input")
-            .cloned(),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

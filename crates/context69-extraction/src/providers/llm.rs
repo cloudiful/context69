@@ -1,4 +1,8 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
+use context69_llm_support::{
+    LlmHttpError, LlmPayloadError, extract_tool_payload, normalize_endpoint, require_api_key,
+    require_api_kind, require_model, send_and_decode,
+};
 use serde_json::{Value, json};
 
 use super::{
@@ -19,39 +23,26 @@ impl LlmProvider {
     }
 
     fn endpoint(&self, suffix: &str) -> Result<String> {
-        let endpoint = self
-            .config
-            .endpoint
-            .as_deref()
-            .context("LLM endpoint is not configured")?;
-        if endpoint.ends_with(suffix) {
-            Ok(endpoint.to_string())
-        } else {
-            Ok(format!("{}{}", endpoint.trim_end_matches('/'), suffix))
-        }
+        normalize_endpoint(self.config.endpoint.as_deref(), suffix)
     }
 
     fn model(&self) -> Result<&str> {
-        self.config
-            .model
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .context("LLM model is not configured")
+        require_model(self.config.model.as_deref())
     }
 
     fn api_key(&self) -> Result<&str> {
-        self.config
-            .api_key
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .context("LLM api_key is not configured")
+        require_api_key(self.config.api_key.as_deref())
+    }
+
+    fn api_kind(&self) -> Result<&str> {
+        require_api_kind(self.config.llm_api_kind.as_deref())
     }
 
     pub(crate) async fn openai_chat(
         &self,
         request: &ProviderExtractionRequest<'_>,
     ) -> Result<Value> {
-        let response = self
+        let builder = self
             .client
             .post(self.endpoint("/chat/completions")?)
             .bearer_auth(self.api_key()?)
@@ -65,17 +56,15 @@ impl LlmProvider {
                 "tool_choice": {"type":"function", "function":{"name": TOOL_NAME}},
                 "temperature": 0,
                 "stream": false
-            }))
-            .send()
-            .await?;
-        parse_http_response(response).await
+            }));
+        execute(builder).await
     }
 
     pub(crate) async fn openai_responses(
         &self,
         request: &ProviderExtractionRequest<'_>,
     ) -> Result<Value> {
-        let response = self
+        let builder = self
             .client
             .post(self.endpoint("/responses")?)
             .bearer_auth(self.api_key()?)
@@ -89,14 +78,12 @@ impl LlmProvider {
                     "parameters": request.output_schema
                 }],
                 "tool_choice": {"type":"function", "name": TOOL_NAME}
-            }))
-            .send()
-            .await?;
-        parse_http_response(response).await
+            }));
+        execute(builder).await
     }
 
     pub(crate) async fn anthropic(&self, request: &ProviderExtractionRequest<'_>) -> Result<Value> {
-        let response = self
+        let builder = self
             .client
             .post(self.endpoint("/v1/messages")?)
             .header("x-api-key", self.api_key()?)
@@ -113,10 +100,8 @@ impl LlmProvider {
                 "tool_choice": {"type":"tool", "name": TOOL_NAME},
                 "max_tokens": request.max_output_tokens,
                 "temperature": 0
-            }))
-            .send()
-            .await?;
-        parse_http_response(response).await
+            }));
+        execute(builder).await
     }
 }
 
@@ -125,11 +110,7 @@ impl LlmProvider {
         &self,
         request: &ProviderExtractionRequest<'_>,
     ) -> Result<ProviderExtractionResult> {
-        let api_kind = self
-            .config
-            .llm_api_kind
-            .as_deref()
-            .context("LLM api kind is not configured")?;
+        let api_kind = self.api_kind()?;
         let response = match api_kind {
             "openai_chat_completions" => self.openai_chat(request).await?,
             "openai_responses" => self.openai_responses(request).await?,
@@ -157,45 +138,21 @@ fn tool_schema(request: &ProviderExtractionRequest<'_>) -> Value {
     })
 }
 
-async fn parse_http_response(response: reqwest::Response) -> Result<Value> {
-    let status = response.status();
-    let text = response.text().await?;
-    if !status.is_success() {
-        return Err(anyhow::Error::new(ProviderHttpError {
-            status: status.as_u16(),
-            body: text,
-        }));
-    }
-    serde_json::from_str(&text).map_err(|err| {
-        anyhow::Error::new(ProviderPayloadError(format!(
-            "LLM response is not JSON: {err}"
-        )))
-    })
+async fn execute(builder: reqwest::RequestBuilder) -> Result<Value> {
+    send_and_decode(builder).await.map_err(map_support_error)
 }
 
-fn extract_tool_payload(api_kind: &str, value: &Value) -> Option<Value> {
-    match api_kind {
-        "openai_chat_completions" => value
-            .pointer("/choices/0/message/tool_calls/0/function/arguments")
-            .and_then(Value::as_str)
-            .and_then(|text| serde_json::from_str(text).ok()),
-        "openai_responses" => value
-            .get("output")?
-            .as_array()?
-            .iter()
-            .find(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))?
-            .get("arguments")
-            .and_then(Value::as_str)
-            .and_then(|text| serde_json::from_str(text).ok()),
-        "anthropic_messages" => value
-            .get("content")?
-            .as_array()?
-            .iter()
-            .find(|item| item.get("type").and_then(Value::as_str) == Some("tool_use"))?
-            .get("input")
-            .cloned(),
-        _ => None,
+fn map_support_error(error: anyhow::Error) -> anyhow::Error {
+    if let Some(http) = error.downcast_ref::<LlmHttpError>() {
+        return anyhow::Error::new(ProviderHttpError {
+            status: http.status,
+            body: http.body.clone(),
+        });
     }
+    if let Some(payload) = error.downcast_ref::<LlmPayloadError>() {
+        return anyhow::Error::new(ProviderPayloadError(payload.0.clone()));
+    }
+    error
 }
 
 #[cfg(test)]
