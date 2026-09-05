@@ -18,6 +18,9 @@
 -- job was cancelled: the original `remote_status`/`error_message` are
 -- preserved (the reason is appended, never overwritten) and the quarantine
 -- actor/timestamp are recorded on the row plus one audit row per job.
+-- Issue #129 phase 1 also records the pre-transition `old_status`
+-- (`submitting` under the current eligibility guard) in each audit row and
+-- returns it to the caller. Binds are unchanged.
 --
 -- $1 reason, $2 quarantined_by (actor login), $3 grace cutoff (timestamptz),
 -- $4 placeholder remote-id pattern (LIKE), $5 row limit, $6 actor user id.
@@ -26,6 +29,7 @@ WITH candidates AS (
            job.item_id,
            job.remote_task_id,
            job.remote_status,
+           job.status AS old_status,
            job.error_message,
            item.task_id
     FROM context69.task_external_jobs job
@@ -69,6 +73,7 @@ WITH candidates AS (
         old_remote_task_id,
         old_remote_status,
         old_error_message,
+        old_status,
         actor_user_id,
         actor_login_name,
         reason
@@ -80,6 +85,7 @@ WITH candidates AS (
            candidates.remote_task_id,
            candidates.remote_status,
            candidates.error_message,
+           candidates.old_status,
            $6,
            $2,
            $1
@@ -91,6 +97,8 @@ SELECT quarantined.id AS external_job_id,
        quarantined.item_id,
        quarantined.task_id,
        quarantined.remote_task_id AS old_remote_task_id,
+       candidates.old_status AS old_status,
        quarantined.quarantined_at
 FROM quarantined
+JOIN candidates ON candidates.id = quarantined.id
 ORDER BY quarantined.quarantined_at;

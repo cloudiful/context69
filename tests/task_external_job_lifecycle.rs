@@ -678,6 +678,122 @@ async fn maintain_claim_state_reconciles_exhausted_item_without_extra_call() {
 }
 
 #[tokio::test]
+async fn supersede_never_invents_cancellation_and_reports_original_status() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping supersede boundary test");
+        return;
+    };
+    let _guard = LIFECYCLE_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+
+    // One item per external-job boundary. `pending`/`running` are the only
+    // states that move to `cancelled`; `submitting` (uncertain), `orphaned`,
+    // and every terminal state must be preserved verbatim while `old_status`
+    // pins the pre-transition value for the audit trail.
+    let task_id = Uuid::new_v4();
+    let (task_id, _reused, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id,
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[
+                json!({"external_id": "boundary-pending"}),
+                json!({"external_id": "boundary-running"}),
+                json!({"external_id": "boundary-submitting"}),
+                json!({"external_id": "boundary-orphaned"}),
+                json!({"external_id": "boundary-success"}),
+                json!({"external_id": "boundary-failure"}),
+                json!({"external_id": "boundary-timed-out"}),
+                json!({"external_id": "boundary-cancelled"}),
+            ],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-supersede-boundary-hash",
+        })
+        .await
+        .expect("create boundary task");
+    let cases: [(&str, &str, &str); 8] = [
+        ("pending", "remote-boundary-pending", "cancelled"),
+        ("running", "remote-boundary-running", "cancelled"),
+        ("submitting", "remote-boundary-submitting", "submitting"),
+        ("orphaned", "remote-boundary-orphaned", "orphaned"),
+        ("success", "remote-boundary-success", "success"),
+        ("failure", "remote-boundary-failure", "failure"),
+        ("timed_out", "remote-boundary-timed-out", "timed_out"),
+        ("cancelled", "remote-boundary-cancelled", "cancelled"),
+    ];
+    for (index, (status, remote, _)) in cases.iter().enumerate() {
+        // Dynamic SQL only for fixtures, per this file's convention; the
+        // supersede statement under test runs via its static SQL file.
+        sqlx::query(
+            "INSERT INTO context69.task_external_jobs \
+             (item_id, provider, remote_task_id, status, submitted_at, next_poll_at, deadline_at, submission_count) \
+             VALUES ($1, 'docling', $2, $3, now(), now(), now() + interval '1 hour', 1)",
+        )
+        .bind(item_ids[index])
+        .bind(*remote)
+        .bind(*status)
+        .execute(db.pool())
+        .await
+        .expect("insert boundary job");
+    }
+
+    for (index, (status, _, expected)) in cases.iter().enumerate() {
+        let row = sqlx::query_file!(
+            "src/sql/library_store/external_jobs/mark_external_job_superseded.sql",
+            item_ids[index],
+            "docling",
+            "lifecycle boundary canary",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("supersede boundary row");
+        assert_eq!(
+            row.old_status.as_deref(),
+            Some(*status),
+            "supersede must report the original {status} status"
+        );
+        let (after, _, _) = fetch_external_job_status(
+            &db,
+            row.old_external_job_id.expect("boundary job must exist"),
+        )
+        .await;
+        assert_eq!(
+            after, *expected,
+            "boundary {status} must transition to {expected}"
+        );
+    }
+
+    // Uncertain and already-isolated rows must never be claimed as remotely
+    // cancelled: their remote_status stays NULL and the reason is only used
+    // as a fallback error_message.
+    for index in [2usize, 3usize] {
+        let (_, remote_status, _) = fetch_external_job_status(
+            &db,
+            sqlx::query_scalar("SELECT id FROM context69.task_external_jobs WHERE item_id = $1")
+                .bind(item_ids[index])
+                .fetch_one(db.pool())
+                .await
+                .expect("boundary job id"),
+        )
+        .await;
+        assert_eq!(
+            remote_status,
+            Some(cases[index].0.to_string()),
+            "untouched boundary row must coalesce remote_status from its own status"
+        );
+    }
+
+    cleanup_task(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
 async fn maintain_claim_state_external_job_reconciliation_is_idempotent() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping idempotency test");

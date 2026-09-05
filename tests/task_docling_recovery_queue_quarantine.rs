@@ -23,6 +23,18 @@ use uuid::Uuid;
 
 static QUEUE_QUARANTINE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// One quarantined row decoded positionally in SELECT order:
+/// (external_job_id, item_id, task_id, old_remote_task_id, old_status,
+///  quarantined_at).
+type QuarantinedRow = (
+    Uuid,
+    Uuid,
+    Uuid,
+    Option<String>,
+    Option<String>,
+    Option<chrono::DateTime<Utc>>,
+);
+
 fn test_database_url() -> Option<String> {
     std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
 }
@@ -629,13 +641,7 @@ async fn quarantine_isolates_only_eligible_rows_and_preserves_history() {
     .await;
 
     let cutoff = Utc::now() - chrono::Duration::minutes(30);
-    let quarantined: Vec<(
-        Uuid,
-        Uuid,
-        Uuid,
-        Option<String>,
-        Option<chrono::DateTime<Utc>>,
-    )> = sqlx::query_as(include_str!(
+    let quarantined: Vec<QuarantinedRow> = sqlx::query_as(include_str!(
         "../src/sql/library_store/external_jobs/quarantine_stale_submitting.sql"
     ))
     .bind("phase 4 canary quarantine")
@@ -648,11 +654,18 @@ async fn quarantine_isolates_only_eligible_rows_and_preserves_history() {
     .await
     .expect("quarantine stale submitting");
     // include_str! cannot be checked by query_file!; columns are decoded
-    // positionally in SELECT order.
+    // positionally in SELECT order:
+    // (external_job_id, item_id, task_id, old_remote_task_id, old_status,
+    //  quarantined_at).
     assert_eq!(
         quarantined.len(),
         1,
         "only the eligible row must be quarantined"
+    );
+    assert_eq!(
+        quarantined[0].4.as_deref(),
+        Some("submitting"),
+        "quarantine must return the pre-transition submitting status"
     );
 
     let job: (
@@ -698,6 +711,20 @@ async fn quarantine_isolates_only_eligible_rows_and_preserves_history() {
     .await
     .expect("audit rows");
     assert_eq!(audit_count, 1, "one audit row per quarantined job");
+
+    let audit_status: Option<String> = sqlx::query_scalar(
+        "SELECT old_status FROM context69.task_external_job_quarantine_audit \
+         WHERE external_job_id IN (SELECT id FROM context69.task_external_jobs WHERE item_id = $1)",
+    )
+    .bind(item_a)
+    .fetch_one(db.pool())
+    .await
+    .expect("quarantine audit old_status");
+    assert_eq!(
+        audit_status.as_deref(),
+        Some("submitting"),
+        "quarantine audit must pin the original submitting status"
+    );
 
     // Every other row keeps its exact status.
     for (task, expected) in [
@@ -828,6 +855,143 @@ async fn quarantined_rows_no_longer_block_terminal_cleanup() {
     );
 
     cleanup_user_files_groups(&db, user_id, &[file_id], &[group_id]).await;
+}
+
+#[tokio::test]
+async fn quarantine_audit_preserves_original_status_with_and_without_remote_history() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping quarantine old_status test");
+        return;
+    };
+    let _guard = QUEUE_QUARANTINE_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+    let group_id = seed_group(&db).await;
+
+    // Two eligible rows: one with remote/error history, one without. Both
+    // must quarantine as `orphaned` while the audit pins `submitting`.
+    let file_a = insert_file(&db, group_id).await;
+    let (task_a, item_a) = seed_terminal_item_with_job(
+        &db,
+        user_id,
+        file_a,
+        &format!("submitting-{}", Uuid::new_v4()),
+        "submitting",
+        Utc::now() - chrono::Duration::hours(2),
+        true,
+    )
+    .await;
+    let file_b = insert_file(&db, group_id).await;
+    let (task_b, item_b) = seed_waiting_docling_item(&db, user_id, file_b).await;
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'failed', stage = 'docling_poll', \
+         failure_stage = 'docling_poll', error_message = 'Docling deadline exceeded', \
+         finished_at = now() WHERE id = $1",
+    )
+    .bind(item_b)
+    .execute(db.pool())
+    .await
+    .expect("fail item b");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'failed', stage = 'docling_poll', \
+         failure_stage = 'docling_poll', finished_at = now() WHERE id = $1",
+    )
+    .bind(task_b)
+    .execute(db.pool())
+    .await
+    .expect("fail task b");
+    let placeholder_b = format!("submitting-{}", Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO context69.task_external_jobs \
+         (item_id, provider, remote_task_id, status, submitted_at, next_poll_at, \
+          deadline_at, submission_count) \
+         VALUES ($1, 'docling', $2, 'submitting', now() - interval '2 hours', now(), \
+                 now() + interval '1 hour', 1)",
+    )
+    .bind(item_b)
+    .bind(&placeholder_b)
+    .execute(db.pool())
+    .await
+    .expect("insert history-free submitting job");
+
+    let cutoff = Utc::now() - chrono::Duration::minutes(30);
+    let quarantined: Vec<QuarantinedRow> = sqlx::query_as(include_str!(
+        "../src/sql/library_store/external_jobs/quarantine_stale_submitting.sql"
+    ))
+    .bind("old_status canary")
+    .bind("quarantine-test")
+    .bind(cutoff)
+    .bind("submitting-%")
+    .bind(100_i64)
+    .bind(user_id)
+    .fetch_all(db.pool())
+    .await
+    .expect("quarantine stale submitting");
+    assert_eq!(
+        quarantined.len(),
+        2,
+        "both eligible rows must quarantine regardless of remote history"
+    );
+    for row in &quarantined {
+        assert_eq!(
+            row.4.as_deref(),
+            Some("submitting"),
+            "every quarantined row must report the original submitting status"
+        );
+    }
+
+    for item_id in [item_a, item_b] {
+        let status: String = sqlx::query_scalar(
+            "SELECT status FROM context69.task_external_jobs WHERE item_id = $1",
+        )
+        .bind(item_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("quarantined status");
+        assert_eq!(status, "orphaned");
+        let audit: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT old_status, old_remote_status, old_remote_task_id \
+             FROM context69.task_external_job_quarantine_audit \
+             WHERE external_job_id IN \
+               (SELECT id FROM context69.task_external_jobs WHERE item_id = $1)",
+        )
+        .bind(item_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("quarantine audit row");
+        assert_eq!(
+            audit.0.as_deref(),
+            Some("submitting"),
+            "audit must pin the original submitting status for item {item_id}"
+        );
+    }
+    // The history-carrying row keeps its remote id/status; the history-free
+    // row records NULL remote status without inventing one.
+    let with_history: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT old_remote_task_id, old_remote_status \
+         FROM context69.task_external_job_quarantine_audit \
+         WHERE external_job_id IN \
+           (SELECT id FROM context69.task_external_jobs WHERE item_id = $1)",
+    )
+    .bind(item_a)
+    .fetch_one(db.pool())
+    .await
+    .expect("history audit");
+    assert!(
+        with_history
+            .0
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("submitting-")
+    );
+    assert_eq!(with_history.1.as_deref(), Some("started"));
+
+    for task in [task_a, task_b] {
+        cleanup_task(&db, task).await;
+    }
+    cleanup_user_files_groups(&db, user_id, &[file_a, file_b], &[group_id]).await;
 }
 
 #[tokio::test]

@@ -36,6 +36,10 @@ pub(crate) struct SupersededExternalJob {
     pub old_external_job_id: Option<Uuid>,
     pub old_remote_task_id: Option<String>,
     pub old_remote_status: Option<String>,
+    /// Pre-transition `task_external_jobs.status` (`pending`/`running` for
+    /// rows just cancelled, `submitting`/terminal for rows left untouched,
+    /// `None` when no prior job exists). Recorded in the recovery audit.
+    pub old_status: Option<String>,
     pub prior_submission_count: i32,
 }
 
@@ -54,6 +58,8 @@ pub(crate) struct RecoveryAudit<'a> {
     pub old_external_job_id: Option<Uuid>,
     pub old_remote_task_id: Option<&'a str>,
     pub old_remote_status: Option<&'a str>,
+    /// Original external-job status captured by `supersede_external_job`.
+    pub old_status: Option<&'a str>,
     pub old_submission_count: i32,
     pub new_external_job_id: Uuid,
     pub new_remote_task_id: &'a str,
@@ -86,6 +92,9 @@ pub(crate) struct StoredQuarantinedExternalJob {
     pub item_id: Uuid,
     pub task_id: Uuid,
     pub old_remote_task_id: Option<String>,
+    /// Pre-transition status (always `submitting` under the current
+    /// eligibility guard; stored explicitly in the quarantine audit).
+    pub old_status: Option<String>,
     pub quarantined_at: Option<DateTime<Utc>>,
 }
 
@@ -323,6 +332,7 @@ impl LibraryStore {
             old_external_job_id: row.old_external_job_id,
             old_remote_task_id: row.old_remote_task_id,
             old_remote_status: row.old_remote_status,
+            old_status: row.old_status,
             prior_submission_count: row.prior_submission_count.unwrap_or(0),
         })
     }
@@ -395,6 +405,7 @@ impl LibraryStore {
             audit.new_external_job_id,
             audit.new_remote_task_id,
             audit.new_submission_count,
+            audit.old_status,
         )
         .fetch_one(self.db.pool())
         .await?;

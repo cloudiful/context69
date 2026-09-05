@@ -625,6 +625,213 @@ async fn task_item_listing_uses_the_latest_external_submission() {
 }
 
 #[tokio::test]
+async fn supersede_reports_original_status_across_state_boundaries() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping supersede old_status test");
+        return;
+    };
+    let _guard = RECOVERY_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+    // One task with an item per boundary status plus one item with no job.
+    // `pending`/`running` must flip to `cancelled` while every other status
+    // is preserved; `old_status` must always pin the pre-transition value.
+    let task_id = Uuid::new_v4();
+    let (task_id, _, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id,
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/supersede-old-status"),
+            source_key: None,
+            payloads: &[
+                json!({"external_id": "supersede-pending"}),
+                json!({"external_id": "supersede-running"}),
+                json!({"external_id": "supersede-submitting"}),
+                json!({"external_id": "supersede-success"}),
+                json!({"external_id": "supersede-failure"}),
+                json!({"external_id": "supersede-cancelled"}),
+                json!({"external_id": "supersede-orphaned"}),
+                json!({"external_id": "supersede-missing"}),
+            ],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "supersede-old-status-hash",
+        })
+        .await
+        .expect("create supersede boundary task");
+    let cases: [(&str, &str); 7] = [
+        ("pending", "cancelled"),
+        ("running", "cancelled"),
+        ("submitting", "submitting"),
+        ("success", "success"),
+        ("failure", "failure"),
+        ("cancelled", "cancelled"),
+        ("orphaned", "orphaned"),
+    ];
+    for (index, (status, _)) in cases.iter().enumerate() {
+        let remote = if *status == "submitting" {
+            format!("submitting-{}", Uuid::new_v4())
+        } else {
+            format!("remote-{status}-{index}")
+        };
+        sqlx::query(
+            "INSERT INTO context69.task_external_jobs \
+             (item_id, provider, remote_task_id, status, submitted_at, next_poll_at, \
+              deadline_at, submission_count) \
+             VALUES ($1, 'docling', $2, $3, now() - interval '10 minutes', now(), \
+                     now() + interval '1 hour', 1)",
+        )
+        .bind(item_ids[index])
+        .bind(&remote)
+        .bind(*status)
+        .execute(db.pool())
+        .await
+        .expect("seed boundary job");
+    }
+
+    for (index, (status, expected)) in cases.iter().enumerate() {
+        let row = sqlx::query_file!(
+            "src/sql/library_store/external_jobs/mark_external_job_superseded.sql",
+            item_ids[index],
+            "docling",
+            "old_status boundary canary",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("supersede boundary row");
+        assert_eq!(
+            row.old_status.as_deref(),
+            Some(*status),
+            "supersede must report the original {status} status"
+        );
+        assert!(
+            row.old_external_job_id.is_some(),
+            "supersede must reference the existing job for {status}"
+        );
+        let after: String = sqlx::query_scalar(
+            "SELECT status FROM context69.task_external_jobs WHERE item_id = $1",
+        )
+        .bind(item_ids[index])
+        .fetch_one(db.pool())
+        .await
+        .expect("post-supersede status");
+        assert_eq!(
+            after, *expected,
+            "post-supersede status for {status} must be {expected}"
+        );
+    }
+
+    // No prior job: all NULL/0 with NULL original status.
+    let missing = sqlx::query_file!(
+        "src/sql/library_store/external_jobs/mark_external_job_superseded.sql",
+        item_ids[7],
+        "docling",
+        "old_status boundary canary",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("supersede missing row");
+    assert_eq!(missing.old_status, None);
+    assert_eq!(missing.old_external_job_id, None);
+    assert_eq!(missing.prior_submission_count.unwrap_or(-1), 0);
+
+    cleanup_task(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
+async fn recovery_audit_insert_persists_original_status() {
+    let Some(url) = test_database_url() else {
+        eprintln!(
+            "CONTEXT69_TEST_DATABASE_URL is not set; skipping recovery audit old_status test"
+        );
+        return;
+    };
+    let _guard = RECOVERY_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_id) = seed_docling_waiting_task(&db, user_id).await;
+    sqlx::query(
+        "INSERT INTO context69.task_external_jobs \
+         (item_id, provider, remote_task_id, status, remote_status, submitted_at, next_poll_at, \
+          deadline_at, submission_count) \
+         VALUES ($1, 'docling', 'remote-stuck-old-status', 'running', 'started', \
+                 now() - interval '10 minutes', now(), now() + interval '1 hour', 1)",
+    )
+    .bind(item_id)
+    .execute(db.pool())
+    .await
+    .expect("seed running job");
+
+    let superseded = sqlx::query_file!(
+        "src/sql/library_store/external_jobs/mark_external_job_superseded.sql",
+        item_id,
+        "docling",
+        "audit old_status canary",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("supersede running job");
+    assert_eq!(superseded.old_status.as_deref(), Some("running"));
+
+    let new_job_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO context69.task_external_jobs \
+         (id, item_id, provider, remote_task_id, status, submitted_at, next_poll_at, \
+          deadline_at, submission_count) \
+         VALUES ($1, $2, 'docling', 'remote-fresh-old-status', 'pending', now(), now(), \
+                 now() + interval '1 hour', 2)",
+    )
+    .bind(new_job_id)
+    .bind(item_id)
+    .execute(db.pool())
+    .await
+    .expect("insert fresh job");
+    sqlx::query_file!(
+        "src/sql/library_store/external_jobs/insert_recovery_audit.sql",
+        task_id,
+        item_id,
+        user_id,
+        "recovery-test",
+        "audit old_status canary",
+        superseded.old_external_job_id,
+        superseded.old_remote_task_id,
+        superseded.old_remote_status,
+        superseded.prior_submission_count.unwrap_or(0),
+        new_job_id,
+        "remote-fresh-old-status",
+        2,
+        superseded.old_status,
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("insert recovery audit with old_status");
+
+    let stored: (Option<String>, Option<String>, i32) = sqlx::query_as(
+        "SELECT old_status, old_remote_status, new_submission_count \
+         FROM context69.task_docling_recovery_audit WHERE task_id = $1",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("load recovery audit");
+    assert_eq!(
+        stored.0.as_deref(),
+        Some("running"),
+        "recovery audit must persist the original running status"
+    );
+    assert_eq!(stored.1.as_deref(), Some("started"));
+    assert_eq!(stored.2, 2);
+
+    cleanup_task(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
 async fn dependency_wait_does_not_reset_attempt_count() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping wait-item invariant test");

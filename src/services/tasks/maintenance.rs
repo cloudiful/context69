@@ -444,6 +444,7 @@ impl TaskService {
                 old_external_job_id: existing.old_external_job_id,
                 old_remote_task_id: existing.old_remote_task_id.as_deref(),
                 old_remote_status: existing.old_remote_status.as_deref(),
+                old_status: existing.old_status.as_deref(),
                 old_submission_count: existing.prior_submission_count,
                 new_external_job_id: submitted.external_job_id,
                 new_remote_task_id: &submitted.remote_task_id,
@@ -458,6 +459,7 @@ impl TaskService {
         tracing::info!(
             task_id = %task_id,
             item_id = %item_id,
+            old_status = existing.old_status.as_deref().unwrap_or("none"),
             old_submission_count = existing.prior_submission_count,
             new_submission_count = submitted.submission_count,
             "Docling recovery submitted a fresh external job"
@@ -625,6 +627,10 @@ impl TaskService {
             .await?;
         tracing::info!(
             quarantined = quarantined.len(),
+            old_status_sample = quarantined
+                .first()
+                .and_then(|row| row.old_status.as_deref())
+                .unwrap_or("none"),
             uncertain_total = stats.uncertain_submitting_count,
             quarantinable = stats.quarantinable_count,
             orphaned_total = stats.orphaned_count,

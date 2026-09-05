@@ -9,10 +9,16 @@
 -- record without inventing a cancellation. Already-terminal rows
 -- (`success`/`failure`/`timed_out`/`cancelled`/`orphaned`) keep their status.
 --
--- Returns the existing job's id, remote task id, remote status, and the
--- submission count so the caller can:
---   * insert a recovery audit row referencing the old job,
+-- Returns the existing job's id, remote task id, remote status, original
+-- status, and the submission count so the caller can:
+--   * insert a recovery audit row referencing the old job (including the
+--     pre-transition `old_status` for issue #129 phase 1),
 --   * insert the new `task_external_jobs` row with submission_count + 1.
+--
+-- `old_status` is the pre-update `locked.status`: `pending`/`running` for
+-- rows just cancelled, `submitting` for uncertain rows left untouched, or
+-- the terminal status for already-terminal rows. Binds are unchanged
+-- ($1 item_id, $2 provider, $3 reason).
 --
 -- If no row exists for (item_id, provider), the SQL still returns one row
 -- with all NULL/0 columns so the caller can detect the missing-row case
@@ -49,8 +55,10 @@ SELECT
     superseded.id AS old_external_job_id,
     superseded.remote_task_id AS old_remote_task_id,
     superseded.remote_status AS old_remote_status,
+    locked.status AS old_status,
     superseded.submission_count AS prior_submission_count
 FROM superseded
+JOIN locked ON locked.id = superseded.id
 UNION ALL
-SELECT NULL::uuid, NULL::text, NULL::text, 0
+SELECT NULL::uuid, NULL::text, NULL::text, NULL::text, 0
 WHERE NOT EXISTS (SELECT 1 FROM superseded)
