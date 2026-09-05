@@ -16,7 +16,7 @@
 //! Dynamic SQL (`sqlx::query`) is used for all ad-hoc fixtures, matching
 //! the existing project's test style.
 
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
@@ -133,21 +133,22 @@ async fn maintain_claim_state_cancels_pending_and_running_jobs_for_terminal_item
     // external job to each. Maintenance must locally cancel them.
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lifecycle"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "terminal-pending"}),
                 json!({"external_id": "terminal-running"}),
                 json!({"external_id": "terminal-succeeded"}),
             ],
-            None,
-            "lifecycle-terminal-pending-running-hash",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-terminal-pending-running-hash",
+        })
         .await
         .expect("create terminal task");
     assert_eq!(item_ids.len(), 3);
@@ -253,17 +254,18 @@ async fn maintain_claim_state_leaves_submitting_jobs_untouched() {
 
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lifecycle"),
-            None,
-            &[json!({"external_id": "submitting-terminal"})],
-            None,
-            "lifecycle-submitting-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[json!({"external_id": "submitting-terminal"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-submitting-hash",
+        })
         .await
         .expect("create task for submitting test");
     let item_id = item_ids[0];
@@ -287,17 +289,18 @@ async fn maintain_claim_state_leaves_submitting_jobs_untouched() {
     // active submitting is also left alone (the rule is submitting is never touched).
     let active_task_id = Uuid::new_v4();
     let (active_task_id, _reused, active_item_ids) = db
-        .create_task_submission(
-            active_task_id,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: active_task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lifecycle"),
-            None,
-            &[json!({"external_id": "submitting-active"})],
-            None,
-            "lifecycle-submitting-active-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[json!({"external_id": "submitting-active"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-submitting-active-hash",
+        })
         .await
         .expect("create active task");
     let active_item = active_item_ids[0];
@@ -396,21 +399,22 @@ async fn maintain_claim_state_leaves_active_item_jobs_untouched() {
     // Three active items: queued, waiting, running.
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lifecycle"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "active-queued"}),
                 json!({"external_id": "active-waiting"}),
                 json!({"external_id": "active-running"}),
             ],
-            None,
-            "lifecycle-active-hash",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-active-hash",
+        })
         .await
         .expect("create active task");
     assert_eq!(item_ids.len(), 3);
@@ -506,17 +510,18 @@ async fn maintain_claim_state_reconciles_exhausted_item_without_extra_call() {
 
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lifecycle"),
-            None,
-            &[json!({"external_id": "exhausted-with-job"})],
-            None,
-            "lifecycle-exhausted-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[json!({"external_id": "exhausted-with-job"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-exhausted-hash",
+        })
         .await
         .expect("create exhausted task");
     let item_id = item_ids[0];
@@ -551,17 +556,18 @@ async fn maintain_claim_state_reconciles_exhausted_item_without_extra_call() {
         // Second item to also cover running status for exhausted.
         let task2 = Uuid::new_v4();
         let (task2, _reused, ids) = db
-            .create_task_submission(
-                task2,
+            .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+                task_id: task2,
                 user_id,
-                None,
-                "text_batch",
-                Some("test/lifecycle"),
-                None,
-                &[json!({"external_id": "exhausted-running"})],
-                None,
-                "lifecycle-exhausted-running-hash",
-            )
+                group_id: None,
+                kind: "text_batch",
+                group_path: Some("test/lifecycle"),
+                source_key: None,
+                payloads: &[json!({"external_id": "exhausted-running"})],
+                input_storage_object_ids: None,
+                idempotency_key: None,
+                request_hash: "lifecycle-exhausted-running-hash",
+            })
             .await
             .expect("create second exhausted task");
         let iid = ids[0];
@@ -622,17 +628,18 @@ async fn maintain_claim_state_reconciles_exhausted_item_without_extra_call() {
     // Create a third exhausted item with a submitting job; it must stay submitting.
     let task3 = Uuid::new_v4();
     let (task3, _reused, ids3) = db
-        .create_task_submission(
-            task3,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: task3,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lifecycle"),
-            None,
-            &[json!({"external_id": "exhausted-submitting"})],
-            None,
-            "lifecycle-exhausted-submitting-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[json!({"external_id": "exhausted-submitting"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-exhausted-submitting-hash",
+        })
         .await
         .expect("create third exhausted task");
     let iid3 = ids3[0];
@@ -684,17 +691,18 @@ async fn maintain_claim_state_external_job_reconciliation_is_idempotent() {
 
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lifecycle"),
-            None,
-            &[json!({"external_id": "idempotent"})],
-            None,
-            "lifecycle-idempotent-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lifecycle"),
+            source_key: None,
+            payloads: &[json!({"external_id": "idempotent"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "lifecycle-idempotent-hash",
+        })
         .await
         .expect("create idempotent task");
     let item_id = item_ids[0];

@@ -16,7 +16,7 @@
 //! CONTEXT69_TEST_DATABASE_URL is set; they are skipped otherwise.
 
 use chrono::Utc;
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
@@ -140,17 +140,18 @@ async fn cleanup_user_files_groups(
 async fn seed_waiting_docling_item(db: &Database, user_id: i64, file_id: Uuid) -> (Uuid, Uuid) {
     let task_id = Uuid::new_v4();
     let (task_id, _, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "file_batch",
-            Some("test/queue-recovery"),
-            None,
-            &[json!({"file_id": file_id})],
-            None,
-            &format!("queue-recovery-hash-{task_id}"),
-        )
+            group_id: None,
+            kind: "file_batch",
+            group_path: Some("test/queue-recovery"),
+            source_key: None,
+            payloads: &[json!({"file_id": file_id})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("queue-recovery-hash-{task_id}"),
+        })
         .await
         .expect("create docling task");
     let item_id = item_ids[0];
@@ -342,17 +343,18 @@ async fn queue_recovery_reports_no_docling_item_for_other_stages() {
         .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, _, _) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "text_batch",
-            Some("test/queue-stage"),
-            None,
-            &[json!({"external_id": "queue-stage"})],
-            None,
-            &format!("queue-stage-hash-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/queue-stage"),
+            source_key: None,
+            payloads: &[json!({"external_id": "queue-stage"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("queue-stage-hash-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create non-docling task");
     sqlx::query(

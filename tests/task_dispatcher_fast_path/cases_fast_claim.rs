@@ -1,4 +1,4 @@
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -47,36 +47,38 @@ async fn claim_items_fast_does_not_starve_ordinary_tasks_when_polls_are_due() {
     // the old poll-first ordering a limit-2 claim would return only polls.
     let ordinary_task = Uuid::new_v4();
     let (ordinary_task, _reused, ordinary_items) = db
-        .create_task_submission(
-            ordinary_task,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: ordinary_task,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "fair-ordinary"})],
-            None,
-            &format!("fast-path-fair-ordinary-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "fair-ordinary"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-fair-ordinary-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create ordinary task");
 
     let poll_task = Uuid::new_v4();
     let (poll_task, _reused, poll_items) = db
-        .create_task_submission(
-            poll_task,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: poll_task,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "fair-poll-a"}),
                 json!({"external_id": "fair-poll-b"}),
             ],
-            None,
-            &format!("fast-path-fair-poll-{}", Uuid::new_v4()),
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-fair-poll-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create poll task");
     for item_id in &poll_items {
@@ -155,17 +157,18 @@ async fn claim_items_fast_claims_and_activates_a_fresh_task() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "a"})],
-            None,
-            "fast-path-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "fast-path-hash",
+        })
         .await
         .expect("create task");
     assert_eq!(item_ids.len(), 1);
@@ -212,17 +215,18 @@ async fn claim_items_fast_docling_poll_waiting_remains_claimable_at_and_above_ca
     for attempt in [5, 10] {
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
+            .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
                 task_id,
                 user_id,
-                None,
-                "text_batch",
-                Some("test/fast-path"),
-                None,
-                &[json!({"external_id": format!("docling-claim-{attempt}")})],
-                None,
-                &format!("fast-path-docling-claim-{attempt}-{}", Uuid::new_v4()),
-            )
+                group_id: None,
+                kind: "text_batch",
+                group_path: Some("test/fast-path"),
+                source_key: None,
+                payloads: &[json!({"external_id": format!("docling-claim-{attempt}")})],
+                input_storage_object_ids: None,
+                idempotency_key: None,
+                request_hash: &format!("fast-path-docling-claim-{attempt}-{}", Uuid::new_v4()),
+            })
             .await
             .expect("create docling poll task");
         let item_id = item_ids[0];
@@ -312,17 +316,18 @@ async fn claim_items_fast_docling_poll_respects_due_and_terminal_paths() {
     // though the generic cap is bypassed; the next_attempt_at gate still applies.
     let not_due_task = Uuid::new_v4();
     let (not_due_task, _reused, not_due_items) = db
-        .create_task_submission(
-            not_due_task,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: not_due_task,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "not-due"})],
-            None,
-            &format!("fast-path-not-due-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "not-due"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-not-due-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create not-due task");
     let not_due_item = not_due_items[0];
@@ -369,17 +374,18 @@ async fn claim_items_fast_docling_poll_respects_due_and_terminal_paths() {
     // resubmit through the existing path rather than being exhausted.
     let terminal_task = Uuid::new_v4();
     let (terminal_task, _reused, terminal_items) = db
-        .create_task_submission(
-            terminal_task,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: terminal_task,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "terminal"})],
-            None,
-            &format!("fast-path-terminal-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "terminal"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-terminal-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create terminal task");
     let terminal_item = terminal_items[0];
@@ -437,17 +443,18 @@ async fn claim_items_fast_docling_poll_respects_due_and_terminal_paths() {
     // can detect the missing job and resubmit.
     let missing_task = Uuid::new_v4();
     let (missing_task, _reused, missing_items) = db
-        .create_task_submission(
-            missing_task,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: missing_task,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "missing"})],
-            None,
-            &format!("fast-path-missing-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "missing"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-missing-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create missing task");
     let missing_item = missing_items[0];
@@ -503,17 +510,18 @@ async fn admission_deferral_releases_claim_without_consuming_attempt_budget() {
 
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "admission-deferral"})],
-            None,
-            &format!("fast-path-admission-deferral-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "admission-deferral"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-admission-deferral-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create admission task");
     let item_id = item_ids[0];

@@ -29,7 +29,7 @@ pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
 pub use tasks::{
-    ClaimMaintenanceOutcome, ClaimedItem, StoredTask, StoredTaskItem,
+    ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, StoredTask, StoredTaskItem,
     StoredTaskItemWithExternalJob, StoredTaskMaintenanceSettings, StoredTaskMaintenanceStats,
 };
 pub use vector_index_state::VectorIndexState;

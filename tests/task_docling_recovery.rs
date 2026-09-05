@@ -13,7 +13,7 @@
 //! CONTEXT69_TEST_DATABASE_URL is set; they are skipped otherwise.
 
 use chrono::Utc;
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -80,17 +80,18 @@ async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
 async fn seed_docling_waiting_task(db: &Database, user_id: i64) -> (Uuid, Uuid) {
     let task_id = Uuid::new_v4();
     let (task_id, _, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/recovery"),
-            None,
-            &[json!({"external_id": "docling-recovery"})],
-            None,
-            "recovery-test-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/recovery"),
+            source_key: None,
+            payloads: &[json!({"external_id": "docling-recovery"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "recovery-test-hash",
+        })
         .await
         .expect("create docling task");
     let item_id = item_ids[0];
@@ -419,17 +420,18 @@ async fn recover_docling_item_rejects_when_stage_is_not_docling() {
         .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, _reused, _item_ids) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "text_batch",
-            Some("test/recovery-stage"),
-            None,
-            &[json!({"external_id": "stage-test"})],
-            None,
-            "recovery-stage-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/recovery-stage"),
+            source_key: None,
+            payloads: &[json!({"external_id": "stage-test"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "recovery-stage-hash",
+        })
         .await
         .expect("create non-docling task");
     sqlx::query(
@@ -634,17 +636,18 @@ async fn dependency_wait_does_not_reset_attempt_count() {
         .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, _, item_ids) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "text_batch",
-            Some("test/wait-no-reset"),
-            None,
-            &[json!({"external_id": "wait-no-reset"})],
-            None,
-            "wait-no-reset-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/wait-no-reset"),
+            source_key: None,
+            payloads: &[json!({"external_id": "wait-no-reset"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "wait-no-reset-hash",
+        })
         .await
         .expect("create task");
     let item_id = item_ids[0];

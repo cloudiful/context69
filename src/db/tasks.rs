@@ -202,6 +202,28 @@ pub struct StoredQueuedDoclingRecovery {
     pub requeued_item_id: Option<Uuid>,
 }
 
+/// Grouped arguments for task submission.
+///
+/// Bundles the shared task metadata and submission payload references used by
+/// [`Database::create_task_submission`] and
+/// [`Database::create_task_submission_with_input_objects`] so the DB layer
+/// takes a single request value instead of nine or more positional arguments.
+/// `input_storage_object_ids` is `None` when the caller has no staged input
+/// objects; the submission then behaves as if every item had `None`.
+#[derive(Debug, Clone, Copy)]
+pub struct CreateTaskSubmissionRequest<'a> {
+    pub task_id: Uuid,
+    pub user_id: i64,
+    pub group_id: Option<i64>,
+    pub kind: &'a str,
+    pub group_path: Option<&'a str>,
+    pub source_key: Option<&'a str>,
+    pub payloads: &'a [Value],
+    pub input_storage_object_ids: Option<&'a [Option<Uuid>]>,
+    pub idempotency_key: Option<&'a str>,
+    pub request_hash: &'a str,
+}
+
 impl Database {
     pub async fn create_task_submission(
         &self,
@@ -215,7 +237,7 @@ impl Database {
         idempotency_key: Option<&str>,
         request_hash: &str,
     ) -> Result<(Uuid, bool, Vec<Uuid>)> {
-        self.create_task_submission_with_input_objects(
+        self.create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
             group_id,
@@ -223,29 +245,37 @@ impl Database {
             group_path,
             source_key,
             payloads,
-            &vec![None; payloads.len()],
+            input_storage_object_ids: None,
             idempotency_key,
             request_hash,
-        )
+        })
         .await
     }
 
     pub async fn create_task_submission_with_input_objects(
         &self,
-        task_id: Uuid,
-        user_id: i64,
-        group_id: Option<i64>,
-        kind: &str,
-        group_path: Option<&str>,
-        source_key: Option<&str>,
-        payloads: &[Value],
-        input_storage_object_ids: &[Option<Uuid>],
-        idempotency_key: Option<&str>,
-        request_hash: &str,
+        request: CreateTaskSubmissionRequest<'_>,
     ) -> Result<(Uuid, bool, Vec<Uuid>)> {
-        if payloads.len() != input_storage_object_ids.len() {
+        let default_input_ids;
+        let input_storage_object_ids: &[Option<Uuid>] = match request.input_storage_object_ids {
+            Some(ids) => ids,
+            None => {
+                default_input_ids = vec![None; request.payloads.len()];
+                &default_input_ids
+            }
+        };
+        if request.payloads.len() != input_storage_object_ids.len() {
             anyhow::bail!("task payload and input object counts do not match");
         }
+        let task_id = request.task_id;
+        let user_id = request.user_id;
+        let group_id = request.group_id;
+        let kind = request.kind;
+        let group_path = request.group_path;
+        let source_key = request.source_key;
+        let payloads = request.payloads;
+        let idempotency_key = request.idempotency_key;
+        let request_hash = request.request_hash;
         let mut tx = self.pool().begin().await?;
         if let Some(key) = idempotency_key {
             if let Some(existing) = sqlx::query_file_as!(
@@ -368,32 +398,6 @@ impl Database {
         }
         tx.commit().await?;
         Ok((task_id, false, item_ids))
-    }
-
-    pub async fn create_task(
-        &self,
-        task_id: Uuid,
-        user_id: i64,
-        group_id: Option<i64>,
-        kind: &str,
-        group_path: Option<&str>,
-        source_key: Option<&str>,
-        item_count: i64,
-    ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/tasks/create.sql",
-            task_id,
-            user_id,
-            group_id,
-            kind,
-            group_path,
-            source_key,
-            "manual",
-            item_count
-        )
-        .fetch_one(self.pool())
-        .await?;
-        Ok(())
     }
 
     pub async fn insert_task_item(

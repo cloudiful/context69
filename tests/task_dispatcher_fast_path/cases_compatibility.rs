@@ -1,4 +1,4 @@
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
@@ -20,17 +20,18 @@ async fn claim_items_compatibility_path_still_converges_exhausted_state() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "compat"})],
-            None,
-            "fast-path-compat-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "compat"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "fast-path-compat-hash",
+        })
         .await
         .expect("create task");
     sqlx::query("UPDATE context69.task_items SET attempt_count = 5 WHERE id = $1")
@@ -184,20 +185,21 @@ async fn claim_items_compatibility_path_keeps_partial_task_counters_consistent()
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "compat-partial-a"}),
                 json!({"external_id": "compat-partial-b"}),
             ],
-            None,
-            "fast-path-compat-partial-hash",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "fast-path-compat-partial-hash",
+        })
         .await
         .expect("create partial task");
     assert_eq!(item_ids.len(), 2);
@@ -326,17 +328,18 @@ async fn claim_items_compatibility_path_recycles_an_expired_attempt() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "compat-expired"})],
-            None,
-            "fast-path-compat-expired-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "compat-expired"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "fast-path-compat-expired-hash",
+        })
         .await
         .expect("create task");
     let item_id = item_ids[0];

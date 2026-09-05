@@ -26,7 +26,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::{Database, StoredTask, StoredTaskItemWithExternalJob},
+    db::{CreateTaskSubmissionRequest, Database, StoredTask, StoredTaskItemWithExternalJob},
     domain::GroupRecord,
     pagination::PageBounds,
     services::{
@@ -181,18 +181,18 @@ impl TaskService {
         let task_id = Uuid::new_v4();
         let submission = self
             .db
-            .create_task_submission_with_input_objects(
+            .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
                 task_id,
-                request.user_id,
-                request.group_id,
-                request.kind.as_str(),
-                request.group_path.as_deref(),
-                request.source_key.as_deref(),
-                &payloads,
-                &input_storage_object_ids,
-                key,
-                &request_hash,
-            )
+                user_id: request.user_id,
+                group_id: request.group_id,
+                kind: request.kind.as_str(),
+                group_path: request.group_path.as_deref(),
+                source_key: request.source_key.as_deref(),
+                payloads: &payloads,
+                input_storage_object_ids: Some(&input_storage_object_ids),
+                idempotency_key: key,
+                request_hash: &request_hash,
+            })
             .await;
         let (task_id, reused, item_ids) = match submission {
             Ok(value) => value,

@@ -16,7 +16,7 @@
 //! `include_str!` and executed with `sqlx::raw_sql`, so the test exercises the
 //! exact statements that will run in the maintenance window.
 
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
@@ -135,20 +135,21 @@ async fn state_reconciliation_repairs_terminal_external_jobs_and_task_aggregates
     // ---- Task A: terminal failed task with stale parent aggregates (to be repaired) ----
     let task_a = Uuid::new_v4();
     let (task_a, _reused, item_ids_a) = db
-        .create_task_submission(
-            task_a,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: task_a,
             user_id,
-            None,
-            "text_batch",
-            Some("test/reconcile-a"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/reconcile-a"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "reconcile-a-0"}),
                 json!({"external_id": "reconcile-a-1"}),
             ],
-            None,
-            "reconcile-hash-a",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "reconcile-hash-a",
+        })
         .await
         .expect("create task A");
     assert_eq!(item_ids_a.len(), 2);
@@ -245,20 +246,21 @@ async fn state_reconciliation_repairs_terminal_external_jobs_and_task_aggregates
     // ---- Task B: incomplete task (1 queued + 1 failed) with stale parent but must NOT be repaired ----
     let task_b = Uuid::new_v4();
     let (task_b, _reused, item_ids_b) = db
-        .create_task_submission(
-            task_b,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: task_b,
             user_id,
-            None,
-            "text_batch",
-            Some("test/reconcile-b"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/reconcile-b"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "reconcile-b-0"}),
                 json!({"external_id": "reconcile-b-1"}),
             ],
-            None,
-            "reconcile-hash-b",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "reconcile-hash-b",
+        })
         .await
         .expect("create task B");
     let item_b0 = item_ids_b[0];
@@ -312,17 +314,18 @@ async fn state_reconciliation_repairs_terminal_external_jobs_and_task_aggregates
     // ---- Task C: active waiting task (single waiting item) with pending job must remain ----
     let task_c = Uuid::new_v4();
     let (task_c, _reused, item_ids_c) = db
-        .create_task_submission(
-            task_c,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: task_c,
             user_id,
-            None,
-            "text_batch",
-            Some("test/reconcile-c"),
-            None,
-            &[json!({"external_id": "reconcile-c-0"})],
-            None,
-            "reconcile-hash-c",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/reconcile-c"),
+            source_key: None,
+            payloads: &[json!({"external_id": "reconcile-c-0"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "reconcile-hash-c",
+        })
         .await
         .expect("create task C");
     let item_c0 = item_ids_c[0];

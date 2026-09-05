@@ -11,7 +11,7 @@
 //! database (migrations are applied automatically). They are skipped otherwise.
 
 use context69::contracts::LibraryIngestStatus;
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use context69::library_store::LibraryStore;
 use serde_json::json;
 use sqlx::Row;
@@ -68,17 +68,18 @@ async fn insert_file(db: &Database, status: &str) -> (Uuid, i64) {
 
 async fn create_file_task(db: &Database, user_id: i64, file_id: Uuid, ordinal: i32) -> Uuid {
     let (task_id, _, item_ids) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "file_batch",
-            Some("test/file-status"),
-            None,
-            &[json!({ "file_id": file_id })],
-            None,
-            "file-status-test-hash",
-        )
+            group_id: None,
+            kind: "file_batch",
+            group_path: Some("test/file-status"),
+            source_key: None,
+            payloads: &[json!({ "file_id": file_id })],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "file-status-test-hash",
+        })
         .await
         .expect("create file task");
     sqlx::query("UPDATE context69.task_items SET file_id = $1 WHERE id = $2")
@@ -280,20 +281,21 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
     let (pending_file, _group_id) = insert_file(&db, "pending").await;
 
     let (task_id, _, item_ids) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "file_batch",
-            Some("test/file-status"),
-            None,
-            &[
+            group_id: None,
+            kind: "file_batch",
+            group_path: Some("test/file-status"),
+            source_key: None,
+            payloads: &[
                 json!({ "file_id": succeeded_file }),
                 json!({ "file_id": pending_file }),
             ],
-            None,
-            "file-status-rerun-hash",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "file-status-rerun-hash",
+        })
         .await
         .expect("create file task");
     sqlx::query("UPDATE context69.task_items SET file_id = $1 WHERE id = $2")

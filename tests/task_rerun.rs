@@ -8,7 +8,7 @@
 //! This test runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch
 //! database (migrations are applied automatically). It is skipped otherwise.
 
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::{Value, json};
 use sqlx::Row;
 use uuid::Uuid;
@@ -44,17 +44,18 @@ async fn rerun_creates_a_fresh_task_with_only_unfinished_items() {
     let user_id = seed_test_user(&db).await;
 
     let (task_id, _, item_ids) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "text_batch",
-            Some("test/rerun"),
-            None,
-            &[json!({"external_id": "a"}), json!({"external_id": "b"})],
-            None,
-            "rerun-test-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/rerun"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"}), json!({"external_id": "b"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "rerun-test-hash",
+        })
         .await
         .expect("create task");
 
@@ -158,21 +159,22 @@ async fn rerun_of_translation_task_drops_stale_job_ids() {
     let user_id = seed_test_user(&db).await;
 
     let (task_id, _, item_ids) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "translation",
-            Some("test/rerun-translation"),
-            None,
-            &[json!({
+            group_id: None,
+            kind: "translation",
+            group_path: Some("test/rerun-translation"),
+            source_key: None,
+            payloads: &[json!({
                 "document_id": "doc-1",
                 "target_locales": ["zh-CN"],
                 "job_ids": ["11111111-1111-1111-1111-111111111111"],
             })],
-            None,
-            "rerun-translation-hash",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "rerun-translation-hash",
+        })
         .await
         .expect("create translation task");
 

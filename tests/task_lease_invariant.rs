@@ -8,7 +8,7 @@
 //! These tests run only when CONTEXT69_TEST_DATABASE_URL points to a scratch
 //! database (migrations are applied automatically). They are skipped otherwise.
 
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
@@ -73,17 +73,18 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[json!({"external_id": "a"})],
-            None,
-            "test-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "test-hash",
+        })
         .await
         .expect("create task");
     assert!(!reused, "fresh idempotency key must create a new task");
@@ -190,17 +191,18 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[json!({"external_id": "a"})],
-            None,
-            "test-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "test-hash",
+        })
         .await
         .expect("create task");
     assert_eq!(item_ids.len(), 1);
@@ -383,17 +385,18 @@ async fn stage_progress_resets_the_attempt_count() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[json!({"external_id": "a"})],
-            None,
-            "test-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "test-hash",
+        })
         .await
         .expect("create task");
     assert_eq!(item_ids.len(), 1);
@@ -444,21 +447,22 @@ async fn multiple_items_are_claimed_independently() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "a"}),
                 json!({"external_id": "b"}),
                 json!({"external_id": "c"}),
             ],
-            None,
-            "test-hash",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "test-hash",
+        })
         .await
         .expect("create task");
     assert_eq!(item_ids.len(), 3);
@@ -499,31 +503,33 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
 
     let user_id = seed_test_user(&db).await;
     let (task_a, _, _) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[json!({"external_id": "a"})],
-            None,
-            "hash-a",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "hash-a",
+        })
         .await
         .expect("create task a");
     let (task_b, _, _) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[json!({"external_id": "b"})],
-            None,
-            "hash-b",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[json!({"external_id": "b"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "hash-b",
+        })
         .await
         .expect("create task b");
 
@@ -595,17 +601,18 @@ async fn claiming_a_due_waiting_item_activates_its_parent_task() {
 
     let user_id = seed_test_user(&db).await;
     let (task_id, _, item_ids) = db
-        .create_task_submission(
-            Uuid::new_v4(),
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
             user_id,
-            None,
-            "text_batch",
-            Some("test/lease"),
-            None,
-            &[json!({"external_id": "a"})],
-            None,
-            "waiting-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "waiting-hash",
+        })
         .await
         .expect("create task");
     assert_eq!(item_ids.len(), 1);

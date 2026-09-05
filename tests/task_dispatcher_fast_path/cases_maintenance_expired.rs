@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
@@ -21,17 +21,18 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "expired"})],
-            None,
-            "fast-path-expired-hash",
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "expired"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "fast-path-expired-hash",
+        })
         .await
         .expect("create task");
     let item_id = item_ids[0];

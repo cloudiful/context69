@@ -1,4 +1,4 @@
-use context69::db::Database;
+use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -21,17 +21,18 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
     let (file_id, group_id) = insert_file(&db, "running").await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "file_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({ "file_id": file_id })],
-            None,
-            "fast-path-exhausted-hash",
-        )
+            group_id: None,
+            kind: "file_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({ "file_id": file_id })],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "fast-path-exhausted-hash",
+        })
         .await
         .expect("create file task");
     sqlx::query("UPDATE context69.task_items SET file_id = $1 WHERE id = $2")
@@ -292,20 +293,21 @@ async fn maintain_claim_state_keeps_partial_task_counters_consistent() {
     // Two-item task: one will be exhausted, the other remains queued.
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[
                 json!({"external_id": "partial-a"}),
                 json!({"external_id": "partial-b"}),
             ],
-            None,
-            "fast-path-partial-hash",
-        )
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "fast-path-partial-hash",
+        })
         .await
         .expect("create partial task");
     assert_eq!(item_ids.len(), 2);
@@ -407,17 +409,18 @@ async fn maintain_claim_state_does_not_exhaust_waiting_docling_poll_at_or_above_
     for attempt in [5, 8, 10] {
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
+            .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
                 task_id,
                 user_id,
-                None,
-                "text_batch",
-                Some("test/fast-path"),
-                None,
-                &[json!({"external_id": format!("docling-maintain-{attempt}")})],
-                None,
-                &format!("fast-path-docling-maintain-{attempt}-{}", Uuid::new_v4()),
-            )
+                group_id: None,
+                kind: "text_batch",
+                group_path: Some("test/fast-path"),
+                source_key: None,
+                payloads: &[json!({"external_id": format!("docling-maintain-{attempt}")})],
+                input_storage_object_ids: None,
+                idempotency_key: None,
+                request_hash: &format!("fast-path-docling-maintain-{attempt}-{}", Uuid::new_v4()),
+            })
             .await
             .expect("create docling poll task");
         let item_id = item_ids[0];
@@ -572,17 +575,18 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
     // exhausted at attempt_count >= 5; the docling_poll exemption is narrow.
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
-        .create_task_submission(
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "ordinary-waiting"})],
-            None,
-            &format!("fast-path-ordinary-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "ordinary-waiting"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-ordinary-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create ordinary task");
     let item_id = item_ids[0];
@@ -655,17 +659,18 @@ async fn maintain_claim_state_exhausts_ordinary_backoff_but_not_admission_deferr
     // Ordinary waiting/backoff at the cap must still exhaust.
     let ordinary_task = Uuid::new_v4();
     let (ordinary_task, _reused, ordinary_items) = db
-        .create_task_submission(
-            ordinary_task,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: ordinary_task,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "ordinary-backoff-cap"})],
-            None,
-            &format!("fast-path-ordinary-cap-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "ordinary-backoff-cap"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-ordinary-cap-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create ordinary task");
     let ordinary_item = ordinary_items[0];
@@ -692,17 +697,18 @@ async fn maintain_claim_state_exhausts_ordinary_backoff_but_not_admission_deferr
     // decremented back to 0 by release_attempt_wait) and must not exhaust.
     let deferred_task = Uuid::new_v4();
     let (deferred_task, _reused, deferred_items) = db
-        .create_task_submission(
-            deferred_task,
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: deferred_task,
             user_id,
-            None,
-            "text_batch",
-            Some("test/fast-path"),
-            None,
-            &[json!({"external_id": "admission-deferred"})],
-            None,
-            &format!("fast-path-deferred-cap-{}", Uuid::new_v4()),
-        )
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "admission-deferred"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-deferred-cap-{}", Uuid::new_v4()),
+        })
         .await
         .expect("create deferred task");
     let deferred_item = deferred_items[0];
