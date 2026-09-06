@@ -249,9 +249,9 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-x-hidden overflow-y-auto">
+  <section class="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
     <AppServerList
-      class="min-w-0"
+      class="min-h-0 min-w-0 flex-1"
       :loading="queue.loading && !queue.items.length"
       :error="queue.items.length ? null : queue.error"
       :pagination="queue.pagination"
@@ -284,8 +284,12 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
         <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />
       </template>
 
-      <UTable
+      <div
         v-if="queue.items.length"
+        data-testid="processing-queue-table-scroll"
+        class="h-full min-h-[220px] min-w-0 overflow-y-auto overscroll-contain"
+      >
+      <UTable
         v-model:sorting="sorting"
         class="min-w-0"
         :ui="{ base: 'min-w-[88rem]' }"
@@ -338,12 +342,13 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
           />
         </template>
       </UTable>
+      </div>
       <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">
         {{ t("processingQueue.noTasks") }}
       </div>
     </AppServerList>
 
-    <section v-if="maintenance.isAdmin" data-testid="task-maintenance-toolbar" class="flex flex-col gap-2 border-t border-default/70 pt-3">
+    <section v-if="maintenance.isAdmin" data-testid="task-maintenance-toolbar" class="flex shrink-0 flex-col gap-2 border-t border-default/70 pt-3">
       <UAlert v-if="maintenance.error" color="error" variant="subtle" :title="t('common.error')" :description="maintenance.error" />
       <div class="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">

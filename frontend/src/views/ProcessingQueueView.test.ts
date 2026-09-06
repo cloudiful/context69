@@ -212,13 +212,59 @@ describe("ProcessingQueueView", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    expect(wrapper.find('[data-testid="processing-queue-table-scroll"]').exists()).toBe(false);
+    const scroll = wrapper.find('[data-testid="processing-queue-table-scroll"]');
+    expect(scroll.exists()).toBe(true);
+    expect(scroll.classes()).toContain("overflow-y-auto");
+    expect(scroll.classes()).toContain("overscroll-contain");
     const table = wrapper.find('[data-testid="processing-queue-table"] table');
     expect(table.exists()).toBe(true);
     expect(table.classes()).toContain("min-w-[88rem]");
     const root = wrapper.find("section");
-    expect(root.classes()).toContain("overflow-x-hidden");
+    expect(root.classes()).toContain("overflow-hidden");
+    expect(root.classes()).not.toContain("overflow-y-auto");
     expect(root.classes()).not.toContain("overflow-x-auto");
+    wrapper.unmount();
+  });
+
+  it("bounds the table in a fill-height scroll region with pagination outside", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const root = wrapper.find("section");
+    expect(root.classes()).toContain("h-full");
+    expect(root.classes()).toContain("min-h-0");
+    expect(root.classes()).toContain("flex-col");
+    expect(root.classes()).toContain("overflow-hidden");
+
+    const list = wrapper.find("section > div");
+    expect(list.classes()).toContain("flex-1");
+    expect(list.classes()).toContain("min-h-0");
+
+    const scroll = wrapper.find('[data-testid="processing-queue-table-scroll"]');
+    expect(scroll.exists()).toBe(true);
+    expect(scroll.classes()).toContain("h-full");
+    expect(scroll.classes()).toContain("overflow-y-auto");
+    expect(scroll.classes()).toContain("overscroll-contain");
+    expect(scroll.attributes("class") ?? "").toContain("min-h-[220px]");
+    expect(scroll.find('[data-testid="processing-queue-table"]').exists()).toBe(true);
+
+    // Pagination stays outside the vertical scroll region so it remains reachable.
+    expect(wrapper.find('[aria-label="Items per page"]').exists()).toBe(true);
+    expect(scroll.find('[aria-label="Items per page"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the admin maintenance toolbar outside the table scroll region", async () => {
+    setAuthenticatedUser({ is_admin: true });
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const scroll = wrapper.find('[data-testid="processing-queue-table-scroll"]');
+    expect(scroll.exists()).toBe(true);
+    const toolbar = wrapper.find('[data-testid="task-maintenance-toolbar"]');
+    expect(toolbar.exists()).toBe(true);
+    expect(toolbar.classes()).toContain("shrink-0");
+    expect(scroll.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
