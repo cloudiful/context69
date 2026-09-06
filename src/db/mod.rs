@@ -8,6 +8,7 @@ use crate::domain::SyncCheckpoint;
 
 mod auth;
 mod docling_settings;
+mod document_versions;
 mod documents;
 mod internal_secrets;
 mod metadata_indexes;

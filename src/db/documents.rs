@@ -363,6 +363,12 @@ impl Database {
             .collect::<Result<Vec<_>>>()?;
 
         let mut tx = self.pool.begin().await?;
+        super::document_versions::ensure_library_version_in_transaction(
+            &mut tx,
+            document_id,
+            payload,
+        )
+        .await?;
         sqlx::query_file!(
             "src/sql/db/documents/update_library_business_fields.sql",
             document_id,
