@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- list_missing_document_versions.sql (issue 139, phase 3)\n--\n-- Bounded read-only audit page for documents whose current\n-- `documents.record_hash` has no matching `document_versions` row.\n-- Pages deterministically by document id (`$1` is the last id from the\n-- previous page, NULL for the first page) with a caller-supplied `LIMIT`\n-- (`$2`). SELECT-only; never mutates.\nSELECT d.id,\n       d.record_hash,\n       d.title,\n       d.summary,\n       d.source_uri,\n       d.metadata_json\nFROM context69.documents d\nWHERE ($1::BIGINT IS NULL OR d.id > $1)\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.document_versions v\n      WHERE v.document_id = d.id\n        AND v.record_hash = d.record_hash\n  )\nORDER BY d.id ASC\nLIMIT $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "summary"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "metadata_json"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "130a2badfc72554e9c5195798d36a923c92330b102dcabedeaa42c4482faa087"
+}

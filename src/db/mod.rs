@@ -25,6 +25,10 @@ mod translations;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
+pub use document_versions::{
+    AuditChunk, AuditSamples, AuditSummary, AuditVerdict, MissingVersionDocument,
+    audit_missing_versions, classify_audit_document, list_missing_version_page,
+};
 pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
@@ -191,6 +195,16 @@ impl Database {
         run_migrations(&pool, &MIGRATOR)
             .await
             .context("failed to run app_db migrations")?;
+        Ok(Self { pool })
+    }
+
+    /// Read-only connection for operator audits. Opens a pool and performs
+    /// no migrations and no writes; callers must only run SELECT queries.
+    /// Normal application startup must keep using [`Database::connect`].
+    pub async fn connect_read_only(url: &str) -> Result<Self> {
+        let pool = connect_pool(url, DbInitOptions { max_connections: 5 })
+            .await
+            .context("failed to connect read-only audit pool")?;
         Ok(Self { pool })
     }
 
