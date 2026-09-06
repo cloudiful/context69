@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- get_document_version_basis_for_update.sql (issue 139, phase 1)\n--\n-- Lock the parent document row for a library business-fields update so the\n-- caller can compare the stored record_hash with the incoming payload hash\n-- inside the same transaction. Title/summary are returned as the current\n-- document fields for the version snapshot; source_uri/published_at/\n-- metadata_json/record_hash for the snapshot come from the incoming payload\n-- because those are the values being written by the business-fields update.\nSELECT record_hash, title, summary\nFROM context69.documents\nWHERE id = $1\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "summary"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "5814be168db338f93696197f9ec7b00db113d85ab7a8d7a3115c87d171465d11"
+}
