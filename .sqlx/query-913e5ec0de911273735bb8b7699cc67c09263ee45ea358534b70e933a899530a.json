@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- verify_document_version.sql (issue 139, phase 4)\n--\n-- Read-only existence check that the matching `document_versions` row is\n-- present for (`document_id`, `record_hash`). Used to detect already-fixed\n-- documents and to verify the INSERT before committing each per-document\n-- backfill transaction. SELECT-only; never mutates.\nSELECT EXISTS(\n    SELECT 1\n    FROM context69.document_versions\n    WHERE document_id = $1\n      AND record_hash = $2\n)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "913e5ec0de911273735bb8b7699cc67c09263ee45ea358534b70e933a899530a"
+}
