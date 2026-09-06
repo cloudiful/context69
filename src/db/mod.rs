@@ -8,7 +8,6 @@ use crate::domain::SyncCheckpoint;
 
 mod auth;
 mod docling_settings;
-mod document_version_backfill;
 mod document_versions;
 mod documents;
 mod internal_secrets;
@@ -26,12 +25,6 @@ mod translations;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
-pub use document_version_backfill::{
-    BackfillApplySummary, BackfillErrorDoc, BackfillPreflight, BackfillSkippedDoc,
-    FILE_LIBRARY_BACKFILL_SOURCE_KEY, FileLibraryMissingVersion, apply_file_library_backfill,
-    check_backfill_preflight, list_missing_file_library_page, preflight_file_library_backfill,
-    resolve_apply_database_url,
-};
 pub use document_versions::{
     AuditChunk, AuditSamples, AuditSummary, AuditVerdict, MissingVersionDocument,
     audit_missing_versions, classify_audit_document, list_missing_version_page,
@@ -212,22 +205,6 @@ impl Database {
         let pool = connect_pool(url, DbInitOptions { max_connections: 5 })
             .await
             .context("failed to connect read-only audit pool")?;
-        Ok(Self { pool })
-    }
-
-    /// Write-capable connection without running migrations, for controlled
-    /// operator backfills where schema changes are forbidden. Normal
-    /// application startup must keep using [`Database::connect`] (which
-    /// migrates); read-only audits must keep using [`Database::connect_read_only`].
-    pub async fn connect_without_migrations(url: &str) -> Result<Self> {
-        let pool = connect_pool(
-            url,
-            DbInitOptions {
-                max_connections: 10,
-            },
-        )
-        .await
-        .context("failed to connect backfill pool without migrations")?;
         Ok(Self { pool })
     }
 
