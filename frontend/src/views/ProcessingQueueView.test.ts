@@ -214,8 +214,11 @@ describe("ProcessingQueueView", () => {
 
     const scroll = wrapper.find('[data-testid="processing-queue-table-scroll"]');
     expect(scroll.exists()).toBe(true);
-    expect(scroll.classes()).toContain("overflow-y-auto");
+    expect(scroll.classes()).toContain("overflow-auto");
     expect(scroll.classes()).toContain("overscroll-contain");
+    const tableRoot = wrapper.find('[data-testid="processing-queue-table"]');
+    expect(tableRoot.exists()).toBe(true);
+    expect(tableRoot.classes()).toContain("overflow-visible");
     const table = wrapper.find('[data-testid="processing-queue-table"] table');
     expect(table.exists()).toBe(true);
     expect(table.classes()).toContain("min-w-[88rem]");
@@ -243,10 +246,11 @@ describe("ProcessingQueueView", () => {
     const scroll = wrapper.find('[data-testid="processing-queue-table-scroll"]');
     expect(scroll.exists()).toBe(true);
     expect(scroll.classes()).toContain("h-full");
-    expect(scroll.classes()).toContain("overflow-y-auto");
+    expect(scroll.classes()).toContain("overflow-auto");
     expect(scroll.classes()).toContain("overscroll-contain");
     expect(scroll.attributes("class") ?? "").toContain("min-h-[220px]");
     expect(scroll.find('[data-testid="processing-queue-table"]').exists()).toBe(true);
+    expect(scroll.find('[data-testid="processing-queue-table"]').classes()).toContain("overflow-visible");
 
     // Pagination stays outside the vertical scroll region so it remains reachable.
     expect(wrapper.find('[aria-label="Items per page"]').exists()).toBe(true);

@@ -287,12 +287,12 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
       <div
         v-if="queue.items.length"
         data-testid="processing-queue-table-scroll"
-        class="h-full min-h-[220px] min-w-0 overflow-y-auto overscroll-contain"
+        class="h-full min-h-[220px] min-w-0 overflow-auto overscroll-contain"
       >
       <UTable
         v-model:sorting="sorting"
         class="min-w-0"
-        :ui="{ base: 'min-w-[88rem]' }"
+        :ui="{ root: 'overflow-visible', base: 'min-w-[88rem]' }"
         data-testid="processing-queue-table"
         v-model:expanded="expandedRows"
         :data="queue.items"
