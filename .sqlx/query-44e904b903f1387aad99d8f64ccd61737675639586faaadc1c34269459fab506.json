@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH candidate AS (\n    SELECT\n        dependency_key,\n        (state <> 'open') AS transitioned\n    FROM context69.library_dependency_gates\n    WHERE dependency_key = $1\n      AND (\n          state = 'closed'\n          OR probe_lease_token = $2\n          -- Issue #176: transient `open` gates refresh backoff on new\n          -- failures (DNS/connect with exponential backoff). True\n          -- `configuration:` stays pinned; dirty misclassified rows heal by\n          -- overwriting the stale prefix with the fresh transient error.\n          OR (\n              state = 'open'\n              AND (\n                  COALESCE(last_error, '') NOT LIKE 'configuration:%'\n                  OR (\n                      COALESCE(last_error, '') LIKE 'configuration:%'\n                      AND (\n                          last_error ILIKE '%dns%'\n                          OR last_error ILIKE '%resolve%'\n                          OR last_error ILIKE '%getaddrinfo%'\n                          OR last_error ILIKE '%connect%'\n                          OR last_error ILIKE '%timeout%'\n                          OR last_error ILIKE '%timed out%'\n                          OR last_error ILIKE '%transport%'\n                          OR last_error ILIKE '%network%'\n                          OR last_error ILIKE '%unreachable%'\n                          OR last_error ILIKE '%temporar%'\n                      )\n                      AND last_error NOT ILIKE '%unauthorized%'\n                      AND last_error NOT ILIKE '%forbidden%'\n                      AND last_error NOT ILIKE '%authentication%'\n                      AND last_error NOT ILIKE '%permission denied%'\n                      AND last_error NOT ILIKE '%access denied%'\n                      AND last_error !~* '(^|[^A-Za-z0-9])(401|403)([^A-Za-z0-9]|$)'\n                  )\n              )\n          )\n      )\n    FOR UPDATE\n), updated AS (\n    UPDATE context69.library_dependency_gates gate\n    SET state = 'open',\n        failure_count = LEAST(gate.failure_count + 1, 31),\n        next_probe_at = now() + LEAST(\n            INTERVAL '10 minutes',\n            (INTERVAL '30 seconds' * power(2::DOUBLE PRECISION, LEAST(gate.failure_count, 10)))\n        ),\n        last_error = $3,\n        probe_lease_token = NULL,\n        probe_lease_expires_at = NULL,\n        last_transition_at = CASE\n            WHEN gate.state <> 'open' THEN now()\n            ELSE gate.last_transition_at\n        END,\n        updated_at = now()\n    FROM candidate\n    WHERE gate.dependency_key = candidate.dependency_key\n    RETURNING gate.dependency_key, gate.state\n)\nSELECT updated.dependency_key AS \"dependency_key!\",\n       updated.state AS \"state!\",\n       candidate.transitioned AS \"transitioned!\"\nFROM updated\nJOIN candidate USING (dependency_key)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependency_key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "state!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_dependency_gates",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "transitioned!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "44e904b903f1387aad99d8f64ccd61737675639586faaadc1c34269459fab506"
+}
