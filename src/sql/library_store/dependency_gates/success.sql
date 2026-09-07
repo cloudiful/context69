@@ -6,6 +6,12 @@ WITH candidate AS (
     WHERE dependency_key = $1
       AND (
           state = 'closed'
+          -- Issue #176: any success heals an `open` gate (transient or dirty
+          -- `configuration:`) without requiring a prior probe lease. Lease
+          -- matching is still required for `half_open` so concurrent probes
+          -- do not steal each other. True auth never succeeds so it stays
+          -- pinned until the fingerprint changes via `configure.sql`.
+          OR state = 'open'
           OR (state = 'half_open' AND probe_lease_token = $2)
       )
     FOR UPDATE

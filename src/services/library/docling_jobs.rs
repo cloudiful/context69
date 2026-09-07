@@ -697,6 +697,23 @@ async fn classify_docling_poll_error(
         {
             tracing::warn!(%error, "failed to persist permanent Docling poll error");
         }
+        // True 401/403 belongs on the configuration latch (issue #176), not
+        // on the transient gate: it needs an operator config fix, carries no
+        // backoff, and must stay blocked from probes until the fingerprint
+        // changes. Route through the shared classifier so the stored
+        // `last_error` keeps the `configuration:` prefix.
+        let reason = if status == 401 {
+            "unauthorized"
+        } else {
+            "forbidden"
+        };
+        service
+            .note_dependency_failure_with_lease(
+                LibraryDependency::Docling,
+                lease_token,
+                &anyhow!("{message} (HTTP {status} {reason})"),
+            )
+            .await;
         return DoclingPollOutcome::Failed {
             message,
             retryable: false,
@@ -817,6 +834,68 @@ mod tests {
             assert!(
                 is_docling_transient_error_for_test(None, &error),
                 "expected transient classification for {message}"
+            );
+        }
+    }
+
+    /// Issue #176: structured status wins over string matching. The enum
+    /// `status_code` is preferred; `Display` `HTTP XXX` is only a fallback
+    /// for older producers. UUID fragments and `:5001` ports must not count.
+    #[test]
+    fn status_code_prefers_enum_over_display_fallback() {
+        // Enum path: api_error carries the code even though the test message
+        // itself contains no useful status text.
+        for status in [401u16, 403, 404, 429, 500, 503] {
+            let error = api_error(status, "upstream");
+            assert_eq!(
+                docling_error_status_code(&error),
+                Some(status),
+                "enum status must win for {status}"
+            );
+        }
+        // Display fallback: operation errors without a structured code still
+        // parse `HTTP XXX` when present.
+        let fallback = PdfConvertError::operation_error("poll", "failed: HTTP 503 boom");
+        assert_eq!(docling_error_status_code(&fallback), Some(503));
+        // UUID / port noise without a structured code yields no status.
+        let uuid_noise =
+            PdfConvertError::operation_error("poll 401de82e task", "dns error for task");
+        assert_eq!(docling_error_status_code(&uuid_noise), None);
+        let port_noise = PdfConvertError::operation_error(
+            "poll",
+            "http://192.168.67.31:5001/v1/status/poll unreachable",
+        );
+        assert_eq!(docling_error_status_code(&port_noise), None);
+    }
+
+    /// Issue #176: UUID `401de82e` plus DNS must stay transient; a bare
+    /// `:5001` URL without DNS/connect signals must not be transient via a
+    /// fake 5xx; true 401/403 via the enum stays terminal.
+    #[test]
+    fn uuid_dns_and_port_5001_classify_correctly() {
+        // UUID + DNS -> transient (would previously latch as configuration).
+        for message in [
+            "failed to poll docling task 401de82e-e717-4f6a-9c2a-9b1a2c3d4e5f: dns error",
+            "failed to poll docling task 401de82e: temporary failure in name resolution",
+            "failed to resolve docling host: no such host",
+        ] {
+            assert!(
+                is_docling_transient_error_for_test(None, &anyhow!("{message}")),
+                "UUID/DNS must be transient: {message}"
+            );
+        }
+        // Bare port URL without transient signals -> not transient.
+        assert!(!is_docling_transient_error_for_test(
+            None,
+            &anyhow!("poll http://192.168.67.31:5001/v1/status/poll responded oddly")
+        ));
+        // Structured true auth stays terminal even with a UUID in context.
+        for status in [401u16, 403] {
+            let structured = api_error(status, "denied");
+            let context = anyhow!("failed to poll docling task 401de82e: poll");
+            assert!(
+                !is_docling_transient_error_for_test(Some(&structured), &context),
+                "structured {status} must never be transient"
             );
         }
     }

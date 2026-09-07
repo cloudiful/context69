@@ -28,6 +28,17 @@ pub(super) fn dependency_is_transient(
                 || status_is_too_many_requests(&message)
                 || status_is_server_error(&message)
                 || message.contains("temporar")
+                // DNS / name-resolution failures must stay transient with
+                // backoff (issue #176). They carry no HTTP status and must
+                // never be mistaken for `configuration:` auth errors.
+                || message.contains("dns")
+                || message.contains("resolve")
+                || message.contains("getaddrinfo")
+                || message.contains("name or service")
+                || message.contains("no such host")
+                || message.contains("network")
+                || message.contains("unreachable")
+                || message.contains("eai_")
         }
         LibraryDependency::Embedding => is_embedding_transient(&message),
         LibraryDependency::Qdrant => is_qdrant_transient(&message),
@@ -203,29 +214,37 @@ fn contains_transport_signal(message: &str) -> bool {
         || message.contains("network")
 }
 
+/// Split on non-alphanumeric boundaries so hex UUID fragments such as
+/// `401de82e` stay a single token and never match a standalone `401`/`403`.
+/// The previous `!is_ascii_digit` split treated the `d` in `401de82e` as a
+/// delimiter and misclassified DNS errors carrying a UUID as auth failures
+/// (issue #176). Ports such as `:5001` stay a single 4-digit token and are
+/// excluded by the length checks below.
+fn split_status_tokens(message: &str) -> impl Iterator<Item = &str> {
+    message.split(|character: char| !character.is_ascii_alphanumeric())
+}
+
+fn is_three_digit_code(part: &str) -> bool {
+    part.len() == 3 && part.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 fn status_is_too_many_requests(message: &str) -> bool {
-    message
-        .split(|character: char| !character.is_ascii_digit())
-        .any(|part| part == "429")
+    split_status_tokens(message).any(|part| part == "429")
 }
 
 fn status_is_authentication_error(message: &str) -> bool {
-    message
-        .split(|character: char| !character.is_ascii_digit())
-        .any(|part| part == "401" || part == "403")
+    split_status_tokens(message).any(|part| part == "401" || part == "403")
 }
 
 fn status_is_client_error(message: &str) -> bool {
-    message
-        .split(|character: char| !character.is_ascii_digit())
-        .filter(|part| part.len() == 3 && *part != "429")
+    split_status_tokens(message)
+        .filter(|part| is_three_digit_code(part) && *part != "429")
         .any(|part| part.starts_with('4'))
 }
 
 fn status_is_server_error(message: &str) -> bool {
-    message
-        .split(|character: char| !character.is_ascii_digit())
-        .filter(|part| part.len() == 3)
+    split_status_tokens(message)
+        .filter(|part| is_three_digit_code(part))
         .any(|part| part.starts_with('5'))
 }
 
@@ -566,5 +585,94 @@ mod tests {
             &error
         ));
         assert!(!dependency_is_transient(LibraryDependency::Qdrant, &error));
+    }
+
+    /// Issue #176: UUID hex fragments such as `401de82e` must not match a
+    /// standalone HTTP 401/403. The failing production message carried both
+    /// a UUID and a trailing `dns` signal and was misrouted to
+    /// `configuration:` instead of transient.
+    #[test]
+    fn uuid_containing_401_is_not_an_authentication_error() {
+        for message in [
+            "failed to poll docling task 401de82e-e717-4f6a-9c2a-9b1a2c3d4e5f: dns error",
+            "docling task 401de82e failed: temporary failure in name resolution",
+            "request 0193f6c5-1234-7890-abcd-1234567890ab failed: dns",
+        ] {
+            let error = anyhow!(message);
+            assert!(
+                !is_configuration_error(&error),
+                "UUID message must not be configuration: {message}"
+            );
+        }
+        // Docling DNS errors with a UUID must stay transient with backoff.
+        for message in [
+            "failed to poll docling task 401de82e-e717-4f6a-9c2a-9b1a2c3d4e5f: dns error",
+            "failed to poll docling task 0193f6c5: temporary failure in name resolution",
+            "failed to resolve host for docling base url: no such host",
+            "dns error while polling docling task abc123",
+            "getaddrinfo failed for docling host: name or service not known",
+        ] {
+            assert!(
+                dependency_is_transient(LibraryDependency::Docling, &anyhow!(message)),
+                "DNS message must be transient: {message}"
+            );
+        }
+    }
+
+    /// Issue #176: a Docling base URL carrying port `:5001` must not match a
+    /// standalone 5xx. The port token is 4 digits and is excluded by the
+    /// length check; only standalone 3-digit 5xx counts.
+    #[test]
+    fn url_with_port_5001_is_not_a_server_error() {
+        for message in [
+            "failed to poll docling task abc: http://192.168.67.31:5001/v1/status/poll",
+            "docling base url http://192.168.67.31:5001 is unreachable via dns",
+        ] {
+            // Port alone must not flip the server-error classifier; the
+            // second message is transient only because of the dns/unreachable
+            // signals, not because of the port number.
+            let error = anyhow!(message);
+            if message.contains("dns") || message.contains("unreachable") {
+                assert!(dependency_is_transient(LibraryDependency::Docling, &error));
+            }
+            assert!(
+                !is_configuration_error(&error),
+                "port 5001 must not be configuration: {message}"
+            );
+        }
+        // Standalone 5xx/429 still count as transient.
+        for message in [
+            "docling poll failed: status 503 service unavailable",
+            "docling poll failed: HTTP 500 internal error",
+            "docling poll failed: status 429 too many requests",
+        ] {
+            assert!(
+                dependency_is_transient(LibraryDependency::Docling, &anyhow!(message)),
+                "expected transient for {message}"
+            );
+        }
+    }
+
+    /// Issue #176: true HTTP 401/403 must stay on the configuration latch and
+    /// never be treated as transient, even for Docling.
+    #[test]
+    fn true_401_and_403_stay_on_configuration_latch() {
+        for message in [
+            "docling poll failed: HTTP 401 unauthorized",
+            "docling poll failed: status 401 unauthorized",
+            "docling poll failed: status=403 forbidden",
+            "docling poll failed: HTTP 403: forbidden",
+            "embedding request failed: status=401",
+        ] {
+            let error = anyhow!(message);
+            assert!(
+                is_configuration_error(&error),
+                "expected configuration for {message}"
+            );
+            assert!(
+                !dependency_is_transient(LibraryDependency::Docling, &error),
+                "auth must never be transient: {message}"
+            );
+        }
     }
 }

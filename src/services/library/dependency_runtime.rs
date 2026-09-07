@@ -612,11 +612,26 @@ pub(super) fn is_docling_transient(
     dependency_is_transient(LibraryDependency::Docling, context_error)
 }
 
-/// The released Docling client exposes the HTTP status in its error display,
-/// but older releases do not expose a status accessor. Keep the compatibility
-/// parsing in one place so status handling does not spread through the task
-/// state machine.
+/// Prefer the structured `ApiError::status_code` (including the `From<reqwest>`
+/// path whose `Display` hides the status behind the reqwest message), then
+/// the wrapped `reqwest::Error::status()`, and only then fall back to parsing
+/// the `Display` `HTTP XXX` form for older producers (issue #176).
 pub(super) fn docling_error_status_code(error: &docling_convert::PdfConvertError) -> Option<u16> {
+    match error {
+        docling_convert::PdfConvertError::ApiError {
+            status_code: Some(code),
+            ..
+        } => return Some(*code),
+        docling_convert::PdfConvertError::ApiError {
+            source: Some(source),
+            ..
+        } => {
+            if let Some(status) = source.status() {
+                return Some(status.as_u16());
+            }
+        }
+        _ => {}
+    }
     let display = error.to_string();
     let (_, value) = display.split_once("HTTP ")?;
     let digits: String = value
