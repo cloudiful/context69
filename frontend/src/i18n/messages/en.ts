@@ -770,6 +770,8 @@ export const en = {
       timeout: "Timeout (seconds)",
       pollInterval: "Poll Interval (seconds)",
       taskTimeout: "Task Timeout (seconds)",
+      maxInflight: "Max In-Flight Submissions",
+      maxInflightHelper: "Single RQ queue on Mac mini defaults to 2, max 32.",
       openAiBaseUrl: "OpenAI Base URL",
       apiKey: "API Key",
       vlmPipelineModel: "VLM Pipeline Model",

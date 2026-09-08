@@ -70,6 +70,15 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
             :min="1"
             :step="1"
           />
+          <AppNumberField
+            input-id="docling-max-inflight"
+            v-model="doclingDraft.connection.max_inflight"
+            :label="t('settings.docling.maxInflight')"
+            :helper="t('settings.docling.maxInflightHelper')"
+            :min="1"
+            :max="32"
+            :step="1"
+          />
         </div>
       </AppSettingsBlock>
 
