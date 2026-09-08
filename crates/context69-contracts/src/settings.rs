@@ -211,13 +211,15 @@ pub struct UpdateDoclingConnectionSettings {
     pub max_inflight: usize,
 }
 
-/// Persistent Docling remote admission ceiling (issue #118).
+/// Persistent Docling remote admission ceiling (issue #118, default raised
+/// to 2 by issue #209).
 ///
-/// The Mac mini runs Docling Serve with a single RQ worker, so the safe
-/// initial value is 1. The bound is intentionally small (1..=32) to keep
-/// remote backpressure effective while still allowing larger hosts to raise
-/// it via settings.
-pub const DOCLING_MAX_INFLIGHT_DEFAULT: usize = 1;
+/// The default of 2 matches `runtime.scheduler.max_concurrency = 2` so two
+/// local workers no longer contend for a single remote slot and idle while
+/// the admission gate churns. The bound stays intentionally small (1..=32)
+/// to keep remote backpressure effective while still allowing larger hosts
+/// to raise it via settings.
+pub const DOCLING_MAX_INFLIGHT_DEFAULT: usize = 2;
 pub const DOCLING_MAX_INFLIGHT_MIN: usize = 1;
 pub const DOCLING_MAX_INFLIGHT_MAX: usize = 32;
 

@@ -23,7 +23,7 @@ function makeDoclingResponse(
       timeout_secs: 120,
       poll_interval_secs: 2,
       task_timeout_secs: 600,
-      max_inflight: 1,
+      max_inflight: 2,
     },
     vlm: {
       openai_base_url: null,
@@ -107,13 +107,13 @@ describe("inferDoclingVlmMode", () => {
 describe("doclingConnectionMaxInflight", () => {
   it("round-trips the persistent remote admission ceiling", () => {
     const draft = doclingResponseToDraft(makeDoclingResponse());
-    expect(draft.connection.max_inflight).toBe(1);
+    expect(draft.connection.max_inflight).toBe(2);
     draft.connection.max_inflight = 3;
     expect(buildDoclingPayload(draft).connection.max_inflight).toBe(3);
   });
 
-  it("defaults a fresh draft to the single-worker safe ceiling", () => {
-    expect(createDoclingDraft().connection.max_inflight).toBe(1);
+  it("defaults a fresh draft to the two-worker ceiling", () => {
+    expect(createDoclingDraft().connection.max_inflight).toBe(2);
   });
 });
 

@@ -18,10 +18,12 @@ pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
 pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 3600;
-/// Persistent remote admission ceiling for Docling (issue #118).
+/// Persistent remote admission ceiling for Docling (issue #118, default
+/// raised to 2 by issue #209).
 ///
-/// Mirrors `context69_contracts::settings::DOCLING_MAX_INFLIGHT_*`: the Mac
-/// mini single-RQ-worker default is 1, adjustable within 1..=32.
+/// Mirrors `context69_contracts::settings::DOCLING_MAX_INFLIGHT_*`: the
+/// default of 2 matches the two local scheduler workers, adjustable within
+/// 1..=32.
 pub const DEFAULT_DOCLING_MAX_INFLIGHT: usize =
     context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT;
 pub const MIN_DOCLING_MAX_INFLIGHT: usize = context69_contracts::settings::DOCLING_MAX_INFLIGHT_MIN;
@@ -299,7 +301,7 @@ mod tests {
         assert_eq!(
             config.connection.max_inflight,
             super::DEFAULT_DOCLING_MAX_INFLIGHT,
-            "legacy files without max_inflight must default to the single-worker ceiling"
+            "legacy files without max_inflight must default to the persistent ceiling"
         );
     }
 
