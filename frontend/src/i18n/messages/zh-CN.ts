@@ -770,6 +770,8 @@ export const zhCN = {
       timeout: "超时（秒）",
       pollInterval: "轮询间隔（秒）",
       taskTimeout: "任务超时（秒）",
+      maxInflight: "最大并发提交数",
+      maxInflightHelper: "Mac mini 单 RQ 默认 2，上限 32。",
       openAiBaseUrl: "OpenAI 基础地址",
       apiKey: "API Key",
       vlmPipelineModel: "VLM 流水线模型",

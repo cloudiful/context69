@@ -67,7 +67,7 @@ export function createDoclingDraft(): DraftDoclingSettings {
       timeout_secs: 120,
       poll_interval_secs: 2,
       task_timeout_secs: 600,
-      max_inflight: 1,
+      max_inflight: 2,
     },
     vlm_mode: "disabled",
     vlm: {
