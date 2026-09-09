@@ -219,6 +219,42 @@ export function escapeSearchHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+// Leading section labels tolerated after an embedded document title inside
+// chunk_text (Chinese ingestion prefixes chunks with 标题：<title> followed by
+// 摘要/摘要片段/正文 sections; English chunks use a similar `Title:` line).
+const TITLE_PREFIX_PATTERN = "(?:标题|title)";
+const SECTION_LABEL_PATTERN = "(?:摘要片段|摘要|正文|来源|日期|summary|body|source|date)";
+
+function escapeSearchRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Removes a leading "标题：<title>" / "Title: <title>" prefix from a chunk when
+ * the embedded title matches `title` (whitespace runs and ASCII case are
+ * normalized). The remainder starts at the first following content section, so
+ * labels such as 摘要：/正文：/Summary: are preserved. When no title prefix
+ * matches, the text is returned unchanged.
+ */
+export function stripTitlePrefix(chunkText: string, title: string): string {
+  if (!chunkText) {
+    return chunkText;
+  }
+  const normalizedTitle = title.trim().replace(/\s+/g, " ");
+  if (!normalizedTitle) {
+    return chunkText;
+  }
+  const titlePattern = normalizedTitle.split(" ").map(escapeSearchRegExp).join("\\s+");
+  const match = new RegExp(
+    `^\\s*${TITLE_PREFIX_PATTERN}\\s*[:：]\\s*(${titlePattern})(?=\\s|$|${SECTION_LABEL_PATTERN})`,
+    "i",
+  ).exec(chunkText);
+  if (!match) {
+    return chunkText;
+  }
+  return chunkText.slice(match.index + match[0].length).replace(/^\s+/, "");
+}
+
 export function highlightQueryText(text: string, query: string): string {
   const term = escapeSearchHtml(query.trim());
   const escaped = escapeSearchHtml(text);

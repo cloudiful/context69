@@ -19,7 +19,7 @@ const collapsed = computed({
   <UDashboardSidebar
     id="app-sidebar"
     v-model:collapsed="collapsed"
-    class="hidden min-w-0 overflow-hidden md:flex"
+    class="hidden min-w-0 overflow-hidden border-e border-default md:flex"
     collapsible
     resizable
     :default-size="14"

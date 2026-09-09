@@ -93,6 +93,64 @@ describe("SearchSelectionPreview", () => {
     expect(wrapper.emitted("open")?.[0]).toEqual([expect.objectContaining({ chunk_id: "chunk-lib" })]);
   });
 
+  it("does not repeat the chunk's embedded title after the preview header", async () => {
+    const hit = {
+      chunk_id: "chunk-zh",
+      document_id: 8,
+      source_key: "gov_documents",
+      external_id: "ext-zh",
+      group_key: "personal-admin",
+      group_path: "personal-admin/default",
+      visibility: "private",
+      title: "华夏时报网 · 新和成周期魔咒 · 2026-07-13",
+      summary: "summary",
+      source_uri: "context69://library/files/file-zh",
+      published_at: "2025-01-02",
+      chunk_index: 0,
+      chunk_text: "标题：华夏时报网 · 新和成周期魔咒 · 2026-07-13\n\n摘要：正文内容摘要",
+      score: 0.8,
+      metadata_json: {},
+    };
+    const wrapper = mount(SearchSelectionPreview, {
+      props: { selectedHit: hit as never },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
+    });
+
+    // Header shows the title once; the modal body keeps the section, not the copy.
+    expect(wrapper.find("h3").text()).toBe("华夏时报网 · 新和成周期魔咒 · 2026-07-13");
+    expect(wrapper.text()).toContain("摘要：正文内容摘要");
+    const titlePrefixCount = wrapper.text().match(/标题：华夏时报网/g);
+    expect(titlePrefixCount).toBeNull();
+  });
+
+  it("strips an English Title: prefix from the preview body", async () => {
+    const hit = {
+      chunk_id: "chunk-en",
+      document_id: 9,
+      source_key: "gov_documents",
+      external_id: "ext-en",
+      group_key: "personal-admin",
+      group_path: "personal-admin/default",
+      visibility: "private",
+      title: "Annual Report 2025",
+      summary: "summary",
+      source_uri: "https://example.com/report",
+      published_at: "2025-01-02",
+      chunk_index: 0,
+      chunk_text: "Title: Annual Report 2025\nSummary: Revenue grew across segments.",
+      score: 0.8,
+      metadata_json: {},
+    };
+    const wrapper = mount(SearchSelectionPreview, {
+      props: { selectedHit: hit as never },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
+    });
+
+    expect(wrapper.find("h3").text()).toBe("Annual Report 2025");
+    expect(wrapper.text()).toContain("Summary: Revenue grew across segments.");
+    expect(wrapper.text()).not.toContain("Title: Annual Report 2025");
+  });
+
   it("shows empty state without internal identifiers when nothing is selected", async () => {
     const wrapper = mount(SearchSelectionPreview, {
       props: { selectedHit: null },

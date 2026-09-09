@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSearchPayload, cursorFromQuery, filtersFromQuery, filtersToQuery, groupFolderOptions, loadSearchSession, normalizeSearchFilters, pageFromQuery, sameSearchFilters, saveSearchSession } from "./search";
+import { buildSearchPayload, cursorFromQuery, filtersFromQuery, filtersToQuery, groupFolderOptions, loadSearchSession, normalizeSearchFilters, pageFromQuery, sameSearchFilters, saveSearchSession, stripTitlePrefix } from "./search";
 import { installMockStorage } from "../test-utils/storage";
 
 describe("search utilities", () => {
@@ -232,5 +232,41 @@ describe("search utilities", () => {
     // Legacy sessions without a cursor still load.
     saveSearchSession(filters, 2);
     expect(loadSearchSession()?.cursor).toBeUndefined();
+  });
+
+  it("strips an exact leading Chinese title prefix but keeps the section label", () => {
+    const text = "标题：caixin.com · 特朗普取消袭击伊朗计划 称谈判将于周一开始\n\n摘要：谈判取消原因正文";
+    expect(stripTitlePrefix(text, "caixin.com · 特朗普取消袭击伊朗计划 称谈判将于周一开始"))
+      .toBe("摘要：谈判取消原因正文");
+  });
+
+  it("strips leading Title: prefixes and half-width colons from English chunks", () => {
+    const text = "Title: Annual Report 2025\nSummary: Revenue grew across segments";
+    expect(stripTitlePrefix(text, "Annual Report 2025")).toBe("Summary: Revenue grew across segments");
+    expect(stripTitlePrefix(text, "annual report 2025")).toBe("Summary: Revenue grew across segments");
+  });
+
+  it("normalizes whitespace variants inside the embedded title", () => {
+    const text = "标题：统一大市场 建设    方案\n\n正文：方案要求打破地方保护和市场分割";
+    expect(stripTitlePrefix(text, "统一大市场 建设 方案")).toBe("正文：方案要求打破地方保护和市场分割");
+  });
+
+  it("strips a prefix even when no section label follows the title", () => {
+    expect(stripTitlePrefix("标题：现场问答纪要 下面是逐字记录正文", "现场问答纪要"))
+      .toBe("下面是逐字记录正文");
+  });
+
+  it("leaves chunk text unchanged when the embedded title does not match", () => {
+    const text = "标题：另一份文档标题\n\n正文：内容";
+    expect(stripTitlePrefix(text, "完全不同的标题")).toBe(text);
+    // Title is only a prefix of a longer embedded title => not a match.
+    expect(stripTitlePrefix("标题：Policyholder claims\n\n正文：x", "Policy")).toBe("标题：Policyholder claims\n\n正文：x");
+  });
+
+  it("leaves chunk text unchanged without a title prefix or with empty inputs", () => {
+    const plain = "纯正文内容没有标题行";
+    expect(stripTitlePrefix(plain, "纯正文内容没有标题行")).toBe(plain);
+    expect(stripTitlePrefix("标题：示例", "")).toBe("标题：示例");
+    expect(stripTitlePrefix("", "示例")).toBe("");
   });
 });

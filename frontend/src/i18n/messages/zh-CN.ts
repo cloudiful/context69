@@ -371,6 +371,7 @@ export const zhCN = {
       score: "得分",
       scoreLabel: "得分：{score}",
       preview: "预览",
+      openSourceLink: "打开原文链接",
       reasonSemantic: "语义命中",
       reasonTitle: "标题命中",
       reasonKeyword: "关键词命中",

@@ -4,7 +4,7 @@ import { useI18n } from "vue-i18n";
 
 import type { SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
-import { matchReasonTokens } from "../utils/search";
+import { matchReasonTokens, stripTitlePrefix } from "../utils/search";
 import MarkdownChunk from "./MarkdownChunk.vue";
 
 const props = defineProps<{
@@ -17,6 +17,16 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+const displayContent = computed(() => {
+  const hit = props.selectedHit;
+  if (!hit) {
+    return "";
+  }
+  // Chunks ingested from documents repeat the title on their first line
+  // (标题：<title> ...); the preview header already shows it.
+  return stripTitlePrefix(hit.chunk_text ?? "", hit.title ?? "");
+});
 
 const reasonTags = computed(() =>
   props.selectedHit ? matchReasonTokens(props.selectedHit.match_reason) : [],
@@ -94,7 +104,7 @@ function isHttpUri(value: string | null | undefined): boolean {
       >{{ selectedHit.source_uri }}</a>
 
       <div class="min-w-0">
-        <MarkdownChunk :content="selectedHit.chunk_text" markdown :highlight="highlight ?? ''" />
+        <MarkdownChunk :content="displayContent" markdown :highlight="highlight ?? ''" />
       </div>
     </div>
 

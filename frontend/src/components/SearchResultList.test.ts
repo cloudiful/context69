@@ -95,7 +95,7 @@ describe("SearchResultList", () => {
     ]);
   });
 
-  it("keeps a single clickable http source link without raw internal badges", async () => {
+  it("keeps a single clickable http source action without raw URL text or internal badges", async () => {
     const wrapper = mount(SearchResultList, {
       props: {
         pagination: { page: 1, page_size: 8, total: 1, total_pages: 1 },
@@ -126,13 +126,19 @@ describe("SearchResultList", () => {
     expect(text).toContain("External Doc");
     expect(text).not.toContain("gov_documents");
     expect(text).not.toContain("ext-http-1");
+    // The raw full-URL row was replaced by an icon action; the URL is not body text.
+    expect(text).not.toContain("https://example.com/external-doc");
     const links = wrapper.findAll("a");
     expect(links).toHaveLength(1);
     expect(links[0].attributes("href")).toBe("https://example.com/external-doc");
+    expect(links[0].attributes("target")).toBe("_blank");
+    expect(links[0].attributes("rel")).toBe("noopener");
     expect(links[0].attributes("title")).toBe("https://example.com/external-doc");
+    expect(links[0].attributes("aria-label")).toBe("Open source link");
+    expect(links[0].find("[data-slot='leadingIcon']").exists()).toBe(true);
   });
 
-  it("truncates long URLs with accessible title and keeps clickability", async () => {
+  it("keeps long source URLs reachable through the external action with an accessible label", async () => {
     const longUrl = "https://example.com/" + "a".repeat(200) + "?q=search&lang=en&extra=very-long-param";
     const wrapper = mount(SearchResultList, {
       props: {
@@ -159,12 +165,12 @@ describe("SearchResultList", () => {
       },
       global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
-    const links = wrapper.findAll("a");
-    expect(links).toHaveLength(1);
-    const link = wrapper.find(`a[href="${longUrl}"]`);
+    const link = wrapper.find('a[href="' + longUrl + '"]');
     expect(link.exists()).toBe(true);
     expect(link.attributes("title")).toBe(longUrl);
-    expect(link.classes().join(" ")).toContain("truncate");
+    expect(link.attributes("aria-label")).toBe("Open source link");
+    // No truncated URL row is rendered as text anymore.
+    expect(wrapper.text()).not.toContain("a".repeat(50));
     expect(wrapper.text()).not.toContain("[object Object]");
     expect(wrapper.text()).not.toContain("ext-long");
   });

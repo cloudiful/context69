@@ -203,7 +203,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+  <div class="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden rounded-lg bg-elevated/50 p-2 ring-1 ring-default">
     <SearchToolbar
       :filters="filters"
       :busy="loading"

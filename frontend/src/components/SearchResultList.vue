@@ -4,7 +4,7 @@ import { useI18n } from "vue-i18n";
 
 import type { SearchHit, SearchPagination } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
-import { buildSnippet, highlightQueryText, matchReasonTokens } from "../utils/search";
+import { buildSnippet, highlightQueryText, matchReasonTokens, stripTitlePrefix } from "../utils/search";
 
 const props = withDefaults(defineProps<{
   hits: SearchHit[];
@@ -79,7 +79,8 @@ function isHttpUri(value: string | null | undefined): boolean {
 }
 
 function snippetHtml(hit: SearchHit): string {
-  return highlightQueryText(buildSnippet(hit.chunk_text, props.highlight), props.highlight);
+  const body = stripTitlePrefix(hit.chunk_text ?? "", hit.title ?? "");
+  return highlightQueryText(buildSnippet(body, props.highlight), props.highlight);
 }
 
 function scoreTooltip(hit: SearchHit): string {
@@ -160,18 +161,24 @@ function reasonTagLabel(token: string): string {
               >
                 {{ t("common.open") }}
               </UButton>
+              <UButton
+                v-if="isHttpUri(hit.source_uri)"
+                data-testid="search-result-source-link"
+                variant="ghost"
+                size="sm"
+                color="neutral"
+                icon="i-lucide-external-link"
+                square
+                :href="hit.source_uri ?? undefined"
+                target="_blank"
+                rel="noopener"
+                :title="hit.source_uri ?? undefined"
+                :aria-label="t('search.result.openSourceLink')"
+              />
             </div>
           </div>
 
-          <a
-            v-if="isHttpUri(hit.source_uri)"
-            :href="hit.source_uri ?? undefined"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="mt-1 block max-w-full truncate text-xs text-muted underline decoration-dotted underline-offset-2 hover:text-color"
-            :title="hit.source_uri ?? undefined"
-          >{{ hit.source_uri }}</a>
-          <p v-else-if="hit.is_library_file && hit.library_path" class="mt-1 max-w-full truncate text-xs text-muted">
+          <p v-if="!isHttpUri(hit.source_uri) && hit.is_library_file && hit.library_path" class="mt-1 max-w-full truncate text-xs text-muted">
             {{ hit.library_path }}
           </p>
 

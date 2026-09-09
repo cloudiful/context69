@@ -371,6 +371,7 @@ export const en = {
       score: "Score",
       scoreLabel: "Score: {score}",
       preview: "Preview",
+      openSourceLink: "Open source link",
       reasonSemantic: "Semantic match",
       reasonTitle: "Title match",
       reasonKeyword: "Keyword match",
