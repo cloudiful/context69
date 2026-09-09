@@ -60,6 +60,8 @@ pub(super) fn search_settings_from_request(
         candidate_limit: request.candidate_limit,
         timeout_secs: request.timeout_secs,
         api_key,
+        vector_weight: request.vector_weight,
+        keyword_weight: request.keyword_weight,
     }
 }
 
@@ -99,6 +101,8 @@ pub(super) fn search_response_from_stored(
             .api_key
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty()),
+        vector_weight: settings.vector_weight,
+        keyword_weight: settings.keyword_weight,
     }
 }
 

@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use context69_contracts::search::SearchStreamEvent;
+use context69_search::AbortSignal;
 use context69_search_http::SearchApi;
 
 use crate::db::Database;
@@ -57,6 +59,18 @@ impl SearchApi for SearchApiAdapter {
             }
         }
         self.query.search(user_id, request).await
+    }
+
+    async fn stream_search(
+        &self,
+        user_id: Option<i64>,
+        request: crate::contracts::SearchRequest,
+        tx: tokio::sync::mpsc::Sender<SearchStreamEvent>,
+        abort: AbortSignal,
+    ) -> anyhow::Result<()> {
+        // The stream surface is a GET endpoint and therefore never carries
+        // metadata filters; POST /v1/search stays the metadata-filtered API.
+        self.query.stream_search(user_id, request, tx, abort).await
     }
 
     async fn get_document(

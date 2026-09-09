@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
+use async_trait::async_trait;
 use reqwest::{Client, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,17 @@ pub struct RerankHit {
     pub score: f32,
 }
 
+#[async_trait]
+pub trait RerankClient: Send + Sync {
+    async fn rerank(
+        &self,
+        query: &str,
+        documents: &[RerankDocument],
+        top_n: usize,
+        settings: &SearchSettings,
+    ) -> Result<Vec<RerankHit>>;
+}
+
 #[derive(Clone)]
 pub struct OpenRouterRerankClient {
     client: Client,
@@ -28,8 +40,11 @@ impl OpenRouterRerankClient {
             client: Client::builder().build()?,
         })
     }
+}
 
-    pub async fn rerank(
+#[async_trait]
+impl RerankClient for OpenRouterRerankClient {
+    async fn rerank(
         &self,
         query: &str,
         documents: &[RerankDocument],

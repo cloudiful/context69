@@ -89,6 +89,8 @@ export function createSearchDraft(): DraftSearchSettings {
     rerank_model: "cohere/rerank-4-fast",
     candidate_limit: 40,
     timeout_secs: 10,
+    vector_weight: 0.55,
+    keyword_weight: 0.35,
   };
 }
 
@@ -209,5 +211,7 @@ export function searchResponseToPayload(response: SearchSettingsResponse): Draft
     rerank_model: response.rerank_model,
     candidate_limit: response.candidate_limit,
     timeout_secs: response.timeout_secs,
+    vector_weight: response.vector_weight,
+    keyword_weight: response.keyword_weight,
   };
 }

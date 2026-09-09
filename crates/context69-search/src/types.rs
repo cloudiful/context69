@@ -21,6 +21,11 @@ pub struct SearchSettings {
     pub candidate_limit: usize,
     pub timeout_secs: u64,
     pub api_key: Option<String>,
+    /// Hybrid fusion weight for the vector channel. The boost weight is the
+    /// margin that closes the unit budget (1 - vector - keyword).
+    pub vector_weight: f32,
+    /// Hybrid fusion weight for the keyword channel.
+    pub keyword_weight: f32,
 }
 
 impl Default for SearchSettings {
@@ -33,6 +38,8 @@ impl Default for SearchSettings {
             candidate_limit: 40,
             timeout_secs: 10,
             api_key: None,
+            vector_weight: context69_contracts::settings::SEARCH_VECTOR_WEIGHT_DEFAULT,
+            keyword_weight: context69_contracts::settings::SEARCH_KEYWORD_WEIGHT_DEFAULT,
         }
     }
 }

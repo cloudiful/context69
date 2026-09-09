@@ -5,6 +5,8 @@ SELECT
     rerank_model,
     candidate_limit,
     timeout_secs,
-    api_key
+    api_key,
+    vector_weight,
+    keyword_weight
 FROM context69.search_settings
 WHERE singleton = TRUE

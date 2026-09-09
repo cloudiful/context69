@@ -1076,6 +1076,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/search/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/docling": {
         parameters: {
             query?: never;
@@ -2424,33 +2440,137 @@ export interface components {
         };
         /** @enum {string} */
         SearchMode: "vector" | "hybrid";
+        /**
+         * @description Windowed pagination for search responses.
+         *
+         *     Mirrors `Pagination` (page/page_size/total/has_more/total_is_exact) and
+         *     adds opaque `next_cursor`/`prev_cursor` values that encode the ordering
+         *     epoch the page was produced under. Page-based navigation stays accepted for
+         *     compatibility, but cursor navigation is authoritative: the same cursor is
+         *     only valid within one ordering (local vs reranked).
+         */
+        SearchPagination: {
+            has_more?: boolean | null;
+            /**
+             * @description Opaque cursor for the next page in the same ordering epoch, when the
+             *     service observed at least one candidate beyond this page's window.
+             */
+            next_cursor?: string | null;
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /**
+             * @description Opaque cursor for the previous page in the same ordering epoch, present
+             *     when this page is not the first.
+             */
+            prev_cursor?: string | null;
+            /**
+             * Format: int64
+             * @description Known result count for the current window. With `total_is_exact=false`
+             *     this is a lower bound, not an exact match count.
+             */
+            total: number;
+            total_is_exact?: boolean | null;
+            /**
+             * Format: int32
+             * @description Page count derived from `total` (also a lower bound when inexact).
+             */
+            total_pages: number;
+        };
         SearchRequest: {
+            /**
+             * @description Opaque pagination cursor returned in `SearchPagination.next_cursor` /
+             *     `prev_cursor`. A cursor encodes the ordering epoch
+             *     (`{rerank_applied, offset}`) of the page that issued it and is only
+             *     valid within that same ordering: requests whose effective ordering
+             *     differs from the cursor's epoch are rejected with a 400 instead of
+             *     silently serving a differently ordered window.
+             */
+            cursor?: string | null;
             group_path?: string | null;
             limit?: number;
             locale?: string | null;
             metadata_filters?: components["schemas"]["MetadataFilter"][];
+            /**
+             * @description DEPRECATED: use `cursor` for pagination. Kept for compatibility; it maps
+             *     to an offset cursor (`(page - 1) * limit`) when no `cursor` is present.
+             *     Date mode (`sort=date`) is forward-only keyset pagination: `page > 1`
+             *     is rejected as a 400 validation error (the client must use the cursor
+             *     returned in `next_cursor` to fetch the next page).
+             */
             page?: number;
             /** Format: date-time */
             published_after?: string | null;
             /** Format: date-time */
             published_before?: string | null;
             query: string;
+            /**
+             * @description Additive ordering mode. Defaults to `relevance` so existing clients
+             *     observe no change. `date` is a latest-first walk over non-overlapping
+             *     `published_ts` windows without rerank; the cursor pins sort+date mode
+             *     and rejects relevance cursors.
+             */
+            sort?: components["schemas"]["SearchSort"];
             source_key?: string | null;
         };
         SearchResponse: {
             items: components["schemas"]["SearchHit"][];
-            pagination: components["schemas"]["Pagination"];
+            pagination: components["schemas"]["SearchPagination"];
             query: string;
         };
         SearchSettingsResponse: {
             candidate_limit: number;
             has_api_key: boolean;
+            /**
+             * Format: float
+             * @description Hybrid fusion weight for the keyword channel in [0, 1].
+             */
+            keyword_weight: number;
             mode: components["schemas"]["SearchMode"];
             rerank_base_url: string;
             rerank_enabled: boolean;
             rerank_model: string;
             /** Format: int64 */
             timeout_secs: number;
+            /**
+             * Format: float
+             * @description Hybrid fusion weight for the semantic/vector channel in [0, 1].
+             */
+            vector_weight: number;
+        };
+        /**
+         * @description Ordering applied to a `SearchRequest`. `Relevance` is the default and
+         *     preserves the existing vector/hybrid + rerank pipeline. `Date` switches the
+         *     pipeline to a `published_ts DESC` walk over Qdrant that emits latest-first
+         *     results without rerank; the date mode requires a non-blank `query` (the
+         *     request is rejected as a 400 otherwise) and matches the query against
+         *     hydrated `title + chunk_text` with the same all-terms substring rule used
+         *     by the keyword path. Punctuation-only / whitespace-only queries fall back
+         *     to a literal phrase substring rule (the SQL equivalent of
+         *     `lower(title) LIKE phrase OR lower(chunk) LIKE phrase`). Same-second
+         *     ties follow the Qdrant `scroll` return order (deterministic per ordering
+         *     epoch); the cursor pins the resume key so a replayed request continues
+         *     the walk in the same order.
+         * @enum {string}
+         */
+        SearchSort: "relevance" | "date";
+        /**
+         * @description Terminal SSE event payload: reports which ordering epoch the stream's final
+         *     page belongs to (`true` = reranked ordering was applied).
+         */
+        SearchStreamDone: {
+            rerank_applied: boolean;
+        };
+        /**
+         * @description One page window inside a search stream exchange. Both the `local` and the
+         *     `reranked` SSE events carry this shape for the same `[offset, offset+limit)`
+         *     window; the `reranked` payload reorders (and may adjust the membership of)
+         *     the page that `local` rendered first.
+         */
+        SearchStreamPage: {
+            items: components["schemas"]["SearchHit"][];
+            pagination: components["schemas"]["SearchPagination"];
         };
         /** @enum {string} */
         SortDirection: "asc" | "desc";
@@ -2936,12 +3056,24 @@ export interface components {
             api_key?: string | null;
             candidate_limit: number;
             clear_api_key?: boolean;
+            /**
+             * Format: float
+             * @description Hybrid fusion weight for the keyword channel; must be in [0, 1] and may
+             *     not push `vector_weight + keyword_weight` above 1.
+             */
+            keyword_weight?: number;
             mode: components["schemas"]["SearchMode"];
             rerank_base_url: string;
             rerank_enabled: boolean;
             rerank_model: string;
             /** Format: int64 */
             timeout_secs: number;
+            /**
+             * Format: float
+             * @description Hybrid fusion weight for the semantic/vector channel; must be in [0, 1]
+             *     and may not push `vector_weight + keyword_weight` above 1.
+             */
+            vector_weight?: number;
         };
         UpdateTaskMaintenanceSettingsRequest: {
             cleanup_enabled: boolean;
@@ -5946,7 +6078,68 @@ export interface operations {
                     "application/json": components["schemas"]["SearchResponse"];
                 };
             };
+            /** @description Malformed or cross-ordering cursor, `page > 1` with `sort=date` (date mode is forward-only keyset pagination; pass the cursor returned in `next_cursor` to fetch the next page), or a blank query with `sort=date` (date mode matches the query against hydrated hits and never serves a 'latest N' browse). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    search_stream: {
+        parameters: {
+            query: {
+                /** @description The search query text. */
+                query: string;
+                locale?: string | null;
+                limit?: number | null;
+                /**
+                 * @description DEPRECATED page number; maps to an offset cursor when `cursor` is
+                 *     absent. Prefer `cursor` returned in `next_cursor`/`prev_cursor`.
+                 */
+                page?: number | null;
+                source_key?: string | null;
+                group_path?: string | null;
+                published_after?: string | null;
+                published_before?: string | null;
+                /**
+                 * @description Opaque pagination cursor; only valid inside the ordering epoch that
+                 *     issued it.
+                 */
+                cursor?: string | null;
+                /**
+                 * @description Additive ordering mode. Defaults to `relevance`; `date` switches the
+                 *     pipeline to a latest-first walk over `published_ts` windows without
+                 *     rerank. The cursor and the request must agree on the sort mode.
+                 */
+                sort?: null | components["schemas"]["SearchSort"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-Sent Events stream (text/event-stream). Frames: `local` (stage-1 local ordering page of the requested window, emitted immediately), optional `reranked` (final ordering of the same window after the rerank stage), `done` (with `rerank_applied`), or `error` (message). Rerank cache hits still emit both page events, with the second following immediately. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid query parameters or cursor, or a blank query with `sort=date` (date mode matches the query against hydrated hits and never serves a 'latest N' browse). The SSE body never starts; the 400 is returned directly. */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

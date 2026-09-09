@@ -21,6 +21,7 @@ describe("VectorIndexRebuildControl", () => {
         task_id: "00000000-0000-0000-0000-000000000001",
         kind: "vector_rebuild",
         status: "running",
+        origin: "manual",
         group_path: null,
         source_key: null,
         stage: "indexing",

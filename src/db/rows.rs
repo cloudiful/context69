@@ -153,6 +153,8 @@ pub(super) struct SearchSettingsRow {
     pub(super) candidate_limit: i64,
     pub(super) timeout_secs: i64,
     pub(super) api_key: Option<String>,
+    pub(super) vector_weight: f32,
+    pub(super) keyword_weight: f32,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -264,6 +266,8 @@ pub(super) fn search_settings_from_row(row: SearchSettingsRow) -> Result<StoredS
         timeout_secs: u64::try_from(row.timeout_secs)
             .context("search timeout_secs must be non-negative")?,
         api_key: row.api_key,
+        vector_weight: row.vector_weight,
+        keyword_weight: row.keyword_weight,
     })
 }
 

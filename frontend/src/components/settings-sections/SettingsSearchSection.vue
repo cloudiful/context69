@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import AppNumberField from "../AppNumberField.vue";
@@ -11,7 +12,7 @@ import type { DraftSearchSettings } from "../../utils/settings";
 
 type RerankToggleModel = { rerank_enabled: boolean };
 
-defineProps<{
+const props = defineProps<{
   rerankApiKeyDraft: string;
   rerankToggleModel: RerankToggleModel;
   searchDraft: DraftSearchSettings;
@@ -30,6 +31,12 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
     rerank_enabled: !!value.rerank_enabled,
   });
 }
+
+const boostMargin = computed(() => {
+  const vector = Number(props.searchDraft.vector_weight ?? 0);
+  const keyword = Number(props.searchDraft.keyword_weight ?? 0);
+  return Math.max(0, 1 - vector - keyword).toFixed(2);
+});
 </script>
 
 <template>
@@ -101,6 +108,32 @@ function updateRerankToggleModel(value: Record<string, boolean>) {
               autocomplete="new-password"
               placeholder="sk-or-..."
               @update:model-value="emit('update:rerankApiKeyDraft', $event)"
+            />
+          </div>
+
+          <div class="grid max-w-2xl gap-3">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t("settings.search.fusionWeightsHint", { margin: boostMargin }) }}
+            </p>
+
+            <AppNumberField
+              input-id="search-vector-weight"
+              v-model="searchDraft.vector_weight"
+              :label="t('settings.search.vectorWeight')"
+              test-id="search-vector-weight"
+              :min="0"
+              :max="1"
+              :step="0.05"
+            />
+
+            <AppNumberField
+              input-id="search-keyword-weight"
+              v-model="searchDraft.keyword_weight"
+              :label="t('settings.search.keywordWeight')"
+              test-id="search-keyword-weight"
+              :min="0"
+              :max="1"
+              :step="0.05"
             />
           </div>
         </div>

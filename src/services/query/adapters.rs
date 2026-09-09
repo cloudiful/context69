@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 use async_trait::async_trait;
 use context69_search::{
-    AccessScope as SearchAccessScope, SearchEmbeddingProvider, SearchIndex, SearchPointHit,
-    SearchRepository, SearchScopeResolver, SearchSettings,
+    AccessScope as SearchAccessScope, DateWindowPage, DateWindowQuery, SearchEmbeddingProvider,
+    SearchIndex, SearchPointHit, SearchRepository, SearchScopeResolver, SearchSettings,
     StoredRerankItemScore as SearchStoredRerankItemScore,
 };
 use uuid::Uuid;
@@ -21,11 +21,13 @@ use crate::{
 #[derive(Clone)]
 pub(super) struct DbSearchRepository {
     db: Database,
+    auth: AuthService,
+    qdrant: QdrantIndex,
 }
 
 impl DbSearchRepository {
-    pub(super) fn new(db: Database) -> Self {
-        Self { db }
+    pub(super) fn new(db: Database, auth: AuthService, qdrant: QdrantIndex) -> Self {
+        Self { db, auth, qdrant }
     }
 }
 
@@ -91,6 +93,8 @@ fn to_search_settings(settings: crate::db::StoredSearchSettings) -> SearchSettin
         candidate_limit: settings.candidate_limit,
         timeout_secs: settings.timeout_secs,
         api_key: settings.api_key,
+        vector_weight: settings.vector_weight,
+        keyword_weight: settings.keyword_weight,
     }
 }
 
@@ -102,6 +106,28 @@ impl SearchRepository for DbSearchRepository {
 
     async fn get_search_generation(&self) -> Result<i64> {
         self.db.get_search_generation().await
+    }
+
+    async fn date_request_upper_bound(
+        &self,
+        user_id: Option<i64>,
+        request: &SearchRequest,
+    ) -> Result<Option<i64>> {
+        // The date-mode pipeline asks Qdrant for the largest `published_ts`
+        // visible under the request's filter set. The snapshot must use the
+        // caller's identity (not `None`) so a logged-in user's private
+        // records are part of the ceiling; otherwise the user's newest
+        // private records would be silently excluded from page 1 and the
+        // replayed upper cursor would pin the wrong ceiling.
+        let scope = self
+            .auth
+            .access_scope(user_id, request.group_path.clone())
+            .await?;
+        let max = self
+            .qdrant
+            .date_max_published_ts(request, &to_root_scope(&to_search_scope(&scope)))
+            .await?;
+        Ok(max)
     }
 
     async fn fetch_search_hits_by_chunk_ids(
@@ -221,5 +247,30 @@ impl SearchIndex for QdrantSearchIndex {
                 score: hit.score,
             })
             .collect())
+    }
+
+    async fn search_by_date_window(
+        &self,
+        vector: Vec<f32>,
+        request: &SearchRequest,
+        scope: &SearchAccessScope,
+        query: DateWindowQuery,
+    ) -> Result<DateWindowPage> {
+        let page = self
+            .index
+            .search_by_date_window(vector, request, &to_root_scope(scope), query)
+            .await?;
+        Ok(DateWindowPage {
+            hits: page
+                .hits
+                .into_iter()
+                .map(|hit| context69_search::SearchDatePointHit {
+                    chunk_id: hit.chunk_id,
+                    published_ts: hit.published_ts,
+                    score: hit.score,
+                })
+                .collect(),
+            next_offset: page.next_offset,
+        })
     }
 }

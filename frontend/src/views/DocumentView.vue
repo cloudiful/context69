@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
+import MarkdownChunk from "../components/MarkdownChunk.vue";
 import { apiClient, ApiError, type DocumentResponse } from "../services/api";
 import { formatDate, formatJson, formatTimestamp } from "../utils/format";
 import { buildSearchReturnLocation, isSearchReturn, SEARCH_RETURN_QUERY_KEY, SEARCH_RETURN_QUERY_VALUE } from "../utils/search-target";
@@ -176,7 +177,9 @@ onBeforeUnmount(() => {
               <p class="text-xs font-medium uppercase tracking-[0.08em] text-muted">
                 {{ t("document.chunkLabel", { index: chunk.chunk_index }) }}
               </p>
-              <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-elevated px-3 py-2 text-sm leading-6 text-muted">{{ chunk.text }}</pre>
+              <div class="mt-2">
+                <MarkdownChunk :content="chunk.text" markdown />
+              </div>
             </UCard>
 
             <UAlert

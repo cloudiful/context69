@@ -32,7 +32,9 @@ impl Database {
             settings.rerank_model,
             candidate_limit,
             timeout_secs,
-            settings.api_key
+            settings.api_key,
+            settings.vector_weight,
+            settings.keyword_weight
         )
         .fetch_one(&self.pool)
         .await?;

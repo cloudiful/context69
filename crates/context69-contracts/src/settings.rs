@@ -4,6 +4,22 @@ use utoipa::ToSchema;
 
 use crate::search::SearchMode;
 
+/// Default hybrid fusion weight for the vector channel (matches the legacy
+/// hard-coded blend in local scoring).
+pub const SEARCH_VECTOR_WEIGHT_DEFAULT: f32 = 0.55;
+/// Default hybrid fusion weight for the keyword channel (matches the legacy
+/// hard-coded blend in local scoring). The boost weight is the remaining
+/// margin of the unit budget: 1 - vector - keyword (default 0.10).
+pub const SEARCH_KEYWORD_WEIGHT_DEFAULT: f32 = 0.35;
+
+fn default_search_vector_weight() -> f32 {
+    SEARCH_VECTOR_WEIGHT_DEFAULT
+}
+
+fn default_search_keyword_weight() -> f32 {
+    SEARCH_KEYWORD_WEIGHT_DEFAULT
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SearchSettingsResponse {
     pub mode: SearchMode,
@@ -13,6 +29,10 @@ pub struct SearchSettingsResponse {
     pub candidate_limit: usize,
     pub timeout_secs: u64,
     pub has_api_key: bool,
+    /// Hybrid fusion weight for the semantic/vector channel in [0, 1].
+    pub vector_weight: f32,
+    /// Hybrid fusion weight for the keyword channel in [0, 1].
+    pub keyword_weight: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -27,6 +47,14 @@ pub struct UpdateSearchSettingsRequest {
     pub api_key: Option<String>,
     #[serde(default)]
     pub clear_api_key: bool,
+    /// Hybrid fusion weight for the semantic/vector channel; must be in [0, 1]
+    /// and may not push `vector_weight + keyword_weight` above 1.
+    #[serde(default = "default_search_vector_weight")]
+    pub vector_weight: f32,
+    /// Hybrid fusion weight for the keyword channel; must be in [0, 1] and may
+    /// not push `vector_weight + keyword_weight` above 1.
+    #[serde(default = "default_search_keyword_weight")]
+    pub keyword_weight: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

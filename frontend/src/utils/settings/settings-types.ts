@@ -77,6 +77,10 @@ export type DraftSearchSettings = {
   rerank_model: string;
   candidate_limit: number;
   timeout_secs: number;
+  /** Hybrid fusion weight for the semantic/vector channel (0..1). */
+  vector_weight: number;
+  /** Hybrid fusion weight for the keyword channel (0..1). */
+  keyword_weight: number;
 };
 
 export type DoclingPayloadShape = UpdateDoclingSettingsRequest;

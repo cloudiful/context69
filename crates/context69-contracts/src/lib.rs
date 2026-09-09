@@ -56,6 +56,7 @@ pub use namespace::{
 };
 pub use search::{
     DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse,
+    SearchSort,
 };
 pub use settings::{
     DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,

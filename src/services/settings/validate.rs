@@ -141,6 +141,7 @@ pub(super) fn search_request(request: &UpdateSearchSettingsRequest) -> Result<()
     if request.timeout_secs == 0 {
         return Err(anyhow!("search.timeout_secs must be greater than 0"));
     }
+    validate_fusion_weights(request.vector_weight, request.keyword_weight)?;
     Ok(())
 }
 
@@ -156,6 +157,29 @@ pub(super) fn stored_search_settings(settings: &StoredSearchSettings) -> Result<
     }
     if settings.timeout_secs == 0 {
         return Err(anyhow!("search.timeout_secs must be greater than 0"));
+    }
+    validate_fusion_weights(settings.vector_weight, settings.keyword_weight)?;
+    Ok(())
+}
+
+/// Hybrid fusion weights must stay in [0, 1] and may not exceed the unit
+/// budget together: the boost weight is the residual margin
+/// (1 - vector - keyword), so it cannot be negative.
+fn validate_fusion_weights(vector_weight: f32, keyword_weight: f32) -> Result<()> {
+    if !(0.0..=1.0).contains(&vector_weight) {
+        return Err(anyhow!(
+            "search.vector_weight must be between 0 and 1"
+        ));
+    }
+    if !(0.0..=1.0).contains(&keyword_weight) {
+        return Err(anyhow!(
+            "search.keyword_weight must be between 0 and 1"
+        ));
+    }
+    if vector_weight + keyword_weight > 1.0 {
+        return Err(anyhow!(
+            "search.vector_weight and search.keyword_weight must not sum above 1"
+        ));
     }
     Ok(())
 }

@@ -172,6 +172,18 @@ pub struct SearchPointHit {
     pub score: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct SearchDatePointHit {
+    pub chunk_id: Uuid,
+    /// Integer-second `published_ts` copied from the Qdrant payload. `None`
+    /// when the chunk was indexed without a publication timestamp and must be
+    /// treated as a stable (but out-of-band) tie-breaker.
+    pub published_ts: Option<i64>,
+    /// Vector similarity score from the Qdrant search; the date pipeline
+    /// carries it only for hydration observability, never for sort order.
+    pub score: f32,
+}
+
 #[derive(Clone)]
 pub struct QdrantIndex {
     client: Qdrant,
@@ -367,64 +379,16 @@ impl QdrantIndex {
         request: &SearchRequest,
         scope: &AccessScope,
     ) -> Result<Vec<SearchPointHit>> {
-        let mut conditions = Vec::new();
-
-        if let Some(source_key) = &request.source_key {
-            conditions.push(Condition::matches("source_key", source_key.clone()));
-        }
-
-        let locale_filter = match request.locale.as_deref() {
-            Some(locale) => Filter::should(vec![
-                Condition::matches("content_locale", locale.to_string()),
-                Condition::matches("content_locale", "original".to_string()),
-                Condition::is_empty("content_locale"),
-            ]),
-            None => Filter::should(vec![
-                Condition::matches("content_locale", "original".to_string()),
-                Condition::is_empty("content_locale"),
-            ]),
-        };
-        conditions.push(Condition::from(locale_filter));
-
-        if request.published_after.is_some() || request.published_before.is_some() {
-            let range = Range {
-                gte: request.published_after.map(date_to_timestamp_f64),
-                lte: request.published_before.map(date_to_timestamp_f64),
-                ..Default::default()
-            };
-            conditions.push(Condition::range("published_ts", range));
-        }
-
-        conditions.extend(
-            request
-                .metadata_filters
-                .iter()
-                .filter_map(metadata_filter_condition),
-        );
-
-        if let Some(group_id) = scope.scoped_group_id {
-            conditions.push(Condition::matches("group_id", group_id));
-        } else if scope.group_path.is_some() {
-            // The request was scoped to a group path that no longer resolves.
-            // Returning nothing is safer than silently widening the scope.
+        let conditions = self.build_search_conditions(request, scope)?;
+        if conditions.is_short_circuit {
             return Ok(Vec::new());
         }
 
-        let access_condition = if scope.private_group_ids.is_empty() {
-            Condition::matches("visibility", "public".to_string())
-        } else {
-            Condition::from(Filter::should(vec![
-                Condition::matches("visibility", "public".to_string()),
-                Condition::matches("group_id", scope.private_group_ids.clone()),
-            ]))
-        };
-        conditions.push(access_condition);
-
-        let builder = if conditions.is_empty() {
+        let builder = if conditions.filter.is_empty() {
             SearchPointsBuilder::new(&self.collection_name, vector, request.limit as u64)
         } else {
             SearchPointsBuilder::new(&self.collection_name, vector, request.limit as u64)
-                .filter(Filter::must(conditions))
+                .filter(Filter::must(conditions.filter))
         };
 
         let started = Instant::now();
@@ -457,6 +421,264 @@ impl QdrantIndex {
         Ok(hits)
     }
 
+    /// Latest-first date-mode window fetch using Qdrant's `scroll` API
+    /// with a `published_ts` order. The shared filter builder produces the
+    /// same access / locale / source / metadata conditions as the
+    /// relevance search; only the `published_ts` constraint, the
+    /// order-by field, and the keyset offset are date-specific.
+    ///
+    /// The function returns at most `limit` points whose `published_ts`
+    /// value satisfies the inclusive `before` bound and the exclusive
+    /// `after` bound (both `Option<i64>`). The order is
+    /// `published_ts DESC`; the Qdrant `scroll` return order IS the
+    /// authoritative ordering for the date-mode pipeline. The Qdrant
+    /// `OrderBy` API only supports a single key (qdrant-client 1.19),
+    /// so the within-boundary order is whatever the Qdrant `scroll`
+    /// emits — the pipeline does NOT re-sort in memory after
+    /// hydration. Same-second ties are therefore stable per ordering
+    /// epoch but not `chunk_id ASC` (the legacy in-memory tie-break
+    /// was retired when `tie_chunk` was removed; see
+    /// `search_cursor::DateCursor` + the date-mode header docs).
+    ///
+    /// `offset` is the Qdrant-side keyset cursor for paging within the
+    /// same `published_ts` value. `None` means "start from the first
+    /// point in the window". The returned `next_offset` is `Some(uuid)`
+    /// when the Qdrant side knows more points satisfy the filter so the
+    /// pipeline can keep paging without losing records; the date
+    /// pipeline threads this resume key into the per-timestamp drain
+    /// AND surfaces it in the opaque `DateCursor` so a replayed
+    /// request resumes the boundary in the same scroll order. The
+    /// pipeline additionally bounds the per-timestamp drain with a
+    /// hard cap to keep the walk finite.
+    pub async fn search_by_date_window(
+        &self,
+        _vector: Vec<f32>,
+        request: &SearchRequest,
+        scope: &AccessScope,
+        query: context69_search::DateWindowQuery,
+    ) -> Result<crate::services::query::DateWindowPage> {
+        use crate::services::query::DateWindowPage;
+        use context69_search::DateBound;
+        let after_exclusive = match query.after {
+            DateBound::Inclusive(value) => Some(value.saturating_sub(1)),
+            DateBound::Unbounded => None,
+        };
+        let before_inclusive = match query.before {
+            DateBound::Inclusive(value) => Some(value),
+            DateBound::Unbounded => None,
+        };
+        let limit = query.limit;
+        let offset = query.offset;
+        if limit == 0 {
+            return Ok(DateWindowPage {
+                hits: Vec::new(),
+                next_offset: None,
+            });
+        }
+        let conditions = self.build_search_conditions(request, scope)?;
+        if conditions.is_short_circuit {
+            return Ok(DateWindowPage {
+                hits: Vec::new(),
+                next_offset: None,
+            });
+        }
+        let range = Range {
+            gt: after_exclusive.map(i64_to_f64),
+            lte: before_inclusive.map(i64_to_f64),
+            ..Default::default()
+        };
+        let mut filter = conditions.filter;
+        filter.push(Condition::range("published_ts", range));
+
+        let mut builder = qdrant_client::qdrant::ScrollPointsBuilder::new(&self.collection_name)
+            .filter(Filter::must(filter))
+            .order_by(date_window_order_by())
+            .limit(limit as u32)
+            .with_payload(
+                qdrant_client::qdrant::with_payload_selector::SelectorOptions::Enable(true),
+            );
+        if let Some(offset_uuid) = offset.as_ref() {
+            builder = builder.offset(PointId::from(offset_uuid.to_string()));
+        }
+
+        let started = Instant::now();
+        let operation = "search_by_date_window";
+        let collection = self.collection_name.clone();
+        let extra = format!("limit={limit}");
+        let response = self
+            .client
+            .scroll(builder)
+            .await
+            .map_err(|err| format_qdrant_error(operation, &collection, &extra, err.into()))?;
+        let hits: Vec<crate::services::query::SearchDatePointHit> = response
+            .result
+            .into_iter()
+            .map(|point| {
+                let point_id = point.id.context("missing qdrant point id")?;
+                let chunk_id = point_id_to_uuid(point_id)?;
+                let published_ts = match point
+                    .order_value
+                    .as_ref()
+                    .and_then(|value| value.variant.as_ref())
+                {
+                    Some(qdrant_client::qdrant::order_value::Variant::Int(value)) => Some(*value),
+                    _ => point.payload.get("published_ts").and_then(|value| match value.kind {
+                        Some(qdrant_client::qdrant::value::Kind::IntegerValue(integer)) => {
+                            Some(integer)
+                        }
+                        _ => None,
+                    }),
+                };
+                Ok(crate::services::query::SearchDatePointHit {
+                    chunk_id,
+                    published_ts,
+                    score: 0.0,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let next_offset: Option<uuid::Uuid> = response
+            .next_page_offset
+            .as_ref()
+            .and_then(|pid| match &pid.point_id_options {
+                Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(value)) => {
+                    uuid::Uuid::parse_str(value).ok()
+                }
+                _ => None,
+            });
+        info!(
+            candidate_count = hits.len(),
+            has_next_offset = next_offset.is_some(),
+            metadata_filter_count = request.metadata_filters.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant date window completed"
+        );
+        Ok(DateWindowPage {
+            hits,
+            next_offset,
+        })
+    }
+
+    /// Build the access/locale/source/date/metadata conditions shared by the
+    /// relevance search and the date-mode window. Returns
+    /// `(filter_conditions, is_short_circuit)` where `is_short_circuit = true`
+    /// means the request resolves to an empty result set (e.g. a scoped group
+    /// path that no longer maps to a group id) and the caller should skip the
+    /// Qdrant round-trip.
+    fn build_search_conditions(
+        &self,
+        request: &SearchRequest,
+        scope: &AccessScope,
+    ) -> Result<BuiltSearchConditions> {
+        let mut filter = Vec::new();
+
+        if let Some(source_key) = &request.source_key {
+            filter.push(Condition::matches("source_key", source_key.clone()));
+        }
+
+        let locale_filter = match request.locale.as_deref() {
+            Some(locale) => Filter::should(vec![
+                Condition::matches("content_locale", locale.to_string()),
+                Condition::matches("content_locale", "original".to_string()),
+                Condition::is_empty("content_locale"),
+            ]),
+            None => Filter::should(vec![
+                Condition::matches("content_locale", "original".to_string()),
+                Condition::is_empty("content_locale"),
+            ]),
+        };
+        filter.push(Condition::from(locale_filter));
+
+        if request.published_after.is_some() || request.published_before.is_some() {
+            let range = Range {
+                gte: request.published_after.map(date_to_timestamp_f64),
+                lte: request.published_before.map(date_to_timestamp_f64),
+                ..Default::default()
+            };
+            filter.push(Condition::range("published_ts", range));
+        }
+
+        filter.extend(
+            request
+                .metadata_filters
+                .iter()
+                .filter_map(metadata_filter_condition),
+        );
+
+        if let Some(group_id) = scope.scoped_group_id {
+            filter.push(Condition::matches("group_id", group_id));
+        } else if scope.group_path.is_some() {
+            // The request was scoped to a group path that no longer resolves.
+            // Returning nothing is safer than silently widening the scope.
+            return Ok(BuiltSearchConditions {
+                filter,
+                is_short_circuit: true,
+            });
+        }
+
+        let access_condition = if scope.private_group_ids.is_empty() {
+            Condition::matches("visibility", "public".to_string())
+        } else {
+            Condition::from(Filter::should(vec![
+                Condition::matches("visibility", "public".to_string()),
+                Condition::matches("group_id", scope.private_group_ids.clone()),
+            ]))
+        };
+        filter.push(access_condition);
+
+        Ok(BuiltSearchConditions {
+            filter,
+            is_short_circuit: false,
+        })
+    }
+
+    /// Snapshot the maximum `published_ts` value visible under the request's
+    /// filter set. The query plan issues one `scroll` ordered by
+    /// `published_ts DESC` with limit 1 so the result is the latest record
+    /// the user can see under their current filters. When the index has no
+    /// visible rows, returns `Ok(None)`.
+    pub async fn date_max_published_ts(
+        &self,
+        request: &SearchRequest,
+        scope: &AccessScope,
+    ) -> Result<Option<i64>> {
+        let conditions = self.build_search_conditions(request, scope)?;
+        if conditions.is_short_circuit {
+            return Ok(None);
+        }
+        let builder = qdrant_client::qdrant::ScrollPointsBuilder::new(&self.collection_name)
+            .filter(Filter::must(conditions.filter))
+            .order_by(date_window_order_by())
+            .limit(1)
+            .with_payload(
+                qdrant_client::qdrant::with_payload_selector::SelectorOptions::Enable(true),
+            );
+        let operation = "date_max_published_ts";
+        let collection = self.collection_name.clone();
+        let extra = "limit=1".to_string();
+        let response = self
+            .client
+            .scroll(builder)
+            .await
+            .map_err(|err| format_qdrant_error(operation, &collection, &extra, err.into()))?;
+        Ok(response.result.into_iter().find_map(|point| {
+            point
+                .order_value
+                .as_ref()
+                .and_then(|value| match value.variant.as_ref() {
+                    Some(qdrant_client::qdrant::order_value::Variant::Int(value)) => Some(*value),
+                    _ => None,
+                })
+                .or_else(|| {
+                    point.payload.get("published_ts").and_then(|value| match value.kind {
+                        Some(qdrant_client::qdrant::value::Kind::IntegerValue(integer)) => {
+                            Some(integer)
+                        }
+                        _ => None,
+                    })
+                })
+        }))
+    }
+
     pub async fn count_points(&self) -> Result<u64> {
         let operation = "count_points";
         let collection = self.collection_name.clone();
@@ -472,6 +694,33 @@ impl QdrantIndex {
     fn is_noop(&self) -> bool {
         self.collection_name == "test-noop"
     }
+}
+
+/// Output of `QdrantIndex::build_search_conditions`. `is_short_circuit = true`
+/// means the conditions (e.g. a scoped-but-missing group) resolve to an empty
+/// result set and the caller should skip the Qdrant round-trip.
+struct BuiltSearchConditions {
+    filter: Vec<Condition>,
+    is_short_circuit: bool,
+}
+
+/// Build the Qdrant `OrderBy` used by the date-mode window walk. The order
+/// is a non-vector key — by `published_ts` descending — so the returned
+/// ordering is dictated by the payload field, not the similarity score. The
+/// `score` field of the response is therefore only kept for observability;
+/// the date pipeline keeps the Qdrant `scroll` return order verbatim and
+/// threads the Qdrant-side `next_page_offset` through the per-timestamp
+/// drain + the opaque `DateCursor` (see `search_by_date_window` and
+/// `search_cursor::DateCursor` for the full resume contract). The legacy
+/// `chunk_id ASC` tie-break is NOT applied here: the qdrant-client 1.19
+/// `OrderBy` API only supports a single key, so the within-boundary order
+/// is whatever the Qdrant `scroll` emits and is stable per ordering epoch.
+fn date_window_order_by() -> qdrant_client::qdrant::OrderBy {
+    use qdrant_client::qdrant::{Direction, OrderByBuilder};
+
+    OrderByBuilder::new("published_ts".to_string())
+        .direction(Direction::Desc as i32)
+        .build()
 }
 
 fn metadata_filter_condition(filter: &MetadataFilter) -> Option<Condition> {
@@ -597,7 +846,11 @@ fn date_to_timestamp(date: DateTime<Utc>) -> i64 {
 }
 
 fn date_to_timestamp_f64(date: DateTime<Utc>) -> f64 {
-    date_to_timestamp(date) as f64
+    i64_to_f64(date_to_timestamp(date))
+}
+
+fn i64_to_f64(value: i64) -> f64 {
+    value as f64
 }
 
 fn chunk_payload_json(payload: &ChunkPayload) -> serde_json::Value {

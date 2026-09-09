@@ -11,11 +11,13 @@ import LibraryMoveDialog from "./LibraryMoveDialog.vue";
 import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
 import LibraryToolbar from "./LibraryToolbar.vue";
+import MarkdownChunk from "./MarkdownChunk.vue";
 import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
 import { groupContextItems, resourceContextItems, surfaceContextItems } from "./project-files-context-menu";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
 import { useProjectLibraryPage } from "../composables/project-library/use-project-library-page";
+import { useScopedContentSearch } from "../composables/project-library/use-scoped-content-search";
 import { useGroupBrowserEntries } from "../composables/project-library/use-group-browser-entries";
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
@@ -46,6 +48,10 @@ type FileUploadController = {
   inputRef?: HTMLInputElement;
 };
 
+function openFilePicker() {
+  fileUpload.value?.inputRef?.click();
+}
+
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
@@ -73,6 +79,11 @@ const detail = useProjectLibraryDetail({
   t,
 });
 const detailState = proxyRefs(detail);
+const scopedSearch = proxyRefs(useScopedContentSearch({
+  groupPath: () => props.groupPath,
+  folderPath: () => tree.selectedFolder.value?.path ?? null,
+  t,
+}));
 const sourceFolderState = proxyRefs(useProjectSourceFolder({
   groupPath: () => props.groupPath,
   selectedFolder: tree.selectedFolder,
@@ -113,6 +124,14 @@ const visibleGroupEntries = computed(() => treeState.selectedFolderId || pageSta
 const visibleChildGroupPage = computed(() => treeState.selectedFolderId || pageState.page !== 1 || pageState.statusFilter
   ? undefined
   : props.childGroupPage);
+const currentFolderName = computed(() => treeState.selectedFolderSummary?.name ?? "");
+const scopedSearchPlaceholder = computed(() => t("search.scoped.placeholder", { folder: currentFolderName.value }));
+const scopedSearchTitle = computed(() => t("search.scoped.title", { folder: currentFolderName.value }));
+
+function runScopedSearch() {
+  if (!scopedSearch.query.trim()) return;
+  void scopedSearch.run();
+}
 
 const groupContextEntry = ref<GroupExplorerEntry | null>(null);
 const fileUpload = ref<FileUploadController | null>(null);
@@ -300,6 +319,24 @@ onBeforeUnmount(() => {
     <Teleport to="#app-route-actions">
       <div class="flex items-center gap-2">
         <UInput v-model="pageState.query" class="w-40 sm:w-56" icon="i-lucide-search" :placeholder="t('nav.search')" />
+        <UInput
+          v-model="scopedSearch.query"
+          class="hidden w-40 sm:inline-flex md:w-56"
+          icon="i-lucide-scan-text"
+          data-testid="scoped-content-search-input"
+          :aria-label="scopedSearchPlaceholder"
+          :placeholder="scopedSearchPlaceholder"
+          :title="scopedSearchPlaceholder"
+          @keydown.enter="runScopedSearch"
+        />
+        <UButton
+          class="hidden shrink-0 sm:inline-flex"
+          icon="i-lucide-scan-text"
+          data-testid="scoped-content-search-trigger"
+          :label="t('search.scoped.run')"
+          :loading="scopedSearch.loading"
+          @click="runScopedSearch"
+        />
         <UDropdownMenu :items="createMenuItems" :content="{ align: 'end' }">
           <UButton icon="i-lucide-plus" :label="t('common.new')" class="hidden sm:inline-flex" />
           <UButton icon="i-lucide-plus" aria-label="New" class="sm:hidden" />
@@ -309,14 +346,14 @@ onBeforeUnmount(() => {
           :label="t('common.upload')"
           class="hidden sm:inline-flex"
           :loading="actionsState.uploadBusy"
-          @click="fileUpload?.select()"
+          @click="openFilePicker"
         />
         <UButton
           icon="i-lucide-upload"
           aria-label="Upload"
           class="sm:hidden"
           :loading="actionsState.uploadBusy"
-          @click="fileUpload?.select()"
+          @click="openFilePicker"
         />
       </div>
     </Teleport>
@@ -451,6 +488,46 @@ onBeforeUnmount(() => {
           @retry="actionsState.retryFile"
           @update:active-section-key="detailState.activeSectionKey = $event"
         />
+      </template>
+    </UModal>
+
+    <UModal
+      v-model:open="scopedSearch.modalVisible"
+      :title="scopedSearchTitle"
+      class="w-[min(96vw,72rem)] max-w-[min(96vw,72rem)]"
+    >
+      <template #body>
+        <div class="grid min-w-0 gap-3">
+          <div v-if="scopedSearch.loading" class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+            <UIcon name="i-lucide-loader-circle" class="h-8 w-8 animate-spin text-muted" />
+            <p class="text-sm text-muted">{{ t("search.scoped.searching") }}</p>
+          </div>
+          <UAlert
+            v-else-if="scopedSearch.results.length === 0"
+            variant="subtle"
+            :title="t('search.scoped.noResultsTitle')"
+            :description="t('search.scoped.noResultsMessage')"
+          />
+          <ul
+            v-else
+            data-testid="scoped-content-search-results"
+            class="grid min-h-0 min-w-0 gap-3 overflow-y-auto"
+          >
+            <li
+              v-for="hit in scopedSearch.results"
+              :key="hit.chunk_id"
+              class="min-w-0 rounded-md border border-default p-3"
+            >
+              <div class="flex min-w-0 items-start justify-between gap-2">
+                <p class="min-w-0 truncate text-sm font-semibold text-color" :title="hit.title">{{ hit.title }}</p>
+                <span class="shrink-0 text-xs text-muted">{{ hit.group_path }}</span>
+              </div>
+              <div class="mt-2 min-w-0">
+                <MarkdownChunk :content="hit.chunk_text" markdown :highlight="scopedSearch.query" />
+              </div>
+            </li>
+          </ul>
+        </div>
       </template>
     </UModal>
   </div>

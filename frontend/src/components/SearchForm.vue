@@ -5,25 +5,40 @@ import { parseDate } from "@internationalized/date";
 import type { DateValue } from "@internationalized/date";
 
 import AppFormField from "./AppFormField.vue";
-import type { SourceStatus } from "../services/api";
-import type { SearchFilters } from "../types/ui";
+import type { GroupResponse, SourceStatus } from "../services/api";
+import type { SearchFilters, SearchSortMode } from "../types/ui";
 import type { SearchHistoryEntry } from "../utils/search-history";
+import { GROUP_FOLDER_ALL_VALUE, groupFolderOptions } from "../utils/search";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   filters: SearchFilters;
   historyEntries: SearchHistoryEntry[];
   sources: SourceStatus[];
   busy: boolean;
-}>();
+  groups?: GroupResponse[];
+}>(), {
+  groups: () => [],
+});
 
 const emit = defineEmits<{
   "update:filters": [SearchFilters];
   "history-select": [SearchHistoryEntry];
+  "group-change": [string | null];
   submit: [];
 }>();
 
 const { t } = useI18n();
 const advancedFiltersOpen = ref(false);
+
+const sortOptions = computed<Array<{ label: string; value: SearchSortMode }>>(() => [
+  { label: t("search.form.sortRelevance"), value: "relevance" },
+  { label: t("search.form.sortDate"), value: "date" },
+]);
+
+const sortModel = computed({
+  get: () => props.filters.sort ?? "relevance",
+  set: (value: SearchSortMode) => patchFilters({ sort: value }),
+});
 
 function patchFilters(next: Partial<SearchFilters>) {
   emit("update:filters", {
@@ -92,6 +107,24 @@ const sourceModel = computed({
   set: (value: string) => patchFilters({ sourceKey: value === "__all__" ? "" : value }),
 });
 
+const folderOptions = computed(() => [
+  { label: t("search.form.allGroups"), value: GROUP_FOLDER_ALL_VALUE },
+  ...groupFolderOptions(props.groups),
+]);
+
+const groupFolderModel = computed({
+  get: () => props.filters.groupPath ?? GROUP_FOLDER_ALL_VALUE,
+  set: (value: string) => {
+    if (value === GROUP_FOLDER_ALL_VALUE) {
+      patchFilters({ groupPath: "" });
+      emit("group-change", null);
+      return;
+    }
+    patchFilters({ groupPath: value });
+    emit("group-change", value);
+  },
+});
+
 const limitModel = computed({
   get: () => props.filters.limit,
   set: (value: number | null) => {
@@ -130,6 +163,16 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => props.filters.sort,
+  (sort) => {
+    if (sort === "date") {
+      advancedFiltersOpen.value = true;
+    }
+  },
+  { immediate: true },
+);
+
 function resetForm() {
   advancedFiltersOpen.value = false;
   emit("update:filters", {
@@ -138,6 +181,8 @@ function resetForm() {
     publishedAfter: "",
     publishedBefore: "",
     limit: 8,
+    groupPath: "",
+    sort: "relevance",
   });
 }
 </script>
@@ -146,23 +191,33 @@ function resetForm() {
   <div class="block w-full min-w-0 overflow-hidden">
     <form class="grid w-full min-w-0 gap-2" @submit.prevent="emit('submit')">
       <div class="grid min-w-0 items-center gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <UInputMenu
-          id="query"
-          class="min-w-0"
-          mode="autocomplete"
-          :model-value="filters.query"
-          :items="historyEntries"
-          label-key="query"
-          data-testid="search-query"
-          size="sm"
-          :placeholder="t('search.form.query')"
-          :filter-fields="['query']"
-          @update:model-value="updateQuery"
-        >
-          <template #item-label="{ item }">
-            <span class="block truncate" :title="typeof item === 'string' ? item : (item as SearchHistoryEntry).query">{{ typeof item === 'string' ? item : (item as SearchHistoryEntry).query }}</span>
-          </template>
-        </UInputMenu>
+        <div class="min-w-0">
+          <UInputMenu
+            id="query"
+            class="min-w-0"
+            mode="autocomplete"
+            :model-value="filters.query"
+            :items="historyEntries"
+            label-key="query"
+            data-testid="search-query"
+            size="sm"
+            :placeholder="t('search.form.query')"
+            :filter-fields="['query']"
+            @update:model-value="updateQuery"
+          >
+            <template #item-label="{ item }">
+              <span class="block truncate" :title="typeof item === 'string' ? item : (item as SearchHistoryEntry).query">{{ typeof item === 'string' ? item : (item as SearchHistoryEntry).query }}</span>
+            </template>
+          </UInputMenu>
+          <div
+            v-if="sortModel === 'date'"
+            data-testid="search-sort-mode"
+            class="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted"
+          >
+            <UIcon name="i-lucide-calendar-clock" class="h-3.5 w-3.5" />
+            <span class="truncate">{{ t("search.form.sortDateLabel") }}</span>
+          </div>
+        </div>
 
         <div class="flex min-w-0 items-stretch justify-end gap-1.5">
           <UButton
@@ -217,6 +272,48 @@ function resetForm() {
               :use-grouping="false"
               class="w-full"
             />
+          </AppFormField>
+        </div>
+
+        <div class="grid min-w-0 gap-2 sm:grid-cols-1">
+          <AppFormField input-id="sort" :label="t('search.form.sort')">
+            <div class="min-w-0">
+              <USelect
+                id="sort"
+                v-model="sortModel"
+                data-testid="search-sort"
+                :items="sortOptions"
+                label-key="label"
+                value-key="value"
+                class="w-full min-w-0"
+                :ui="{ content: 'max-w-[min(90vw,22rem)]' }"
+              >
+                <template #item-label="{ item }">
+                  <span class="block truncate" :title="item.label">{{ item.label }}</span>
+                </template>
+              </USelect>
+            </div>
+          </AppFormField>
+        </div>
+
+        <div class="grid min-w-0 gap-2 sm:grid-cols-1">
+          <AppFormField input-id="group-path" :label="t('search.form.groupPath')">
+            <div class="min-w-0">
+              <USelect
+                id="group-path"
+                v-model="groupFolderModel"
+                data-testid="search-group-path"
+                :items="folderOptions"
+                label-key="label"
+                value-key="value"
+                class="w-full min-w-0"
+                :ui="{ content: 'max-w-[min(90vw,28rem)]' }"
+              >
+                <template #item-label="{ item }">
+                  <span class="block min-w-0 truncate" :title="item.label">{{ item.label }}</span>
+                </template>
+              </USelect>
+            </div>
           </AppFormField>
         </div>
 

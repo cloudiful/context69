@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::{RerankHit, SearchSettings};
 
-const SEARCH_KEY_PREFIX: &str = "context69:search:v1:";
+// v2 invalidates cached responses that predate the derived per-hit match_reason
+// carried on SearchHit; old cached payloads would serve stale reason values.
+const SEARCH_KEY_PREFIX: &str = "context69:search:v2:";
 const EMBED_TTL_SECS: u64 = 24 * 60 * 60;
 const RERANK_ITEM_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 const RERANK_BATCH_TTL_SECS: u64 = 15 * 60;
@@ -73,13 +75,40 @@ impl SearchCache {
         hash_string(&serde_json::to_string(request).unwrap_or_default())
     }
 
+    pub fn filter_hash(request: &SearchRequest) -> String {
+        // The cursor binds the *filter context* (locale, source, group, dates,
+        // metadata filters) so reusing a cursor with a different filter still
+        // slices the wrong window. We deliberately exclude the query text and
+        // limit/generation/settings (they have their own hash fields) and the
+        // cursor payload itself, which is round-tripped back in the same form.
+        let mut hasher = Sha256::new();
+        hasher.update(b"filter_hash:v1\n");
+        hasher.update(format!("locale={}\n", request.locale.as_deref().unwrap_or("")).as_bytes());
+        hasher.update(format!("source_key={}\n", request.source_key.as_deref().unwrap_or("")).as_bytes());
+        hasher.update(format!("group_path={}\n", request.group_path.as_deref().unwrap_or("")).as_bytes());
+        let after = request
+            .published_after
+            .map(|value| value.to_rfc3339())
+            .unwrap_or_default();
+        let before = request
+            .published_before
+            .map(|value| value.to_rfc3339())
+            .unwrap_or_default();
+        hasher.update(format!("published_after={after}\npublished_before={before}\n").as_bytes());
+        let filters = serde_json::to_string(&request.metadata_filters).unwrap_or_default();
+        hasher.update(format!("metadata_filters={filters}\n").as_bytes());
+        hex_string(&hasher.finalize())
+    }
+
     pub fn settings_hash(settings: &SearchSettings) -> String {
         hash_string(&format!(
-            "mode={}\nrerank_enabled={}\nrerank_model={}\ncandidate_limit={}",
+            "mode={}\nrerank_enabled={}\nrerank_model={}\ncandidate_limit={}\nvector_weight={}\nkeyword_weight={}",
             settings.mode.as_str(),
             settings.rerank_enabled,
             settings.rerank_model,
-            settings.candidate_limit
+            settings.candidate_limit,
+            settings.vector_weight,
+            settings.keyword_weight
         ))
     }
 

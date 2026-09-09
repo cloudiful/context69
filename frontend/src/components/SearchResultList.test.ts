@@ -178,7 +178,7 @@ describe("SearchResultList", () => {
         external_id: "ext-a",
         group_key: "g",
         group_path: "g/p",
-        visibility: "private",
+        visibility: "private" as const,
         title: "Alpha",
         summary: "",
         source_uri: "https://example.com/a",
@@ -195,7 +195,7 @@ describe("SearchResultList", () => {
         external_id: "ext-b",
         group_key: "g",
         group_path: "g/p",
-        visibility: "private",
+        visibility: "private" as const,
         title: "Beta",
         summary: "",
         source_uri: "https://example.com/b",
@@ -237,9 +237,11 @@ describe("SearchResultList", () => {
     }
 
     await selectButtons[0].trigger("click");
-    expect(wrapper.emitted("select")?.[0]?.[0]).toEqual(expect.objectContaining({ chunk_id: "chunk-a" }));
+    expect(wrapper.emitted("preview")?.[0]?.[0]).toEqual(expect.objectContaining({ chunk_id: "chunk-a" }));
 
-    // ensure both document and library open targets work (here both are documents)
+    // inline preview and open actions are distinct; open targets the document
+    await wrapper.findAll('[data-testid="search-result-preview"]')[0].trigger("click");
+    expect(wrapper.emitted("preview")?.[0]?.[0]).toEqual(expect.objectContaining({ chunk_id: "chunk-a" }));
     await wrapper.findAll('[data-testid="search-result-open"]')[0].trigger("click");
     expect(wrapper.emitted("open")?.[0]?.[0]).toEqual(expect.objectContaining({ chunk_id: "chunk-a" }));
   });
@@ -259,11 +261,12 @@ describe("SearchResultList", () => {
     expect(scrollClass).toContain(" overflow-y-auto ");
     expect(wrapper.html()).not.toContain("min(56vh");
     expect(wrapper.html()).not.toContain("max-h-[min(56vh");
-    // Pagination stays mounted for bounded navigation.
-    expect(wrapper.findComponent({ name: "TablePagination" }).exists()).toBe(true);
+    // Cursor-style pagination stays mounted for bounded navigation.
+    expect(wrapper.find('[data-testid="search-prev"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="search-next"]').exists()).toBe(true);
   });
 
-  it("keeps row keyboard focus outline while hover stays transparent", async () => {
+  it("keeps title link focus outline without ghost hover fill", async () => {
     const wrapper = mount(SearchResultList, {
       props: {
         pagination: { page: 1, page_size: 8, total: 1, total_pages: 1 },
@@ -289,12 +292,12 @@ describe("SearchResultList", () => {
       },
       global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
-    const tbody = wrapper.find("tbody");
-    expect(tbody.exists()).toBe(true);
-    const tbodyClass = tbody.attributes("class") ?? "";
-    expect(tbodyClass).toContain("hover:bg-transparent");
-    expect(tbodyClass).toContain("focus-visible:outline-3");
-    expect(tbodyClass).not.toContain("hover:bg-elevated");
+    // Scholar-density rows are rendered as a list, not a UTable.
+    expect(wrapper.find("tbody").exists()).toBe(false);
+    expect(wrapper.findAll('[data-testid="search-result-item"]')).toHaveLength(1);
+    const titleButton = wrapper.get('[data-testid="search-result-select"]');
+    // The title link must not carry a ghost hover fill; focus outline stays native.
+    expect(titleButton.html()).not.toContain("hover:bg");
   });
 
   it("keeps pagination visible with stable height and does not error on zero total", async () => {
@@ -310,17 +313,19 @@ describe("SearchResultList", () => {
     expect(wrapper.html()).not.toContain("undefined");
   });
 
-  it("uses compact page size options including current limit", async () => {
+  it("navigates with ordering-epoch cursors and keeps compact page size options", async () => {
     const wrapper = mount(SearchResultList, {
       props: {
-        pagination: { page: 1, page_size: 8, total: 20, total_pages: 3 },
+        pagination: { page: 2, page_size: 8, total: 20, total_pages: 3, has_more: true, next_cursor: "c1:16", prev_cursor: "c1:0" },
         hits: [],
       },
       global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
-    // pageSizeOptions computed includes 8
-    const paginationComp = wrapper.findComponent({ name: "TablePagination" });
-    // TablePagination should be rendered
-    expect(paginationComp.exists()).toBe(true);
+    // pageSizeOptions computed includes 8 through the page-size select.
+    expect(wrapper.find('[data-testid="search-page-size"]').exists()).toBe(true);
+    await wrapper.get('[data-testid="search-prev"]').trigger("click");
+    expect(wrapper.emitted("prev")).toBeTruthy();
+    await wrapper.get('[data-testid="search-next"]').trigger("click");
+    expect(wrapper.emitted("next")).toBeTruthy();
   });
 });

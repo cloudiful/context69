@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import type { SearchHit } from "../services/api";
 import { formatDate, formatScore } from "../utils/format";
+import { matchReasonTokens } from "../utils/search";
+import MarkdownChunk from "./MarkdownChunk.vue";
 
-defineProps<{
+const props = defineProps<{
   selectedHit: SearchHit | null;
+  highlight?: string;
 }>();
 
 const emit = defineEmits<{
@@ -14,22 +18,58 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+const reasonTags = computed(() =>
+  props.selectedHit ? matchReasonTokens(props.selectedHit.match_reason) : [],
+);
+const scoreTooltip = computed(() => {
+  if (!props.selectedHit) {
+    return "";
+  }
+  return t("search.result.scoreLabel", { score: formatScore(props.selectedHit.score) });
+});
+
+function reasonTagLabel(token: string): string {
+  switch (token) {
+    case "semantic":
+      return t("search.result.reasonSemantic");
+    case "title":
+      return t("search.result.reasonTitle");
+    case "keyword":
+      return t("search.result.reasonKeyword");
+    default:
+      return token;
+  }
+}
+
 function isHttpUri(value: string | null | undefined): boolean {
-  if (!value) return false;
+  if (!value) {
+    return false;
+  }
   return /^https?:\/\//i.test(value.trim());
 }
 </script>
 
 <template>
-  <UCard data-testid="search-selection-preview" class="min-w-0 overflow-hidden xl:sticky xl:top-3 xl:max-h-[calc(100vh-6rem)] xl:overflow-auto">
+  <div data-testid="search-selection-preview" class="grid min-w-0 gap-3">
     <div v-if="selectedHit" class="grid min-w-0 gap-2">
       <div class="flex min-w-0 items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
           <h3 class="truncate text-base font-semibold text-color" :title="selectedHit.title">{{ selectedHit.title }}</h3>
-          <p class="truncate text-xs leading-5 text-muted-color" :title="`${formatDate(selectedHit.published_at)} · ${formatScore(selectedHit.score)}`">
-            {{ t("search.result.published", { date: formatDate(selectedHit.published_at) }) }}
-            · {{ t("search.result.score") }} {{ formatScore(selectedHit.score) }}
-          </p>
+          <div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-color">
+            <span :title="scoreTooltip">{{ formatDate(selectedHit.published_at) }}</span>
+            <span aria-hidden="true">·</span>
+            <span class="min-w-0 truncate">{{ selectedHit.group_path }}</span>
+          </div>
+          <div v-if="reasonTags.length" class="mt-1 flex flex-wrap gap-1">
+            <UBadge
+              v-for="tag in reasonTags"
+              :key="tag"
+              :label="reasonTagLabel(tag)"
+              color="primary"
+              variant="subtle"
+              size="sm"
+            />
+          </div>
         </div>
         <UButton
           data-testid="search-preview-open"
@@ -53,7 +93,9 @@ function isHttpUri(value: string | null | undefined): boolean {
         :title="selectedHit.source_uri ?? undefined"
       >{{ selectedHit.source_uri }}</a>
 
-      <pre class="mt-1 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ selectedHit.chunk_text }}</pre>
+      <div class="min-w-0">
+        <MarkdownChunk :content="selectedHit.chunk_text" markdown :highlight="highlight ?? ''" />
+      </div>
     </div>
 
     <UAlert
@@ -62,5 +104,5 @@ function isHttpUri(value: string | null | undefined): boolean {
       :title="t('search.noMatchesTitle')"
       :description="t('search.noMatchesMessage')"
     />
-  </UCard>
+  </div>
 </template>

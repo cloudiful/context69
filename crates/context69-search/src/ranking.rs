@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use context69_contracts::SearchHit;
+use uuid::Uuid;
 
 use crate::{CachedRerankItemScore, RerankHit};
 
@@ -9,10 +10,36 @@ struct Candidate {
     hit: SearchHit,
 }
 
+/// Normalized hybrid fusion weights: `vector` and `keyword` come from
+/// `SearchSettings`, and `boost` closes the unit budget so that
+/// `vector + keyword + boost = 1`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FusionWeights {
+    pub vector: f32,
+    pub keyword: f32,
+    pub boost: f32,
+}
+
+impl FusionWeights {
+    pub(crate) fn new(vector: f32, keyword: f32) -> Self {
+        let vector = vector.clamp(0.0, 1.0);
+        // The keyword share may not exceed the budget the vector share leaves
+        // behind. Settings validation enforces this already; the clamp only
+        // keeps the unit-budget invariant for defensive callers.
+        let keyword = keyword.clamp(0.0, (1.0 - vector).max(0.0));
+        Self {
+            vector,
+            keyword,
+            boost: (1.0 - vector - keyword).max(0.0),
+        }
+    }
+}
+
 pub(crate) fn merge_candidates(
     vector_results: Vec<SearchHit>,
     keyword_results: Vec<SearchHit>,
     query: &str,
+    weights: FusionWeights,
 ) -> Vec<SearchHit> {
     let mut candidates: HashMap<(i64, i32), Candidate> = HashMap::new();
 
@@ -36,7 +63,7 @@ pub(crate) fn merge_candidates(
     candidates
         .into_values()
         .map(|mut candidate| {
-            candidate.hit.score = local_score(&candidate.hit, query);
+            candidate.hit.score = local_score(&candidate.hit, query, weights);
             candidate.hit
         })
         .collect()
@@ -67,23 +94,35 @@ fn max_score(left: Option<f32>, right: Option<f32>) -> Option<f32> {
     }
 }
 
-pub(crate) fn local_score(hit: &SearchHit, query: &str) -> f32 {
+pub(crate) fn local_score(hit: &SearchHit, query: &str, weights: FusionWeights) -> f32 {
     let vector_score = hit.vector_score.unwrap_or(0.0).clamp(0.0, 1.0);
-    let keyword_score = hit.keyword_score.unwrap_or(0.0).min(2.37) / 2.37;
+    // Keyword hits carry a trgm/cosine-like magnitude whose observed ceiling is
+    // 2.37; dividing by 2.37 normalizes the channel onto [0, 1] for fusion.
+    let keyword_score = (hit.keyword_score.unwrap_or(0.0).min(2.37) / 2.37).clamp(0.0, 1.0);
+    let base = vector_score * weights.vector + keyword_score * weights.keyword;
+
     let query_lc = query.trim().to_lowercase();
     let title_lc = hit.title.to_lowercase();
     let chunk_lc = hit.chunk_text.to_lowercase();
-    let boost = if !query_lc.is_empty() && title_lc == query_lc {
-        0.18
+    // Boost tiers multiply the configured boost weight: `weights.boost` is the
+    // residual 1 - vector - keyword budget, so under the default weights (boost
+    // share 0.10) the 1.8 / 1.4 / 1.0 tiers reproduce the legacy flat 0.18 /
+    // 0.14 / 0.10 additions exactly, and rebalancing the fusion weights scales
+    // the additions proportionally. The add stays capped by the residual unit
+    // budget (1 - base), so fully saturated channel combinations reach the 1.0
+    // ceiling while mid-range hits keep their spread.
+    let boost_multiplier = if !query_lc.is_empty() && title_lc == query_lc {
+        1.8
     } else if !query_lc.is_empty() && title_lc.contains(&query_lc) {
-        0.14
+        1.4
     } else if !query_lc.is_empty() && chunk_lc.contains(&query_lc) {
-        0.10
+        1.0
     } else {
         0.0
     };
+    let boost_add = (boost_multiplier * weights.boost).min(1.0 - base);
 
-    (vector_score * 0.55 + keyword_score * 0.35 + boost).min(1.0)
+    base + boost_add
 }
 
 pub(crate) fn compare_hits(left: &SearchHit, right: &SearchHit) -> std::cmp::Ordering {
@@ -108,36 +147,74 @@ pub(crate) fn rerank_document_text(hit: &SearchHit) -> String {
 }
 
 pub(crate) fn apply_rerank(
-    mut candidates: Vec<SearchHit>,
-    reranked: Vec<RerankHit>,
+    candidates: Vec<SearchHit>,
+    rerank_candidates: &[SearchHit],
+    reranked: &[RerankHit],
     requested_limit: usize,
 ) -> Vec<SearchHit> {
-    let mut output = Vec::new();
-    for result in reranked {
-        if result.index >= candidates.len() {
-            continue;
+    // Map position in the stable `rerank_candidates` snapshot to the
+    // relevance rank in the rerank output (its index in `reranked`) and the
+    // score. The snapshot is the same regardless of the page offset, so
+    // two requests sharing a query/filters/generation hit the same cache
+    // entry and produce a consistent cross-page ordering.
+    let mut position_to_score: HashMap<usize, f32> = HashMap::new();
+    for hit in reranked {
+        position_to_score.insert(hit.index, hit.score);
+    }
+    // Relevance rank: lower is better, assigned by position in `reranked`.
+    // This is the key the final sort must use, not the snapshot position
+    // (which would re-introduce the local ordering for items the rerank
+    // already re-ordered).
+    let mut position_to_rank: HashMap<usize, usize> = HashMap::new();
+    for (rank, hit) in reranked.iter().enumerate() {
+        position_to_rank.insert(hit.index, rank);
+    }
+    // Build chunk_id -> (relevance rank, rerank score) for snapshot items
+    // that actually came back with a score. Items absent from the snapshot or
+    // unranked fall back to the local hybrid ordering.
+    let mut scored_snapshot: HashMap<Uuid, (usize, f32)> = HashMap::new();
+    for (pos, snapshot_hit) in rerank_candidates.iter().enumerate() {
+        if let (Some(rank), Some(score)) =
+            (position_to_rank.get(&pos), position_to_score.get(&pos))
+        {
+            scored_snapshot.insert(snapshot_hit.chunk_id, (*rank, *score));
         }
-        let mut hit = candidates[result.index].clone();
-        hit.rerank_score = Some(result.score);
-        hit.score = result.score;
-        output.push(hit);
     }
 
-    if output.len() < requested_limit {
-        let used = output.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>();
-        candidates.sort_by(compare_hits);
-        for hit in candidates {
-            if output.len() >= requested_limit {
-                break;
-            }
-            if !used.contains(&hit.chunk_id) {
-                output.push(hit);
-            }
-        }
+    // Annotate each candidate: scored items carry the rerank score and
+    // the relevance rank, unscored items keep their local score.
+    enum Order {
+        Scored { rank: usize },
+        Local,
     }
+    let mut annotated: Vec<(SearchHit, Order)> = candidates
+        .into_iter()
+        .map(|mut hit| {
+            if let Some(&(rank, score)) = scored_snapshot.get(&hit.chunk_id) {
+                hit.rerank_score = Some(score);
+                hit.score = score;
+                (hit, Order::Scored { rank })
+            } else {
+                (hit, Order::Local)
+            }
+        })
+        .collect();
 
-    output.truncate(requested_limit);
-    output
+    // Sort: scored items first, ordered by their relevance rank. Local
+    // items follow in the existing deterministic hybrid order. The two
+    // regions must not interleave or a page-2 slice could drop a page-1 row.
+    annotated.sort_by(|left, right| match (&left.1, &right.1) {
+        (Order::Scored { rank: l }, Order::Scored { rank: r }) => l.cmp(r),
+        (Order::Scored { .. }, Order::Local) => std::cmp::Ordering::Less,
+        (Order::Local, Order::Scored { .. }) => std::cmp::Ordering::Greater,
+        (Order::Local, Order::Local) => compare_hits(&left.0, &right.0),
+    });
+
+    annotated
+        .into_iter()
+        .take(requested_limit)
+        .map(|(hit, _)| hit)
+        .collect()
 }
 
 pub(crate) fn merge_cached_item_scores(
@@ -164,8 +241,13 @@ mod tests {
     use crate::{CachedRerankItemScore, RerankHit};
 
     use super::{
-        apply_rerank, compare_hits, local_score, merge_cached_item_scores, merge_candidates,
+        FusionWeights, apply_rerank, compare_hits, local_score, merge_cached_item_scores,
+        merge_candidates,
     };
+
+    fn default_weights() -> FusionWeights {
+        FusionWeights::new(0.55, 0.35)
+    }
 
     fn hit(chunk_id: Uuid, title: &str, chunk_text: &str) -> SearchHit {
         SearchHit {
@@ -208,7 +290,133 @@ mod tests {
         let mut semantic = hit(Uuid::new_v4(), "AI rollout", "semantic policy text");
         semantic.vector_score = Some(0.50);
 
-        assert!(local_score(&exact, "deepseek") > local_score(&semantic, "deepseek"));
+        assert!(
+            local_score(&exact, "deepseek", default_weights())
+                > local_score(&semantic, "deepseek", default_weights())
+        );
+    }
+
+    #[test]
+    fn default_boost_tiers_reproduce_legacy_flat_additions() {
+        // Hits without channel scores have a zero base, isolating the boost
+        // addition. Default boost share is 0.10 (1 - 0.55 - 0.35), so the
+        // 1.8 / 1.4 / 1.0 multipliers must add 0.18 / 0.14 / 0.10 exactly.
+        let exact_title = hit(Uuid::new_v4(), "DeepSeek", "unrelated body");
+        let title_contains = hit(Uuid::new_v4(), "DeepSeek rollout", "unrelated body");
+        let chunk_contains = hit(Uuid::new_v4(), "Unrelated title", "deepseek policy body");
+        let no_match = hit(Uuid::new_v4(), "Unrelated title", "unrelated body");
+        let weights = default_weights();
+        assert!((weights.boost - 0.10).abs() < 1e-6);
+        assert!(
+            (local_score(&exact_title, "deepseek", weights) - 0.18).abs() < 1e-6,
+            "exact title tier must add the legacy 0.18"
+        );
+        assert!(
+            (local_score(&title_contains, "deepseek", weights) - 0.14).abs() < 1e-6,
+            "title-contains tier must add the legacy 0.14"
+        );
+        assert!(
+            (local_score(&chunk_contains, "deepseek", weights) - 0.10).abs() < 1e-6,
+            "chunk-contains tier must add the legacy 0.10"
+        );
+        assert_eq!(local_score(&no_match, "deepseek", weights), 0.0);
+    }
+
+    #[test]
+    fn rebalanced_boost_weight_scales_tiers_and_stays_capped() {
+        // Move 0.10 of the vector share into the boost share: 0.10 -> 0.20.
+        let rebalanced = FusionWeights::new(0.45, 0.35);
+        assert!((rebalanced.boost - 0.20).abs() < 1e-6);
+
+        let exact_title = hit(Uuid::new_v4(), "DeepSeek", "unrelated body");
+        let title_contains = hit(Uuid::new_v4(), "DeepSeek rollout", "unrelated body");
+        let chunk_contains = hit(Uuid::new_v4(), "Unrelated title", "deepseek policy body");
+
+        // Doubling the boost share doubles the additions: 1.8 / 1.4 / 1.0 * 0.20.
+        assert!((local_score(&exact_title, "deepseek", rebalanced) - 0.36).abs() < 1e-6);
+        assert!((local_score(&title_contains, "deepseek", rebalanced) - 0.28).abs() < 1e-6);
+        assert!((local_score(&chunk_contains, "deepseek", rebalanced) - 0.20).abs() < 1e-6);
+
+        // Saturated channels still cap the add at the residual budget: base 0.80
+        // (vector 1.0 + keyword 2.37) leaves 0.20, so the 0.36 exact-title add
+        // is clamped and the total lands on the 1.0 ceiling.
+        let mut hot = hit(Uuid::new_v4(), "DeepSeek", "deepseek policy body");
+        hot.vector_score = Some(1.0);
+        hot.keyword_score = Some(2.37);
+        let score = local_score(&hot, "deepseek", rebalanced);
+        assert!(score <= 1.0);
+        assert!((score - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fusion_weights_close_the_unit_budget() {
+        let weights = default_weights();
+        assert_eq!(weights.vector, 0.55);
+        assert_eq!(weights.keyword, 0.35);
+        // Boost closes the budget: w_vector + w_keyword + w_boost = 1.
+        assert!((weights.vector + weights.keyword + weights.boost - 1.0).abs() < 1e-6);
+        // A zero keyword channel hands its whole share to the boost margin.
+        let weights = FusionWeights::new(0.7, 0.0);
+        assert!((weights.vector + weights.keyword + weights.boost - 1.0).abs() < 1e-6);
+        // Out-of-budget inputs are squeezed back into the unit budget.
+        let weights = FusionWeights::new(0.9, 0.9);
+        assert!(weights.vector + weights.keyword + weights.boost <= 1.0 + 1e-6);
+    }
+
+    #[test]
+    fn local_score_never_needs_the_min_one_clamp() {
+        // Maxed vector + keyword channels plus an exact title boost must land
+        // on the unit ceiling without a min(1.0) truncation.
+        let mut best = hit(Uuid::new_v4(), "DeepSeek", "DeepSeek policy text");
+        best.vector_score = Some(1.0);
+        best.keyword_score = Some(2.37);
+        let score = local_score(&best, "deepseek", default_weights());
+        assert!(score <= 1.0);
+        assert!((score - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn keyword_score_is_normalized_by_two_point_three_seven() {
+        let mut hit = hit(Uuid::new_v4(), "unrelated title", "unrelated body text");
+        hit.keyword_score = Some(2.37);
+        hit.vector_score = None;
+        // keyword 2.37 / 2.37 = 1.0 contributes exactly the keyword weight.
+        assert!(
+            (local_score(&hit, "query", default_weights()) - 0.35).abs() < 1e-6,
+            "capped keyword score must contribute exactly the keyword weight"
+        );
+        // Scores above the 2.37 ceiling do not raise the contribution further.
+        hit.keyword_score = Some(3.0);
+        assert!(
+            (local_score(&hit, "query", default_weights()) - 0.35).abs() < 1e-6,
+            "keyword scores above the ceiling must stay capped"
+        );
+    }
+
+    #[test]
+    fn configured_weights_rebalance_channel_dominance() {
+        let mut semantic = hit(Uuid::new_v4(), "Semantic title", "semantic body text");
+        semantic.vector_score = Some(0.9);
+        let mut keyword = hit(Uuid::new_v4(), "Keyword title", "keyword body text");
+        keyword.keyword_score = Some(1.0);
+
+        // Defaults favor a strong vector hit over a mid keyword hit.
+        assert!(
+            local_score(&semantic, "query", default_weights())
+                > local_score(&keyword, "query", default_weights())
+        );
+        // Rebalancing toward keyword flips the order.
+        let keyword_heavy = FusionWeights::new(0.15, 0.8);
+        assert!(
+            local_score(&keyword, "query", keyword_heavy)
+                > local_score(&semantic, "query", keyword_heavy)
+        );
+        // Dropping the keyword weight to zero disables that channel entirely.
+        let vector_only = FusionWeights::new(1.0, 0.0);
+        assert_eq!(local_score(&keyword, "query", vector_only), 0.0);
+        assert!(
+            (local_score(&semantic, "query", vector_only) - 0.9).abs() < 1e-6
+        );
     }
 
     #[test]
@@ -220,7 +428,12 @@ mod tests {
         keyword.keyword_score = Some(1.0);
         keyword.match_reason = Some("title_phrase".to_string());
 
-        let merged = merge_candidates(vec![vector], vec![keyword], "deepseek");
+        let merged = merge_candidates(
+            vec![vector],
+            vec![keyword],
+            "deepseek",
+            default_weights(),
+        );
 
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].vector_score, Some(0.5));
@@ -248,7 +461,7 @@ mod tests {
             } else {
                 (fallback, translated)
             };
-            let merged = merge_candidates(vec![vector], vec![keyword], "标题");
+            let merged = merge_candidates(vec![vector], vec![keyword], "标题", default_weights());
 
             assert_eq!(merged.len(), 1);
             assert_eq!(merged[0].content_locale.as_deref(), Some("zh-CN"));
@@ -260,20 +473,54 @@ mod tests {
 
     #[test]
     fn apply_rerank_orders_by_rerank_score() {
-        let first = hit(Uuid::new_v4(), "first", "first");
-        let second = hit(Uuid::new_v4(), "second", "second");
+        let first_id = Uuid::new_v4();
+        let second_id = Uuid::new_v4();
+        let first = hit(first_id, "first", "first");
+        let second = hit(second_id, "second", "second");
 
         let results = apply_rerank(
             vec![first, second.clone()],
-            vec![RerankHit {
-                index: 1,
+            &[second.clone()],
+            &[RerankHit {
+                index: 0,
                 score: 0.93,
             }],
             1,
         );
 
-        assert_eq!(results[0].chunk_id, second.chunk_id);
+        assert_eq!(results[0].chunk_id, second_id);
         assert_eq!(results[0].rerank_score, Some(0.93));
+    }
+
+    #[test]
+    fn apply_rerank_keeps_unscored_candidates_after_scored_region() {
+        // The snapshot covers only the first three candidates; the fourth is
+        // only present in the full set. The final ordering must keep all three
+        // scored candidates in their rerank positions, then place the
+        // unranked candidate at the end (local fallback).
+        let a_id = Uuid::new_v4();
+        let b_id = Uuid::new_v4();
+        let c_id = Uuid::new_v4();
+        let d_id = Uuid::new_v4();
+        let a = hit(a_id, "a", "alpha");
+        let b = hit(b_id, "b", "beta");
+        let c = hit(c_id, "c", "gamma");
+        let d = hit(d_id, "d", "delta");
+
+        let snapshot = vec![a.clone(), b.clone(), c.clone()];
+        let reranked = vec![
+            RerankHit { index: 1, score: 0.9 }, // b
+            RerankHit { index: 0, score: 0.7 }, // a
+            RerankHit { index: 2, score: 0.5 }, // c
+        ];
+
+        let full = vec![a, b, c, d];
+        let ordered = apply_rerank(full, &snapshot, &reranked, 4);
+        assert_eq!(ordered[0].chunk_id, b_id);
+        assert_eq!(ordered[1].chunk_id, a_id);
+        assert_eq!(ordered[2].chunk_id, c_id);
+        // Local fallback sits after the scored region.
+        assert_eq!(ordered[3].chunk_id, d_id);
     }
 
     #[test]
@@ -340,6 +587,7 @@ mod tests {
                 vec![first.clone(), second.clone()],
                 vec![third.clone()],
                 "query",
+                default_weights(),
             );
             merged.sort_by(compare_hits);
             merged
@@ -352,6 +600,7 @@ mod tests {
                 vec![second.clone(), first.clone()],
                 vec![third.clone()],
                 "query",
+                default_weights(),
             );
             merged.sort_by(compare_hits);
             merged

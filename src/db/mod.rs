@@ -90,6 +90,11 @@ pub struct StoredSearchSettings {
     pub candidate_limit: usize,
     pub timeout_secs: u64,
     pub api_key: Option<String>,
+    /// Hybrid fusion weight for the vector channel; boost is the residual
+    /// margin (1 - vector - keyword).
+    pub vector_weight: f32,
+    /// Hybrid fusion weight for the keyword channel.
+    pub keyword_weight: f32,
 }
 
 pub fn default_search_settings() -> StoredSearchSettings {
@@ -101,6 +106,8 @@ pub fn default_search_settings() -> StoredSearchSettings {
         candidate_limit: 40,
         timeout_secs: 10,
         api_key: None,
+        vector_weight: context69_contracts::settings::SEARCH_VECTOR_WEIGHT_DEFAULT,
+        keyword_weight: context69_contracts::settings::SEARCH_KEYWORD_WEIGHT_DEFAULT,
     }
 }
 

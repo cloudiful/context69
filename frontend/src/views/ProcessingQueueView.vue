@@ -29,7 +29,7 @@ const AUTO_REFRESH_INTERVAL = 20_000;
 const ITEM_ERROR_TOOLTIP_MAX = 240;
 
 const expandedRows = ref<Record<string, boolean>>({});
-const expandedItems = ref<Record<string, TaskItemResponse[] | null>>({});
+const expandedItems = ref<Record<string, TaskItemResponse[] | undefined>>({});
 const expandedError = ref<Record<string, ApiErrorSummary | null>>({});
 const expandingTaskId = ref<string | null>(null);
 

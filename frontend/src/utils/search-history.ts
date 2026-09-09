@@ -26,6 +26,8 @@ function normalizeFilters(filters: SearchFilters): SearchFilters {
     publishedAfter: filters.publishedAfter,
     publishedBefore: filters.publishedBefore,
     limit: Math.min(Math.max(filters.limit, 1), 50),
+    groupPath: filters.groupPath ?? "",
+    sort: filters.sort ?? "relevance",
   };
 }
 
@@ -34,7 +36,9 @@ function sameFilters(left: SearchFilters, right: SearchFilters) {
     && left.sourceKey === right.sourceKey
     && left.publishedAfter === right.publishedAfter
     && left.publishedBefore === right.publishedBefore
-    && left.limit === right.limit;
+    && left.limit === right.limit
+    && (left.groupPath ?? "") === (right.groupPath ?? "")
+    && (left.sort ?? "relevance") === (right.sort ?? "relevance");
 }
 
 export function readSearchHistory(storage: Storage | null | undefined = getStorage()): SearchHistoryEntry[] {
@@ -61,6 +65,8 @@ export function readSearchHistory(storage: Storage | null | undefined = getStora
           publishedAfter: typeof entry.publishedAfter === "string" ? entry.publishedAfter : "",
           publishedBefore: typeof entry.publishedBefore === "string" ? entry.publishedBefore : "",
           limit: typeof entry.limit === "number" ? entry.limit : 8,
+          groupPath: typeof entry.groupPath === "string" ? entry.groupPath : "",
+          sort: entry.sort === "date" || entry.sort === "relevance" ? entry.sort : "relevance",
         });
 
         if (!normalized.query) {
@@ -104,4 +110,14 @@ export function addSearchHistoryEntry(
 
   writeSearchHistory(nextHistory, storage);
   return nextHistory;
+}
+
+/**
+ * Filters to replay a saved history entry with. Entries are stored
+ * cursor-free on purpose: a pagination cursor is only valid inside the
+ * ordering epoch that issued it, so replaying a query always restarts at the
+ * first page instead of trusting a stale position.
+ */
+export function replaySearchEntry(entry: SearchHistoryEntry): SearchFilters {
+  return normalizeFilters(entry);
 }

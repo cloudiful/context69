@@ -337,13 +337,14 @@ mod tests {
     use super::{
         mappers::{
             config_from_stored, docling_settings_from_request, response_from_stored,
-            search_response_from_stored,
+            search_response_from_stored, search_settings_from_request,
         },
         runtime_mappers::{runtime_settings_from_request, runtime_settings_response},
         validate::{
             docling_request as validate_docling_request,
             runtime_settings_request as validate_runtime_settings_request,
             search_request as validate_search_request,
+            stored_search_settings as validate_stored_search_settings,
         },
         validate_docling_vlm_shape,
     };
@@ -577,21 +578,98 @@ mod tests {
         assert!(response.has_api_key);
     }
 
-    #[test]
-    fn search_request_rejects_empty_rerank_model() {
-        let request = UpdateSearchSettingsRequest {
+    fn sample_search_request() -> UpdateSearchSettingsRequest {
+        UpdateSearchSettingsRequest {
             mode: crate::contracts::SearchMode::Hybrid,
             rerank_enabled: true,
             rerank_base_url: "https://openrouter.ai/api/v1".to_string(),
-            rerank_model: " ".to_string(),
+            rerank_model: "cohere/rerank-4-fast".to_string(),
             candidate_limit: 40,
             timeout_secs: 10,
             api_key: None,
             clear_api_key: false,
-        };
+            vector_weight: context69_contracts::settings::SEARCH_VECTOR_WEIGHT_DEFAULT,
+            keyword_weight: context69_contracts::settings::SEARCH_KEYWORD_WEIGHT_DEFAULT,
+        }
+    }
+
+    #[test]
+    fn search_request_rejects_empty_rerank_model() {
+        let mut request = sample_search_request();
+        request.rerank_model = " ".to_string();
 
         let error = validate_search_request(&request).expect_err("request should be invalid");
         assert!(error.to_string().contains("rerank_model"));
+    }
+
+    #[test]
+    fn search_request_rejects_out_of_range_fusion_weights() {
+        let mut request = sample_search_request();
+        request.vector_weight = 1.5;
+        let error = validate_search_request(&request).expect_err("request should be invalid");
+        assert!(error.to_string().contains("vector_weight"));
+
+        let mut request = sample_search_request();
+        request.keyword_weight = -0.1;
+        let error = validate_search_request(&request).expect_err("request should be invalid");
+        assert!(error.to_string().contains("keyword_weight"));
+    }
+
+    #[test]
+    fn search_request_rejects_weights_above_unit_budget() {
+        let mut request = sample_search_request();
+        request.vector_weight = 0.7;
+        request.keyword_weight = 0.4;
+        let error = validate_search_request(&request).expect_err("request should be invalid");
+        assert!(error.to_string().contains("must not sum above 1"));
+    }
+
+    #[test]
+    fn search_request_accepts_default_and_partial_fusion_weights() {
+        validate_search_request(&sample_search_request()).expect("default weights are valid");
+        let mut request = sample_search_request();
+        request.vector_weight = 0.4;
+        request.keyword_weight = 0.3;
+        validate_search_request(&request).expect("weights under the unit budget are valid");
+    }
+
+    #[test]
+    fn legacy_search_request_without_weights_defaults_to_current_blend() {
+        let payload = serde_json::json!({
+            "mode": "hybrid",
+            "rerank_enabled": true,
+            "rerank_base_url": "https://openrouter.ai/api/v1",
+            "rerank_model": "cohere/rerank-4-fast",
+            "candidate_limit": 40,
+            "timeout_secs": 10
+        });
+        let request: UpdateSearchSettingsRequest =
+            serde_json::from_value(payload).expect("legacy request without fusion weights");
+        assert_eq!(request.vector_weight, 0.55);
+        assert_eq!(request.keyword_weight, 0.35);
+        validate_search_request(&request).expect("defaulted weights should be valid");
+    }
+
+    #[test]
+    fn search_fusion_weights_round_trip_through_mappers_and_stored_validation() {
+        let mut request = sample_search_request();
+        request.vector_weight = 0.6;
+        request.keyword_weight = 0.2;
+
+        let stored = search_settings_from_request(&request, None);
+        assert_eq!(stored.vector_weight, 0.6);
+        assert_eq!(stored.keyword_weight, 0.2);
+        validate_stored_search_settings(&stored).expect("stored weights should be valid");
+
+        let response = search_response_from_stored(stored.clone());
+        assert_eq!(response.vector_weight, 0.6);
+        assert_eq!(response.keyword_weight, 0.2);
+
+        let mut invalid = stored;
+        invalid.keyword_weight = 0.5;
+        let error =
+            validate_stored_search_settings(&invalid).expect_err("stored weights should fail");
+        assert!(error.to_string().contains("sum above 1"));
     }
 
     #[test]

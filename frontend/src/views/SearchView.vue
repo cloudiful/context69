@@ -3,121 +3,91 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
-import AsyncStateBlock from "../components/AsyncStateBlock.vue";
-import SearchForm from "../components/SearchForm.vue";
-import SearchResultList from "../components/SearchResultList.vue";
-import SearchSelectionPreview from "../components/SearchSelectionPreview.vue";
-import { apiClient, type SearchHit, type SearchResponse, type SourceStatus } from "../services/api";
+import SearchResultsPanel from "../components/SearchResultsPanel.vue";
+import SearchToolbar from "../components/SearchToolbar.vue";
+import { ApiError, type SearchHit, type SearchResponse } from "../services/api";
+import { useSearchStream } from "../composables/use-search-stream";
+import { useErrorToast } from "../composables/use-error-toast";
+import type { SearchHistoryEntry } from "../utils/search-history";
+import { replaySearchEntry } from "../utils/search-history";
 import { resolveSearchErrorMessage } from "../utils/search-errors";
-import { addSearchHistoryEntry, readSearchHistory, type SearchHistoryEntry } from "../utils/search-history";
+import { buildSearchTarget } from "../utils/search-target";
 import {
   buildSearchPayload,
   createDefaultFilters,
+  cursorFromQuery,
   filtersFromQuery,
   filtersToQuery,
-  normalizeSearchFilters,
   pageFromQuery,
   sameSearchFilters,
   saveSearchSession,
+  type SearchNavigationState,
 } from "../utils/search";
-import { buildSearchTarget } from "../utils/search-target";
-import { useErrorToast } from "../composables/use-error-toast";
+import type { SearchFilters } from "../types/ui";
+import type { LocationQuery } from "vue-router";
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 const showErrorToast = useErrorToast();
 
-const filters = ref(createDefaultFilters());
+const filters = ref<SearchFilters>(createDefaultFilters());
 const results = ref<SearchResponse | null>(null);
-const sources = ref<SourceStatus[]>([]);
-const loading = ref(false);
-const searchPage = ref(1);
 const searched = ref(false);
-const selectedHit = ref<SearchHit | null>(null);
-const historyEntries = ref<SearchHistoryEntry[]>([]);
 const showResultsPanel = computed(() => loading.value || searched.value);
-const visibleHistoryEntries = computed(() => historyEntries.value.slice(0, 8));
-// Lower-bound totals must not be presented as exact counts.
-const resultsSummary = computed(() => {
-  if (!results.value) return "";
-  const pagination = results.value.pagination;
-  if (pagination.total_is_exact === false) {
-    return t("search.resultsAtLeast", { count: pagination.total });
-  }
-  return `${t("search.workspace.resultsLabel")}: ${pagination.total}`;
+
+let isRouteSyncing = false;
+let lastAppliedNav: SearchNavigationState = { page: 1 };
+
+// The stream channel owns loading/refining state, SSE vs POST selection,
+// cancellation and the subtle POST fallback notice.
+const { loading, refining, fallbackNotice, run: runStream, abort: cancelStream } = useSearchStream({
+  onResults: (response) => {
+    results.value = response;
+    searched.value = true;
+    saveSearchSession(filters.value, response.pagination.page, lastAppliedNav.cursor);
+  },
 });
 
-let controller: AbortController | null = null;
-let searchSequence = 0;
-let activeSequence = 0;
-let isRouteSyncing = false;
-let elapsedTimer: ReturnType<typeof setInterval> | null = null;
-const elapsedLabel = ref("0.0s");
-const searchStartAt = ref<number | null>(null);
-
-function loadHistory() {
-  historyEntries.value = readSearchHistory();
+function navigationFromQuery(query: LocationQuery): SearchNavigationState {
+  const cursor = cursorFromQuery(query);
+  const page = pageFromQuery(query);
+  return cursor ? { cursor } : { page };
 }
 
-async function loadSources() {
-  try {
-    const response = await apiClient.listSources({ page: 1, pageSize: 100, query: "" });
-    sources.value = response.items;
-  } catch (error) {
-    showErrorToast(error, t("search.sourceLoadFailed"));
-  }
+function sameNavigation(left: SearchNavigationState, right: SearchNavigationState): boolean {
+  return (left.cursor ?? null) === (right.cursor ?? null) && (left.page ?? 1) === (right.page ?? 1);
 }
 
-function startElapsed() {
-  searchStartAt.value = Date.now();
-  elapsedLabel.value = "0.0s";
-  if (elapsedTimer) clearInterval(elapsedTimer);
-  elapsedTimer = setInterval(() => {
-    if (searchStartAt.value != null) {
-      const diff = Date.now() - searchStartAt.value;
-      elapsedLabel.value = `${(diff / 1000).toFixed(1)}s`;
-    }
-  }, 200);
+function isCursorOrderingError(error: unknown): boolean {
+  return (
+    error instanceof ApiError
+    && error.status === 400
+    && /cursor/i.test(error.message)
+  );
 }
 
-function stopElapsed() {
-  if (elapsedTimer) clearInterval(elapsedTimer);
-  elapsedTimer = null;
-}
-
-function cancelSearch() {
-  controller?.abort();
-}
-
-async function runSearch(options: { persistHistory?: boolean; page?: number; syncRoute?: boolean } = {}) {
-  const targetPage = options.page ?? searchPage.value ?? 1;
-  searchPage.value = targetPage;
-  const payload = buildSearchPayload(filters.value, targetPage);
+async function runSearch(options: { cursor?: string | null; page?: number; syncRoute?: boolean } = {}) {
+  const nav: SearchNavigationState = options.cursor
+    ? { cursor: options.cursor }
+    : { page: options.page ?? 1 };
+  const payload = buildSearchPayload(filters.value, nav);
 
   if (!payload.query) {
     showErrorToast(null, t("search.emptyQuery"));
     results.value = null;
     searched.value = false;
-    selectedHit.value = null;
     return;
   }
 
-  const seq = ++searchSequence;
-  activeSequence = seq;
-  controller?.abort();
-  controller = new AbortController();
-  loading.value = true;
-  searched.value = true;
-  startElapsed();
-
+  lastAppliedNav = nav;
   const doSync = options.syncRoute !== false;
   if (doSync) {
     isRouteSyncing = true;
     try {
       await router.replace({
         name: "search",
-        query: filtersToQuery(filters.value, targetPage),
+        query: filtersToQuery(filters.value, nav),
       });
     } catch {
       // ignore navigation errors
@@ -127,44 +97,64 @@ async function runSearch(options: { persistHistory?: boolean; page?: number; syn
     }
   }
 
-  if (options.persistHistory) {
-    historyEntries.value = addSearchHistoryEntry(filters.value);
-  }
-
   try {
-    const nextResults = await apiClient.search(payload, { signal: controller.signal });
-    if (seq !== activeSequence) return;
-    results.value = nextResults;
-    selectedHit.value = nextResults.items[0] ?? null;
-    saveSearchSession(filters.value, targetPage);
+    await runStream(payload);
   } catch (error) {
-    if (seq !== activeSequence) return;
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError") return;
+    if (isCursorOrderingError(error)) {
+      // The cursor belongs to a different ordering epoch (for example rerank
+      // availability changed). Tell the user and restart from the first page
+      // instead of silently showing a differently ordered window.
+      showErrorToast(null, t("search.streaming.cursorError"));
+      void runSearch({ page: 1 });
       return;
     }
-    results.value = null;
-    selectedHit.value = null;
     showErrorToast(null, resolveSearchErrorMessage(error, t));
-  } finally {
-    if (seq === activeSequence) {
-      loading.value = false;
-      stopElapsed();
-    }
   }
 }
 
-function updateFilters(nextFilters: typeof filters.value) {
-  filters.value = nextFilters;
+function handleToolbarSubmit() {
+  void runSearch({ page: 1 });
 }
 
-async function rerunHistory(entry: SearchHistoryEntry) {
-  const normalized = normalizeSearchFilters(entry);
-  filters.value = normalized;
-  await runSearch({ persistHistory: true, page: 1 });
+function handleToolbarFilters(next: SearchFilters) {
+  filters.value = next;
 }
 
-function handlePage(page: number) {
-  void runSearch({ page });
+function handleToolbarGroupChange(groupPath: string | null) {
+  filters.value = { ...filters.value, groupPath: groupPath ?? "" };
+  void runSearch({ page: 1 });
+}
+
+function rerunHistory(entry: SearchHistoryEntry) {
+  filters.value = replaySearchEntry(entry);
+  void runSearch({ page: 1 });
+}
+
+function handlePrev() {
+  const pagination = results.value?.pagination;
+  if (!pagination) return;
+  // Date mode is forward-only keyset pagination: there is no previous
+  // window to step into. The Previous button is disabled in the UI but
+  // the keyboard handler must not bypass that.
+  if (filters.value.sort === "date") {
+    return;
+  }
+  if (pagination.prev_cursor) {
+    void runSearch({ cursor: pagination.prev_cursor });
+  } else if (pagination.page > 1) {
+    void runSearch({ page: pagination.page - 1 });
+  }
+}
+
+function handleNext() {
+  const pagination = results.value?.pagination;
+  if (!pagination) return;
+  if (pagination.next_cursor) {
+    void runSearch({ cursor: pagination.next_cursor });
+  } else if (pagination.has_more === true) {
+    void runSearch({ page: pagination.page + 1 });
+  }
 }
 
 function handlePageSize(size: number) {
@@ -174,7 +164,8 @@ function handlePageSize(size: number) {
 }
 
 function openHit(hit: SearchHit) {
-  saveSearchSession(filters.value, searchPage.value);
+  const page = results.value?.pagination.page ?? 1;
+  saveSearchSession(filters.value, page, lastAppliedNav.cursor);
   void router.push(buildSearchTarget(hit));
 }
 
@@ -183,111 +174,60 @@ watch(
   async (newQuery) => {
     if (isRouteSyncing) return;
     const nextFilters = filtersFromQuery(newQuery);
-    const nextPage = pageFromQuery(newQuery);
+    const nextNav = navigationFromQuery(newQuery);
     const sameFilters = sameSearchFilters(filters.value, nextFilters);
-    if (sameFilters && nextPage === searchPage.value) return;
+    if (sameFilters && sameNavigation(lastAppliedNav, nextNav)) return;
     if (!nextFilters.query) {
       filters.value = nextFilters;
-      searchPage.value = nextPage;
       results.value = null;
       searched.value = false;
-      selectedHit.value = null;
       return;
     }
     filters.value = nextFilters;
-    await runSearch({ page: nextPage, syncRoute: false });
+    await runSearch({ ...nextNav, syncRoute: false });
   },
 );
 
 onMounted(async () => {
-  loadHistory();
-  await loadSources();
   const initialFilters = filtersFromQuery(route.query);
-  const initialPage = pageFromQuery(route.query);
+  const initialNav = navigationFromQuery(route.query);
   filters.value = initialFilters;
-  searchPage.value = initialPage;
   if (initialFilters.query) {
-    await runSearch({ page: initialPage, syncRoute: false });
+    await runSearch({ ...initialNav, syncRoute: false });
   }
 });
 
 onBeforeUnmount(() => {
-  controller?.abort();
-  stopElapsed();
+  cancelStream();
 });
 </script>
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
-    <section class="min-w-0 shrink-0 overflow-hidden py-1">
-      <SearchForm
-        :filters="filters"
-        :sources="sources"
-        :busy="loading"
-        :history-entries="visibleHistoryEntries"
-        @history-select="rerunHistory"
-        @submit="runSearch({ persistHistory: true, page: 1 })"
-        @update:filters="updateFilters"
-      />
-    </section>
+    <SearchToolbar
+      :filters="filters"
+      :busy="loading"
+      @update:filters="handleToolbarFilters"
+      @group-change="handleToolbarGroupChange"
+      @history-select="rerunHistory"
+      @submit="handleToolbarSubmit"
+    />
 
-    <UCard
+    <SearchResultsPanel
       v-if="showResultsPanel"
-      class="search-results-panel flex min-h-0 flex-1 flex-col overflow-hidden"
-      :ui="{ body: 'flex min-h-0 flex-1 flex-col overflow-hidden p-0 sm:p-0' }"
-    >
-      <template #header>
-        <div class="flex items-center justify-between gap-2">
-          <h2 class="text-base font-semibold text-color">{{ t("search.resultsTitle") }}</h2>
-          <span v-if="results" class="text-xs text-muted">{{ resultsSummary }}</span>
-        </div>
-      </template>
-      <AsyncStateBlock
-        :loading="loading"
-        :loading-title="t('search.scanningTitle')"
-        :loading-message="t('search.scanningMessage')"
-        loading-test-id="search-loading"
-        :empty="searched && !!results && results.items.length === 0"
-      >
-        <template #loading>
-          <div class="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <UIcon name="i-lucide-loader-circle" data-testid="search-loading" class="h-10 w-10 animate-spin text-muted" />
-            <div class="grid gap-1">
-              <p class="text-sm font-medium text-color">{{ t("search.scanningTitle") }} · {{ elapsedLabel }}</p>
-              <p class="text-xs text-muted">{{ t("search.form.waiting") }}</p>
-            </div>
-            <UButton size="sm" color="neutral" variant="ghost" @click="cancelSearch">
-              {{ t("common.cancel") }}
-            </UButton>
-          </div>
-        </template>
-        <template #empty>
-          <UAlert
-            variant="subtle"
-            :title="t('search.noMatchesTitle')"
-            :description="t('search.noMatchesMessage')"
-          />
-        </template>
-
-        <div v-if="results" class="grid min-h-0 flex-1 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)] xl:items-start">
-          <SearchResultList
-            class="h-full min-h-0 min-w-0 overflow-hidden"
-            :hits="results.items"
-            :pagination="results.pagination"
-            :selected-hit="selectedHit"
-            @open="openHit"
-            @page="handlePage"
-            @page-size="handlePageSize"
-            @select="selectedHit = $event"
-          />
-
-          <SearchSelectionPreview
-            class="hidden min-w-0 self-start xl:block"
-            :selected-hit="selectedHit"
-            @open="openHit"
-          />
-        </div>
-      </AsyncStateBlock>
-    </UCard>
+      class="min-h-0 flex-1"
+      :results="results"
+      :loading="loading"
+      :refining="refining"
+      :fallback-notice="fallbackNotice"
+      :searched="searched"
+      :highlight="filters.query"
+      :sort="filters.sort"
+      @open="openHit"
+      @cancel="cancelStream"
+      @prev="handlePrev"
+      @next="handleNext"
+      @page-size="handlePageSize"
+    />
   </div>
 </template>

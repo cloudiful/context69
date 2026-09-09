@@ -99,7 +99,9 @@ fn search_request(query: &str, group_path: Option<String>) -> SearchRequest {
         group_path,
         published_after: None,
         published_before: None,
+        cursor: None,
         metadata_filters: Vec::new(),
+        sort: context69_contracts::SearchSort::Relevance,
     }
 }
 

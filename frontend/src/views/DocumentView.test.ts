@@ -107,7 +107,7 @@ describe("DocumentView", () => {
 
     const wrapper = await mountView();
     await flushPromises();
-    const chunkTexts = () => wrapper.findAll("pre").map((node) => node.text());
+    const chunkTexts = () => wrapper.findAll(".library-markdown-content").map((node) => node.text());
 
     expect(chunkTexts()).toContain("block-1");
     expect(chunkTexts()).toContain("block-10");
@@ -115,10 +115,11 @@ describe("DocumentView", () => {
     expect(wrapper.findComponent({ name: "Pagination" }).props("itemsPerPage")).toBe(10);
 
     wrapper.findComponent({ name: "Pagination" }).vm.$emit("update:page", 2);
-    await wrapper.vm.$nextTick();
+    await vi.waitFor(() => {
+      expect(wrapper.findAll(".library-markdown-content").map((node) => node.text())).toContain("block-11");
+    });
 
     expect(chunkTexts()).not.toContain("block-1");
-    expect(chunkTexts()).toContain("block-11");
     expect(chunkTexts()).toContain("block-12");
   });
 });

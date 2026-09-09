@@ -8,6 +8,7 @@ import { setGuest } from "../test-utils/auth";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 import { installMockStorage } from "../test-utils/storage";
 import { LOCALE_STORAGE_KEY } from "../i18n/locale";
+import AppNumberField from "../components/AppNumberField.vue";
 import AppSelectField from "../components/AppSelectField.vue";
 
 import SettingsView from "./SettingsView.vue";
@@ -75,6 +76,8 @@ const searchSettingsResponse = {
   candidate_limit: 40,
   timeout_secs: 10,
   has_api_key: false,
+  vector_weight: 0.55,
+  keyword_weight: 0.35,
 };
 
 const personalAccessTokensResponse = [
@@ -216,6 +219,11 @@ describe("SettingsView", () => {
 
     await router.push("/settings/search");
     await flushPromises();
+    const vectorWeightField = wrapper
+      .findAllComponents(AppNumberField)
+      .find((component) => component.props("inputId") === "search-vector-weight");
+    expect(vectorWeightField).toBeDefined();
+    await vectorWeightField!.vm.$emit("update:modelValue", 0.65);
     await wrapper.get("#search-rerank-api-key").setValue("rerank-secret");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
@@ -251,6 +259,8 @@ describe("SettingsView", () => {
       rerank_enabled: true,
       api_key: "rerank-secret",
       clear_api_key: false,
+      vector_weight: 0.65,
+      keyword_weight: 0.35,
     }));
     expect(wrapper.text()).toContain("Settings saved");
   });

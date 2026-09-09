@@ -104,8 +104,62 @@ describe("SearchForm", () => {
       publishedAfter: "",
       publishedBefore: "",
       limit: 8,
+      groupPath: "",
+      sort: "relevance",
     });
     expect(wrapper.find("[data-testid='search-published-range']").exists()).toBe(false);
+  });
+
+  it("emits group-change and group path on folder selection, and clears on all groups", async () => {
+    const wrapper = mount(SearchForm, {
+      props: {
+        filters: { query: "", sourceKey: "", publishedAfter: "", publishedBefore: "", limit: 8, groupPath: "" },
+        historyEntries: [],
+        sources: [],
+        groups: [
+          {
+            group_id: 1,
+            group_key: "stock",
+            group_path: "stock",
+            name: "Stock",
+            visibility: "private",
+            kind: "shared",
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-01T00:00:00Z",
+          },
+          {
+            group_id: 2,
+            group_key: "sgs",
+            group_path: "stock/sgs-disclosures",
+            name: "SGS Disclosures",
+            visibility: "private",
+            kind: "shared",
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-01T00:00:00Z",
+          },
+        ],
+        busy: false,
+      },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
+    });
+
+    await wrapper.get("[data-testid='search-toggle-advanced']").trigger("click");
+    // source Select is index 0; the sort Select is index 1; the folder
+    // Select is index 2.
+    const folderSelect = wrapper.findAllComponents({ name: "Select" })[2];
+
+    // select a nested group
+    await folderSelect.vm.$emit("update:modelValue", "stock/sgs-disclosures");
+    let updates = wrapper.emitted("update:filters") as Array<[SearchFilters]> | undefined;
+    expect(updates?.at(-1)?.[0].groupPath).toBe("stock/sgs-disclosures");
+    expect(wrapper.emitted("group-change")?.at(-1)?.[0]).toBe("stock/sgs-disclosures");
+
+    // select all groups resets the path
+    await wrapper.vm.$nextTick();
+    await wrapper.findAllComponents({ name: "Select" })[2].vm.$emit("update:modelValue", "__all__");
+    updates = wrapper.emitted("update:filters") as Array<[SearchFilters]> | undefined;
+    expect(updates?.at(-1)?.[0].groupPath).toBe("");
+    expect(wrapper.emitted("group-change")?.at(-1)?.[0]).toBeNull();
   });
 
   it("does not write [object Object] when history entry object is selected", async () => {

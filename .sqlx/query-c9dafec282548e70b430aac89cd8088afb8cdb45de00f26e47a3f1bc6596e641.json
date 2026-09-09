@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO context69.search_settings (\n    singleton,\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, now())\nON CONFLICT (singleton) DO UPDATE\nSET mode = EXCLUDED.mode,\n    rerank_enabled = EXCLUDED.rerank_enabled,\n    rerank_base_url = EXCLUDED.rerank_base_url,\n    rerank_model = EXCLUDED.rerank_model,\n    candidate_limit = EXCLUDED.candidate_limit,\n    timeout_secs = EXCLUDED.timeout_secs,\n    api_key = EXCLUDED.api_key,\n    updated_at = now()\nRETURNING\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key\n",
+  "query": "SELECT\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key,\n    vector_weight,\n    keyword_weight\nFROM context69.search_settings\nWHERE singleton = TRUE\n",
   "describe": {
     "columns": [
       {
@@ -79,18 +79,32 @@
             "name": "api_key"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "vector_weight",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "vector_weight"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "keyword_weight",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "keyword_weight"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": [
-        "Text",
-        "Bool",
-        "Text",
-        "Text",
-        "Int8",
-        "Int8",
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -99,8 +113,10 @@
       false,
       false,
       false,
-      true
+      true,
+      false,
+      false
     ]
   },
-  "hash": "a9e042c3d8fa0f0ac259179d083db166aea6d6af410f220e6c45d716b23374c7"
+  "hash": "c9dafec282548e70b430aac89cd8088afb8cdb45de00f26e47a3f1bc6596e641"
 }

@@ -101,5 +101,7 @@ export function buildSearchSettingsComparablePayload(
     rerank_model: draft.rerank_model.trim(),
     candidate_limit: Number(draft.candidate_limit),
     timeout_secs: Number(draft.timeout_secs),
+    vector_weight: Number(draft.vector_weight),
+    keyword_weight: Number(draft.keyword_weight),
   };
 }

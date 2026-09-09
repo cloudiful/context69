@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key\nFROM context69.search_settings\nWHERE singleton = TRUE\n",
+  "query": "INSERT INTO context69.search_settings (\n    singleton,\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key,\n    vector_weight,\n    keyword_weight,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, now())\nON CONFLICT (singleton) DO UPDATE\nSET mode = EXCLUDED.mode,\n    rerank_enabled = EXCLUDED.rerank_enabled,\n    rerank_base_url = EXCLUDED.rerank_base_url,\n    rerank_model = EXCLUDED.rerank_model,\n    candidate_limit = EXCLUDED.candidate_limit,\n    timeout_secs = EXCLUDED.timeout_secs,\n    api_key = EXCLUDED.api_key,\n    vector_weight = EXCLUDED.vector_weight,\n    keyword_weight = EXCLUDED.keyword_weight,\n    updated_at = now()\nRETURNING\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    api_key,\n    vector_weight,\n    keyword_weight\n",
   "describe": {
     "columns": [
       {
@@ -79,10 +79,42 @@
             "name": "api_key"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "vector_weight",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "vector_weight"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "keyword_weight",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "keyword_weight"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Bool",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Float4",
+        "Float4"
+      ]
     },
     "nullable": [
       false,
@@ -91,8 +123,10 @@
       false,
       false,
       false,
-      true
+      true,
+      false,
+      false
     ]
   },
-  "hash": "aac020c2f42efd7ad8496fb54306d93ef2de85800ff87618a6561bf38e179317"
+  "hash": "a9de9fcc63cd61619a805dabbc8d8ce0468aeebb95dedeb4d61d7aa1067bc212"
 }

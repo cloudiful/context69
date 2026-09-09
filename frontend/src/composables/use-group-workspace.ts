@@ -38,9 +38,10 @@ export function useGroupWorkspace() {
   const loading = ref(false);
   const pagination = useGroupWorkspacePagination({ groupPath, t });
   const {
-    changeChildrenPage, changeMembersPage, changePageSize, childGroups, childrenPage, childrenPageNumber,
-    childrenSearch, loadChildrenPage, loadMembersPage, members, membersPage, membersPageNumber,
-    membersSearch, pageSize, reset: resetPagination,
+    changeChildrenPage, changeMembersPage, changeMembersSort, changePageSize, childGroups,
+    childrenPage, childrenPageNumber, childrenSearch, clearMembersSort, loadChildrenPage,
+    loadMembersPage, members, membersPage, membersPageNumber, membersSearch, membersSort,
+    pageSize, reset: resetPagination,
   } = pagination;
 
   const groupDialogVisible = ref(false);
@@ -311,6 +312,7 @@ export function useGroupWorkspace() {
     canOwnGroup,
     changeChildrenPage,
     changeMembersPage,
+    changeMembersSort,
     changePageSize,
     childGroupDialogBusy,
     childGroupDialogVisible,
@@ -318,6 +320,7 @@ export function useGroupWorkspace() {
     childrenPage,
     childrenPageNumber,
     childrenSearch,
+    clearMembersSort,
     confirmDeleteChildGroup,
     confirmDeleteGroup,
     confirmRemoveMember,
@@ -338,6 +341,7 @@ export function useGroupWorkspace() {
     membersPage,
     membersPageNumber,
     membersSearch,
+    membersSort,
     moveGroupDialogVisible,
     movingGroup,
     openCreateChildGroupDialog,

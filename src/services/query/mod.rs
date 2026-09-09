@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use anyhow::{Result, anyhow};
+use context69_contracts::search::SearchStreamEvent;
 use context69_search::SearchService;
 
 use crate::contracts::{DocumentResponse, SearchRequest, SearchResponse};
@@ -15,7 +16,8 @@ use crate::services::auth::AuthService;
 
 mod adapters;
 
-use self::adapters::{AuthScopeResolver, DbSearchRepository, EmbeddingAdapter, QdrantSearchIndex};
+pub(crate) use context69_search::{DateWindowPage, SearchDatePointHit};
+use adapters::{AuthScopeResolver, DbSearchRepository, EmbeddingAdapter, QdrantSearchIndex};
 
 #[derive(Clone)]
 pub struct QueryService {
@@ -46,7 +48,7 @@ impl QueryService {
             db: db.clone(),
             inner: Some(
                 SearchService::new(
-                    Arc::new(DbSearchRepository::new(db)),
+                    Arc::new(DbSearchRepository::new(db, auth.clone(), index.clone())),
                     Arc::new(AuthScopeResolver::new(auth)),
                     Arc::new(EmbeddingAdapter::new(embedding)),
                     Arc::new(QdrantSearchIndex::new(index)),
@@ -71,6 +73,22 @@ impl QueryService {
         }
         let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
         inner.search(user_id, request).await
+    }
+
+    pub async fn stream_search(
+        &self,
+        user_id: Option<i64>,
+        request: SearchRequest,
+        tx: tokio::sync::mpsc::Sender<SearchStreamEvent>,
+        abort: context69_search::AbortSignal,
+    ) -> Result<()> {
+        if !self.vector_index_ready.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "vector index is rebuilding or unavailable; retry after the rebuild completes"
+            ));
+        }
+        let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
+        inner.stream_search(user_id, request, tx, abort).await
     }
 
     pub async fn get_document(

@@ -100,7 +100,7 @@ function clampText(value: string | null | undefined, max: number): string | null
 
 <template>
   <div class="p-3">
-    <template v-if="items === undefined">
+    <template v-if="!items">
       <template v-if="error">
         <div class="flex flex-wrap items-center gap-2">
           <span
