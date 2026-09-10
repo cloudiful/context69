@@ -63,6 +63,7 @@ impl LlmProvider {
                 "model": self.model()?,
                 "instructions": system_prompt(request),
                 "input": [{"role":"user", "content": user_content(request)}],
+                "prompt_cache_key": prompt_cache_key(request),
                 "tools": [{
                     "type":"function", "name":"submit_translations", "strict":true,
                     "description":"Return every translated segment exactly once",
@@ -142,28 +143,49 @@ fn messages(request: &ProviderTranslationRequest<'_>) -> Value {
     ])
 }
 
+/// Stable directive shared by every translation request.
+///
+/// Kept free of per-request data (locale, glossary, segments) so providers
+/// with implicit prefix caching keep hitting the same system prefix.
+/// The target locale is appended separately (stable per language); the
+/// glossary travels in the user message tail, so a glossary edit only
+/// invalidates the suffix instead of the whole system prefix.
+const STATIC_INSTRUCTIONS: &str = "Translate every segment into the requested target locale. Preserve facts, names, tickers, numbers, dates, currencies, Markdown and segment IDs. Do not summarize, omit, merge, split or add commentary. Return every input ID exactly once.";
+
 fn system_prompt(request: &ProviderTranslationRequest<'_>) -> String {
-    let glossary = request
+    format!(
+        "{} Target locale: {}.",
+        STATIC_INSTRUCTIONS, request.target_locale
+    )
+}
+
+fn glossary_text(request: &ProviderTranslationRequest<'_>) -> String {
+    request
         .glossary
         .iter()
         .map(|entry| format!("{} => {}", entry.source, entry.target))
         .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "Translate every segment into {}. Preserve facts, names, tickers, numbers, dates, currencies, Markdown and segment IDs. Do not summarize, omit, merge, split or add commentary. Return every input ID exactly once. Required terminology:\n{}",
-        request.target_locale, glossary
-    )
+        .join("\n")
 }
 
 fn user_content(request: &ProviderTranslationRequest<'_>) -> String {
-    serde_json::to_string(
+    let segments = serde_json::to_string(
         &request
             .segments
             .iter()
             .map(|segment| json!({"id":segment.id, "text":segment.text}))
             .collect::<Vec<_>>(),
     )
-    .unwrap_or_default()
+    .unwrap_or_default();
+    let glossary = glossary_text(request);
+    if glossary.is_empty() {
+        return segments;
+    }
+    format!("{segments}\n\nRequired terminology (use exact target forms):\n{glossary}")
+}
+
+fn prompt_cache_key(request: &ProviderTranslationRequest<'_>) -> String {
+    format!("translation:{}", request.target_locale)
 }
 
 fn tool_schema() -> Value {
@@ -192,10 +214,69 @@ fn tool_parameters() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segmenter::TranslationSegment;
+    use context69_contracts::TranslationGlossaryEntry;
 
     #[test]
     fn extracts_chat_tool_arguments() {
         let value = json!({"choices":[{"message":{"tool_calls":[{"function":{"arguments":"{\"segments\":[{\"id\":\"title\",\"text\":\"标题\"}]}"}}]}}]});
         assert!(extract_tool_payload("openai_chat_completions", &value).is_some());
+    }
+
+    fn request<'a>(
+        segments: &'a [TranslationSegment],
+        glossary: &'a [TranslationGlossaryEntry],
+    ) -> ProviderTranslationRequest<'a> {
+        ProviderTranslationRequest {
+            source_locale: None,
+            target_locale: "zh-CN",
+            segments,
+            glossary,
+        }
+    }
+
+    #[test]
+    fn system_prompt_is_stable_across_glossaries() {
+        let segments = [TranslationSegment {
+            id: "title".to_string(),
+            text: "hello".to_string(),
+            suffix: String::new(),
+            translatable: true,
+        }];
+        let with_terms = [TranslationGlossaryEntry {
+            source: "bull".to_string(),
+            target: "牛市".to_string(),
+        }];
+        let system_plain = system_prompt(&request(&segments, &[]));
+        let system_glossary = system_prompt(&request(&segments, &with_terms));
+        assert_eq!(system_plain, system_glossary);
+        assert!(system_plain.contains("zh-CN"));
+        assert!(!system_plain.contains("bull"));
+    }
+
+    #[test]
+    fn glossary_travels_in_user_content_tail() {
+        let segments = [TranslationSegment {
+            id: "title".to_string(),
+            text: "hello".to_string(),
+            suffix: String::new(),
+            translatable: true,
+        }];
+        let with_terms = [TranslationGlossaryEntry {
+            source: "bull".to_string(),
+            target: "牛市".to_string(),
+        }];
+        let plain = user_content(&request(&segments, &[]));
+        assert!(!plain.contains("bull"));
+        let with = user_content(&request(&segments, &with_terms));
+        assert!(with.contains("bull => 牛市"));
+        assert!(with.starts_with(&plain));
+    }
+
+    #[test]
+    fn prompt_cache_key_is_stable_per_locale() {
+        let segments = [];
+        let key = prompt_cache_key(&request(&segments, &[]));
+        assert_eq!(key, "translation:zh-CN");
     }
 }
