@@ -64,6 +64,30 @@ WITH eligible AS (
               AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
           )
       )
+      AND (
+          ti.file_id IS NULL
+          OR NOT EXISTS (
+              SELECT 1
+              FROM context69.task_items sibling
+              WHERE sibling.file_id IS NOT NULL
+                AND sibling.file_id = ti.file_id
+                AND sibling.id <> ti.id
+                AND sibling.status = 'running'
+                AND (sibling.lease_until IS NULL OR sibling.lease_until > now())
+          )
+      )
+      AND (
+          ti.file_id IS NULL
+          OR NOT EXISTS (
+              SELECT 1
+              FROM context69.task_items earlier
+              WHERE earlier.file_id IS NOT NULL
+                AND earlier.file_id = ti.file_id
+                AND earlier.id <> ti.id
+                AND earlier.status IN ('queued', 'waiting', 'running')
+                AND (earlier.created_at, earlier.id) < (ti.created_at, ti.id)
+          )
+      )
     ORDER BY ti.created_at
     LIMIT $1
     FOR UPDATE OF ti SKIP LOCKED

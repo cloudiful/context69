@@ -203,6 +203,11 @@ impl LibraryService {
 #[allow(private_interfaces)]
 pub(crate) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
     let mut failure = failure;
+    if is_transient_document_chunk_fk(&failure.error) {
+        failure.dependency = None;
+        failure.retryable = true;
+        return UnifiedIngestError::from_failure(failure);
+    }
     if failure.dependency.is_none() {
         failure.dependency = super::unified_ingest::infer_unified_dependency(&failure);
     }
@@ -237,6 +242,18 @@ pub(crate) fn task_failure_with_dependency(
         retryable: true,
         message: error.to_string(),
     }
+}
+
+fn is_transient_document_chunk_fk(error: &anyhow::Error) -> bool {
+    let message = error
+        .chain()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" | ")
+        .to_ascii_lowercase();
+    message.contains("document_chunks_document_id_fkey")
+        || (message.contains("document_chunks")
+            && (message.contains("violates foreign key") || message.contains("23503")))
 }
 
 /// Retryable Docling error for the persistent remote-admission denial
