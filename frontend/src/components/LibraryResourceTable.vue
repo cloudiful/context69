@@ -10,6 +10,7 @@ import type { GroupPageResponse, LibraryIngestStatus, Pagination } from "../serv
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../types/library";
 import { formatTimestamp } from "../utils/format";
 import { createLibraryStatusHelpers } from "../utils/library-status";
+import { canReleaseFileSource } from "../composables/project-library/library-source";
 
 const props = withDefaults(defineProps<{
   createFolderBusy: boolean;
@@ -29,6 +30,7 @@ const props = withDefaults(defineProps<{
   paginated?: boolean;
   resourceSearchQuery: string;
   retryingFileIds?: string[];
+  releasingFileIds?: string[];
   unavailableFileIds?: string[];
   selectedFolderReady: boolean;
   selection: ExplorerEntry | null;
@@ -41,7 +43,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   groupEntries: () => [], groupPage: undefined, hideActions: false, hideGroupPaths: false, compact: false,
   first: 0, pageSize: 50, paginated: false, pagination: undefined, sortField: "updated_at", sortOrder: -1,
-  statusFilter: null, totalRecords: 0, retryingFileIds: () => [], unavailableFileIds: () => [],
+  statusFilter: null, totalRecords: 0, retryingFileIds: () => [], releasingFileIds: () => [],
+  unavailableFileIds: () => [],
 });
 
 const emit = defineEmits<{
@@ -49,6 +52,7 @@ const emit = defineEmits<{
   "edit-group": [GroupExplorerEntry]; "group-contextmenu": [{ originalEvent: Event; data: GroupExplorerEntry }];
   "move-group": [GroupExplorerEntry]; page: [{ first: number; rows: number }]; "open-group": [GroupExplorerEntry]; "group-page": [number]; "group-page-size": [number];
   "open-entry": [ExplorerEntry]; refresh: []; retry: []; "retry-entry": [ExplorerEntry];
+  "release-source": [ExplorerEntry];
   sort: [{ sortField: "name" | "type" | "status" | "size" | "updated_at"; sortOrder: number }];
   "status-filter": [LibraryIngestStatus | null]; "row-click": [{ data: ExplorerEntry }];
   "row-contextmenu": [{ originalEvent: Event; data: ExplorerEntry }]; "row-dblclick": [{ data: ExplorerEntry }];
@@ -123,6 +127,15 @@ function rowActions(entry: LibraryBrowserEntry): DropdownMenuItem[][] {
   const items: DropdownMenuItem[] = [{ label: t("common.open"), icon: "i-lucide-folder-open", onSelect: () => openEntry(entry) }];
   if (entry.kind === "group") items.push({ label: t("common.edit"), icon: "i-lucide-pencil", onSelect: () => emit("edit-group", entry) });
   if (entry.kind === "folder" && entry.isSourceFolder) items.push({ label: t("sources.sync"), icon: "i-lucide-refresh-cw", onSelect: () => emit("sync-source-folder", entry) });
+  if (entry.kind === "file" && canReleaseFileSource(entry) && !props.unavailableFileIds.includes(entry.id)) {
+    const releasing = table.isReleasing(entry);
+    items.push({
+      label: releasing ? t("library.releasingSource") : t("library.releaseSource"),
+      icon: "i-lucide-unlink",
+      disabled: releasing,
+      onSelect: () => emit("release-source", entry),
+    });
+  }
   if (table.canMoveEntry(entry)) items.push({ label: t("common.move"), icon: "i-lucide-folder-input", onSelect: () => moveEntry(entry) });
   if (table.canDeleteEntry(entry)) items.push({ label: t("common.delete"), icon: "i-lucide-trash-2", color: "error", onSelect: () => deleteEntry(entry) });
   return [items];
@@ -174,7 +187,8 @@ function handleSurfaceContextMenu(event: MouseEvent) {
             <UBadge v-if="row.original.kind === 'group'" :label="row.original.visibility" color="neutral" variant="subtle" />
             <span v-else-if="row.original.kind === 'file'" class="inline-flex items-center gap-1.5" :title="table.statusTooltip(row.original)">
               <UBadge :label="statusLabel(row.original.ingestStatus)" :color="statusSeverity(row.original.ingestStatus)" variant="subtle" />
-              <UButton v-if="['failed', 'cancelled'].includes(row.original.ingestStatus) && !props.unavailableFileIds.includes(row.original.id)" color="neutral" variant="ghost" size="xs" icon="i-lucide-refresh-cw" :loading="table.isRetrying(row.original)" :aria-label="t('common.retry')" @click.stop="emit('retry-entry', row.original)" />
+              <UIcon v-if="props.unavailableFileIds.includes(row.original.id)" name="i-lucide-unlink" class="size-3.5 text-muted" :title="t('library.sourceReleased')" />
+              <UButton v-if="table.canRetry(row.original)" color="neutral" variant="ghost" size="xs" icon="i-lucide-refresh-cw" :loading="table.isRetrying(row.original)" :aria-label="t('common.retry')" @click.stop="emit('retry-entry', row.original)" />
             </span>
             <span v-else class="text-sm text-muted">{{ table.resourceStatusLabel(row.original) }}</span>
           </template>

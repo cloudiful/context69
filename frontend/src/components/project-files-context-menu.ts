@@ -1,6 +1,7 @@
 import type { ContextMenuItem } from "@nuxt/ui";
 
 import type { ExplorerEntry, GroupExplorerEntry } from "../types/library";
+import { canReleaseFileSource, isRetryableFileStatus } from "../composables/project-library/library-source";
 
 type Translate = (key: string) => string;
 
@@ -9,6 +10,7 @@ export function resourceContextItems(options: {
   t: Translate;
   unavailableFileIds: string[];
   retryingFileIds: string[];
+  releasingFileIds: string[];
   open: (entry: ExplorerEntry) => void;
   selectFolder: (id: string | null) => void;
   createFolder: (entry: ExplorerEntry) => void;
@@ -17,6 +19,7 @@ export function resourceContextItems(options: {
   remove: (entry: ExplorerEntry) => void;
   refresh: (entry: ExplorerEntry) => void;
   retry: (id: string) => void;
+  releaseSource: (entry: ExplorerEntry) => void;
 }): ContextMenuItem[] {
   const { entry, t } = options;
   if (!entry) return [];
@@ -41,8 +44,17 @@ export function resourceContextItems(options: {
       onSelect: () => options.open(entry),
     },
   ];
-  if (["failed", "cancelled"].includes(entry.ingestStatus) && !options.unavailableFileIds.includes(entry.id)) {
+  if (entry.kind === "file" && isRetryableFileStatus(entry.ingestStatus) && !options.unavailableFileIds.includes(entry.id)) {
     items.push({ label: options.retryingFileIds.includes(entry.id) ? t("library.retrying") : t("common.retry"), icon: "i-lucide-refresh-cw", onSelect: () => options.retry(entry.id) });
+  }
+  if (entry.kind === "file" && canReleaseFileSource(entry) && !options.unavailableFileIds.includes(entry.id)) {
+    const releasing = options.releasingFileIds.includes(entry.id);
+    items.push({
+      label: releasing ? t("library.releasingSource") : t("library.releaseSource"),
+      icon: "i-lucide-unlink",
+      disabled: releasing,
+      onSelect: () => options.releaseSource(entry),
+    });
   }
   if (!entry.isSourceConfigFile && !entry.isSourceRecordFile) {
     items.push({ label: t("common.move"), icon: "i-lucide-file-input", onSelect: () => options.move(entry) });

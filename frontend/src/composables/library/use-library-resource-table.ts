@@ -3,6 +3,7 @@ import { computed } from "vue";
 import type { LibraryIngestStatus } from "../../services/api";
 import type { ExplorerEntry, GroupExplorerEntry, LibraryBrowserEntry } from "../../types/library";
 import { formatBytes } from "../../utils/format";
+import { isRetryableFileStatus } from "../project-library/library-source";
 
 interface ResourceTableState {
   entries: ExplorerEntry[];
@@ -10,6 +11,8 @@ interface ResourceTableState {
   expandedKeys: Record<string, boolean>;
   resourceSearchQuery: string;
   retryingFileIds: string[];
+  releasingFileIds: string[];
+  unavailableFileIds: string[];
   statusFilter: LibraryIngestStatus | null;
 }
 
@@ -44,8 +47,16 @@ export function useLibraryResourceTable(
     statusTooltip(entry: LibraryBrowserEntry) {
       return entry.kind === "file" && entry.ingestStatus === "failed" ? entry.errorMessage || undefined : undefined;
     },
+    canRetry(entry: LibraryBrowserEntry) {
+      return entry.kind === "file"
+        && isRetryableFileStatus(entry.ingestStatus)
+        && !props.unavailableFileIds.includes(entry.id);
+    },
     isRetrying(entry: LibraryBrowserEntry) {
       return entry.kind === "file" && props.retryingFileIds.includes(entry.id);
+    },
+    isReleasing(entry: LibraryBrowserEntry) {
+      return entry.kind === "file" && props.releasingFileIds.includes(entry.id);
     },
     entryIndentStyle(entry: LibraryBrowserEntry) {
       return { "--library-entry-depth": String(entry.depth) };

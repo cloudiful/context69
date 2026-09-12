@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 
 import { type LibraryFileDetailResponse } from "../services/api";
 import type { FolderSummary } from "../types/library";
+import { isRetryableFileStatus } from "../composables/project-library/library-source";
 import { formatBytes, formatTimestamp } from "../utils/format";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 import AsyncStateBlock from "./AsyncStateBlock.vue";
@@ -17,11 +18,14 @@ const props = defineProps<{
   selectedFileId: string | null;
   selectedFolderSummary: FolderSummary | null;
   retrying?: boolean;
+  releasing?: boolean;
+  releasable?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:activeSectionKey": [value: string];
   retry: [fileId: string];
+  release: [fileId: string];
 }>();
 
 const { t } = useI18n();
@@ -106,6 +110,10 @@ const activeSection = computed(() => {
             <dd class="text-sm text-color">{{ formatBytes(detail.size_bytes) }}</dd>
           </div>
           <div class="grid gap-1">
+            <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.sourceStatusLabel") }}</dt>
+            <dd class="text-sm text-color">{{ detail.source_available ? t("library.sourceAvailable") : t("library.sourceReleased") }}</dd>
+          </div>
+          <div class="grid gap-1">
             <dt class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("library.updatedColumn") }}</dt>
             <dd class="text-sm text-color">{{ formatTimestamp(detail.updated_at) }}</dd>
           </div>
@@ -115,15 +123,16 @@ const activeSection = computed(() => {
           </div>
         </dl>
 
-        <UAlert
-          v-if="detail.ingest_status === 'running' || detail.ingest_status === 'pending'"
-          color="warning"
-          variant="subtle"
-          :title="t('library.processingTitle')"
-          :description="t('library.processingMessage')"
-        />
-        <div v-else-if="detail.ingest_status === 'failed' || detail.ingest_status === 'cancelled'" class="grid justify-items-start gap-3">
+        <div v-if="isRetryableFileStatus(detail.ingest_status)" class="grid justify-items-start gap-3">
           <UAlert
+            v-if="detail.ingest_status === 'running' || detail.ingest_status === 'pending'"
+            color="warning"
+            variant="subtle"
+            :title="t('library.processingTitle')"
+            :description="t('library.processingMessage')"
+          />
+          <UAlert
+            v-else
             :color="detail.ingest_status === 'cancelled' ? 'neutral' : 'error'"
             variant="subtle"
             :title="detail.ingest_status === 'cancelled' ? t('library.processingCancelledTitle') : t('library.processingFailedTitle')"
@@ -145,6 +154,26 @@ const activeSection = computed(() => {
             <UIcon name="i-lucide-loader-circle" v-if="retrying" class="h-4 w-4" />
             <UIcon v-else name="i-lucide-refresh-cw" />
             <span>{{ retrying ? t("library.retrying") : t("common.retry") }}</span>
+          </UButton>
+        </div>
+        <div v-else-if="detail.ingest_status === 'succeeded'" class="grid justify-items-start gap-3">
+          <UAlert
+            v-if="!detail.source_available"
+            color="neutral"
+            variant="subtle"
+            :title="t('library.sourceReleasedTitle')"
+            :description="t('library.sourceReleasedMessage')"
+          />
+          <UButton
+            v-else-if="releasable"
+            icon="i-lucide-unlink"
+            color="neutral"
+            variant="outline"
+            :loading="releasing"
+            :disabled="releasing"
+            @click="emit('release', detail.file_id)"
+          >
+            {{ releasing ? t("library.releasingSource") : t("library.releaseSource") }}
           </UButton>
         </div>
 

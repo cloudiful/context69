@@ -27,6 +27,10 @@ function encodeGroupPath(groupPath: string) {
   return encodeURIComponent(groupPath);
 }
 
+export interface UploadLibraryFilesOptions extends RequestOptions {
+  deleteSourceAfterProcessing?: boolean;
+}
+
 export function createGroupWorkspaceApi({
   authFetch,
   openapiClient,
@@ -153,7 +157,8 @@ export function createGroupWorkspaceApi({
         signal: options?.signal,
       }));
     },
-    async uploadGroupLibraryFiles(groupPath: string, folderId: string | null, files: File[], options?: RequestOptions) {
+    async uploadGroupLibraryFiles(groupPath: string, folderId: string | null, files: File[], options: UploadLibraryFilesOptions = {}) {
+      const deleteSourceAfterProcessing = options.deleteSourceAfterProcessing ?? false;
       const prepared = await Promise.all(files.map(async (file) => {
         const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
         const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -165,8 +170,9 @@ export function createGroupWorkspaceApi({
             media_type: file.type || "application/octet-stream",
             size_bytes: file.size,
             sha256,
+            delete_source_after_processing: deleteSourceAfterProcessing,
           },
-          signal: options?.signal,
+          signal: options.signal,
         }));
         return { file, result, sha256 };
       }));
@@ -182,6 +188,10 @@ export function createGroupWorkspaceApi({
       if (folderId) {
         form.append("folder_id", folderId);
       }
+      form.append("metadata", JSON.stringify({
+        delete_source_after_processing: deleteSourceAfterProcessing,
+        metadata_json: {},
+      }));
       for (const { file, sha256 } of prepared.filter(({ result }) => result.upload_required)) {
         form.append("sha256", sha256);
         form.append("files", file);
@@ -190,7 +200,7 @@ export function createGroupWorkspaceApi({
       const response = await authFetch(resolveApiUrl(`/v1/groups/by-path/${encodeGroupPath(groupPath)}/library/files/upload`), {
         body: form,
         method: "POST",
-        signal: options?.signal,
+        signal: options.signal,
       });
 
       const uploaded = await unwrapFetchResponse<TaskRef>(response);
@@ -201,6 +211,12 @@ export function createGroupWorkspaceApi({
     },
     getGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library/files/{file_id}", {
+        params: { path: { group_path: groupPath, file_id: fileId } },
+        signal: options?.signal,
+      }));
+    },
+    releaseGroupLibraryFileSource(groupPath: string, fileId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/{file_id}/release-source", {
         params: { path: { group_path: groupPath, file_id: fileId } },
         signal: options?.signal,
       }));

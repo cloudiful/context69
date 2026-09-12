@@ -32,6 +32,23 @@ const detail: LibraryFileDetailResponse = {
   visibility: "private",
 };
 
+function mountPreview(overrides: Partial<LibraryFileDetailResponse> = {}) {
+  return mount(LibraryPreviewPanel, {
+    props: {
+      activeSectionKey: "document",
+      detail: { ...detail, ...overrides },
+      detailLoading: false,
+      selectedFileId: detail.file_id,
+      selectedFolderSummary: null,
+    },
+    global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
+  });
+}
+
+function findRetryButton(wrapper: ReturnType<typeof mountPreview>) {
+  return wrapper.findAll("button").find((button) => button.text().includes("Retry"));
+}
+
 describe("LibraryPreviewPanel", () => {
   it("shows single-section content without repeating its title", () => {
     const wrapper = mount(LibraryPreviewPanel, {
@@ -48,5 +65,25 @@ describe("LibraryPreviewPanel", () => {
     expect(wrapper.text()).toContain("Body only");
     expect(wrapper.text()).not.toContain("Duplicate title");
     expect(wrapper.text()).not.toContain("文档 #6655");
+  });
+
+  it("offers retry for stale pending/running files and emits the file id", async () => {
+    for (const ingestStatus of ["pending", "running"] as const) {
+      const wrapper = mountPreview({ ingest_status: ingestStatus, source_available: true });
+      const retry = findRetryButton(wrapper);
+
+      expect(retry, ingestStatus).toBeDefined();
+      await retry!.trigger("click");
+      expect(wrapper.emitted("retry")?.[0]).toEqual([detail.file_id]);
+      wrapper.unmount();
+    }
+  });
+
+  it("hides retry and warns when the source is missing", () => {
+    const wrapper = mountPreview({ ingest_status: "pending", source_available: false });
+
+    expect(wrapper.text()).toContain("Original file is missing");
+    expect(findRetryButton(wrapper)).toBeUndefined();
+    wrapper.unmount();
   });
 });

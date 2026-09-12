@@ -10,6 +10,7 @@ import { useProjectLibraryActions } from "./use-project-library-actions";
 const getGroupLibraryFile = vi.spyOn(apiClient, "getGroupLibraryFile");
 const submitTask = vi.spyOn(apiClient, "submitTask");
 const getTask = vi.spyOn(apiClient, "getTask");
+const uploadGroupLibraryFiles = vi.spyOn(apiClient, "uploadGroupLibraryFiles");
 
 const root: LibraryFolderNode = {
   children: [],
@@ -31,6 +32,7 @@ describe("useProjectLibraryActions retry", () => {
     submitTask.mockReset();
     getTask.mockReset();
     getTask.mockResolvedValue({ task_id: "task-id", status: "succeeded" } as never);
+    uploadGroupLibraryFiles.mockReset();
   });
 
   it("prevents duplicate retry requests and refreshes the tree once", async () => {
@@ -180,6 +182,42 @@ describe("useProjectLibraryActions retry", () => {
 
     expect(submitTask).not.toHaveBeenCalled();
     expect(state.unavailableFileIds.value).toEqual(["file-id"]);
+    wrapper.unmount();
+  });
+
+  it("propagates the one-time release toggle and resets it for the next upload", async () => {
+    uploadGroupLibraryFiles.mockResolvedValue({ files: [], tasks: [] } as never);
+    let state!: ReturnType<typeof useProjectLibraryActions>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryActions({
+          groupPath: ref("group"),
+          loadTree: vi.fn(),
+          moveOptions: ref([]),
+          replaceSelection: vi.fn(),
+          selectFile: vi.fn(),
+          selectedFolder: ref(root),
+          selectedFileId: ref(null),
+          t: (key) => key,
+          updateExpandedForFolder: vi.fn(),
+          previewDocked: ref(false),
+          previewDialogVisible: ref(false),
+        });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
+
+    state.deleteSourceAfterProcessing.value = true;
+    await state.handleFileSelection({ files: [new File(["x"], "a.txt")] });
+
+    expect(uploadGroupLibraryFiles).toHaveBeenCalledWith(
+      "group",
+      null,
+      expect.any(Array),
+      { deleteSourceAfterProcessing: true },
+    );
+    expect(state.deleteSourceAfterProcessing.value).toBe(false);
     wrapper.unmount();
   });
 });

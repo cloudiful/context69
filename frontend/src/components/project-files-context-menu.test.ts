@@ -4,7 +4,7 @@ import type { LibraryFileSummary, LibraryFolderNode } from "../services/api";
 import type { ExplorerEntry } from "../types/library";
 import { resourceContextItems, surfaceContextItems } from "./project-files-context-menu";
 
-function fileEntry(): ExplorerEntry {
+function fileEntry(): Extract<ExplorerEntry, { kind: "file" }> {
   return {
     key: "file:f1",
     kind: "file",
@@ -43,6 +43,29 @@ function folderEntry(): ExplorerEntry {
   };
 }
 
+function resourceOptions(
+  entry: ExplorerEntry,
+  overrides: Partial<Parameters<typeof resourceContextItems>[0]> = {},
+): Parameters<typeof resourceContextItems>[0] {
+  return {
+    entry,
+    t: (key) => key,
+    unavailableFileIds: [],
+    retryingFileIds: [],
+    releasingFileIds: [],
+    open: vi.fn(),
+    selectFolder: vi.fn(),
+    createFolder: vi.fn(),
+    syncFolder: vi.fn(),
+    move: vi.fn(),
+    remove: vi.fn(),
+    refresh: vi.fn(),
+    retry: vi.fn(),
+    releaseSource: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe("project files context menu", () => {
   it("offers a refresh action on file entries", () => {
     const refresh = vi.fn();
@@ -52,6 +75,7 @@ describe("project files context menu", () => {
       t: (key) => key,
       unavailableFileIds: [],
       retryingFileIds: [],
+      releasingFileIds: [],
       open: vi.fn(),
       selectFolder: vi.fn(),
       createFolder: vi.fn(),
@@ -60,6 +84,7 @@ describe("project files context menu", () => {
       remove: vi.fn(),
       refresh,
       retry: vi.fn(),
+      releaseSource: vi.fn(),
     });
 
     const refreshItem = items.find((item) => item.label === "sources.refresh");
@@ -76,6 +101,7 @@ describe("project files context menu", () => {
       t: (key) => key,
       unavailableFileIds: [],
       retryingFileIds: [],
+      releasingFileIds: [],
       open: vi.fn(),
       selectFolder: vi.fn(),
       createFolder: vi.fn(),
@@ -84,6 +110,7 @@ describe("project files context menu", () => {
       remove: vi.fn(),
       refresh,
       retry: vi.fn(),
+      releaseSource: vi.fn(),
     });
 
     const refreshItem = items.find((item) => item.label === "sources.refresh");
@@ -107,5 +134,50 @@ describe("project files context menu", () => {
     expect(refreshItem).toBeTruthy();
     refreshItem!.onSelect?.(new Event("click"));
     expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("offers retry for failed and stale pending/running files", () => {
+    for (const status of ["pending", "running", "failed", "cancelled"] as const) {
+      const entry = fileEntry();
+      entry.ingestStatus = status;
+      const items = resourceContextItems(resourceOptions(entry));
+      expect(items.some((item) => item.label === "common.retry"), status).toBe(true);
+    }
+  });
+
+  it("does not offer retry for succeeded files", () => {
+    const items = resourceContextItems(resourceOptions(fileEntry()));
+    expect(items.some((item) => item.label === "common.retry")).toBe(false);
+  });
+
+  it("hides retry when the source is unavailable", () => {
+    const entry = fileEntry();
+    entry.ingestStatus = "failed";
+    const items = resourceContextItems(resourceOptions(entry, { unavailableFileIds: [entry.id] }));
+    expect(items.some((item) => item.label === "common.retry")).toBe(false);
+  });
+
+  it("offers source release for a succeeded file with an available source", () => {
+    const entry = fileEntry();
+    const releaseSource = vi.fn();
+    const items = resourceContextItems(resourceOptions(entry, { releaseSource }));
+
+    const releaseItem = items.find((item) => item.label === "library.releaseSource");
+    expect(releaseItem).toBeTruthy();
+    releaseItem!.onSelect?.(new Event("click"));
+    expect(releaseSource).toHaveBeenCalledWith(entry);
+  });
+
+  it("hides source release when the source is unavailable or the file is a control file", () => {
+    const unavailable = fileEntry();
+    const unavailableItems = resourceContextItems(resourceOptions(unavailable, {
+      unavailableFileIds: [unavailable.id],
+    }));
+    expect(unavailableItems.some((item) => item.label === "library.releaseSource")).toBe(false);
+
+    const controlFile = fileEntry();
+    controlFile.isSourceConfigFile = true;
+    const controlItems = resourceContextItems(resourceOptions(controlFile));
+    expect(controlItems.some((item) => item.label === "library.releaseSource")).toBe(false);
   });
 });

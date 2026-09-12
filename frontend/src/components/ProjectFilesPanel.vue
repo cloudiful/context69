@@ -124,6 +124,7 @@ const visibleGroupEntries = computed(() => treeState.selectedFolderId || pageSta
 const visibleChildGroupPage = computed(() => treeState.selectedFolderId || pageState.page !== 1 || pageState.statusFilter
   ? undefined
   : props.childGroupPage);
+const selectedFileEntry = computed(() => treeState.selectedExplorerEntry?.kind === "file" ? treeState.selectedExplorerEntry : null);
 const currentFolderName = computed(() => treeState.selectedFolderSummary?.name ?? "");
 const scopedSearchPlaceholder = computed(() => t("search.scoped.placeholder", { folder: currentFolderName.value }));
 const scopedSearchTitle = computed(() => t("search.scoped.title", { folder: currentFolderName.value }));
@@ -139,6 +140,7 @@ const uploadFiles = ref<File[] | null>(null);
 const resourceMenuItems = computed(() => resourceContextItems({
   entry: treeState.resourceContextEntry, t,
   unavailableFileIds: actionsState.unavailableFileIds, retryingFileIds: actionsState.retryingFileIds,
+  releasingFileIds: actionsState.releasingFileIds,
   open: (entry) => { void openExplorerEntry(entry); },
   selectFolder: (id) => { void treeState.selectFolder(id); },
   createFolder: (entry) => entry.kind === "folder" && actionsState.openCreateFolderDialog(entry.folder),
@@ -147,6 +149,7 @@ const resourceMenuItems = computed(() => resourceContextItems({
   remove: (entry) => entry.kind === "folder" ? void actionsState.deleteFolder(entry.folder) : entry.kind === "file" && void actionsState.deleteFile(entry.file),
   refresh: () => { void refreshLibraryData(); },
   retry: (id) => { void actionsState.retryFile(id); },
+  releaseSource: (entry) => { handleReleaseSource(entry); },
 }));
 const groupMenuItems = computed(() => groupContextItems(groupContextEntry.value, t, (action, entry) => {
   if (action === "open") emit("open-child-group", entry.group);
@@ -213,6 +216,16 @@ function retryExplorerEntry(entry: ExplorerEntry) {
   }
 }
 
+function handleReleaseSource(entry: ExplorerEntry) {
+  if (entry.kind === "file") {
+    void actionsState.releaseFileSource(entry.id, entry.name);
+  }
+}
+
+function releaseSelectedFile(fileId: string) {
+  void actionsState.releaseFileSource(fileId, detailState.detail?.filename ?? "");
+}
+
 function handleGroupRowContextMenu(event: { originalEvent: Event; data: GroupExplorerEntry }) {
   groupContextEntry.value = event.data;
   treeState.resourceContextEntry = null;
@@ -243,6 +256,7 @@ watch(tree.selectedFolderId, (folderId) => {
 });
 
 watch(detail.detail, (nextDetail) => {
+  if (nextDetail) actionsState.observeSourceAvailability(nextDetail);
   const fileId = tree.selectedFileId.value;
   if (!fileId || !nextDetail || nextDetail.file_id !== fileId) return;
   if (nextDetail.folder_id !== tree.selectedFolderId.value) {
@@ -341,6 +355,14 @@ onBeforeUnmount(() => {
           <UButton icon="i-lucide-plus" :label="t('common.new')" class="hidden sm:inline-flex" />
           <UButton icon="i-lucide-plus" aria-label="New" class="sm:hidden" />
         </UDropdownMenu>
+        <UCheckbox
+          v-model="actionsState.deleteSourceAfterProcessing"
+          binary
+          class="hidden md:flex"
+          :label="t('library.releaseSourceAfterUpload')"
+          :title="t('library.releaseSourceAfterUploadHint')"
+          :aria-label="t('library.releaseSourceAfterUpload')"
+        />
         <UButton
           icon="i-lucide-upload"
           :label="t('common.upload')"
@@ -390,6 +412,7 @@ onBeforeUnmount(() => {
           :pagination="pageState.pagination"
           :page-size="pageState.pageSize"
           :resource-search-query="pageState.query"
+          :releasing-file-ids="actionsState.releasingFileIds"
           :retrying-file-ids="actionsState.retryingFileIds"
           :unavailable-file-ids="actionsState.unavailableFileIds"
           :selected-folder-ready="!!treeState.selectedFolder"
@@ -423,6 +446,7 @@ onBeforeUnmount(() => {
           @refresh="refreshLibraryData"
           @retry="refreshLibraryData"
           @retry-entry="retryExplorerEntry"
+          @release-source="handleReleaseSource"
           @create-folder="actionsState.openCreateFolderDialog()"
           @create-source-folder="sourceFolderState.openCreate()"
           @sync-source-folder="sourceFolderState.sync($event.id)"
@@ -484,8 +508,11 @@ onBeforeUnmount(() => {
           :group-path="groupPath"
           :selected-file-id="treeState.selectedFileId"
           :selected-folder-summary="treeState.selectedFolderSummary"
+          :releasable="selectedFileEntry ? actionsState.canReleaseSource(selectedFileEntry) : false"
+          :releasing="!!treeState.selectedFileId && actionsState.releasingFileIds.includes(treeState.selectedFileId)"
           :retrying="!!treeState.selectedFileId && actionsState.retryingFileIds.includes(treeState.selectedFileId)"
           @retry="actionsState.retryFile"
+          @release="releaseSelectedFile"
           @update:active-section-key="detailState.activeSectionKey = $event"
         />
       </template>

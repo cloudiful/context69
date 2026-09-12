@@ -7,6 +7,7 @@ import type { ExplorerEntry } from "../../types/library";
 import { collectDescendantFolderIds } from "../../utils/library-tree";
 import { useErrorToast } from "../use-error-toast";
 import { createTaskSettler } from "../use-task-settling";
+import { useLibrarySourceLifecycle } from "./use-library-source-lifecycle";
 
 interface MoveDialogState {
   kind: "file" | "folder";
@@ -59,12 +60,12 @@ export function useProjectLibraryActions({
   const createFolderBusy = ref(false);
   const uploadBusy = ref(false);
   const actionBusy = ref(false);
-  const retryingFileIds = ref<string[]>([]);
-  const unavailableFileIds = ref<string[]>([]);
+  const deleteSourceAfterProcessing = ref(false);
   const moveDialog = ref<MoveDialogState | null>(null);
   const createDialog = ref<CreateDialogState | null>(null);
   const createTextDialog = ref<CreateTextDialogState | null>(null);
   const settler = createTaskSettler(() => loadTree());
+  const sourceLifecycle = useLibrarySourceLifecycle({ groupPath, loadTree, t });
 
   function notifySettledFailures(results: Array<{ status: string }>, messageKey: string) {
     if (results.some((result) => result.status === "failed")) {
@@ -133,12 +134,14 @@ export function useProjectLibraryActions({
   async function handleFileSelection(event: { files?: File[] }) {
     const files = Array.from(event.files ?? []);
     if (files.length === 0) return;
+    const releaseSource = deleteSourceAfterProcessing.value;
     uploadBusy.value = true;
     try {
       const response = await apiClient.uploadGroupLibraryFiles(
         toValue(groupPath),
         selectedFolder.value?.folder_id ?? null,
         files,
+        { deleteSourceAfterProcessing: releaseSource },
       );
       if (response.files.length > 0) {
         await replaceSelection(response.files[0].folder_id ?? selectedFolder.value?.folder_id ?? null, response.files[0].file_id);
@@ -149,40 +152,14 @@ export function useProjectLibraryActions({
       showErrorToast(error, t("library.uploadFailed"));
     } finally {
       uploadBusy.value = false;
+      // The opt-in is a one-time upload choice; the next upload starts from the default (retain).
+      deleteSourceAfterProcessing.value = false;
     }
   }
 
   async function revealPreviewForFile(fileId: string) {
     previewDialogVisible.value = !previewDocked.value;
     await selectFile(fileId);
-  }
-
-  async function retryFile(fileId: string) {
-    if (retryingFileIds.value.includes(fileId)) return;
-    retryingFileIds.value = [...retryingFileIds.value, fileId];
-    try {
-      const detail = await apiClient.getGroupLibraryFile(toValue(groupPath), fileId);
-      if (!detail.source_available) {
-        unavailableFileIds.value = [...new Set([...unavailableFileIds.value, fileId])];
-        throw new Error(t("library.sourceMissingMessage"));
-      }
-      const task = await apiClient.submitTask({
-        kind: "retry_file_batch",
-        group_path: toValue(groupPath),
-        items: [{ file_id: fileId }],
-      });
-      toast.add({
-        color: "success",
-        title: t("library.retryAccepted"),
-        description: t("library.retryAcceptedMessage"),
-        duration: 2500,
-      });
-      notifySettledFailures(await settler.settle([task]), "library.retryFailed");
-    } catch (error) {
-      showErrorToast(error, t("library.retryFailed"));
-    } finally {
-      retryingFileIds.value = retryingFileIds.value.filter((id) => id !== fileId);
-    }
   }
 
   function openMoveFolderDialog(folder: LibraryFolderNode) {
@@ -301,6 +278,7 @@ export function useProjectLibraryActions({
   });
 
   return {
+    ...sourceLifecycle,
     actionBusy,
     confirmCreateFolder,
     confirmCreateTextFile,
@@ -311,7 +289,11 @@ export function useProjectLibraryActions({
     deleteExplorerEntry,
     deleteFile,
     deleteFolder,
-    dispose: settler.dispose,
+    deleteSourceAfterProcessing,
+    dispose: () => {
+      settler.dispose();
+      sourceLifecycle.dispose();
+    },
     filteredMoveOptions,
     handleFileSelection,
     moveDialog,
@@ -321,9 +303,6 @@ export function useProjectLibraryActions({
     openMoveFileDialog,
     openMoveFolderDialog,
     revealPreviewForFile,
-    retryFile,
-    retryingFileIds,
-    unavailableFileIds,
     uploadBusy,
   };
 }

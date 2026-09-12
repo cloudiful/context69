@@ -84,8 +84,8 @@ describe("LibraryResourceTable", () => {
     expect(storage.getItem("context69:table:group-library:v5")).toBeNull();
   });
 
-  it("offers retry only for failed files", async () => {
-    const failedFile = {
+  function fileEntry(overrides: Partial<Extract<ExplorerEntry, { kind: "file" }>> = {}): ExplorerEntry {
+    return {
       key: "file:failed",
       kind: "file",
       id: "failed",
@@ -115,15 +115,46 @@ describe("LibraryResourceTable", () => {
         updated_at: "2026-07-11T12:00:00Z",
         ingested_at: null,
       },
-    } satisfies ExplorerEntry;
-    const wrapper = mount(LibraryResourceTable, {
-      props: { ...baseProps, entries: [failedFile] },
+      ...overrides,
+    };
+  }
+
+  function mountWith(entries: ExplorerEntry[], extra: Record<string, unknown> = {}) {
+    return mount(LibraryResourceTable, {
+      props: { ...baseProps, entries, ...extra },
       global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
     });
+  }
 
-    const retry = wrapper.get('button[aria-label="Retry"]');
-    await retry.trigger("click");
+  it("offers retry for failed and stale pending/running files", async () => {
+    for (const status of ["pending", "running", "failed", "cancelled"] as const) {
+      const entry = fileEntry({ ingestStatus: status });
+      const wrapper = mountWith([entry]);
+      const retry = wrapper.get('button[aria-label="Retry"]');
+      await retry.trigger("click");
+      expect(wrapper.emitted("retry-entry")?.[0]).toEqual([entry]);
+      wrapper.unmount();
+    }
+  });
 
-    expect(wrapper.emitted("retry-entry")?.[0]).toEqual([failedFile]);
+  it("hides retry when the source is unavailable", () => {
+    const wrapper = mountWith([fileEntry()], { unavailableFileIds: ["failed"] });
+
+    expect(wrapper.find('button[aria-label="Retry"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("offers source release for a succeeded file and hides it when unavailable", () => {
+    const succeeded = fileEntry({ key: "file:ok", id: "ok", ingestStatus: "succeeded", name: "ok.txt" });
+    const menuItems = (wrapper: ReturnType<typeof mountWith>) =>
+      wrapper.findComponent({ name: "DropdownMenu" }).props("items") as Array<Array<{ label: string }>>;
+
+    const available = mountWith([succeeded]);
+    expect(menuItems(available).flat().map((item) => item.label)).toContain("Release original file");
+    available.unmount();
+
+    const unavailable = mountWith([succeeded], { unavailableFileIds: ["ok"] });
+    expect(menuItems(unavailable).flat().map((item) => item.label)).not.toContain("Release original file");
+    unavailable.unmount();
   });
 });
