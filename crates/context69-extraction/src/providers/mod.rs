@@ -195,3 +195,37 @@ fn validate_schema(schema: &Value, instance: &Value) -> Result<()> {
     })?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate_schema;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_instance_matching_schema() {
+        let schema = json!({"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}});
+        let instance = json!({"name": "ok"});
+        assert!(validate_schema(&schema, &instance).is_ok());
+    }
+
+    #[test]
+    fn rejects_instance_violating_schema() {
+        let schema = json!({"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}});
+        let instance = json!({"name": 42});
+        let error = validate_schema(&schema, &instance).unwrap_err();
+        assert!(
+            error.to_string().contains("violates output_schema"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_schema() {
+        let schema = json!({"type": "not-a-json-schema-type"});
+        let error = validate_schema(&schema, &json!({})).unwrap_err();
+        assert!(
+            error.to_string().contains("output_schema is invalid"),
+            "{error}"
+        );
+    }
+}
