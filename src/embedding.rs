@@ -77,19 +77,12 @@ impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
             || {
                 attempts += 1;
                 let attempt = attempts;
-                let remaining = deadline.saturating_duration_since(Instant::now());
                 let request = Arc::clone(&request);
                 let endpoint = Arc::clone(&endpoint);
+                let attempt_deadline = tokio::time::Instant::from_std(deadline);
                 async move {
-                    if remaining.is_zero() {
-                        return Err(format_embedding_attempt_timeout(
-                            endpoint.as_str(),
-                            &self.config.model,
-                            attempt,
-                        ));
-                    }
-                    match tokio::time::timeout(
-                        remaining,
+                    match tokio::time::timeout_at(
+                        attempt_deadline,
                         self.embed_once(&request, endpoint.as_str(), texts.len()),
                     )
                     .await
