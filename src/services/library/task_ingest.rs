@@ -200,8 +200,7 @@ impl LibraryService {
     }
 }
 
-#[allow(private_interfaces)]
-pub(crate) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
+pub(super) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
     let mut failure = failure;
     if is_transient_document_chunk_fk(&failure.error) {
         failure.dependency = None;

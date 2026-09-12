@@ -22,6 +22,21 @@ use crate::chunking::chunk_document_iter;
 use crate::contracts::LibraryIngestFailureStage;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
+/// Immutable inputs for one indexing batch. Grouped so the batch-persist
+/// helper stays within Clippy's argument-count budget without a lint
+/// suppression.
+struct BatchPersistInputs<'a> {
+    file: &'a crate::domain::LibraryFileRecord,
+    prepared_section: &'a PreparedIngestSection,
+    document_id: i64,
+    batch: &'a [crate::domain::DocumentChunk],
+    this_batch_index: usize,
+    total_batches: usize,
+    current_hash: &'a str,
+    item_id: Uuid,
+    lease_token: Uuid,
+}
+
 impl LibraryService {
     /// Checkpointed variant used by the task item processor.
     /// Keeps Qdrant cleanup once per file, re-uses deterministic chunk IDs,
@@ -153,15 +168,17 @@ impl LibraryService {
                 }
 
                 self.persist_one_batch(
-                    &file,
-                    &prepared_section,
-                    document_id,
-                    &batch,
-                    this_batch_index,
-                    total_batches,
-                    &current_hash,
-                    item_id,
-                    lease_token,
+                    BatchPersistInputs {
+                        file: &file,
+                        prepared_section: &prepared_section,
+                        document_id,
+                        batch: &batch,
+                        this_batch_index,
+                        total_batches,
+                        current_hash: &current_hash,
+                        item_id,
+                        lease_token,
+                    },
                     &mut checkpoint,
                     &mut current_payload_value,
                     &runtime,
@@ -224,22 +241,24 @@ impl LibraryService {
         Ok(upserted.document_id)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn persist_one_batch(
         &self,
-        file: &crate::domain::LibraryFileRecord,
-        prepared_section: &PreparedIngestSection,
-        document_id: i64,
-        batch: &[crate::domain::DocumentChunk],
-        this_batch_index: usize,
-        total_batches: usize,
-        current_hash: &str,
-        item_id: Uuid,
-        lease_token: Uuid,
+        inputs: BatchPersistInputs<'_>,
         checkpoint: &mut IndexingCheckpoint,
         current_payload_value: &mut Value,
         runtime: &LibraryRuntime,
     ) -> Result<(), UnifiedIngestError> {
+        let BatchPersistInputs {
+            file,
+            prepared_section,
+            document_id,
+            batch,
+            this_batch_index,
+            total_batches,
+            current_hash,
+            item_id,
+            lease_token,
+        } = inputs;
         let texts = batch
             .iter()
             .map(|chunk| chunk.text.clone())
