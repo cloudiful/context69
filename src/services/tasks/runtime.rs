@@ -50,6 +50,23 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
             {
                 return Ok(());
             }
+            // Upload-time opt-in auto-release. Best-effort and after the
+            // success commit: a failure only leaves the file for the retry
+            // sweep and never changes the processing result.
+            if let Some(file_id) = resource_id
+                .as_deref()
+                .and_then(|value| value.parse::<Uuid>().ok())
+                && let Err(error) = service
+                    .library()
+                    .try_auto_release_source_for_file(file_id)
+                    .await
+            {
+                warn!(
+                    %file_id,
+                    %error,
+                    "auto source release failed; retry sweep will handle it"
+                );
+            }
         }
         Ok(ProcessResult::Progressed) => {
             if !service

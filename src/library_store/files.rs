@@ -372,7 +372,8 @@ impl LibraryStore {
             file.size_bytes,
             file.sha256,
             file.storage_rel_path,
-            file.storage_object_id
+            file.storage_object_id,
+            file.delete_source_after_processing
         )
         .fetch_one(self.db.pool())
         .await?;
@@ -397,7 +398,8 @@ impl LibraryStore {
             file.sha256,
             file.storage_rel_path,
             project_id,
-            file.storage_object_id
+            file.storage_object_id,
+            file.delete_source_after_processing
         )
         .fetch_one(self.db.pool())
         .await?;
@@ -435,6 +437,7 @@ impl LibraryStore {
         &self,
         file: &crate::domain::LibraryFileRecord,
         storage_object_id: Option<Uuid>,
+        source_released_at: Option<DateTime<Utc>>,
     ) -> Result<Option<LibraryFileRecord>> {
         let row = sqlx::query_file_as!(
             FileRow,
@@ -451,7 +454,8 @@ impl LibraryStore {
             storage_object_id,
             file.ingest_status.as_str(),
             file.error_message,
-            file.ingested_at
+            file.ingested_at,
+            source_released_at
         )
         .fetch_optional(self.db.pool())
         .await?;

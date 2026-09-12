@@ -29,3 +29,6 @@ mod cases_rerun;
 
 #[path = "task_file_dedup/cases_locks_concurrency.rs"]
 mod cases_locks_concurrency;
+
+#[path = "task_file_dedup/cases_released.rs"]
+mod cases_released;

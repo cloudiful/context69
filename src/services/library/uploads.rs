@@ -40,6 +40,14 @@ impl LibraryService {
                 .await?
         {
             if existing.sha256 == sha256 {
+                if self.file_source_released(existing.id).await? {
+                    // Re-uploading the bytes restores a deliberately released
+                    // source. The upload-time policy on the existing row stays
+                    // untouched.
+                    return self
+                        .replace_file_for_task(group_id, existing, upload, sha256, lease_token)
+                        .await;
+                }
                 let file = self
                     .update_reused_file(
                         existing,
@@ -84,6 +92,11 @@ impl LibraryService {
                     rollback: UploadedLibraryFileRollback::empty(),
                 });
             }
+            if self.file_source_released(existing.id).await? {
+                return self
+                    .replace_file_for_task(group_id, existing, upload, sha256, lease_token)
+                    .await;
+            }
             let file = self
                 .update_reused_file(
                     existing,
@@ -115,6 +128,7 @@ impl LibraryService {
                     sha256,
                     storage_rel_path: object.object_key.clone(),
                     storage_object_id: Some(object.id),
+                    delete_source_after_processing: upload.delete_source_after_processing,
                 },
             )
             .await
@@ -213,15 +227,13 @@ impl LibraryService {
         .await;
         if result.is_err() && (metadata.is_some() || translation.is_some() || extraction.is_some())
         {
+            let restore_paths = self.store.list_storage_paths_for_files(&[file.id]).await?;
+            let restore_path = restore_paths.iter().find(|path| path.id == file.id);
             if let Err(error) = self
                 .restore_project_file_snapshot(
                     &file,
-                    self.store
-                        .list_storage_paths_for_files(&[file.id])
-                        .await?
-                        .iter()
-                        .find(|path| path.id == file.id)
-                        .and_then(|path| path.storage_object_id),
+                    restore_path.and_then(|path| path.storage_object_id),
+                    restore_path.and_then(|path| path.source_released_at),
                     previous_translation.as_ref(),
                 )
                 .await
@@ -252,6 +264,10 @@ impl LibraryService {
             .iter()
             .find(|path| path.id == existing.id)
             .and_then(|path| path.storage_object_id);
+        let old_source_released_at = old_paths
+            .iter()
+            .find(|path| path.id == existing.id)
+            .and_then(|path| path.source_released_at);
         let old_translation = self.store.file_translation_directive(existing.id).await?;
         let old_extraction = self.store.file_extraction_directive(existing.id).await?;
         let object = self
@@ -295,6 +311,7 @@ impl LibraryService {
             self.restore_project_file_snapshot(
                 &existing,
                 old_storage_object_id,
+                old_source_released_at,
                 old_translation.as_ref(),
             )
             .await?;
@@ -310,6 +327,7 @@ impl LibraryService {
             self.restore_project_file_snapshot(
                 &existing,
                 old_storage_object_id,
+                old_source_released_at,
                 old_translation.as_ref(),
             )
             .await?;
@@ -329,6 +347,7 @@ impl LibraryService {
             self.restore_project_file_snapshot(
                 &existing,
                 old_storage_object_id,
+                old_source_released_at,
                 old_translation.as_ref(),
             )
             .await?;

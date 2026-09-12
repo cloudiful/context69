@@ -57,6 +57,9 @@ pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::r
     } else if message.contains("external_id_content_conflict")
         || message.contains("cannot be retried")
         || message.contains("translation job is not retryable")
+        || message.contains("cannot release its source")
+        || message.contains("release their source")
+        || message.contains("released file source cannot be reprocessed")
     {
         StatusCode::CONFLICT
     } else if message.contains("metadata_json must be an object")

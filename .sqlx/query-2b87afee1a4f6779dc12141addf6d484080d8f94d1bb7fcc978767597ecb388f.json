@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Deliberately released files may not be reprocessed: their source object is\n-- gone and re-running ingest would fail or silently operate on nothing.\nSELECT count(*)::bigint AS \"count!\"\nFROM context69.library_files\nWHERE group_id = $1\n  AND id = ANY($2)\n  AND source_released_at IS NOT NULL\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2b87afee1a4f6779dc12141addf6d484080d8f94d1bb7fcc978767597ecb388f"
+}

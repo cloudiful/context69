@@ -28,6 +28,11 @@ impl LibraryService {
                 .await?
         {
             if existing.sha256 == request.sha256 {
+                if self.file_source_released(existing.id).await? {
+                    // The recorded source is gone on purpose. The caller must
+                    // send the bytes again; re-uploading restores it.
+                    return Ok(upload_required());
+                }
                 return self
                     .reuse_prepared_file(
                         existing,
@@ -58,6 +63,9 @@ impl LibraryService {
                 // handler submits against this response still has a fresh,
                 // distinct metadata row to ingest.
                 return self.prepare_duplicate_content_file(project, request).await;
+            }
+            if self.file_source_released(existing.id).await? {
+                return Ok(upload_required());
             }
             return self
                 .reuse_prepared_file(
@@ -161,6 +169,7 @@ impl LibraryService {
                     sha256: request.sha256.clone(),
                     storage_rel_path: storage_object.object_key.clone(),
                     storage_object_id: Some(storage_object.id),
+                    delete_source_after_processing: request.delete_source_after_processing,
                 },
             )
             .await

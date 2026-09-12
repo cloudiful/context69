@@ -21,6 +21,7 @@ mod search_settings;
 mod source_connections;
 mod sync_runs;
 mod task_file_dedup;
+pub(crate) use task_file_dedup::lock_file_processing_slots;
 mod tasks;
 mod translations;
 mod vector_index_state;

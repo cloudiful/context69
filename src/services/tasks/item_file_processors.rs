@@ -112,6 +112,7 @@ pub(super) async fn process_file(
                         translation: request.translation,
                         extraction: request.extraction,
                         staged_storage_object_id: item.input_storage_object_id,
+                        delete_source_after_processing: request.delete_source_after_processing,
                     },
                     item.lease_token,
                 )
@@ -144,6 +145,7 @@ pub(super) async fn process_file(
 #[derive(Debug, Deserialize)]
 struct StoredFileBatchItem {
     filename: String,
+    #[serde(default)]
     media_type: String,
     #[serde(default)]
     content_base64: Option<String>,
@@ -157,6 +159,8 @@ struct StoredFileBatchItem {
     translation: Option<context69_contracts::TranslationDirective>,
     #[serde(default)]
     extraction: Option<context69_contracts::ExtractionDirective>,
+    #[serde(default)]
+    delete_source_after_processing: bool,
 }
 
 pub(super) async fn process_file_stage(

@@ -135,10 +135,11 @@ impl LibraryService {
         &self,
         file: &crate::domain::LibraryFileRecord,
         storage_object_id: Option<Uuid>,
+        source_released_at: Option<chrono::DateTime<chrono::Utc>>,
         translation: Option<&crate::contracts::TranslationDirective>,
     ) -> Result<()> {
         self.store
-            .restore_file_snapshot_in_project(file, storage_object_id)
+            .restore_file_snapshot_in_project(file, storage_object_id, source_released_at)
             .await?
             .with_context(|| format!("unknown file {} while restoring upload", file.id))?;
         self.store
@@ -168,7 +169,7 @@ impl LibraryService {
         project_id: i64,
         file_id: Uuid,
         previous_file: Option<&crate::domain::LibraryFileRecord>,
-        previous_storage_object_id: Option<Uuid>,
+        previous_storage: Option<&crate::library_store::documents::StoragePathRow>,
         previous_translation: Option<&crate::contracts::TranslationDirective>,
         new_storage_key: &str,
         new_storage_object_id: Option<Uuid>,
@@ -178,7 +179,8 @@ impl LibraryService {
             if let Err(error) = self
                 .restore_project_file_snapshot(
                     previous_file,
-                    previous_storage_object_id,
+                    previous_storage.and_then(|path| path.storage_object_id),
+                    previous_storage.and_then(|path| path.source_released_at),
                     previous_translation,
                 )
                 .await

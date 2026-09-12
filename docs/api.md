@@ -13,6 +13,9 @@
 - `POST /v1/groups/by-path/{group_path}/batch/text`
 - `POST /v1/groups/by-path/{group_path}/batch/url`
 - `POST /v1/groups/by-path/{group_path}/batch/file`
+- `POST /v1/groups/by-path/{group_path}/library/files/upload` (multipart)
+- `POST /v1/groups/by-path/{group_path}/library/files/prepare-upload`
+- `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/release-source`
 - `POST|GET /v1/tasks`
 - `GET /v1/tasks/{task_id}`
 - `GET /v1/tasks/{task_id}/items`
@@ -32,6 +35,33 @@ file arrays through the batch methods. A one-item array is the single-item
 form. Every submission returns a task reference; use task status and item
 endpoints for progress and independent failures. Queue, lease, heartbeat,
 retry-attempt, URL polling, and metadata-index workers remain server-side.
+
+## Source file lifecycle
+
+- Sources are retained by default. Every upload path (`multipart`, `FileBatch`
+  base64, `prepare-upload`, URL import) accepts a boolean
+  `delete_source_after_processing` (default `false`). It is chosen once at
+  upload and is never changed by a later dedup/reuse request.
+- With the opt-in set, the source object is released only after the ingest
+  result is committed successfully. A crash or transient storage error leaves
+  the release pending; the server retries it in the background.
+- `POST .../library/files/{file_id}/release-source` releases one succeeded
+  file's source on demand, requires the same group and maintainer role, is
+  rejected while the file has an active processing task, and is idempotent.
+  Sync-managed control files (`source.json` and synced records) are refused.
+- Release deletes only the stored source object. The file record, processed
+  full text, vectors, and original size are retained; `source_available`
+  becomes `false`. Shared content-addressed objects are detached from the
+  requesting file only and their bytes are deleted once no file or task item
+  references them.
+- Physical deletion is durable: the object row is kept until the bytes are
+  confirmed deleted, and a storage failure or crash reschedules the deletion
+  with backoff instead of leaving an unrecoverable orphan. The bytes of an
+  object that is referenced again are never deleted.
+- A released file cannot be reprocessed until its bytes are uploaded again; the
+  upload restores the source and keeps the original upload-time policy.
+- `context69-sdk` exposes `release_file_source(group_path, file_id)` and carries
+  the upload flag through `FileBatchItem` / `UrlBatchItem`.
 
 ## Authentication
 

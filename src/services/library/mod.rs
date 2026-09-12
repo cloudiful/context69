@@ -76,6 +76,13 @@ pub(crate) mod object_storage;
 mod remote_download;
 mod remote_proxy;
 mod resources;
+mod source_object_cleanup;
+pub use source_object_cleanup::{
+    DEFAULT_SOURCE_OBJECT_CLEANUP_BATCH_SIZE, SourceObjectCleanupSummary,
+    set_source_object_delete_failpoint,
+};
+mod source_release;
+pub use source_release::{DEFAULT_SOURCE_RELEASE_RETRY_BATCH_SIZE, SourceReleaseSweepSummary};
 mod storage;
 pub mod task_ingest;
 mod texts;
@@ -572,9 +579,7 @@ mod tests {
     use serde_json::json;
     use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-    use super::{
-        compose_library_metadata, resize_docling_semaphore, xlsx::extract_xlsx_sections,
-    };
+    use super::{compose_library_metadata, resize_docling_semaphore, xlsx::extract_xlsx_sections};
 
     #[test]
     fn docling_resize_shrink_fail_then_grow_matches_latest_target() {

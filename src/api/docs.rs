@@ -28,8 +28,8 @@ use crate::api::{
         __path_get_group_library_file, __path_get_group_library_resources,
         __path_get_group_library_tree, __path_import_group_library_file_url,
         __path_move_group_library_file, __path_move_group_library_folder,
-        __path_prepare_group_library_upload, __path_upload_group_library_files,
-        __path_upsert_group_library_text,
+        __path_prepare_group_library_upload, __path_release_group_library_file_source,
+        __path_upload_group_library_files, __path_upsert_group_library_text,
     },
     group_source_folders::{
         __path_create_group_source_folder, __path_sync_group_source_folder,
@@ -156,6 +156,7 @@ use crate::contracts::{
         prepare_group_library_upload,
         get_group_library_file,
         move_group_library_file,
+        release_group_library_file_source,
         delete_group_library_file,
         create_group_source_folder,
         update_group_source_folder_config,

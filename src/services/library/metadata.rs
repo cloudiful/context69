@@ -294,6 +294,13 @@ impl LibraryService {
         lease_token: Option<Uuid>,
     ) -> Result<()> {
         for path in paths {
+            if path.source_released_at.is_some() {
+                // A deliberately released source has no object reference left;
+                // its bytes were already handled by the release path under the
+                // storage-object ref count. Deleting the key directly here
+                // could destroy bytes still shared by another file.
+                continue;
+            }
             if let Some(object_id) = path.storage_object_id {
                 match lease_token {
                     Some(lease_token) => {

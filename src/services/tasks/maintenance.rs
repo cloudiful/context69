@@ -17,6 +17,10 @@ use super::TaskService;
 use crate::{domain::UserRecord, library_store::RecoveryAudit};
 
 pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+/// Upload-time auto-release is retried on this cadence so a transient storage
+/// failure or a crash after the success commit does not strand a pending
+/// release until the next restart.
+pub const SOURCE_RELEASE_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 pub const CLEANUP_BATCH_SIZE: i64 = 1000;
 pub const STAGED_OBJECT_GRACE_HOURS: i64 = 24;
 pub const MIN_RETENTION_DAYS: i64 = 1;
@@ -50,15 +54,58 @@ impl fmt::Display for TaskMaintenanceError {
 impl Error for TaskMaintenanceError {}
 
 pub(super) fn start(service: &TaskService) {
-    let service = service.clone();
+    let cleanup_service = service.clone();
     tokio::spawn(async move {
         let mut cycle = interval(CLEANUP_INTERVAL);
         cycle.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
-            if let Err(error) = run_cleanup(&service).await {
+            if let Err(error) = run_cleanup(&cleanup_service).await {
                 tracing::warn!(%error, "task history cleanup cycle failed; retrying next cycle");
             }
             cycle.tick().await;
+        }
+    });
+    let release_service = service.clone();
+    tokio::spawn(async move {
+        let mut cycle = interval(SOURCE_RELEASE_RETRY_INTERVAL);
+        cycle.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        loop {
+            cycle.tick().await;
+            match release_service
+                .library()
+                .retry_pending_source_releases(
+                    crate::services::library::DEFAULT_SOURCE_RELEASE_RETRY_BATCH_SIZE,
+                )
+                .await
+            {
+                Ok(summary) if summary.released > 0 => tracing::info!(
+                    released = summary.released,
+                    errors = summary.errors,
+                    "pending source releases retried"
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "source release retry pass failed");
+                }
+            }
+            match release_service
+                .library()
+                .run_source_object_cleanup(
+                    crate::services::library::DEFAULT_SOURCE_OBJECT_CLEANUP_BATCH_SIZE,
+                )
+                .await
+            {
+                Ok(summary) if summary.deleted > 0 || summary.failed > 0 => tracing::info!(
+                    deleted = summary.deleted,
+                    cancelled = summary.cancelled,
+                    failed = summary.failed,
+                    "source object cleanup pass completed"
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "source object cleanup pass failed");
+                }
+            }
         }
     });
 }

@@ -52,6 +52,7 @@ impl LibraryService {
                     sha256: sha256.to_string(),
                     storage_rel_path: object.object_key.clone(),
                     storage_object_id: Some(object.id),
+                    delete_source_after_processing: upload.delete_source_after_processing,
                 },
             )
             .await

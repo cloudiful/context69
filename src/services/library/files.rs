@@ -72,6 +72,32 @@ impl LibraryService {
             .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
     }
 
+    /// Whether a file's original source is readable. A deliberate release
+    /// always reports unavailable even if identical bytes still exist for
+    /// another file that shares the content-addressed object.
+    async fn source_available_for_file(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+    ) -> Result<bool> {
+        let lifecycle = self.store.get_file_source_lifecycle(file.id).await?;
+        if lifecycle
+            .as_ref()
+            .is_some_and(|state| state.source_released_at.is_some())
+        {
+            return Ok(false);
+        }
+        self.exists_active_storage(&file.storage_rel_path).await
+    }
+
+    /// Whether a file's source was deliberately released.
+    pub(crate) async fn file_source_released(&self, file_id: Uuid) -> Result<bool> {
+        Ok(self
+            .store
+            .get_file_source_lifecycle(file_id)
+            .await?
+            .is_some_and(|state| state.source_released_at.is_some()))
+    }
+
     pub async fn get_file(&self, file_id: Uuid) -> Result<LibraryFileDetailResponse> {
         let file = self
             .store
@@ -84,7 +110,7 @@ impl LibraryService {
             .get_file_detail(file_id, folder_path)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        detail.source_available = self.exists_active_storage(&file.storage_rel_path).await?;
+        detail.source_available = self.source_available_for_file(&file).await?;
         Ok(detail)
     }
 
@@ -104,7 +130,7 @@ impl LibraryService {
             .get_file_detail_in_project(project.id, file_id, folder_path)
             .await?
             .with_context(|| format!("unknown file {file_id}"))?;
-        detail.source_available = self.exists_active_storage(&file.storage_rel_path).await?;
+        detail.source_available = self.source_available_for_file(&file).await?;
         Ok(detail)
     }
 

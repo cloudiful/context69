@@ -297,6 +297,10 @@ pub struct FileBatchItem {
     pub translation: Option<crate::TranslationDirective>,
     #[serde(default)]
     pub extraction: Option<crate::ExtractionDirective>,
+    /// Release the source object once processing succeeds. Chosen once at
+    /// upload; defaults to `false` (retain the source).
+    #[serde(default)]
+    pub delete_source_after_processing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

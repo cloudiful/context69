@@ -19,6 +19,7 @@ pub(crate) fn file_batch_payloads(files: Vec<UploadedLibraryFile>) -> Result<Vec
                 metadata: file.metadata,
                 translation: file.translation,
                 extraction: file.extraction,
+                delete_source_after_processing: file.delete_source_after_processing,
             })
             .map_err(Into::into)
         })

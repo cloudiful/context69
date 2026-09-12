@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH folder_scope AS (\n    SELECT group_id, visibility\n    FROM context69.library_folders\n    WHERE id = $2\n),\ndefault_scope AS (\n    SELECT id AS group_id, visibility\n    FROM context69.groups\n    WHERE full_path = 'public'\n),\nresolved_scope AS (\n    SELECT group_id, visibility FROM folder_scope\n    UNION ALL\n    SELECT group_id, visibility FROM default_scope\n    LIMIT 1\n)\nINSERT INTO context69.library_files (\n    id,\n    group_id,\n    visibility,\n    folder_id,\n    external_id,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    storage_object_id,\n    ingest_status\n)\nSELECT\n    $1,\n    rs.group_id,\n    rs.visibility,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8,\n    $9,\n    'pending'\nFROM resolved_scope rs\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
+  "query": "UPDATE context69.library_files\nSET folder_id = $3,\n    external_id = $4,\n    filename = $5,\n    media_type = $6,\n    size_bytes = $7,\n    sha256 = $8,\n    storage_rel_path = $9,\n    storage_object_id = $10,\n    source_released_at = $14,\n    ingest_status = $11,\n    error_message = $12,\n    ingested_at = $13,\n    updated_at = now()\nWHERE group_id = $1\n  AND id = $2\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
   "describe": {
     "columns": [
       {
@@ -216,6 +216,7 @@
     ],
     "parameters": {
       "Left": [
+        "Int8",
         "Uuid",
         "Uuid",
         "Text",
@@ -224,7 +225,11 @@
         "Int8",
         "Text",
         "Text",
-        "Uuid"
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -250,5 +255,5 @@
       true
     ]
   },
-  "hash": "5345cab76870eab70b36290c019dea711267b29626558f0e9bc38871189e9cae"
+  "hash": "04e59f6cde6ee9b0acde0248f3fb864ff7c87e342a9369ac21396214968f0b7b"
 }

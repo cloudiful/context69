@@ -241,6 +241,7 @@ async fn land_original_file(
                 translation: None,
                 extraction: None,
                 staged_storage_object_id: None,
+                delete_source_after_processing: false,
             },
             Uuid::new_v4(),
         )
@@ -284,6 +285,7 @@ async fn prepare_upload_reuses_storage_and_creates_new_file_row() {
                 }),
                 translation: None,
                 extraction: None,
+                delete_source_after_processing: false,
             },
         )
         .await
@@ -357,6 +359,7 @@ async fn task_upload_helper_creates_new_file_row_sharing_storage() {
                 translation: None,
                 extraction: None,
                 staged_storage_object_id: None,
+                delete_source_after_processing: false,
             },
             Uuid::new_v4(),
         )

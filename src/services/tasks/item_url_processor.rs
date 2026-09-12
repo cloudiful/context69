@@ -99,6 +99,7 @@ pub(super) async fn process_url(
                         translation: request.translation,
                         extraction: request.extraction,
                         staged_storage_object_id: None,
+                        delete_source_after_processing: request.delete_source_after_processing,
                     },
                     item.lease_token,
                 )

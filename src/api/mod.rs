@@ -113,8 +113,8 @@ pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
     delete_group_library_folder, get_group_library_file, get_group_library_resources,
     get_group_library_tree, import_group_library_file_url, move_group_library_file,
-    move_group_library_folder, prepare_group_library_upload, upload_group_library_files,
-    upsert_group_library_text,
+    move_group_library_folder, prepare_group_library_upload, release_group_library_file_source,
+    upload_group_library_files, upsert_group_library_text,
 };
 pub(crate) use group_source_folders::{
     create_group_source_folder, sync_group_source_folder, update_group_source_folder_config,

@@ -6,7 +6,9 @@
 -- has had a chance to settle (`created_at < now() - grace_hours`).
 -- The `(created_at, id)` cursor keeps restarts safe: a row concurrently
 -- linked, ingested again, or deleted drops out of the filter on the
--- next pass.
+-- next pass. Deliberately released rows (`source_released_at IS NOT NULL`)
+-- are never candidates: their source is gone on purpose, so their derived
+-- result must be kept.
 SELECT f.id,
        f.group_id,
        f.filename,
@@ -17,6 +19,7 @@ SELECT f.id,
        f.created_at
 FROM context69.library_files AS f
 WHERE f.storage_object_id IS NULL
+  AND f.source_released_at IS NULL
   AND f.ingest_status IN ('succeeded', 'failed')
   AND f.created_at < (now() - ($1::bigint * INTERVAL '1 hour'))
   AND ($2::timestamptz IS NULL OR (f.created_at, f.id) > ($2::timestamptz, $3::uuid))

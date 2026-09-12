@@ -43,11 +43,12 @@ use super::{
     move_group_library_folder, move_library_file, move_library_folder, openapi_json,
     prepare_group_library_upload, purge_tasks, quarantine_stale_submitting, query_group_documents,
     queue_docling_recovery, rebuild_document_extractions, rebuild_document_translations,
-    recover_docling_task, require_admin_scope_middleware, require_library_scope_middleware,
-    require_search_scope_middleware, require_settings_scope_middleware,
-    require_sources_scope_middleware, require_workspace_scope_middleware, rerun_task,
-    reset_admin_user_password, retry_metadata_index, retry_task, revoke_personal_access_token,
-    submit_delete_batch, submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
+    recover_docling_task, release_group_library_file_source, require_admin_scope_middleware,
+    require_library_scope_middleware, require_search_scope_middleware,
+    require_settings_scope_middleware, require_sources_scope_middleware,
+    require_workspace_scope_middleware, rerun_task, reset_admin_user_password,
+    retry_metadata_index, retry_task, revoke_personal_access_token, submit_delete_batch,
+    submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
     submit_vector_index_rebuild, sync_group_source_folder, sync_source,
     touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
     update_group_translation_settings, update_metadata_index, update_source,
@@ -449,6 +450,10 @@ fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiSt
         .route(
             "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",
             post(move_group_library_file),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/library/files/{file_id}/release-source",
+            post(release_group_library_file_source),
         )
         .layer(from_fn_with_state(
             api_state,

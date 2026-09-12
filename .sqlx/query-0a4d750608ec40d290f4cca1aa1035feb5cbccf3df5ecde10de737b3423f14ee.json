@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Legacy direct-path identity guard: another live library_files row still\n-- using the same storage_rel_path must block the physical delete. The\n-- deliberately released row itself is excluded by `source_released_at`.\nSELECT count(*)::bigint AS \"count!\"\nFROM context69.library_files\nWHERE storage_rel_path = $1\n  AND source_released_at IS NULL\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0a4d750608ec40d290f4cca1aa1035feb5cbccf3df5ecde10de737b3423f14ee"
+}

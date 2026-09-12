@@ -140,6 +140,9 @@ pub(crate) async fn read_library_uploads(
             translation: options.as_ref().and_then(|value| value.translation.clone()),
             extraction: options.as_ref().and_then(|value| value.extraction.clone()),
             staged_storage_object_id: None,
+            delete_source_after_processing: options
+                .as_ref()
+                .is_some_and(|value| value.delete_source_after_processing),
         });
     }
 

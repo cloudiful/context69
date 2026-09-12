@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Legacy identity guard: a content-addressed storage-object row now owning the\n-- same key means the path was re-promoted, so the legacy bytes must not be\n-- deleted.\nSELECT count(*)::bigint AS \"count!\"\nFROM context69.library_storage_objects\nWHERE object_key = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2a07798b168627429918bec170ac2f24616e6784621e7e8e0b92cf84d147a041"
+}

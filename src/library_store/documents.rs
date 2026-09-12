@@ -10,6 +10,9 @@ pub struct StoragePathRow {
     pub id: Uuid,
     pub storage_rel_path: String,
     pub storage_object_id: Option<Uuid>,
+    /// Set when the source was deliberately released; the physical bytes are
+    /// then owned by the storage-object/ref-count path, never by this row.
+    pub source_released_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl LibraryStore {

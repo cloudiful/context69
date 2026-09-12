@@ -114,16 +114,18 @@ impl LibraryService {
             .await?;
         let storage_rel_path = object.object_key.clone();
         let storage_key = storage_rel_path.clone();
-        let previous_storage_object_id = match previous_file.as_ref() {
+        let previous_storage_path = match previous_file.as_ref() {
             Some(file) => self
                 .store
                 .list_storage_paths_for_files(&[file.id])
                 .await?
                 .into_iter()
-                .find(|path| path.id == file.id)
-                .and_then(|path| path.storage_object_id),
+                .find(|path| path.id == file.id),
             None => None,
         };
+        let previous_storage_object_id = previous_storage_path
+            .as_ref()
+            .and_then(|path| path.storage_object_id);
 
         if let Some(existing_file) = existing.as_ref() {
             let update_result = self
@@ -150,7 +152,7 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        previous_storage_object_id,
+                        previous_storage_path.as_ref(),
                         previous_translation.as_ref(),
                         &storage_key,
                         Some(object.id),
@@ -164,7 +166,7 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        previous_storage_object_id,
+                        previous_storage_path.as_ref(),
                         previous_translation.as_ref(),
                         &storage_key,
                         Some(object.id),
@@ -189,6 +191,7 @@ impl LibraryService {
                         sha256: sha256.clone(),
                         storage_rel_path: storage_rel_path.clone(),
                         storage_object_id: Some(object.id),
+                        delete_source_after_processing: false,
                     },
                 )
                 .await;
@@ -197,7 +200,7 @@ impl LibraryService {
                     project.id,
                     file_id,
                     previous_file.as_ref(),
-                    previous_storage_object_id,
+                    previous_storage_path.as_ref(),
                     previous_translation.as_ref(),
                     &storage_key,
                     Some(object.id),
@@ -223,7 +226,7 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                previous_storage_object_id,
+                previous_storage_path.as_ref(),
                 previous_translation.as_ref(),
                 &storage_key,
                 Some(object.id),
@@ -241,7 +244,7 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                previous_storage_object_id,
+                previous_storage_path.as_ref(),
                 previous_translation.as_ref(),
                 &storage_key,
                 Some(object.id),
@@ -259,7 +262,7 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                previous_storage_object_id,
+                previous_storage_path.as_ref(),
                 previous_translation.as_ref(),
                 &storage_key,
                 Some(object.id),
@@ -285,7 +288,7 @@ impl LibraryService {
                     project.id,
                     file_id,
                     previous_file.as_ref(),
-                    previous_storage_object_id,
+                    previous_storage_path.as_ref(),
                     previous_translation.as_ref(),
                     &storage_key,
                     Some(object.id),
@@ -413,16 +416,18 @@ impl LibraryService {
             .await?;
         let storage_rel_path = object.object_key.clone();
         let storage_key = storage_rel_path.clone();
-        let previous_storage_object_id = match previous_file.as_ref() {
+        let previous_storage_path = match previous_file.as_ref() {
             Some(file) => self
                 .store
                 .list_storage_paths_for_files(&[file.id])
                 .await?
                 .into_iter()
-                .find(|path| path.id == file.id)
-                .and_then(|path| path.storage_object_id),
+                .find(|path| path.id == file.id),
             None => None,
         };
+        let previous_storage_object_id = previous_storage_path
+            .as_ref()
+            .and_then(|path| path.storage_object_id);
 
         if let Some(existing_file) = existing.as_ref() {
             let update_result = self
@@ -449,7 +454,7 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        previous_storage_object_id,
+                        previous_storage_path.as_ref(),
                         previous_translation.as_ref(),
                         &storage_key,
                         Some(object.id),
@@ -463,7 +468,7 @@ impl LibraryService {
                         project.id,
                         file_id,
                         previous_file.as_ref(),
-                        previous_storage_object_id,
+                        previous_storage_path.as_ref(),
                         previous_translation.as_ref(),
                         &storage_key,
                         Some(object.id),
@@ -488,6 +493,7 @@ impl LibraryService {
                         sha256: sha256.clone(),
                         storage_rel_path: storage_rel_path.clone(),
                         storage_object_id: Some(object.id),
+                        delete_source_after_processing: false,
                     },
                 )
                 .await;
@@ -496,7 +502,7 @@ impl LibraryService {
                     project.id,
                     file_id,
                     previous_file.as_ref(),
-                    previous_storage_object_id,
+                    previous_storage_path.as_ref(),
                     previous_translation.as_ref(),
                     &storage_key,
                     Some(object.id),
@@ -521,7 +527,7 @@ impl LibraryService {
                 project.id,
                 file_id,
                 previous_file.as_ref(),
-                previous_storage_object_id,
+                previous_storage_path.as_ref(),
                 previous_translation.as_ref(),
                 &storage_key,
                 Some(object.id),

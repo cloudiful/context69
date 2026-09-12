@@ -6,11 +6,12 @@ pub use context69_contracts::{
     DocumentResponse, EnsureScopeResponse, ExtractionDirective, ExtractionJobsResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
     GroupKind, GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
-    LibraryFileUploadMetadata as FileMetadata, LibraryTextContentFormat as TextContentFormat,
-    MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind, PurgeTasksRequest,
-    PurgeTasksResponse, RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex,
-    ScopeSpec, SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
-    TaskListQuery, TaskMaintenanceOverview, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
+    LibraryFileDetailResponse, LibraryFileUploadMetadata as FileMetadata,
+    LibraryTextContentFormat as TextContentFormat, MetadataDataType, MetadataFilter,
+    MetadataFilterOperator, MetadataValueKind, PurgeTasksRequest, PurgeTasksResponse,
+    RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec,
+    SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
+    TaskMaintenanceOverview, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
     TaskRetryResponse, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationDirective,
     TranslationStatus, UpdateTaskMaintenanceSettingsRequest,
     UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
@@ -99,6 +100,21 @@ impl Context69Client {
         request: &DeleteBatchRequest,
     ) -> Result<TaskRef, Error> {
         self.submit_batch(group_path(group_path_value, "/batch/delete"), request)
+            .await
+    }
+
+    /// Release a succeeded file's source object. The file record, its
+    /// processed text, and its vectors are retained.
+    pub async fn release_file_source(
+        &self,
+        group_path_value: &str,
+        file_id: Uuid,
+    ) -> Result<LibraryFileDetailResponse, Error> {
+        let path = group_path(
+            group_path_value,
+            &format!("/library/files/{file_id}/release-source"),
+        );
+        self.execute_json(self.authorized_request(Method::POST, &path).await?)
             .await
     }
 

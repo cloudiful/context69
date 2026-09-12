@@ -167,6 +167,11 @@ impl LibraryService {
             // Concurrently linked onto the content-addressed layout.
             return Ok(MissingSourceRowOutcome::SkippedRecentNonterminal);
         }
+        if path.source_released_at.is_some() {
+            // Deliberately released between selection and this check: the
+            // missing bytes are intentional, so keep the record and results.
+            return Ok(MissingSourceRowOutcome::SkippedRecentNonterminal);
+        }
         if path.storage_rel_path != row.storage_rel_path {
             // Storage path was rewritten concurrently.
             return Ok(MissingSourceRowOutcome::SkippedRecentNonterminal);

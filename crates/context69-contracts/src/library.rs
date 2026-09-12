@@ -448,6 +448,10 @@ pub struct LibraryFileIngestOptions {
     pub translation: Option<crate::TranslationDirective>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extraction: Option<crate::ExtractionDirective>,
+    /// Release the source object once processing succeeds. Chosen once at
+    /// upload; defaults to `false` (retain the source).
+    #[serde(default)]
+    pub delete_source_after_processing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -464,6 +468,10 @@ pub struct PrepareLibraryUploadRequest {
     pub translation: Option<crate::TranslationDirective>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extraction: Option<crate::ExtractionDirective>,
+    /// Release the source object once processing succeeds. Chosen once at
+    /// upload; defaults to `false` (retain the source).
+    #[serde(default)]
+    pub delete_source_after_processing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -490,6 +498,10 @@ pub struct ImportLibraryFileFromUrlRequest {
     pub translation: Option<crate::TranslationDirective>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extraction: Option<crate::ExtractionDirective>,
+    /// Release the source object once processing succeeds. Chosen once at
+    /// upload; defaults to `false` (retain the source).
+    #[serde(default)]
+    pub delete_source_after_processing: bool,
 }
 
 fn default_preview_content_format() -> LibraryPreviewContentFormat {

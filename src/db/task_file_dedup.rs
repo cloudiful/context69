@@ -101,6 +101,35 @@ pub(crate) async fn validate_file_ownership(
     Ok(())
 }
 
+/// Reject the batch when any requested file had its source deliberately
+/// released. A released file cannot be reprocessed; re-uploading its bytes is
+/// a new upload, not a reprocess. Runs after ownership so a foreign file is
+/// still indistinguishable from a missing one.
+pub(crate) async fn validate_files_not_released(
+    connection: &mut PgConnection,
+    group_id: Option<i64>,
+    file_ids: &[Uuid],
+) -> Result<()> {
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+    let group_id = group_id.context("file processing requires an owning group")?;
+    let mut requested = file_ids.to_vec();
+    requested.sort_unstable();
+    requested.dedup();
+    let released = sqlx::query_file_scalar!(
+        "src/sql/db/tasks/released_file_count.sql",
+        group_id,
+        &requested
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    if released > 0 {
+        anyhow::bail!("file processing conflict: released file source cannot be reprocessed");
+    }
+    Ok(())
+}
+
 /// Lock the per-file processing slot for every requested file.
 ///
 /// Locks are transaction-scoped advisory locks taken in sorted order so
@@ -125,7 +154,8 @@ pub(crate) async fn lock_file_processing_slots(
     Ok(())
 }
 
-/// Validate ownership and lock every file a retry or rerun may touch.
+/// Validate ownership and lock every file a retry or rerun may touch. The
+/// released check runs after the lock so it cannot race a concurrent release.
 pub(crate) async fn claim_file_processing_slots(
     connection: &mut PgConnection,
     group_id: Option<i64>,
@@ -135,7 +165,8 @@ pub(crate) async fn claim_file_processing_slots(
         return Ok(());
     }
     validate_file_ownership(connection, group_id, file_ids).await?;
-    lock_file_processing_slots(connection, file_ids).await
+    lock_file_processing_slots(connection, file_ids).await?;
+    validate_files_not_released(connection, group_id, file_ids).await
 }
 
 /// Claim the processing slots of every file referenced by a task's failed
@@ -196,6 +227,7 @@ pub(crate) async fn resolve_file_dedup(
     explicit.dedup();
     validate_file_ownership(connection, group_id, &explicit).await?;
     lock_file_processing_slots(connection, &explicit).await?;
+    validate_files_not_released(connection, group_id, &explicit).await?;
     let owner_group_id = group_id.context("file processing requires an owning group")?;
     let active = sqlx::query_file_as!(
         StoredActiveFileItem,

@@ -721,6 +721,7 @@ async fn reference_count_distinguishes_shared_from_unreferenced_objects() {
                     sha256: sha.clone(),
                     storage_rel_path: format!("objects/{}/{}", group.id, sha),
                     storage_object_id: Some(object_id),
+                    delete_source_after_processing: false,
                 },
             )
             .await

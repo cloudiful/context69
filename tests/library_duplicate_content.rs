@@ -133,6 +133,7 @@ async fn duplicate_content_creates_distinct_file_rows_sharing_storage() {
                 sha256: sha.clone(),
                 storage_rel_path: format!("objects/{group_id}/{sha}"),
                 storage_object_id: Some(storage_object_id),
+                delete_source_after_processing: false,
             },
         )
         .await
@@ -152,6 +153,7 @@ async fn duplicate_content_creates_distinct_file_rows_sharing_storage() {
                 sha256: sha.clone(),
                 storage_rel_path: format!("objects/{group_id}/{sha}"),
                 storage_object_id: Some(storage_object_id),
+                delete_source_after_processing: false,
             },
         )
         .await
@@ -242,6 +244,7 @@ async fn duplicate_external_id_with_different_sha_still_fails() {
                 sha256: sha_a.clone(),
                 storage_rel_path: format!("objects/{group_id}/{sha_a}"),
                 storage_object_id: Some(object_a),
+                delete_source_after_processing: false,
             },
         )
         .await
@@ -263,6 +266,7 @@ async fn duplicate_external_id_with_different_sha_still_fails() {
                 sha256: sha_b.clone(),
                 storage_rel_path: format!("objects/{group_id}/{sha_b}"),
                 storage_object_id: Some(object_b),
+                delete_source_after_processing: false,
             },
         )
         .await
@@ -316,6 +320,7 @@ async fn duplicate_content_filename_collision_is_resolved_per_folder() {
                 sha256: sha.clone(),
                 storage_rel_path: format!("objects/{group_id}/{sha}"),
                 storage_object_id: Some(storage_object_id),
+                delete_source_after_processing: false,
             },
         )
         .await
@@ -355,6 +360,7 @@ async fn duplicate_content_filename_collision_is_resolved_per_folder() {
                 sha256: sha.clone(),
                 storage_rel_path: format!("objects/{group_id}/{sha}"),
                 storage_object_id: Some(storage_object_id),
+                delete_source_after_processing: false,
             },
         )
         .await
@@ -383,6 +389,7 @@ async fn duplicate_content_filename_collision_is_resolved_per_folder() {
                 sha256: sha.clone(),
                 storage_rel_path: format!("objects/{group_id}/{sha}"),
                 storage_object_id: Some(storage_object_id),
+                delete_source_after_processing: false,
             },
         )
         .await

@@ -628,6 +628,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}/release-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release_group_library_file_source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/folders": {
         parameters: {
             query?: never;
@@ -1754,6 +1770,11 @@ export interface components {
         FileBatchItem: {
             content_base64: string;
             declared_sha256?: string | null;
+            /**
+             * @description Release the source object once processing succeeds. Chosen once at
+             *     upload; defaults to `false` (retain the source).
+             */
+            delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
             filename: string;
             /** Format: uuid */
@@ -1835,6 +1856,11 @@ export interface components {
         /** @enum {string} */
         HealthStatus: "ok" | "degraded";
         ImportLibraryFileFromUrlRequest: {
+            /**
+             * @description Release the source object once processing succeeds. Chosen once at
+             *     upload; defaults to `false` (retain the source).
+             */
+            delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
             filename?: string | null;
             /** Format: uuid */
@@ -1894,6 +1920,11 @@ export interface components {
             visibility: components["schemas"]["Visibility"];
         };
         LibraryFileIngestOptions: components["schemas"]["LibraryFileUploadMetadata"] & {
+            /**
+             * @description Release the source object once processing succeeds. Chosen once at
+             *     upload; defaults to `false` (retain the source).
+             */
+            delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
             translation?: null | components["schemas"]["TranslationDirective"];
         };
@@ -2188,6 +2219,11 @@ export interface components {
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
         PrepareLibraryUploadRequest: {
+            /**
+             * @description Release the source object once processing succeeds. Chosen once at
+             *     upload; defaults to `false` (retain the source).
+             */
+            delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
             filename: string;
             /** Format: uuid */
@@ -4873,6 +4909,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    release_group_library_file_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description File id */
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source released; file text and vectors retained */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryFileDetailResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File is not succeeded, has active processing, or is a sync control file */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Opted-in, succeeded files whose source has not been released yet. Sync\n-- control files are excluded: their source is managed by the sync engine and\n-- releasing it would break the managed source.\nSELECT file.id, file.group_id\nFROM context69.library_files AS file\nWHERE file.delete_source_after_processing\n  AND file.source_released_at IS NULL\n  AND file.ingest_status = 'succeeded'\n  AND lower(file.filename) <> 'source.json'\n  AND (file.external_id IS NULL OR file.external_id NOT LIKE 'source-folder:%')\nORDER BY file.id\nLIMIT $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "group_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2c1cad557529342de11fbfca73bd026dc6be7b058568f366173d6be6283f42ac"
+}

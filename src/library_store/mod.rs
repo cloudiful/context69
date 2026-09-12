@@ -19,7 +19,11 @@ mod folders;
 mod mappers;
 pub(crate) mod objects;
 mod resources;
+mod source_object_cleanup;
+mod source_release;
 pub use resources::ResourceListQuery;
+pub use source_object_cleanup::SourceObjectCleanupIntent;
+pub use source_release::{FileSourceLifecycleRow, PendingAutoReleaseFile};
 
 pub use dependency_gates::{DependencyGateRecord, DependencyGateTransition};
 pub(crate) use external_jobs::RecoveryAudit;
@@ -44,6 +48,7 @@ pub struct NewLibraryFile {
     pub sha256: String,
     pub storage_rel_path: String,
     pub storage_object_id: Option<Uuid>,
+    pub delete_source_after_processing: bool,
 }
 
 #[derive(Debug, Clone)]

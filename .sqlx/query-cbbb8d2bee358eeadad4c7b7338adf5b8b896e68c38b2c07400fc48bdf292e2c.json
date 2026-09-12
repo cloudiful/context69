@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, storage_rel_path, storage_object_id\nFROM context69.library_files\nWHERE id = ANY($1)\nORDER BY filename, id\n",
+  "query": "SELECT id, storage_rel_path, storage_object_id, source_released_at\nFROM context69.library_files\nWHERE id = ANY($1)\nORDER BY filename, id\n",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "storage_object_id"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "source_released_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "source_released_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "c0e7205bdb7f0a50fcbf7990c51db95d64da0168a56d5221327054e6b3def9af"
+  "hash": "cbbb8d2bee358eeadad4c7b7338adf5b8b896e68c38b2c07400fc48bdf292e2c"
 }

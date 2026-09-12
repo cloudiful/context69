@@ -19,7 +19,10 @@ use crate::{
         auth::AuthService,
         document_store::DocumentStoreService,
         extraction::ExtractionPublisherAdapter,
-        library::{DEFAULT_LEGACY_CLEANUP_BATCH_SIZE, LibraryService, MissingSourceCleanupSummary},
+        library::{
+            DEFAULT_LEGACY_CLEANUP_BATCH_SIZE, DEFAULT_SOURCE_OBJECT_CLEANUP_BATCH_SIZE,
+            DEFAULT_SOURCE_RELEASE_RETRY_BATCH_SIZE, LibraryService, MissingSourceCleanupSummary,
+        },
         namespace::NamespaceService,
         personal_access_tokens::PersonalAccessTokenService,
         query::QueryService,
@@ -268,6 +271,45 @@ impl Context69App {
                 MissingSourceCleanupSummary::default()
             }
         };
+        // Retry upload-time opt-in source releases whose success commit
+        // finished in a previous process (crash or transient storage error).
+        // Safe before workers resume: each file is locked per file and only
+        // succeeded, opted-in, not-yet-released rows are candidates.
+        match library
+            .retry_pending_source_releases(DEFAULT_SOURCE_RELEASE_RETRY_BATCH_SIZE)
+            .await
+        {
+            Ok(summary) => info!(
+                scanned = summary.scanned,
+                released = summary.released,
+                skipped_active = summary.skipped_active,
+                errors = summary.errors,
+                "startup pending source release retry complete"
+            ),
+            Err(error) => warn!(
+                %error,
+                "startup pending source release retry failed; it will retry on the next pass"
+            ),
+        }
+        // Drain any physical-deletion intents left by a previous process. Each
+        // intent is bounded and rescheduled on failure, so a slow storage
+        // backend cannot block startup.
+        match library
+            .run_source_object_cleanup(DEFAULT_SOURCE_OBJECT_CLEANUP_BATCH_SIZE)
+            .await
+        {
+            Ok(summary) => info!(
+                scanned = summary.scanned,
+                deleted = summary.deleted,
+                cancelled = summary.cancelled,
+                failed = summary.failed,
+                "startup source object cleanup complete"
+            ),
+            Err(error) => warn!(
+                %error,
+                "startup source object cleanup failed; it will retry on the next pass"
+            ),
+        }
         // Old-key cleanup is gated on no remaining legacy direct-path rows
         // and a clean missing-source cleanup so a partially-completed
         // migration cannot strand old objects that the missing-source

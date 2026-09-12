@@ -492,6 +492,43 @@ pub(crate) async fn get_group_library_file(
 
 #[utoipa::path(
     post,
+    path = "/v1/groups/by-path/{group_path}/library/files/{file_id}/release-source",
+    params(
+        ("group_path" = String, Path, description = "URL-encoded group path"),
+        ("file_id" = Uuid, Path, description = "File id")
+    ),
+    responses(
+        (status = 200, description = "Source released; file text and vectors retained", body = LibraryFileDetailResponse),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Group or file not found"),
+        (status = 409, description = "File is not succeeded, has active processing, or is a sync control file", body = crate::contracts::ApiErrorResponse)
+    )
+)]
+pub(crate) async fn release_group_library_file_source(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path((group_path, file_id)): Path<(String, Uuid)>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+        return group_access_error_response(error);
+    }
+    match state
+        .app
+        .library
+        .release_file_source_in_project(&group, file_id)
+        .await
+    {
+        Ok(file) => (StatusCode::OK, Json(file)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    post,
     path = "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",
     params(
         ("group_path" = String, Path, description = "URL-encoded group path"),

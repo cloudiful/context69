@@ -2349,6 +2349,61 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/library/files/{file_id}/release-source": {
+      "post": {
+        "tags": [],
+        "operationId": "release_group_library_file_source",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "File id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Source released; file text and vectors retained",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryFileDetailResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or file not found"
+          },
+          "409": {
+            "description": "File is not succeeded, has active processing, or is a sync control file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/library/folders": {
       "post": {
         "tags": [],
@@ -6780,6 +6835,10 @@
               "null"
             ]
           },
+          "delete_source_after_processing": {
+            "type": "boolean",
+            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+          },
           "extraction": {
             "oneOf": [
               {
@@ -7121,6 +7180,10 @@
           "url"
         ],
         "properties": {
+          "delete_source_after_processing": {
+            "type": "boolean",
+            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+          },
           "extraction": {
             "oneOf": [
               {
@@ -7354,6 +7417,10 @@
           {
             "type": "object",
             "properties": {
+              "delete_source_after_processing": {
+                "type": "boolean",
+                "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+              },
               "extraction": {
                 "oneOf": [
                   {
@@ -8417,6 +8484,10 @@
           "sha256"
         ],
         "properties": {
+          "delete_source_after_processing": {
+            "type": "boolean",
+            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+          },
           "extraction": {
             "oneOf": [
               {

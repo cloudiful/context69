@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Push a failed attempt behind fresh work by doubling the delay up to one hour.\nUPDATE context69.library_storage_object_cleanup\nSET attempts = attempts + 1,\n    next_attempt_at = now() + ($2::bigint * INTERVAL '1 second'),\n    last_error = $3,\n    updated_at = now()\nWHERE id = $1\n  AND completed_at IS NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "87b08fad1412f79e96a498863322e6f000b8d6e1f9302514ef14cfc33b9fde7c"
+}

@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Identity lock for a source-object cleanup. Holding FOR UPDATE on the object\n-- row until the transaction ends conflicts with the FOR KEY SHARE lock every\n-- new library_files.storage_object_id / task_items.input_storage_object_id\n-- reference takes, so no new reference can appear after the ref check and\n-- before the row delete.\nSELECT id, group_id, sha256, size_bytes, storage_backend, object_key, staging_lease_until\nFROM context69.library_storage_objects\nWHERE id = $1\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "storage_backend",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "storage_backend"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "object_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "object_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "staging_lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "staging_lease_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4be4f0087e2669cd052975726739690c8bcbdbb0a53b7376fce8d57194ba2789"
+}

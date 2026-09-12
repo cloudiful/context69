@@ -14,6 +14,7 @@ pub struct UploadedLibraryFile {
     pub translation: Option<crate::contracts::TranslationDirective>,
     pub extraction: Option<crate::contracts::ExtractionDirective>,
     pub staged_storage_object_id: Option<Uuid>,
+    pub delete_source_after_processing: bool,
 }
 
 #[derive(Debug, Clone)]

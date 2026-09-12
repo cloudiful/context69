@@ -26,6 +26,7 @@ INSERT INTO context69.library_files (
     sha256,
     storage_rel_path,
     storage_object_id,
+    delete_source_after_processing,
     ingest_status
 )
 SELECT
@@ -40,6 +41,7 @@ SELECT
     $7,
     $8,
     $9,
+    $10,
     'pending'
 FROM resolved_scope rs
 RETURNING

@@ -155,6 +155,7 @@ impl TaskService {
                                 translation: file.translation,
                                 extraction: file.extraction,
                                 staged_storage_object_id: None,
+                                delete_source_after_processing: file.delete_source_after_processing,
                             },
                         )
                         .await?;
