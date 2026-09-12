@@ -239,7 +239,8 @@ describe("ProcessingQueueView", () => {
     expect(root.classes()).toContain("flex-col");
     expect(root.classes()).toContain("overflow-hidden");
 
-    const list = wrapper.find("section > div");
+    const list = wrapper.find('[data-testid="processing-queue-list"]');
+    expect(list.exists()).toBe(true);
     expect(list.classes()).toContain("flex-1");
     expect(list.classes()).toContain("min-h-0");
 

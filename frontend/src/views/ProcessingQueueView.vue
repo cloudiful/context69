@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, proxyRefs, ref, watch } from "vue";
-import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import AppServerList from "../components/AppServerList.vue";
-import TaskItemsExpanded from "../components/TaskItemsExpanded.vue";
-import TaskQuarantineDialog from "../components/TaskQuarantineDialog.vue";
+import ProcessingQueueMaintenance from "../components/processing-queue/ProcessingQueueMaintenance.vue";
+import ProcessingQueueTable from "../components/processing-queue/ProcessingQueueTable.vue";
+import ProcessingQueueTabs from "../components/processing-queue/ProcessingQueueTabs.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
 import { useTaskMaintenance } from "../composables/use-task-maintenance";
-import { summarizeApiError, type ApiErrorSummary } from "../composables/use-error-toast";
-import { apiClient } from "../services/api";
-import type { QuarantineStaleSubmittingResponse, TaskItemResponse, TaskKind, TaskResponse, TaskSortBy, TaskStatus } from "../services/api";
-import { formatTimestamp } from "../utils/format";
-import { LIBRARY_DEPENDENCY_KEYS, libraryDependencyLabel } from "../utils/library-status";
+import type { TaskKind, TaskSortBy, TaskStatus } from "../services/api";
+import { LIBRARY_DEPENDENCY_KEYS } from "../utils/library-status";
+
+type QueueTab = "processing" | "completed" | "trash";
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
@@ -23,71 +22,19 @@ const maintenance = proxyRefs(useTaskMaintenance({
 
 const AUTO_REFRESH_INTERVAL = 20_000;
 
-// Bound the upstream message that flows into a tooltip so a noisy error
-// string cannot blow up the layout. The localized label below is still the
-// primary text; the tooltip only carries the bounded detail when present.
-const ITEM_ERROR_TOOLTIP_MAX = 240;
-
-const expandedRows = ref<Record<string, boolean>>({});
-const expandedItems = ref<Record<string, TaskItemResponse[] | undefined>>({});
-const expandedError = ref<Record<string, ApiErrorSummary | null>>({});
-const expandingTaskId = ref<string | null>(null);
-
-const sorting = ref<{ id: string; desc: boolean }[]>([]);
-
-watch(sorting, (value) => {
-  const next = value[0];
-  if (!next) {
-    queue.clearSort();
-    return;
-  }
-  if (!["kind", "group_path", "status", "stage", "updated_at"].includes(next.id)) return;
-  queue.changeSort(next.id as TaskSortBy, next.desc ? "desc" : "asc");
-});
-
-async function loadTaskItems(taskId: string) {
-  expandingTaskId.value = taskId;
-  try {
-    const response = await apiClient.getTaskItems(taskId, { limit: 100 });
-    expandedItems.value = { ...expandedItems.value, [taskId]: response.items };
-    expandedError.value = { ...expandedError.value, [taskId]: null };
-  } catch (error) {
-    expandedError.value = {
-      ...expandedError.value,
-      [taskId]: summarizeApiError(error, ITEM_ERROR_TOOLTIP_MAX),
-    };
-  } finally {
-    expandingTaskId.value = null;
-  }
-}
-
-async function toggleExpand(row: { original: TaskResponse; id: string }) {
-  const taskId = row.original.task_id;
-  const next = !expandedRows.value[row.id];
-  expandedRows.value = { ...expandedRows.value, [row.id]: next };
-  if (!next || expandedItems.value[taskId] !== undefined) return;
-  await loadTaskItems(taskId);
-}
-
-async function retryLoadItems(taskId: string) {
-  if (expandingTaskId.value === taskId) return;
-  await loadTaskItems(taskId);
-}
-
-function clampText(value: string | null | undefined, max: number): string | null {
-  if (!value) return null;
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
-}
-
-function itemErrorTooltip(message: string | null | undefined): string | null {
-  return clampText(message, ITEM_ERROR_TOOLTIP_MAX);
-}
+// Processing is the live working set (the existing unfiltered list, which
+// already carries failed tasks for retry); Completed narrows the same list to
+// the terminal `succeeded` status. Both reuse the existing `status` list
+// filter, so the backend contract is unchanged until it can group statuses
+// server-side. Trash has no backing query yet and stays a disabled placeholder.
+const activeTab = ref<QueueTab>("processing");
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 function startAutoRefresh() {
   stopAutoRefresh();
   refreshTimer = setInterval(() => {
+    if (activeTab.value !== "processing") return;
     if (document.visibilityState === "visible") {
       void queue.refresh();
     }
@@ -101,95 +48,21 @@ function stopAutoRefresh() {
   }
 }
 
+watch(activeTab, (tab) => {
+  if (tab === "trash") {
+    stopAutoRefresh();
+    return;
+  }
+  startAutoRefresh();
+  queue.setStatusFilter(tab === "completed" ? "succeeded" : null);
+});
+
 onMounted(() => {
   if (maintenance.isAdmin) void maintenance.load();
   startAutoRefresh();
 });
 
 onBeforeUnmount(stopAutoRefresh);
-
-watch(
-  () => queue.items.map((task) => task.updated_at).join(","),
-  () => {
-    // Refresh expanded item lists for tasks that are still active.
-    const visibleExpanded = Object.keys(expandedRows.value).filter(
-      (rowId) => expandedRows.value[rowId],
-    );
-    const taskIds = visibleExpanded.map((rowId) => queue.items[Number(rowId)]?.task_id).filter(Boolean);
-    for (const taskId of taskIds) {
-      const task = queue.items.find((candidate) => candidate.task_id === taskId);
-      if (!task || !["queued", "running", "waiting"].includes(task.status)) continue;
-      void apiClient
-        .getTaskItems(taskId, { limit: 100 })
-        .then((response) => {
-          expandedItems.value = { ...expandedItems.value, [taskId]: response.items };
-        })
-        .catch(() => undefined);
-    }
-  },
-);
-
-const draftCleanup = ref(true);
-const draftRetentionDays = ref(30);
-const settingsOpen = ref(false);
-const quarantineOpen = ref(false);
-const quarantineReason = ref("");
-const quarantineGrace = ref(30);
-const quarantineLimit = ref(100);
-const quarantineGraceInvalid = computed(() => quarantineGrace.value < 10 || quarantineGrace.value > 10080);
-const quarantineLimitInvalid = computed(() => quarantineLimit.value < 1 || quarantineLimit.value > 1000);
-const quarantineReasonInvalid = computed(() => quarantineReason.value.trim().length === 0);
-const quarantineConfirmDisabled = computed(
-  () => quarantineReasonInvalid.value || quarantineGraceInvalid.value || quarantineLimitInvalid.value || !!maintenance.action,
-);
-// Opening the dialog keeps the last result visible but starts a fresh reason;
-// closing without confirming leaves stats untouched.
-watch(quarantineOpen, (open) => {
-  if (!open) return;
-  quarantineReason.value = "";
-  quarantineGrace.value = 30;
-  quarantineLimit.value = 100;
-});
-function submitQuarantine() {
-  if (quarantineConfirmDisabled.value) return;
-  void maintenance.quarantineStaleSubmitting(quarantineReason.value, quarantineGrace.value, quarantineLimit.value);
-}
-// Quarantine dialog lives in TaskQuarantineDialog.vue; only its draft stays here.
-// The inline maintenance alert renders the same result summary locally so a
-// successful quarantine stays visible even after the dialog is closed.
-function quarantineResultText(result: QuarantineStaleSubmittingResponse): string {
-  return t("taskMaintenance.quarantineResult", {
-    quarantined: result.quarantined_count,
-    nonTerminal: result.skipped_non_terminal,
-    fresh: result.skipped_fresh,
-    realRemote: result.skipped_real_remote,
-  });
-}
-function formatMaintenanceCount(value: number | null | undefined): string {
-  return value == null ? "--" : String(value);
-}
-watch(() => maintenance.settings, (settings) => {
-  if (!settings) return;
-  draftCleanup.value = settings.cleanup_enabled;
-  draftRetentionDays.value = settings.retention_days;
-}, { immediate: true });
-// Reopening the modal discards unsaved edits and restarts from persisted settings.
-watch(settingsOpen, (open) => {
-  if (!open) return;
-  const settings = maintenance.settings;
-  if (!settings) return;
-  draftCleanup.value = settings.cleanup_enabled;
-  draftRetentionDays.value = settings.retention_days;
-});
-const settingsDirty = computed(() => {
-  const settings = maintenance.settings;
-  return !!settings && (settings.cleanup_enabled !== draftCleanup.value || settings.retention_days !== draftRetentionDays.value);
-});
-const retentionInvalid = computed(() => draftRetentionDays.value < 1 || draftRetentionDays.value > 3650);
-function saveSettings() {
-  if (!settingsDirty.value || retentionInvalid.value || maintenance.saving) return;
-  void maintenance.saveSettings(draftCleanup.value, draftRetentionDays.value);
-}
 
 const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
 const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
@@ -217,40 +90,22 @@ const dependencyOptions = computed(() => [
   { label: t("processingQueue.allDependencies"), value: null },
   ...dependencies.map((value) => ({ label: t(`processingQueue.dependencies.${value}`), value })),
 ]);
-const columns = computed<TableColumn<TaskResponse>[]>(() => [
-  { id: "expand", enableHiding: false },
-  { accessorKey: "task_id", header: t("processingQueue.task") },
-  { accessorKey: "kind", header: t("processingQueue.type"), enableSorting: true },
-  { accessorKey: "group_path", header: t("processingQueue.group"), enableSorting: true },
-  { accessorKey: "status", header: t("processingQueue.status"), enableSorting: true },
-  { accessorKey: "stage", header: t("processingQueue.stage"), enableSorting: true },
-  { id: "waiting", header: t("processingQueue.waiting") },
-  { id: "progress", header: t("processingQueue.progress") },
-  { id: "error", header: t("processingQueue.error") },
-  { accessorKey: "updated_at", header: t("processingQueue.updatedAt"), enableSorting: true },
-  { id: "actions", header: t("processingQueue.actions") },
-]);
 
-function taskStatusLabel(status: TaskStatus) { return t(`processingQueue.statuses.${status}`); }
-function taskKindLabel(kind: TaskKind) { return t(`processingQueue.kinds.${kind}`); }
-function stageLabel(stage: string | null) { return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage"); }
-function waitingLabel(reason: string | null, dependency: string | null) {
-  if (!reason) return "--";
-  const label = t(`processingQueue.waitingReasons.${reason}`);
-  return dependency ? `${label}: ${libraryDependencyLabel(t, dependency)}` : label;
-}
-function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "neutral" | "primary" {
-  if (status === "succeeded") return "success";
-  if (status === "failed") return "error";
-  if (status === "waiting") return "warning";
-  if (status === "running") return "primary";
-  return "neutral";
+function handleSort(value: { field: TaskSortBy; direction: "asc" | "desc" } | null) {
+  if (!value) {
+    queue.clearSort();
+    return;
+  }
+  queue.changeSort(value.field, value.direction);
 }
 </script>
 
 <template>
   <section class="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+    <ProcessingQueueTabs v-model="activeTab" class="shrink-0" />
+
     <AppServerList
+      data-testid="processing-queue-list"
       class="min-h-0 min-w-0 flex-1"
       :loading="queue.loading && !queue.items.length"
       :error="queue.items.length ? null : queue.error"
@@ -274,7 +129,7 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
             <UInput v-model="queue.searchInput" class="min-w-0 flex-1" icon="i-lucide-search" :placeholder="t('processingQueue.searchPlaceholder')" />
             <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-search" :aria-label="t('processingQueue.searchHint')" />
           </form>
-          <USelect :model-value="queue.statusFilter" :items="statusOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.statusFilter')" @update:model-value="queue.setStatusFilter($event as TaskStatus | null)" />
+          <USelect v-if="activeTab !== 'completed'" :model-value="queue.statusFilter" :items="statusOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.statusFilter')" @update:model-value="queue.setStatusFilter($event as TaskStatus | null)" />
           <USelect :model-value="queue.kindFilter" :items="kindOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.kindFilter')" @update:model-value="queue.setKindFilter($event as TaskKind | null)" />
           <USelect :model-value="queue.stageFilter" :items="stageOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.stageFilter')" @update:model-value="queue.setStageFilter($event as string | null)" />
           <USelect :model-value="queue.waitingReasonFilter" :items="waitingReasonOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.waitingReasonFilter')" @update:model-value="queue.setWaitingReasonFilter($event as string | null)" />
@@ -289,127 +144,40 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
         data-testid="processing-queue-table-scroll"
         class="h-full min-h-[220px] min-w-0 overflow-auto overscroll-contain"
       >
-      <UTable
-        v-model:sorting="sorting"
-        class="min-w-0"
-        :ui="{ root: 'overflow-visible', base: 'min-w-[88rem]' }"
-        data-testid="processing-queue-table"
-        v-model:expanded="expandedRows"
-        :data="queue.items"
-        :columns="columns"
-        :loading="queue.loading"
-        :sorting-options="{ manualSorting: true }"
-      >
-        <template #expand-cell="{ row }">
-          <UButton
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            icon="i-lucide-chevron-right"
-            :class="{ 'rotate-90': row.getIsExpanded() }"
-            :aria-label="row.getIsExpanded() ? t('processingQueue.collapse') : t('processingQueue.expand')"
-            :aria-expanded="row.getIsExpanded()"
-            :disabled="expandingTaskId === row.original.task_id"
-            @click="toggleExpand(row)"
-          />
-        </template>
-        <template #task_id-cell="{ row }"><span class="block max-w-64 truncate font-mono text-xs" :title="row.original.task_id">{{ row.original.task_id }}</span></template>
-        <template #kind-cell="{ row }"><UBadge :label="taskKindLabel(row.original.kind)" color="neutral" variant="subtle" /></template>
-        <template #group_path-cell="{ row }"><span class="block max-w-48 truncate" :title="row.original.group_path || undefined">{{ row.original.group_path || "--" }}</span></template>
-        <template #status-cell="{ row }"><UBadge :label="taskStatusLabel(row.original.status)" :color="statusSeverity(row.original.status)" variant="subtle" /></template>
-        <template #stage-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ stageLabel(row.original.stage) }}</span></template>
-        <template #waiting-cell="{ row }"><span class="block max-w-48 truncate text-sm text-muted" :title="waitingLabel(row.original.waiting_reason, row.original.dependency_key)">{{ waitingLabel(row.original.waiting_reason, row.original.dependency_key) }}</span></template>
-        <template #progress-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ row.original.progress.succeeded }}/{{ row.original.progress.total }}</span></template>
-        <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="itemErrorTooltip(row.original.error_summary) || undefined">{{ row.original.error_summary || "--" }}</span></template>
-        <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
-        <template #actions-cell="{ row }">
-          <div class="flex items-center gap-1">
-             <UButton v-if="queue.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="queue.isActing(row.original)" :label="t(queue.isDoclingRecoveryTask(row.original) ? 'processingQueue.doclingRecovery' : row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="queue.recoverTask(row.original)" />
-            <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="queue.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="queue.cancelTask(row.original)" />
-          </div>
-        </template>
-        <template #expanded="{ row }">
-          <TaskItemsExpanded
-            :task="row.original"
-            :items="expandedItems[row.original.task_id]"
-            :error="expandedError[row.original.task_id]"
-            :is-loading="expandingTaskId === row.original.task_id"
-            :is-admin="maintenance.isAdmin"
-            :is-acting="queue.isActing(row.original)"
-            @retry="queue.recoverTask"
-            @recover="queue.recoverDoclingFromItem"
-            @retry-load="retryLoadItems"
-          />
-        </template>
-      </UTable>
+        <ProcessingQueueTable
+          :items="queue.items"
+          :loading="queue.loading"
+          :is-admin="maintenance.isAdmin"
+          :is-acting="queue.isActing"
+          :is-recoverable-task="queue.isRecoverableTask"
+          :is-docling-recovery-task="queue.isDoclingRecoveryTask"
+          @recover="queue.recoverTask"
+          @recover-item="queue.recoverDoclingFromItem"
+          @cancel="queue.cancelTask"
+          @sort="handleSort"
+        />
       </div>
       <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">
-        {{ t("processingQueue.noTasks") }}
+        {{ t(activeTab === "completed" ? "processingQueue.tabs.noCompletedTasks" : "processingQueue.noTasks") }}
       </div>
     </AppServerList>
 
-    <section v-if="maintenance.isAdmin" data-testid="task-maintenance-toolbar" class="flex shrink-0 flex-col gap-2 border-t border-default/70 pt-3">
-      <UAlert v-if="maintenance.error" color="error" variant="subtle" :title="t('common.error')" :description="maintenance.error" />
-      <div class="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-          <h2 class="text-sm font-semibold text-color">{{ t("taskMaintenance.title") }}</h2>
-          <span class="text-sm text-muted">{{ t("taskMaintenance.total") }}: {{ maintenance.stats?.total ?? "--" }}</span>
-          <span class="text-sm text-muted">{{ t("taskMaintenance.active") }}: {{ maintenance.activeCount }}</span>
-          <span class="text-sm text-muted">{{ t("taskMaintenance.expiredTerminal") }}: {{ maintenance.stats?.expired_terminal ?? "--" }}</span>
-          <span class="text-sm text-muted" data-testid="maintenance-uncertain">{{ t("taskMaintenance.uncertainSubmitting") }}: {{ formatMaintenanceCount(maintenance.uncertainSubmitting) }}</span>
-          <span class="text-sm text-muted" data-testid="maintenance-quarantinable">{{ t("taskMaintenance.quarantinableSubmitting") }}: {{ formatMaintenanceCount(maintenance.quarantinableSubmitting) }}</span>
-          <span class="text-sm text-muted" data-testid="maintenance-quarantined">{{ t("taskMaintenance.orphanedJobs") }}: {{ formatMaintenanceCount(maintenance.orphanedExternalJobs) }}</span>
-        </div>
-        <div class="flex min-w-0 flex-wrap items-center gap-2">
-          <UButton color="error" variant="outline" size="sm" icon="i-lucide-ban" :loading="maintenance.action === 'cancel'" :disabled="maintenance.activeCount === 0 || !!maintenance.action" :label="t('taskMaintenance.cancelActiveAction') + ' (' + maintenance.activeCount + ')'" @click="maintenance.confirmCancelActive" />
-          <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="!!maintenance.action" :label="t('taskMaintenance.purgeExpiredAction')" @click="maintenance.confirmPurge('expired')" />
-          <UButton color="error" variant="outline" size="sm" icon="i-lucide-trash-2" :loading="maintenance.action === 'purge'" :disabled="maintenance.activeCount > 0 || !!maintenance.action" :label="t('taskMaintenance.purgeAllAction')" @click="maintenance.confirmPurge('all_terminal')" />
-          <UButton color="warning" variant="outline" size="sm" icon="i-lucide-shield-alert" :loading="maintenance.action === 'quarantine'" :disabled="!!maintenance.action" :label="t('taskMaintenance.quarantine')" data-testid="maintenance-quarantine-button" @click="quarantineOpen = true" />
-          <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-settings" :aria-label="t('taskMaintenance.settings')" :title="t('taskMaintenance.settings')" data-testid="maintenance-settings-button" @click="settingsOpen = true" />
-        </div>
-      </div>
-      <UAlert
-        v-if="maintenance.lastQuarantine"
-        color="neutral"
-        variant="subtle"
-        :title="t('taskMaintenance.quarantineCompleted')"
-        :description="maintenance.lastQuarantine ? quarantineResultText(maintenance.lastQuarantine) : undefined"
-      />
-    </section>
-
-    <TaskQuarantineDialog
-      :open="quarantineOpen"
-      :reason="quarantineReason"
-      :grace="quarantineGrace"
-      :limit="quarantineLimit"
-      :action="maintenance.action"
+    <ProcessingQueueMaintenance
+      v-if="maintenance.isAdmin"
+      :error="maintenance.error"
+      :stats="maintenance.stats"
+      :active-count="maintenance.activeCount"
+      :uncertain-submitting="maintenance.uncertainSubmitting"
+      :quarantinable-submitting="maintenance.quarantinableSubmitting"
+      :orphaned-external-jobs="maintenance.orphanedExternalJobs"
       :last-quarantine="maintenance.lastQuarantine"
-      :confirm-disabled="quarantineConfirmDisabled"
-      @update:open="quarantineOpen = $event"
-      @update:reason="quarantineReason = $event"
-      @update:grace="quarantineGrace = $event ?? 30"
-      @update:limit="quarantineLimit = $event ?? 100"
-      @confirm="submitQuarantine"
+      :action="maintenance.action"
+      :saving="maintenance.saving"
+      :settings="maintenance.settings"
+      @confirm-cancel="maintenance.confirmCancelActive"
+      @confirm-purge="maintenance.confirmPurge"
+      @save-settings="maintenance.saveSettings"
+      @quarantine="maintenance.quarantineStaleSubmitting"
     />
-
-    <UModal v-model:open="settingsOpen" :title="t('taskMaintenance.settings')" class="w-[30rem] max-w-[96vw]">
-      <template #body>
-        <div class="grid gap-3">
-          <label class="flex items-center gap-2 text-sm text-color">
-            <USwitch :model-value="draftCleanup" :disabled="!maintenance.settings || maintenance.saving" data-testid="maintenance-cleanup-toggle" @update:model-value="draftCleanup = $event as boolean" />
-            {{ t("taskMaintenance.autoCleanup") }}
-          </label>
-          <div class="w-36">
-            <AppNumberField :input-id="'maintenance-retention'" :label="t('taskMaintenance.retentionDays')" :model-value="draftRetentionDays" :min="1" :max="3650" :disabled="!maintenance.settings || maintenance.saving" :test-id="'maintenance-retention'" @update:model-value="draftRetentionDays = $event ?? 30" />
-          </div>
-        </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="outline" :label="t('common.cancel')" @click="settingsOpen = false" />
-          <UButton icon="i-lucide-save" :loading="maintenance.saving" :disabled="!settingsDirty || retentionInvalid" :label="t('common.save')" @click="saveSettings" />
-        </div>
-      </template>
-    </UModal>
   </section>
 </template>

@@ -32,6 +32,13 @@ export const en = {
   },
   processingQueue: {
     title: "Processing Queue",
+    tabs: {
+      processing: "Processing",
+      completed: "Completed",
+      trash: "Trash",
+      trashBadge: "Not available",
+      noCompletedTasks: "No completed tasks",
+    },
     refresh: "Refresh queue",
     searchPlaceholder: "Search files, groups, or errors",
     searchHint: "Press Enter to search",

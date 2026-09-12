@@ -32,6 +32,13 @@ export const zhCN = {
   },
   processingQueue: {
     title: "处理队列",
+    tabs: {
+      processing: "处理中",
+      completed: "已完成",
+      trash: "回收站",
+      trashBadge: "暂未支持",
+      noCompletedTasks: "暂无已完成任务",
+    },
     refresh: "刷新队列",
     searchPlaceholder: "搜索文件、群组或错误信息",
     searchHint: "按 Enter 搜索",
