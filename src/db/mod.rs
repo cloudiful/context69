@@ -20,6 +20,7 @@ mod search_cache;
 mod search_settings;
 mod source_connections;
 mod sync_runs;
+mod task_file_dedup;
 mod tasks;
 mod translations;
 mod vector_index_state;

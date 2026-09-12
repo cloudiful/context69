@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Distinct files referenced by the task's failed items, used to acquire the\n-- shared per-file processing locks before retrying.\nSELECT DISTINCT item.file_id\nFROM context69.task_items item\nWHERE item.task_id = $1\n  AND item.status = 'failed'\n  AND item.file_id IS NOT NULL\nORDER BY item.file_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c2c4e6f05f5f9c4bfbdbbe3a76032b0c53c6ae91848e6f02cb2918ef9c8ea45f"
+}

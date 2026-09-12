@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Distinct files referenced by the task's non-succeeded items, used to acquire\n-- the shared per-file processing locks before rerunning.\nSELECT DISTINCT item.file_id\nFROM context69.task_items item\nWHERE item.task_id = $1\n  AND item.status <> 'succeeded'\n  AND item.file_id IS NOT NULL\nORDER BY item.file_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "04a77700d2316644c348283068d29838e35ddf4f6dd86e97fa7206171630600c"
+}

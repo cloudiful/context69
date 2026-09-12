@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Active processing item for each requested file in one group, used to\n-- deduplicate file-ingest task submissions. Delete/translation tasks are\n-- intentionally excluded: only ingesting task kinds own a file's processing\n-- slot. Callers must already have validated that the files belong to the\n-- group; this filter keeps the lookup from ever reusing another tenant's task.\nSELECT item.task_id AS task_id,\n       item.file_id AS file_id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.file_id = ANY($1)\n  AND task.group_id = $2\n  AND item.status IN ('queued', 'running', 'waiting')\n  AND task.status IN ('queued', 'running', 'waiting')\n  AND task.kind IN ('file_batch', 'url_batch', 'text_batch')\nORDER BY item.created_at, item.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "0b415437d54a9f4a7bb83e70f51dc159edb85fdf54f6407c97cebea862eec93a"
+}

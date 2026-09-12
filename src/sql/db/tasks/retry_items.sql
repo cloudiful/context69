@@ -51,6 +51,18 @@ WITH RECURSIVE inherited_groups AS (
     WHERE item.task_id IN (SELECT id FROM allowed)
       AND item.task_id = task.id
       AND item.status = 'failed'
+      -- Never requeue a file that already has an active item elsewhere; the
+      -- file stays with its current processing slot.
+      AND (
+          item.file_id IS NULL
+          OR NOT EXISTS (
+              SELECT 1
+              FROM context69.task_items active
+              WHERE active.file_id = item.file_id
+                AND active.id <> item.id
+                AND active.status IN ('queued', 'running', 'waiting')
+          )
+      )
     RETURNING item.id
 )
 SELECT id FROM retried ORDER BY id

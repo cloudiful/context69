@@ -5,6 +5,10 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::Database;
+use super::task_file_dedup::{
+    FileDedupDecision, claim_failed_item_file_slots, claim_unfinished_item_file_slots,
+    declared_file_id, resolve_file_dedup,
+};
 
 /// Counts of rows each step of `maintain_claim_state` touched. Returned
 /// to the dispatcher so startup/recovery logs can surface exhausted or
@@ -311,6 +315,23 @@ impl Database {
             }
         }
 
+        // Deduplicate file-ingest items by `file_id`: a file may have at most
+        // one active processing item across ingesting task kinds. The
+        // resolution validates group ownership, then takes the shared sorted
+        // per-file locks before looking for another active task.
+        let resolution = resolve_file_dedup(&mut tx, group_id, payloads).await?;
+        let retained_indices = match resolution.decide(payloads.len())? {
+            FileDedupDecision::Retain(indices) => indices,
+            FileDedupDecision::Reuse(active_task_id) => {
+                let item_ids =
+                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", active_task_id)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                tx.rollback().await?;
+                return Ok((active_task_id, true, item_ids));
+            }
+        };
+
         sqlx::query_file!(
             "src/sql/db/tasks/create.sql",
             task_id,
@@ -320,11 +341,14 @@ impl Database {
             group_path,
             source_key,
             "manual",
-            payloads.len() as i64
+            retained_indices.len() as i64
         )
         .fetch_one(&mut *tx)
         .await?;
-        for object_id in input_storage_object_ids.iter().flatten().copied() {
+        for index in &retained_indices {
+            let Some(object_id) = input_storage_object_ids[*index] else {
+                continue;
+            };
             let object = sqlx::query_file_as!(
                 StoredInputStorageObject,
                 "src/sql/db/tasks/get_input_storage_object.sql",
@@ -357,8 +381,9 @@ impl Database {
             .execute(&mut *tx)
             .await?;
         }
-        let mut item_ids = Vec::with_capacity(payloads.len());
-        for (ordinal, payload) in payloads.iter().enumerate() {
+        let mut item_ids = Vec::with_capacity(retained_indices.len());
+        for (ordinal, index) in retained_indices.iter().enumerate() {
+            let payload = &payloads[*index];
             let item_id = Uuid::new_v4();
             item_ids.push(item_id);
             sqlx::query_file!(
@@ -368,11 +393,8 @@ impl Database {
                 ordinal as i32,
                 payload,
                 initial_stage(kind),
-                payload
-                    .get("file_id")
-                    .and_then(Value::as_str)
-                    .and_then(|value| value.parse::<Uuid>().ok()),
-                input_storage_object_ids[ordinal]
+                declared_file_id(payload),
+                input_storage_object_ids[*index]
             )
             .execute(&mut *tx)
             .await?;
@@ -617,6 +639,7 @@ impl Database {
         lease_token: Uuid,
         attempt_id: i64,
     ) -> Result<bool> {
+        let mut tx = self.pool().begin().await?;
         let updated = sqlx::query_file!(
             "src/sql/db/tasks/finish_item.sql",
             item_id,
@@ -628,14 +651,25 @@ impl Database {
             lease_token,
             attempt_id
         )
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
         let updated = updated.rows_affected() > 0;
         if updated {
+            // The file row is the business fact: a terminal item must leave
+            // its file succeeded or failed, never stuck running/pending.
+            sqlx::query_file!(
+                "src/sql/db/tasks/project_file_status.sql",
+                item_id,
+                status,
+                error_message
+            )
+            .execute(&mut *tx)
+            .await?;
             sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-                .execute(self.pool())
+                .execute(&mut *tx)
                 .await?;
         }
+        tx.commit().await?;
         Ok(updated)
     }
     pub async fn recompute_task(&self, task_id: Uuid) -> Result<()> {
@@ -924,6 +958,14 @@ impl Database {
 
     pub async fn retry_task_items(&self, task_id: Uuid, user_id: i64) -> Result<Vec<Uuid>> {
         let mut tx = self.pool().begin().await?;
+        // Take the same per-file locks as a new submission before the
+        // retry's active-sibling check, so a concurrent create/rerun cannot
+        // put a second active item on one of these files.
+        let task = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .context("task not found")?;
+        claim_failed_item_file_slots(&mut *tx, task.group_id, task_id).await?;
         let ids = sqlx::query_file_scalar!("src/sql/db/tasks/retry_items.sql", task_id, user_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -956,11 +998,19 @@ impl Database {
         let source = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
             .fetch_one(&mut *tx)
             .await?;
+        // Same shared per-file locks as create/retry: rerun's active-sibling
+        // filter must not race a concurrent submission for the same file.
+        claim_unfinished_item_file_slots(&mut *tx, source.group_id, task_id).await?;
         let new_task_id = Uuid::new_v4();
         let items =
             sqlx::query_file_as!(RerunTaskItem, "src/sql/db/tasks/rerun_items.sql", task_id)
                 .fetch_all(&mut *tx)
                 .await?;
+        if items.is_empty() {
+            anyhow::bail!(
+                "rerun requires at least one item whose file is not already covered by an active processing task"
+            );
+        }
         let total = items.len() as i64;
         sqlx::query_file!(
             "src/sql/db/tasks/create.sql",

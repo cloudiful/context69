@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT CASE\n           WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n           ELSE item.payload\n       END AS payload,\n       item.stage,\n       item.file_id,\n       item.input_storage_object_id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.task_id = $1\n  AND item.status <> 'succeeded'\nORDER BY item.ordinal\n",
+  "query": "SELECT CASE\n           WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n           ELSE item.payload\n       END AS payload,\n       item.stage,\n       item.file_id,\n       item.input_storage_object_id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.task_id = $1\n  AND item.status <> 'succeeded'\n  -- Skip files that already have a live item in a newer task so a rerun can\n  -- never create the second active processing task for one file.\n  AND (\n      item.file_id IS NULL\n      OR NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items active\n          WHERE active.file_id = item.file_id\n            AND active.id <> item.id\n            AND active.status IN ('queued', 'running', 'waiting')\n      )\n  )\nORDER BY item.ordinal\n",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       true
     ]
   },
-  "hash": "d340e0a8b40d926397f586e684781aba4a8f947d9b45a411d5a4f2998d976074"
+  "hash": "4e517190c4f0d227f12c5b3ed450ed041ebbcc258b51665d3310f3a12233cb27"
 }

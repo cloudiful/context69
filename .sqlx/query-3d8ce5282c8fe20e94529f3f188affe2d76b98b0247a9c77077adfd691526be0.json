@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Count how many of the requested file ids exist in the owning group.\n-- Callers compare this with the distinct requested count so a batch is\n-- rejected atomically before any advisory lock or active-task lookup.\nSELECT count(*) AS \"count!\"\nFROM context69.library_files\nWHERE group_id = $1\n  AND id = ANY($2)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3d8ce5282c8fe20e94529f3f188affe2d76b98b0247a9c77077adfd691526be0"
+}

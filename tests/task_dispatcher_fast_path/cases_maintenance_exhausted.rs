@@ -24,7 +24,7 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id,
             user_id,
-            group_id: None,
+            group_id: Some(group_id),
             kind: "file_batch",
             group_path: Some("test/fast-path"),
             source_key: None,

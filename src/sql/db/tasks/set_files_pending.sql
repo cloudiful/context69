@@ -4,4 +4,4 @@ SET ingest_status = 'pending',
     ingested_at = NULL,
     updated_at = now()
 WHERE id = ANY($1)
-  AND ingest_status IN ('failed', 'cancelled')
+  AND ingest_status IN ('failed', 'pending', 'running', 'cancelled')

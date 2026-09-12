@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Project a terminal task item status onto its library file. The file row is\n-- the business fact while the task item is execution detail, so this keeps\n-- them consistent without ever regressing a file that already succeeded and\n-- without stealing a file that still has another active item.\n--\n-- Referenced file is derived from the item itself; a NULL file_id or a\n-- delete-batch item whose row is gone is a no-op.\nUPDATE context69.library_files file\nSET ingest_status = CASE\n        WHEN file.ingest_status = 'succeeded' THEN file.ingest_status\n        WHEN EXISTS (\n            SELECT 1\n            FROM context69.task_items sibling\n            WHERE sibling.file_id = file.id\n              AND sibling.id <> $1\n              AND sibling.status IN ('queued', 'running', 'waiting')\n        ) THEN file.ingest_status\n        WHEN $2 = 'succeeded' THEN 'succeeded'\n        WHEN $2 = 'failed' THEN 'failed'\n        ELSE file.ingest_status\n    END,\n    error_message = CASE\n        WHEN file.ingest_status = 'succeeded' THEN file.error_message\n        WHEN EXISTS (\n            SELECT 1\n            FROM context69.task_items sibling\n            WHERE sibling.file_id = file.id\n              AND sibling.id <> $1\n              AND sibling.status IN ('queued', 'running', 'waiting')\n        ) THEN file.error_message\n        WHEN $2 = 'succeeded' THEN NULL\n        WHEN $2 = 'failed' THEN $3\n        ELSE file.error_message\n    END,\n    ingested_at = CASE\n        WHEN file.ingest_status = 'succeeded' THEN file.ingested_at\n        WHEN EXISTS (\n            SELECT 1\n            FROM context69.task_items sibling\n            WHERE sibling.file_id = file.id\n              AND sibling.id <> $1\n              AND sibling.status IN ('queued', 'running', 'waiting')\n        ) THEN file.ingested_at\n        WHEN $2 = 'succeeded' THEN now()\n        WHEN $2 = 'failed' THEN NULL\n        ELSE file.ingested_at\n    END,\n    updated_at = now()\nWHERE file.id = (\n    SELECT item.file_id\n    FROM context69.task_items item\n    JOIN context69.tasks task ON task.id = item.task_id\n    WHERE item.id = $1\n      AND item.file_id IS NOT NULL\n      AND item.status = $2\n      -- Defense in depth: never project a task's status onto a file owned by\n      -- a different group, even if a legacy item references a foreign file.\n      AND task.group_id = file.group_id\n)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6e9180074566c2ef699d002e07ac807389ac2b9768575f0a73bc634b49ab4f59"
+}
