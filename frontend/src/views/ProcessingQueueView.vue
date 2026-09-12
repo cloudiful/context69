@@ -22,11 +22,11 @@ const maintenance = proxyRefs(useTaskMaintenance({
 
 const AUTO_REFRESH_INTERVAL = 20_000;
 
-// Processing is the live working set (the existing unfiltered list, which
-// already carries failed tasks for retry); Completed narrows the same list to
-// the terminal `succeeded` status. Both reuse the existing `status` list
-// filter, so the backend contract is unchanged until it can group statuses
-// server-side. Trash has no backing query yet and stays a disabled placeholder.
+// Processing is the live working set (the unfiltered active list, which
+// already carries failed tasks for retry); Completed narrows it to the
+// terminal `succeeded` status; Trash lists soft-deleted task history. The
+// list API carries both a `status` and a `trashed` filter, so each tab is a
+// single query and trashed rows never leak into the working views.
 const activeTab = ref<QueueTab>("processing");
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -51,10 +51,11 @@ function stopAutoRefresh() {
 watch(activeTab, (tab) => {
   if (tab === "trash") {
     stopAutoRefresh();
+    queue.setListView({ trashed: true, status: null });
     return;
   }
   startAutoRefresh();
-  queue.setStatusFilter(tab === "completed" ? "succeeded" : null);
+  queue.setListView({ trashed: false, status: tab === "completed" ? "succeeded" : null });
 });
 
 onMounted(() => {
@@ -118,8 +119,8 @@ function handleSort(value: { field: TaskSortBy; direction: "asc" | "desc" } | nu
         <div class="flex flex-wrap items-start justify-between gap-3">
           <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
           <div class="flex flex-wrap items-center justify-end gap-2">
-            <UButton v-if="queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
-            <UButton v-if="queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
+            <UButton v-if="activeTab !== 'trash' && queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
+            <UButton v-if="activeTab !== 'trash' && queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
             <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
           </div>
         </div>
@@ -129,7 +130,7 @@ function handleSort(value: { field: TaskSortBy; direction: "asc" | "desc" } | nu
             <UInput v-model="queue.searchInput" class="min-w-0 flex-1" icon="i-lucide-search" :placeholder="t('processingQueue.searchPlaceholder')" />
             <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-search" :aria-label="t('processingQueue.searchHint')" />
           </form>
-          <USelect v-if="activeTab !== 'completed'" :model-value="queue.statusFilter" :items="statusOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.statusFilter')" @update:model-value="queue.setStatusFilter($event as TaskStatus | null)" />
+          <USelect v-if="activeTab === 'processing'" :model-value="queue.statusFilter" :items="statusOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.statusFilter')" @update:model-value="queue.setStatusFilter($event as TaskStatus | null)" />
           <USelect :model-value="queue.kindFilter" :items="kindOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.kindFilter')" @update:model-value="queue.setKindFilter($event as TaskKind | null)" />
           <USelect :model-value="queue.stageFilter" :items="stageOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.stageFilter')" @update:model-value="queue.setStageFilter($event as string | null)" />
           <USelect :model-value="queue.waitingReasonFilter" :items="waitingReasonOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.waitingReasonFilter')" @update:model-value="queue.setWaitingReasonFilter($event as string | null)" />
@@ -148,17 +149,21 @@ function handleSort(value: { field: TaskSortBy; direction: "asc" | "desc" } | nu
           :items="queue.items"
           :loading="queue.loading"
           :is-admin="maintenance.isAdmin"
+          :trash-view="activeTab === 'trash'"
           :is-acting="queue.isActing"
           :is-recoverable-task="queue.isRecoverableTask"
           :is-docling-recovery-task="queue.isDoclingRecoveryTask"
           @recover="queue.recoverTask"
           @recover-item="queue.recoverDoclingFromItem"
           @cancel="queue.cancelTask"
+          @trash="queue.confirmTrashTask"
+          @restore="queue.restoreTask"
+          @delete="queue.confirmDeleteTask"
           @sort="handleSort"
         />
       </div>
       <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">
-        {{ t(activeTab === "completed" ? "processingQueue.tabs.noCompletedTasks" : "processingQueue.noTasks") }}
+        {{ t(activeTab === "completed" ? "processingQueue.tabs.noCompletedTasks" : activeTab === "trash" ? "processingQueue.tabs.noTrashedTasks" : "processingQueue.noTasks") }}
       </div>
     </AppServerList>
 

@@ -71,7 +71,7 @@ describe("ProcessingQueueView tabs", () => {
     vi.useRealTimers();
   });
 
-  it("renders Processing, Completed, and a disabled Trash placeholder", async () => {
+  it("renders enabled Processing, Completed, and Trash tabs", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
@@ -79,12 +79,12 @@ describe("ProcessingQueueView tabs", () => {
     expect(tabButton(wrapper, "Completed")).toBeDefined();
     const trash = tabButton(wrapper, "Trash");
     expect(trash).toBeDefined();
-    expect(trash!.attributes("disabled")).toBeDefined();
+    expect(trash!.attributes("disabled")).toBeUndefined();
 
-    // Default tab keeps the existing unfiltered list query.
+    // Default tab keeps the unfiltered active-task list query.
     expect(listTasks).toHaveBeenCalledOnce();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: null }),
+      expect.objectContaining({ status: null, trashed: false }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
@@ -98,7 +98,7 @@ describe("ProcessingQueueView tabs", () => {
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: "succeeded" }),
+      expect.objectContaining({ status: "succeeded", trashed: false }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -108,25 +108,36 @@ describe("ProcessingQueueView tabs", () => {
     await tabButton(wrapper, "Processing")!.trigger("mousedown");
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: null }),
+      expect.objectContaining({ status: null, trashed: false }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
   });
 
-  it("does not query the API when the disabled Trash tab is clicked", async () => {
+  it("lists only trashed tasks when Trash is selected", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
-    const callsBefore = listTasks.mock.calls.length;
 
     await tabButton(wrapper, "Trash")!.trigger("mousedown");
     await flushPromises();
 
-    expect(listTasks.mock.calls.length).toBe(callsBefore);
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ trashed: true, status: null }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    // Trash never exposes the live status filter.
+    expect(wrapper.find('[aria-label="Task status"]').exists()).toBe(false);
+
+    await tabButton(wrapper, "Processing")!.trigger("mousedown");
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ trashed: false }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     wrapper.unmount();
   });
 
-  it("auto-refreshes Processing but stays idle on Completed", async () => {
+  it("auto-refreshes Processing but stays idle on Completed and Trash", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
 
@@ -145,6 +156,14 @@ describe("ProcessingQueueView tabs", () => {
     vi.advanceTimersByTime(20_000);
     await flushPromises();
     expect(listTasks.mock.calls.length).toBe(afterSwitch);
+
+    await tabButton(wrapper, "Trash")!.trigger("mousedown");
+    await flushPromises();
+    const afterTrash = listTasks.mock.calls.length;
+
+    vi.advanceTimersByTime(20_000);
+    await flushPromises();
+    expect(listTasks.mock.calls.length).toBe(afterTrash);
 
     await tabButton(wrapper, "Processing")!.trigger("mousedown");
     await flushPromises();
@@ -168,7 +187,7 @@ describe("ProcessingQueueTabs", () => {
     expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["completed"]);
 
     await tabButton(wrapper, "Trash")!.trigger("mousedown");
-    expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["completed"]);
+    expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["trash"]);
     wrapper.unmount();
   });
 });

@@ -112,6 +112,7 @@ describe("useProcessingQueue", () => {
         query: "",
         kind: null,
         status: null,
+        trashed: false,
         stage: null,
         waitingReason: null,
         dependencyKey: null,

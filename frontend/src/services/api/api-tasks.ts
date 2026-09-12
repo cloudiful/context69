@@ -16,6 +16,7 @@ import type {
   TaskMaintenanceOverview,
   TaskPageResponse,
   TaskRef,
+  TaskResponse,
   TaskRetryResponse,
   TaskSortBy,
   TaskStatus,
@@ -42,6 +43,7 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
       query?: string;
       kind?: TaskKind | null;
       status?: TaskStatus | null;
+      trashed?: boolean;
       stage?: string | null;
       waitingReason?: string | null;
       dependencyKey?: string | null;
@@ -56,6 +58,7 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
             query: params.query || undefined,
             kind: params.kind ?? undefined,
             status: params.status ?? undefined,
+            trashed: params.trashed ?? false,
             stage: params.stage || undefined,
             waiting_reason: params.waitingReason || undefined,
             dependency_key: params.dependencyKey || undefined,
@@ -95,6 +98,24 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
     },
     cancelTask(taskId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/cancel", {
+        params: { path: { task_id: taskId } },
+        signal: options?.signal,
+      })) as Promise<void>;
+    },
+    trashTask(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/trash", {
+        params: { path: { task_id: taskId } },
+        signal: options?.signal,
+      })) as Promise<TaskResponse>;
+    },
+    restoreTask(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/restore", {
+        params: { path: { task_id: taskId } },
+        signal: options?.signal,
+      })) as Promise<TaskResponse>;
+    },
+    deleteTask(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.DELETE("/v1/tasks/{task_id}", {
         params: { path: { task_id: taskId } },
         signal: options?.signal,
       })) as Promise<void>;
