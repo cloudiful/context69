@@ -57,10 +57,11 @@ use crate::api::{
         __path_recover_docling_task, __path_update_task_maintenance,
     },
     tasks::{
-        __path_cancel_task, __path_ensure_scope, __path_get_task, __path_list_task_items,
-        __path_list_tasks, __path_rerun_task, __path_retry_task, __path_submit_delete_batch,
-        __path_submit_file_batch, __path_submit_task, __path_submit_text_batch,
-        __path_submit_url_batch, __path_submit_vector_index_rebuild,
+        __path_cancel_task, __path_delete_task, __path_ensure_scope, __path_get_task,
+        __path_list_task_items, __path_list_tasks, __path_rerun_task, __path_restore_task,
+        __path_retry_task, __path_submit_delete_batch, __path_submit_file_batch,
+        __path_submit_task, __path_submit_text_batch, __path_submit_url_batch,
+        __path_submit_vector_index_rebuild, __path_trash_task,
     },
     translations::{
         __path_get_group_translation_settings, __path_get_translation_settings,
@@ -195,6 +196,9 @@ use crate::contracts::{
         retry_task,
         rerun_task,
         cancel_task,
+        trash_task,
+        restore_task,
+        delete_task,
         get_task_maintenance,
         update_task_maintenance,
         cancel_active_tasks,
@@ -417,6 +421,8 @@ mod tests {
             "/v1/tasks/{task_id}/items",
             "/v1/tasks/{task_id}/retry",
             "/v1/tasks/{task_id}/cancel",
+            "/v1/tasks/{task_id}/trash",
+            "/v1/tasks/{task_id}/restore",
             "/v1/admin/tasks/maintenance",
             "/v1/admin/tasks/cancel-active",
             "/v1/admin/tasks/purge",
@@ -448,6 +454,20 @@ mod tests {
             .expect("vector rebuild path to exist");
         assert!(vector_rebuild.contains_key("post"));
         assert!(!vector_rebuild.contains_key("get"));
+
+        let task_actions = paths
+            .get("/v1/tasks/{task_id}")
+            .and_then(Value::as_object)
+            .expect("task path to exist");
+        assert!(task_actions.contains_key("get"));
+        assert!(task_actions.contains_key("delete"));
+        for path in ["/v1/tasks/{task_id}/trash", "/v1/tasks/{task_id}/restore"] {
+            let action = paths
+                .get(path)
+                .and_then(Value::as_object)
+                .expect("task trash action path to exist");
+            assert!(action.contains_key("post"), "missing post for {path}");
+        }
 
         let schemas = json
             .pointer("/components/schemas")

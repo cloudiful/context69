@@ -238,6 +238,29 @@ impl Context69Client {
             .await
     }
 
+    /// Move a terminal task's history into the recycle bin. Idempotent and
+    /// rejected while the task is still active. Files and processed results
+    /// are never affected.
+    pub async fn trash_task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
+        let path = format!("/v1/tasks/{task_id}/trash");
+        self.execute_json(self.authorized_request(Method::POST, &path).await?)
+            .await
+    }
+
+    /// Restore a trashed task's history. Idempotent.
+    pub async fn restore_task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
+        let path = format!("/v1/tasks/{task_id}/restore");
+        self.execute_json(self.authorized_request(Method::POST, &path).await?)
+            .await
+    }
+
+    /// Permanently delete a trashed task's history. Only trashed rows qualify.
+    pub async fn delete_task(&self, task_id: Uuid) -> Result<(), Error> {
+        let path = format!("/v1/tasks/{task_id}");
+        self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
+            .await
+    }
+
     pub async fn task_maintenance(&self) -> Result<TaskMaintenanceOverview, Error> {
         self.execute_json(
             self.authorized_request(Method::GET, "/v1/admin/tasks/maintenance")

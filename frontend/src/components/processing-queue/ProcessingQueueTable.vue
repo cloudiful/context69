@@ -13,6 +13,7 @@ const props = defineProps<{
   items: TaskResponse[];
   loading: boolean;
   isAdmin: boolean;
+  trashView: boolean;
   isActing: (task: TaskResponse) => boolean;
   isRecoverableTask: (task: TaskResponse) => boolean;
   isDoclingRecoveryTask: (task: TaskResponse) => boolean;
@@ -22,6 +23,9 @@ const emit = defineEmits<{
   recover: [task: TaskResponse];
   recoverItem: [task: TaskResponse];
   cancel: [task: TaskResponse];
+  trash: [task: TaskResponse];
+  restore: [task: TaskResponse];
+  delete: [task: TaskResponse];
   sort: [value: { field: TaskSortBy; direction: "asc" | "desc" } | null];
 }>();
 
@@ -175,9 +179,14 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
     <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="itemErrorTooltip(row.original.error_summary) || undefined">{{ row.original.error_summary || "--" }}</span></template>
     <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
     <template #actions-cell="{ row }">
-      <div class="flex items-center gap-1">
+      <div v-if="trashView" class="flex items-center gap-1">
+        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-undo-2" :loading="isActing(row.original)" :aria-label="t('processingQueue.restore')" :title="t('processingQueue.restore')" @click="emit('restore', row.original)" />
+        <UButton color="error" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="isActing(row.original)" :aria-label="t('processingQueue.deletePermanently')" :title="t('processingQueue.deletePermanently')" @click="emit('delete', row.original)" />
+      </div>
+      <div v-else class="flex items-center gap-1">
         <UButton v-if="isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="isActing(row.original)" :label="t(isDoclingRecoveryTask(row.original) ? 'processingQueue.doclingRecovery' : row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="emit('recover', row.original)" />
         <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
+        <UButton v-if="['succeeded', 'failed', 'cancelled'].includes(row.original.status)" color="neutral" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="isActing(row.original)" :aria-label="t('processingQueue.trash')" :title="t('processingQueue.trash')" @click="emit('trash', row.original)" />
       </div>
     </template>
     <template #expanded="{ row }">

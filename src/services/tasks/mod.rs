@@ -237,6 +237,7 @@ impl TaskService {
         let bounds = PageBounds::new(query.page, query.page_size)?;
         let kind = query.kind.map(TaskKind::as_str);
         let status = query.status.map(TaskStatus::as_str);
+        let trashed = query.trashed.unwrap_or(false);
         let total = self
             .db
             .count_tasks(
@@ -247,6 +248,7 @@ impl TaskService {
                 query.stage.as_deref(),
                 query.waiting_reason.as_deref(),
                 query.dependency_key.as_deref(),
+                trashed,
             )
             .await?;
         let items = self
@@ -259,6 +261,7 @@ impl TaskService {
                 query.stage.as_deref(),
                 query.waiting_reason.as_deref(),
                 query.dependency_key.as_deref(),
+                trashed,
                 query.sort_by.map(TaskSortBy::as_str),
                 query.sort_direction.map(SortDirection::as_str),
                 i64::from(bounds.page_size),
@@ -332,6 +335,76 @@ impl TaskService {
         } else {
             Err(anyhow!("task is already terminal or not found"))
         }
+    }
+
+    /// Move a terminal task's history into the recycle bin. Idempotent: a
+    /// repeated trash returns the already-trashed task. Active tasks are
+    /// rejected because trashing must never freeze in-flight work; the user
+    /// cancels first, then trashes. Files, processed text, and vectors are
+    /// never touched.
+    pub async fn trash(&self, task_id: Uuid, user_id: i64) -> Result<TaskResponse> {
+        let task = self
+            .db
+            .get_task(task_id, user_id)
+            .await?
+            .context("task not found")?;
+        if !self.db.can_manage_task(task_id, user_id).await? {
+            return Err(anyhow!("task management permission denied"));
+        }
+        if task.deleted_at.is_none() {
+            self.db.trash_task(task_id).await?;
+        }
+        let task = self
+            .db
+            .get_task(task_id, user_id)
+            .await?
+            .context("task not found")?;
+        if task.deleted_at.is_none() {
+            return Err(anyhow!(
+                "active task cannot be trashed until it reaches a terminal state"
+            ));
+        }
+        Ok(task_response(task))
+    }
+
+    /// Restore a trashed task's history. Idempotent: restoring an active task
+    /// returns it unchanged.
+    pub async fn restore(&self, task_id: Uuid, user_id: i64) -> Result<TaskResponse> {
+        self.db
+            .get_task(task_id, user_id)
+            .await?
+            .context("task not found")?;
+        if !self.db.can_manage_task(task_id, user_id).await? {
+            return Err(anyhow!("task management permission denied"));
+        }
+        self.db.restore_task(task_id).await?;
+        let task = self
+            .db
+            .get_task(task_id, user_id)
+            .await?
+            .context("task not found")?;
+        Ok(task_response(task))
+    }
+
+    /// Permanently delete a trashed task row. Only trashed rows qualify; an
+    /// active or non-trashed task is rejected so the recycle bin is the only
+    /// path to permanent removal.
+    pub async fn delete_permanently(&self, task_id: Uuid, user_id: i64) -> Result<()> {
+        let task = self
+            .db
+            .get_task(task_id, user_id)
+            .await?
+            .context("task not found")?;
+        if !self.db.can_manage_task(task_id, user_id).await? {
+            return Err(anyhow!("task management permission denied"));
+        }
+        if task.deleted_at.is_none() {
+            return Err(anyhow!("task must be trashed before permanent deletion"));
+        }
+        if !self.db.delete_trashed_task(task_id).await? {
+            return Err(anyhow!("task must be trashed before permanent deletion"));
+        }
+        Ok(())
     }
 
     pub async fn rerun(&self, task_id: Uuid, user_id: i64) -> Result<RerunTaskResponse> {
@@ -659,6 +732,7 @@ fn task_response(task: StoredTask) -> TaskResponse {
         started_at: task.started_at,
         finished_at: task.finished_at,
         updated_at: task.updated_at,
+        deleted_at: task.deleted_at,
     }
 }
 

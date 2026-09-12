@@ -10,7 +10,8 @@ SELECT COALESCE(count(*), 0)::BIGINT AS "total_count!",
            (SELECT count(*)::BIGINT
             FROM context69.tasks expired
             WHERE expired.status IN ('succeeded', 'failed', 'cancelled')
-              AND COALESCE(expired.finished_at, expired.updated_at) < $1),
+              AND expired.deleted_at IS NOT NULL
+              AND expired.deleted_at < $1),
            0
        )::BIGINT AS "expired_terminal_count!",
        COALESCE(

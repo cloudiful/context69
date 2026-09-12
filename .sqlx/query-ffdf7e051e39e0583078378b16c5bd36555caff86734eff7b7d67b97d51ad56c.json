@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.tasks\nSET deleted_at = now(),\n    updated_at = now()\nWHERE id = $1\n  AND deleted_at IS NULL\n  AND status IN ('succeeded', 'failed', 'cancelled')\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ffdf7e051e39e0583078378b16c5bd36555caff86734eff7b7d67b97d51ad56c"
+}

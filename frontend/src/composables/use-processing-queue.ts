@@ -25,6 +25,7 @@ interface RecoverySummary {
 }
 
 const ACTIVE_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
+const TERMINAL_STATUSES: TaskStatus[] = ["succeeded", "failed", "cancelled"];
 
 function isUncertainSubmissionError(error: unknown): boolean {
   return error instanceof ApiError
@@ -45,6 +46,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const searchInput = ref("");
   const query = ref("");
   const statusFilter = ref<TaskStatus | null>(null);
+  const trashedFilter = ref(false);
   const kindFilter = ref<TaskKind | null>(null);
   const stageFilter = ref<string | null>(null);
   const waitingReasonFilter = ref<string | null>(null);
@@ -69,6 +71,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     && (task.failure_stage === "docling" || task.failure_stage === "docling_poll");
   const isRecoverableTask = (task: TaskResponse) =>
     task.status === "failed" || task.status === "cancelled" || isDoclingRecoveryTask(task);
+  const isTerminalTask = (task: TaskResponse) => TERMINAL_STATUSES.includes(task.status);
   const recoverableCount = computed(() => items.value.filter(isRecoverableTask).length);
   const doclingRecoveryCount = computed(() => items.value.filter(isDoclingRecoveryTask).length);
   const activeCount = computed(() => items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).length);
@@ -90,6 +93,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         query: query.value,
         kind: kindFilter.value,
         status: statusFilter.value,
+        trashed: trashedFilter.value,
         stage: stageFilter.value,
         waitingReason: waitingReasonFilter.value,
         dependencyKey: dependencyKeyFilter.value,
@@ -118,6 +122,16 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   function setFilter<T>(target: { value: T }, value: T) {
     if (target.value === value) return;
     target.value = value;
+    void load({ resetPage: true });
+  }
+
+  // Tab changes move two list dimensions at once (trash vs active, plus the
+  // fixed status of the Completed tab). A single load keeps the switch atomic
+  // instead of firing one request per filter.
+  function setListView(next: { trashed: boolean; status: TaskStatus | null }) {
+    if (trashedFilter.value === next.trashed && statusFilter.value === next.status) return;
+    trashedFilter.value = next.trashed;
+    statusFilter.value = next.status;
     void load({ resetPage: true });
   }
 
@@ -239,6 +253,75 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   }
 
+  // Move a terminal task's history to the recycle bin. The backend rejects
+  // active tasks, so the action is only offered for terminal rows; files and
+  // processed results are never touched.
+  async function trashTask(task: TaskResponse) {
+    if (!isTerminalTask(task) || isActing(task)) return;
+    actionTaskIds.value = [...actionTaskIds.value, task.task_id];
+    try {
+      await apiClient.trashTask(task.task_id);
+      await load();
+      toast.add({ color: "success", title: t("processingQueue.trashAccepted"), description: task.task_id, duration: 2500 });
+    } catch (trashError) {
+      showErrorToast(trashError, t("processingQueue.trashFailed"));
+    } finally {
+      actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
+    }
+  }
+
+  function confirmTrashTask(task: TaskResponse) {
+    if (!isTerminalTask(task) || isActing(task)) return;
+    confirm.require({
+      header: t("processingQueue.trash"),
+      message: t("processingQueue.trashConfirm"),
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("processingQueue.trashAction"),
+      accept: () => void trashTask(task),
+    });
+  }
+
+  async function restoreTask(task: TaskResponse) {
+    if (isActing(task)) return;
+    actionTaskIds.value = [...actionTaskIds.value, task.task_id];
+    try {
+      await apiClient.restoreTask(task.task_id);
+      await load();
+      toast.add({ color: "success", title: t("processingQueue.restoreAccepted"), description: task.task_id, duration: 2500 });
+    } catch (restoreError) {
+      showErrorToast(restoreError, t("processingQueue.restoreFailed"));
+    } finally {
+      actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
+    }
+  }
+
+  // Permanent removal is only allowed from the recycle bin; the confirmation
+  // states explicitly that files and processed results are unaffected.
+  async function deletePermanently(task: TaskResponse) {
+    if (isActing(task)) return;
+    actionTaskIds.value = [...actionTaskIds.value, task.task_id];
+    try {
+      await apiClient.deleteTask(task.task_id);
+      await load();
+      toast.add({ color: "success", title: t("processingQueue.deleteAccepted"), description: task.task_id, duration: 2500 });
+    } catch (deleteError) {
+      showErrorToast(deleteError, t("processingQueue.deleteFailed"));
+    } finally {
+      actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
+    }
+  }
+
+  function confirmDeleteTask(task: TaskResponse) {
+    if (isActing(task)) return;
+    confirm.require({
+      header: t("processingQueue.deletePermanently"),
+      message: t("processingQueue.deletePermanentlyConfirm"),
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("processingQueue.deletePermanentlyAction"),
+      accept: () => void deletePermanently(task),
+    });
+  }
+
   // Bulk Docling recovery is queue-only: park on `docling` for dispatcher
   // pickup under max_inflight, no POST or new attempt/job. `already_queued`
   // stays fulfilled and counts as succeeded. Others keep retry/rerun.
@@ -358,6 +441,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     query,
     sort,
     statusFilter,
+    trashedFilter,
     kindFilter,
     stageFilter,
     waitingReasonFilter,
@@ -370,11 +454,14 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     cancelledCount,
     activeCount,
     isRecoverableTask,
+    isTerminalTask,
     isDoclingRecoveryTask,
     load,
     refresh: () => load(),
     submitSearch,
+    setListView,
     setStatusFilter: (value: TaskStatus | null) => setFilter(statusFilter, value),
+    setTrashedFilter: (value: boolean) => setFilter(trashedFilter, value),
     setKindFilter: (value: TaskKind | null) => setFilter(kindFilter, value),
     setStageFilter: (value: string | null) => setFilter(stageFilter, value),
     setWaitingReasonFilter: (value: string | null) => setFilter(waitingReasonFilter, value),
@@ -386,6 +473,9 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     recoverTask,
     recoverDoclingFromItem,
     cancelTask,
+    confirmTrashTask,
+    restoreTask,
+    confirmDeleteTask,
     isActing,
     recoverAll,
     cancelActive,

@@ -1344,7 +1344,7 @@ export interface paths {
         get: operations["get_task"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["delete_task"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1398,6 +1398,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/{task_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restore_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/{task_id}/retry": {
         parameters: {
             query?: never;
@@ -1408,6 +1424,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["retry_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["trash_task"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2740,6 +2772,12 @@ export interface components {
             sort_direction?: null | components["schemas"]["SortDirection"];
             stage?: string | null;
             status?: null | components["schemas"]["TaskStatus"];
+            /**
+             * @description When true, list only trashed tasks; when false or omitted, list only
+             *     active (non-trashed) tasks. Trashed rows stay reachable by id for their
+             *     owner (for example to restore them) but never appear in active lists.
+             */
+            trashed?: boolean | null;
             waiting_reason?: string | null;
         };
         TaskMaintenanceOverview: {
@@ -2850,6 +2888,13 @@ export interface components {
         TaskResponse: {
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: date-time
+             * @description Non-null while the task history row is in the recycle bin. Trashing
+             *     only soft-deletes the task record; files, processed text, and vectors
+             *     are never affected.
+             */
+            deleted_at?: string | null;
             dependency_key?: string | null;
             error_summary?: string | null;
             /** Format: int64 */
@@ -7016,6 +7061,12 @@ export interface operations {
                 query?: string;
                 kind?: components["schemas"]["TaskKind"];
                 status?: components["schemas"]["TaskStatus"];
+                /**
+                 * @description When true, list only trashed tasks; when false or omitted, list only
+                 *     active (non-trashed) tasks. Trashed rows stay reachable by id for their
+                 *     owner (for example to restore them) but never appear in active lists.
+                 */
+                trashed?: boolean;
                 stage?: string;
                 waiting_reason?: string;
                 dependency_key?: string;
@@ -7089,6 +7140,49 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7186,6 +7280,43 @@ export interface operations {
             };
         };
     };
+    restore_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     retry_task: {
         parameters: {
             query?: never;
@@ -7203,6 +7334,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskRetryResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    trash_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
             409: {

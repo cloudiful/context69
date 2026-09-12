@@ -34,3 +34,7 @@ WHERE (
   AND ($5::text IS NULL OR task.stage = $5)
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
+  AND (
+      ($8::boolean = TRUE AND task.deleted_at IS NOT NULL)
+      OR ($8::boolean = FALSE AND task.deleted_at IS NULL)
+  )

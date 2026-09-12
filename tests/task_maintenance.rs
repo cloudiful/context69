@@ -27,7 +27,12 @@ fn terminal_maintenance_excludes_tasks_with_active_external_jobs() {
 
     assert_active_external_job_guard(&cleanup_sql);
     assert_active_external_job_guard(&purge_sql);
-    assert!(cleanup_sql.contains("COALESCE(candidate.finished_at, candidate.updated_at) < $1"));
+    // Automatic retention cleanup only purges trashed terminal history.
+    assert!(cleanup_sql.contains("candidate.deleted_at IS NOT NULL"));
+    assert!(cleanup_sql.contains("candidate.deleted_at < $1"));
+    // The explicit admin all-terminal purge keeps its legacy semantics and is
+    // deliberately trash-agnostic.
+    assert!(!purge_sql.contains("deleted_at"));
 }
 
 #[test]

@@ -806,9 +806,11 @@ async fn quarantined_rows_no_longer_block_terminal_cleanup() {
         true,
     )
     .await;
-    // Make the terminal task eligible for retention cleanup.
+    // Make the terminal task eligible for retention cleanup: it must be
+    // trashed and the trash timestamp must be older than the cutoff.
     sqlx::query(
-        "UPDATE context69.tasks SET finished_at = now() - interval '2 days', \
+        "UPDATE context69.tasks SET deleted_at = now() - interval '2 days', \
+         finished_at = now() - interval '2 days', \
          updated_at = now() - interval '2 days' WHERE id = $1",
     )
     .bind(task_id)

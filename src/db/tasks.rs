@@ -48,6 +48,7 @@ pub struct StoredTask {
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -484,6 +485,7 @@ impl Database {
         stage: Option<&str>,
         waiting_reason: Option<&str>,
         dependency_key: Option<&str>,
+        trashed: bool,
         sort_by: Option<&str>,
         sort_direction: Option<&str>,
         limit: i64,
@@ -502,7 +504,8 @@ impl Database {
             sort_by,
             sort_direction,
             limit,
-            offset
+            offset,
+            trashed
         )
         .fetch_all(self.pool())
         .await?)
@@ -517,6 +520,7 @@ impl Database {
         stage: Option<&str>,
         waiting_reason: Option<&str>,
         dependency_key: Option<&str>,
+        trashed: bool,
     ) -> Result<i64> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/db/tasks/count.sql",
@@ -526,7 +530,8 @@ impl Database {
             status,
             stage,
             waiting_reason,
-            dependency_key
+            dependency_key,
+            trashed
         )
         .fetch_one(self.pool())
         .await?
@@ -707,6 +712,36 @@ impl Database {
         tx.commit().await?;
         Ok(true)
     }
+    /// Soft-delete a terminal task into the recycle bin. No-op for an active
+    /// task and for an already-trashed row, so callers can treat the boolean
+    /// as "this call moved the row". Never touches task items, files, or
+    /// external jobs.
+    pub async fn trash_task(&self, task_id: Uuid) -> Result<bool> {
+        Ok(sqlx::query_file!("src/sql/db/tasks/trash.sql", task_id)
+            .fetch_optional(self.pool())
+            .await?
+            .is_some())
+    }
+
+    /// Clear the trash marker. No-op for an active row.
+    pub async fn restore_task(&self, task_id: Uuid) -> Result<bool> {
+        Ok(sqlx::query_file!("src/sql/db/tasks/restore.sql", task_id)
+            .fetch_optional(self.pool())
+            .await?
+            .is_some())
+    }
+
+    /// Permanently delete a task row and its cascading history. The SQL only
+    /// matches trashed rows; a non-trashed task is never removed here.
+    pub async fn delete_trashed_task(&self, task_id: Uuid) -> Result<bool> {
+        Ok(
+            sqlx::query_file!("src/sql/db/tasks/delete_trashed.sql", task_id)
+                .fetch_optional(self.pool())
+                .await?
+                .is_some(),
+        )
+    }
+
     pub async fn heartbeat_task_item(&self, item_id: Uuid, lease_token: Uuid) -> Result<bool> {
         Ok(
             sqlx::query_file!("src/sql/db/tasks/heartbeat_item.sql", item_id, lease_token)

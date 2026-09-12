@@ -20,6 +20,7 @@ SELECT
     waiting_reason,
     dependency_key,
     next_attempt_at,
+    deleted_at,
     created_at,
     started_at,
     finished_at,

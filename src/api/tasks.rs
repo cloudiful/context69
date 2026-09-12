@@ -401,6 +401,47 @@ pub(crate) async fn cancel_task(
     }
 }
 
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/trash", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+pub(crate) async fn trash_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    match state.app.tasks.trash(task_id, session.user.id).await {
+        Ok(task) => (StatusCode::OK, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/restore", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse)))]
+pub(crate) async fn restore_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    match state.app.tasks.restore(task_id, session.user.id).await {
+        Ok(task) => (StatusCode::OK, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(delete, path = "/v1/tasks/{task_id}", params(("task_id" = Uuid, Path)), responses((status = 204), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+pub(crate) async fn delete_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    match state
+        .app
+        .tasks
+        .delete_permanently(task_id, session.user.id)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
 async fn managed_group(
     state: &ApiState,
     user_id: i64,
@@ -431,6 +472,8 @@ fn task_error(error: anyhow::Error) -> Response {
         || message.contains("duplicate key")
         || message.contains("already used")
         || message.contains("terminal")
+        || message.contains("cannot be trashed")
+        || message.contains("must be trashed")
     {
         StatusCode::CONFLICT
     } else if message.contains("permission") {

@@ -136,6 +136,10 @@ pub struct TaskResponse {
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    /// Non-null while the task history row is in the recycle bin. Trashing
+    /// only soft-deletes the task record; files, processed text, and vectors
+    /// are never affected.
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -210,6 +214,11 @@ pub struct TaskListQuery {
     pub kind: Option<TaskKind>,
     #[serde(default)]
     pub status: Option<TaskStatus>,
+    /// When true, list only trashed tasks; when false or omitted, list only
+    /// active (non-trashed) tasks. Trashed rows stay reachable by id for their
+    /// owner (for example to restore them) but never appear in active lists.
+    #[serde(default)]
+    pub trashed: Option<bool>,
     #[serde(default)]
     pub stage: Option<String>,
     #[serde(default)]

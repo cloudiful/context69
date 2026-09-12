@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    origin,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks task\nWHERE task.id = $1\n  AND (\n      task.user_id = $2\n      OR EXISTS (\n          WITH RECURSIVE inherited_groups AS (\n              SELECT gm.group_id\n              FROM context69.group_memberships gm\n              WHERE gm.user_id = $2\n              UNION ALL\n              SELECT child.id\n              FROM context69.groups child\n              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n          )\n          SELECT 1\n          FROM inherited_groups\n          WHERE inherited_groups.group_id = task.group_id\n      )\n  )\n",
+  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    origin,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    deleted_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks\nWHERE id = $1\n",
   "describe": {
     "columns": [
       {
@@ -236,6 +236,17 @@
       },
       {
         "ordinal": 21,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "deleted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -246,7 +257,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -257,7 +268,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "finished_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -268,7 +279,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -281,8 +292,7 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -307,11 +317,12 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
       false
     ]
   },
-  "hash": "70563cc59e8fa58976e375edd56755f37ecdc047fab51a2d453c4e7a7cd99bf8"
+  "hash": "07d162c6ca5ebf939ce49a966756a073921cbcf373380f36c34276013f42c618"
 }

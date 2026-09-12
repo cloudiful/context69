@@ -20,6 +20,7 @@ SELECT
     waiting_reason,
     dependency_key,
     next_attempt_at,
+    deleted_at,
     created_at,
     started_at,
     finished_at,
@@ -59,6 +60,10 @@ WHERE (
   AND ($5::text IS NULL OR task.stage = $5)
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
+  AND (
+      ($12::boolean = TRUE AND task.deleted_at IS NOT NULL)
+      OR ($12::boolean = FALSE AND task.deleted_at IS NULL)
+  )
 ORDER BY
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
