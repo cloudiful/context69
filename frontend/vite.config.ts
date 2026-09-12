@@ -13,7 +13,9 @@ export default defineConfig(({ mode }) => {
     plugins: [
       vue(),
       tailwindcss(),
-      ui(),
+      ui({
+        experimental: { componentDetection: true },
+      }),
     ],
     server: {
       host: "0.0.0.0",
