@@ -56,27 +56,34 @@ is retried.
 ## Task center
 
 ```rust,no_run
-# use context69_sdk::Context69Client;
+use context69_sdk::{Context69Client, TaskItemsOptions, TaskListOptions};
+
 # use std::time::Duration;
 # use uuid::Uuid;
 # async fn example(client: &Context69Client, task_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
-let task = client.task(task_id).await?;
-let items = client.task_items(task.task_id, None).await?;
+let task = client.get_task(task_id).await?;
+let items = client.list_task_items(task.task_id, &TaskItemsOptions::default()).await?;
+let page = client.list_tasks(&TaskListOptions::default()).await?;
 if task.progress.failed > 0 {
     let retry = client.retry_task(task.task_id).await?;
     client.wait(retry.task.task_id, Duration::from_secs(600)).await?;
 }
 client.cancel_task(task.task_id).await?;
-# let _ = items;
+# let _ = (items, page);
 # Ok(())
 # }
 ```
 
-`task` reports lifecycle state, aggregate progress, failure summary, timestamps,
-and an estimated remaining time when enough progress exists. `task_items`
-returns independent status, resource id, failure stage, error message, attempt
-count, and retryability for every item. `wait` uses bounded exponential backoff
-and retries transient transport/server failures until its timeout.
+`get_task` reports lifecycle state, aggregate progress, failure summary,
+timestamps, and an estimated remaining time when enough progress exists.
+`list_tasks` requires a typed `TaskListOptions` (`view`, `page 1..=10_000`,
+`page_size 1..=100`; default `processing`/page 1/size 25) and returns the
+canonical `TaskPageResponse`. `list_task_items` takes a bounded
+`TaskItemsOptions` (`limit 1..=100`, default 100; `cursor` omitted when
+`None`) and returns `next_cursor` continuation. `wait` uses bounded
+exponential backoff and retries transient transport/server failures until
+its timeout. `purge_trashed_task` permanently deletes trashed history
+(`DELETE /v1/tasks/{task_id}`).
 
 ## Retrieval
 
@@ -85,24 +92,37 @@ use context69_sdk::{BatchGetDocumentsRequest, Context69Client, SearchRequest};
 
 # async fn example(client: &Context69Client, request: SearchRequest)
 #     -> Result<(), Box<dyn std::error::Error>> {
-let result = client.search_compact(&request).await?;
-let document = client.get_document(result.hits[0].document_id, None).await?;
+let result = client.search(&request).await?;
+let next = result.pagination.next_cursor.clone();
+let compact = client.search_compact(&request).await?;
+assert_eq!(compact.pagination.next_cursor, next);
+let document = client.get_document(result.items[0].document_id, None).await?;
 let documents = client.get_documents("research/news", &BatchGetDocumentsRequest {
     keys: vec![],
     locale: None,
 }).await?;
-# let _ = (document, documents);
+# let _ = (document, documents, compact);
 # Ok(())
 # }
 ```
 
-Search intentionally returns compact hits. Request document detail only when
-the caller needs metadata or chunks; `get_documents` preserves one result per
-requested key.
+`search` returns the full `SearchResponse` with `SearchPagination`
+(`next_cursor`/`has_more`). `search_compact` is a bounded 320-char snippet
+projection that preserves the same pagination instead of dropping it.
+Request document detail only when the caller needs metadata or chunks;
+`get_documents` preserves one result per requested key.
 
 ## Public surface
 
-The public client surface is limited to scope provisioning, text/URL/file
-batches, task submit/get/list/items/wait/retry/cancel, compact search, document
-detail/batch detail, health, and authentication identity. Low-level REST
-handles and `authorized_request` are not part of this SDK.
+The public client surface is the ergonomic facade: scope provisioning,
+text/URL/file batches (with SDK-generated `Idempotency-Key`), task
+submit/`get_task`/`list_tasks`/`list_task_items`/wait/retry/rerun/cancel/
+trash/restore/`purge_trashed_task`, task maintenance, `search` plus the
+bounded `search_compact` projection, document detail/batch detail,
+extraction templates, health, and authentication identity. Every type needed
+to construct a call (`TaskListView`, `TaskItemsQuery`, `SortDirection`,
+`SourcePolicy`, `IngestOptions`, canonical search/settings types) is
+re-exported from `context69_sdk` alone. The complete low-level transport
+covering all 116 HTTP operations is Task 4b remaining work and is not
+claimed here; low-level REST handles and `authorized_request` are not part
+of this SDK.

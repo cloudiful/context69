@@ -1,23 +1,29 @@
 use std::time::{Duration, Instant};
 
 pub use context69_contracts::{
-    AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
-    CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse, DocumentKey,
+    AuthMeResponse, AuthUserResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
+    CancelActiveTasksResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
+    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateMetadataIndexRequest,
+    CursorPageQuery, CursorPagination, DeleteBatchRequest, DocumentChunkResponse, DocumentKey,
     DocumentResponse, EnsureScopeResponse, ExtractionDirective, ExtractionJobsResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
     GroupKind, GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
-    LibraryFileDetailResponse, LibraryFileUploadMetadata as FileMetadata,
+    IngestOptions, LibraryFileDetailResponse, LibraryFileUploadMetadata as FileMetadata,
     LibraryTextContentFormat as TextContentFormat, MetadataDataType, MetadataFilter,
-    MetadataFilterOperator, MetadataValueKind, PurgeTasksRequest, PurgeTasksResponse,
-    RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec,
-    SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery,
-    TaskMaintenanceOverview, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
-    TaskRetryResponse, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationDirective,
-    TranslationStatus, UpdateTaskMaintenanceSettingsRequest,
+    MetadataFilterOperator, MetadataValueKind, OffsetPageQuery, OffsetPagination,
+    PurgeTasksRequest, PurgeTasksResponse, RebuildDocumentExtractionsRequest, RerunTaskResponse,
+    ScopeMetadataIndex, ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort,
+    SecretPatch, SortDirection, SourcePolicy, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskMaintenanceOverview,
+    TaskMaintenanceSettings, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
+    TranslationDirective, TranslationStatus, UpdateTaskMaintenanceSettingsRequest,
     UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
 };
 use reqwest::Method;
 use uuid::Uuid;
+
+pub use context69_contracts::search::SearchPagination;
 
 use super::{Context69Client, transport::group_path};
 use crate::Error;
@@ -55,6 +61,128 @@ pub struct CompactSearchHit {
 pub struct CompactSearchResponse {
     pub query: String,
     pub hits: Vec<CompactSearchHit>,
+    pub pagination: SearchPagination,
+}
+
+impl CompactSearchResponse {
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.pagination.next_cursor.as_deref()
+    }
+
+    pub fn has_more(&self) -> bool {
+        self.pagination.has_more.unwrap_or(false)
+    }
+}
+
+/// v0.16 canonical task list options. Maps 1:1 onto
+/// [`CanonicalTaskListQuery`]: `view` is required, `page` is `1..=10_000`
+/// and `page_size` is `1..=100`. The default (`processing`, page 1,
+/// page size 25) matches the processing-queue first page.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskListOptions {
+    pub view: TaskListView,
+    pub page: u32,
+    pub page_size: u32,
+    pub query: Option<String>,
+    pub kind: Option<TaskKind>,
+    pub status: Option<TaskStatus>,
+    pub stage: Option<String>,
+    pub waiting_reason: Option<String>,
+    pub dependency_key: Option<String>,
+    pub sort_by: Option<TaskSortBy>,
+    pub sort_direction: Option<SortDirection>,
+}
+
+impl Default for TaskListOptions {
+    fn default() -> Self {
+        Self {
+            view: TaskListView::Processing,
+            page: 1,
+            page_size: 25,
+            query: None,
+            kind: None,
+            status: None,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+        }
+    }
+}
+
+impl TaskListOptions {
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.page == 0 || self.page > 10_000 {
+            return Err(Error::InvalidResponse(format!(
+                "page must be between 1 and 10000, got {}",
+                self.page
+            )));
+        }
+        if self.page_size == 0 || self.page_size > 100 {
+            return Err(Error::InvalidResponse(format!(
+                "page_size must be between 1 and 100, got {}",
+                self.page_size
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn as_canonical_query(&self) -> Result<CanonicalTaskListQuery, Error> {
+        self.validate()?;
+        Ok(CanonicalTaskListQuery {
+            page: self.page,
+            page_size: self.page_size,
+            query: self.query.clone(),
+            kind: self.kind,
+            status: self.status,
+            view: self.view,
+            stage: self.stage.clone(),
+            waiting_reason: self.waiting_reason.clone(),
+            dependency_key: self.dependency_key.clone(),
+            sort_by: self.sort_by,
+            sort_direction: self.sort_direction,
+        })
+    }
+}
+
+/// v0.16 canonical task item window. `limit` is `1..=100` (aligned to the
+/// shared cursor kernel and the `TaskItemsQuery` wire default of 100);
+/// `cursor` is the opaque offset token from `TaskItemsResponse::next_cursor`
+/// and is omitted when `None` (no hidden `cursor=0` default).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskItemsOptions {
+    pub limit: u32,
+    pub cursor: Option<String>,
+}
+
+impl Default for TaskItemsOptions {
+    fn default() -> Self {
+        Self {
+            limit: 100,
+            cursor: None,
+        }
+    }
+}
+
+impl TaskItemsOptions {
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.limit == 0 || self.limit > 100 {
+            return Err(Error::InvalidResponse(format!(
+                "limit must be between 1 and 100, got {}",
+                self.limit
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn as_wire_query(&self) -> Result<TaskItemsQuery, Error> {
+        self.validate()?;
+        Ok(TaskItemsQuery {
+            limit: self.limit,
+            cursor: self.cursor.clone(),
+        })
+    }
 }
 
 impl Context69Client {
@@ -67,6 +195,7 @@ impl Context69Client {
         .await
     }
 
+    #[deprecated(note = "use submit_text_batch instead")]
     pub async fn text_batch(
         &self,
         group_path_value: &str,
@@ -76,6 +205,16 @@ impl Context69Client {
             .await
     }
 
+    pub async fn submit_text_batch(
+        &self,
+        group_path_value: &str,
+        request: &TextBatchRequest,
+    ) -> Result<TaskRef, Error> {
+        self.submit_batch(group_path(group_path_value, "/batch/text"), request)
+            .await
+    }
+
+    #[deprecated(note = "use submit_url_batch instead")]
     pub async fn url_batch(
         &self,
         group_path_value: &str,
@@ -85,6 +224,16 @@ impl Context69Client {
             .await
     }
 
+    pub async fn submit_url_batch(
+        &self,
+        group_path_value: &str,
+        request: &UrlBatchRequest,
+    ) -> Result<TaskRef, Error> {
+        self.submit_batch(group_path(group_path_value, "/batch/url"), request)
+            .await
+    }
+
+    #[deprecated(note = "use submit_file_batch instead")]
     pub async fn file_batch(
         &self,
         group_path_value: &str,
@@ -94,7 +243,26 @@ impl Context69Client {
             .await
     }
 
+    pub async fn submit_file_batch(
+        &self,
+        group_path_value: &str,
+        request: &FileBatchRequest,
+    ) -> Result<TaskRef, Error> {
+        self.submit_batch(group_path(group_path_value, "/batch/file"), request)
+            .await
+    }
+
+    #[deprecated(note = "use submit_delete_batch instead")]
     pub async fn delete_batch(
+        &self,
+        group_path_value: &str,
+        request: &DeleteBatchRequest,
+    ) -> Result<TaskRef, Error> {
+        self.submit_batch(group_path(group_path_value, "/batch/delete"), request)
+            .await
+    }
+
+    pub async fn submit_delete_batch(
         &self,
         group_path_value: &str,
         request: &DeleteBatchRequest,
@@ -137,12 +305,36 @@ impl Context69Client {
         .await
     }
 
-    pub async fn task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
+    /// Canonical `get_task` (`GET /v1/tasks/{task_id}`).
+    pub async fn get_task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
         let path = format!("/v1/tasks/{task_id}");
         self.execute_json(self.authorized_request(Method::GET, &path).await?)
             .await
     }
 
+    /// Deprecated alias for [`Self::get_task`]; retained for v0.15 callers.
+    #[deprecated(note = "use get_task instead")]
+    pub async fn task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
+        self.get_task(task_id).await
+    }
+
+    /// Canonical `list_tasks` (`GET /v1/tasks` with [`CanonicalTaskListQuery`]).
+    /// The typed `view` is always sent; page/page_size are validated
+    /// (`1..=10_000` / `1..=100`) before the request leaves the SDK.
+    pub async fn list_tasks(&self, options: &TaskListOptions) -> Result<TaskPageResponse, Error> {
+        let query = options.as_canonical_query()?;
+        self.execute_json(
+            self.authorized_request(Method::GET, "/v1/tasks")
+                .await?
+                .query(&query),
+        )
+        .await
+    }
+
+    /// Deprecated v0.15 list shape (`GET /v1/tasks` with [`TaskListQuery`]).
+    /// New code should use [`Self::list_tasks`] with [`TaskListOptions`],
+    /// which requires a typed `view` and validates bounds client-side.
+    #[deprecated(note = "use list_tasks with TaskListOptions instead")]
     pub async fn tasks(&self, query: &TaskListQuery) -> Result<TaskPageResponse, Error> {
         self.execute_json(
             self.authorized_request(Method::GET, "/v1/tasks")
@@ -152,20 +344,43 @@ impl Context69Client {
         .await
     }
 
+    /// Canonical `list_task_items` (`GET /v1/tasks/{task_id}/items`).
+    /// `limit` is validated (`1..=100`); `cursor` is omitted when `None`
+    /// so the server applies its own default instead of a hidden `0`.
+    pub async fn list_task_items(
+        &self,
+        task_id: Uuid,
+        options: &TaskItemsOptions,
+    ) -> Result<TaskItemsResponse, Error> {
+        let query = options.as_wire_query()?;
+        let path = format!("/v1/tasks/{task_id}/items");
+        let mut pairs = vec![("limit".to_string(), query.limit.to_string())];
+        if let Some(cursor) = query.cursor {
+            pairs.push(("cursor".to_string(), cursor));
+        }
+        self.execute_json(
+            self.authorized_request(Method::GET, &path)
+                .await?
+                .query(&pairs),
+        )
+        .await
+    }
+
+    /// Deprecated v0.15 item window. It no longer hides `limit=200` or
+    /// `cursor=0`: it delegates to [`Self::list_task_items`] with the wire
+    /// default (`limit=100`) and omits the cursor when `None`.
+    #[deprecated(note = "use list_task_items with TaskItemsOptions instead")]
     pub async fn task_items(
         &self,
         task_id: Uuid,
         cursor: Option<&str>,
     ) -> Result<TaskItemsResponse, Error> {
-        let path = format!("/v1/tasks/{task_id}/items");
-        let query = [
-            ("limit", "200".to_string()),
-            ("cursor", cursor.unwrap_or("0").to_string()),
-        ];
-        self.execute_json(
-            self.authorized_request(Method::GET, &path)
-                .await?
-                .query(&query),
+        self.list_task_items(
+            task_id,
+            &TaskItemsOptions {
+                limit: 100,
+                cursor: cursor.map(str::to_string),
+            },
         )
         .await
     }
@@ -201,7 +416,7 @@ impl Context69Client {
                     timeout: options.timeout,
                 });
             }
-            match self.task(task_id).await {
+            match self.get_task(task_id).await {
                 Ok(task) => {
                     if matches!(
                         task.status,
@@ -254,11 +469,20 @@ impl Context69Client {
             .await
     }
 
-    /// Permanently delete a trashed task's history. Only trashed rows qualify.
-    pub async fn delete_task(&self, task_id: Uuid) -> Result<(), Error> {
+    /// Permanently delete a trashed task's history (`DELETE /v1/tasks/{task_id}`).
+    /// Only trashed rows qualify; the call is idempotent for an already-purged id
+    /// from the caller's perspective (server returns 404 when nothing remains).
+    pub async fn purge_trashed_task(&self, task_id: Uuid) -> Result<(), Error> {
         let path = format!("/v1/tasks/{task_id}");
         self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
             .await
+    }
+
+    /// Deprecated alias for [`Self::purge_trashed_task`]; the operation only
+    /// ever deleted trashed task history.
+    #[deprecated(note = "use purge_trashed_task instead")]
+    pub async fn delete_task(&self, task_id: Uuid) -> Result<(), Error> {
+        self.purge_trashed_task(task_id).await
     }
 
     pub async fn task_maintenance(&self) -> Result<TaskMaintenanceOverview, Error> {
@@ -301,17 +525,27 @@ impl Context69Client {
         .await
     }
 
+    /// Canonical `search` (`POST /v1/search`). Returns the full
+    /// [`SearchResponse`] including [`SearchPagination`] so callers keep
+    /// `next_cursor`/`has_more` continuation metadata.
+    pub async fn search(&self, request: &SearchRequest) -> Result<SearchResponse, Error> {
+        self.execute_json(
+            self.authorized_request(Method::POST, "/v1/search")
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
+    /// Bounded compact projection over `search`. Snippets are truncated to
+    /// 320 chars, but pagination is never dropped: the returned
+    /// [`CompactSearchResponse`] preserves the full [`SearchPagination`]
+    /// (`next_cursor`/`has_more`) from the underlying [`SearchResponse`].
     pub async fn search_compact(
         &self,
         request: &SearchRequest,
     ) -> Result<CompactSearchResponse, Error> {
-        let response: context69_contracts::SearchResponse = self
-            .execute_json(
-                self.authorized_request(Method::POST, "/v1/search")
-                    .await?
-                    .json(request),
-            )
-            .await?;
+        let response: SearchResponse = self.search(request).await?;
         Ok(CompactSearchResponse {
             query: response.query,
             hits: response
@@ -328,6 +562,7 @@ impl Context69Client {
                     snippet: hit.chunk_text.chars().take(320).collect(),
                 })
                 .collect(),
+            pagination: response.pagination,
         })
     }
 

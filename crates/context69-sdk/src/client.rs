@@ -9,17 +9,24 @@ use tokio::sync::RwLock;
 use crate::Error;
 
 pub use facade::{
-    AuthMeResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CompactSearchHit,
-    CompactSearchResponse, CreateMetadataIndexRequest, DeleteBatchRequest, DocumentChunkResponse,
-    DocumentKey, DocumentResponse, EnsureScopeResponse, ExtractionDirective,
-    ExtractionJobsResponse, ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem,
-    FileBatchRequest, FileMetadata, GroupKind, GroupResponse, HealthResponse,
-    LibraryFileDetailResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
-    MetadataValueKind, RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex,
-    ScopeSpec, SearchRequest, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
-    TaskListQuery, TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse,
-    TaskStatus, TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective,
-    TranslationStatus, UrlBatchItem, UrlBatchRequest, Visibility, WaitOptions,
+    AuthMeResponse, AuthUserResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
+    CancelActiveTasksResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
+    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CompactSearchHit,
+    CompactSearchResponse, CreateMetadataIndexRequest, CursorPageQuery, CursorPagination,
+    DeleteBatchRequest, DocumentChunkResponse, DocumentKey, DocumentResponse, EnsureScopeResponse,
+    ExtractionDirective, ExtractionJobsResponse, ExtractionTemplateInput,
+    ExtractionTemplateResponse, FileBatchItem, FileBatchRequest, FileMetadata, GroupKind,
+    GroupResponse, HealthResponse, IngestOptions, LibraryFileDetailResponse, MetadataDataType,
+    MetadataFilter, MetadataFilterOperator, MetadataValueKind, OffsetPageQuery, OffsetPagination,
+    PurgeTasksRequest, PurgeTasksResponse, RebuildDocumentExtractionsRequest, RerunTaskResponse,
+    ScopeMetadataIndex, ScopeSpec, SearchMode, SearchPagination, SearchRequest, SearchResponse,
+    SearchSort, SecretPatch, SortDirection, SourcePolicy, TaskItemResponse, TaskItemStatus,
+    TaskItemsOptions, TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListOptions, TaskListQuery,
+    TaskListView, TaskMaintenanceOverview, TaskMaintenanceSettings, TaskPageResponse, TaskProgress,
+    TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
+    TaskSubmitRequest, TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective,
+    TranslationStatus, UpdateTaskMaintenanceSettingsRequest, UrlBatchItem, UrlBatchRequest,
+    Visibility, WaitOptions,
 };
 
 pub(crate) const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";
