@@ -1,10 +1,6 @@
 use anyhow::{Context, Result, anyhow};
-use axum::{Json, http::StatusCode, response::IntoResponse};
 
-use crate::{
-    contracts::{ApiErrorResponse, MembershipRole},
-    domain::GroupRecord,
-};
+use crate::{contracts::MembershipRole, domain::GroupRecord};
 
 use super::ApiState;
 
@@ -32,23 +28,7 @@ pub(crate) fn require_group_role(group: &GroupRecord, required: MembershipRole) 
 }
 
 pub(crate) fn group_access_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if message.contains("unknown group") {
-        StatusCode::NOT_FOUND
-    } else if message.contains("insufficient permissions") {
-        StatusCode::FORBIDDEN
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-
-    (
-        status,
-        Json(ApiErrorResponse::new(
-            ApiErrorResponse::code_for_status(status.as_u16()),
-            message,
-        )),
-    )
-        .into_response()
+    super::error_mapping::group_access_error_response(error)
 }
 
 #[cfg(test)]

@@ -71,43 +71,46 @@ use crate::api::{
     },
 };
 use crate::contracts::{
-    AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AdminUserSortBy,
+    AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AdminUserSortBy, ApiErrorCode,
     ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse, BatchDocumentItem,
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
-    CreateAdminUserRequest, CreateFolderRequest, CreateMetadataIndexRequest,
-    CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateSourceFolderRequest,
-    CreateTextRequest, DeeplPlan, DeleteBatchRequest, DocumentKey, DocumentLookupQuery,
+    CanonicalApiErrorResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
+    CanonicalUpdateSearchSettingsRequest, CreateAdminUserRequest,
+    CreateFolderRequest, CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
+    CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest,
+    CursorPageQuery, DeeplPlan, DeleteBatchRequest, DocumentKey, DocumentLookupQuery,
     DocumentQueryRequest, DocumentQueryResponse, DocumentSort, DocumentSortField,
     EnsureScopeResponse, ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse,
     ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
     GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
-    ImportLibraryFileFromUrlRequest, LibraryFileDetailResponse, LibraryFileIngestOptions,
-    LibraryFileUploadMetadata, LibraryFolderResponse, LibraryIngestFailureStage,
-    LibraryResourceItem, LibraryResourceKind, LibraryResourcePageResponse, LibraryResourceSortBy,
-    LibraryTreeResponse, MemberPageQuery, MemberSortBy, MetadataDataType, MetadataFilter,
-    MetadataFilterOperator, MetadataIndexPageQuery, MetadataIndexPageResponse,
-    MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, MoveFileRequest,
-    MoveFolderRequest, PersonalAccessTokenPageQuery, PersonalAccessTokenPageResponse,
-    PersonalAccessTokenResponse, PersonalAccessTokenScope, PrepareLibraryUploadRequest,
-    PrepareLibraryUploadResponse, PurgeTasksRequest, PurgeTasksResponse,
-    QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse, QuarantinedExternalJob,
-    QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
-    RebuildDocumentExtractionsRequest, RebuildDocumentTranslationsRequest,
+    ImportLibraryFileFromUrlRequest, LibraryFileDetailResponse,
+    LibraryFileIngestOptions, LibraryFileUploadMetadata, LibraryFolderResponse,
+    LibraryIngestFailureStage, LibraryResourceItem, LibraryResourceKind,
+    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, MemberPageQuery,
+    MemberSortBy, MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataIndexPageQuery,
+    MetadataIndexPageResponse, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
+    MoveFileRequest, MoveFolderRequest, OffsetPageQuery, PersonalAccessTokenPageQuery,
+    PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, PurgeTasksRequest,
+    PurgeTasksResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
+    QuarantinedExternalJob, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,
+    QueuedDoclingTask, RebuildDocumentExtractionsRequest, RebuildDocumentTranslationsRequest,
     RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
-    ResetAdminUserPasswordRequest, ScopeMetadataIndex, ScopeSpec, SearchMode, SortDirection,
-    SortOrder, SourceConfigInput, SourceConnectionResponse, SourceFolderResponse, SourcePageQuery,
-    SourcePageResponse, SourceStatus, SyncOutcome, TaskItemResponse, TaskItemStatus,
-    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskMaintenanceOverview,
-    TaskMaintenanceSettings, TaskMaintenanceStats, TaskPageResponse, TaskProgress, TaskPurgeMode,
-    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
-    TextBatchRequest, TranslationDirective, TranslationGlossaryEntry, TranslationJobResponse,
-    TranslationJobsResponse, TranslationLlmApiKind, TranslationProviderInput,
-    TranslationProviderKind, TranslationProviderPageQuery, TranslationProviderPageResponse,
-    TranslationProviderResponse, TranslationSettingsResponse, TranslationStatus,
-    UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
-    UpdateTaskMaintenanceSettingsRequest, UpdateTranslationSettingsRequest,
-    UpsertLibraryTextRequest, UpsertSourceConnectionRequest, UrlBatchRequest,
+    ResetAdminUserPasswordRequest, ScopeMetadataIndex, ScopeSpec, SearchMode, SecretPatch,
+    SortDirection, SortOrder, SourceConfigInput, SourceConnectionResponse, SourceFolderResponse,
+    SourcePageQuery, SourcePageResponse, SourceStatus, SyncOutcome, TaskItemResponse,
+    TaskItemStatus, TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
+    TaskMaintenanceOverview, TaskMaintenanceSettings, TaskMaintenanceStats, TaskPageResponse,
+    TaskProgress, TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
+    TaskSubmitRequest, TextBatchRequest, TranslationDirective, TranslationGlossaryEntry,
+    TranslationJobResponse, TranslationJobsResponse, TranslationLlmApiKind,
+    TranslationProviderInput, TranslationProviderKind, TranslationProviderPageQuery,
+    TranslationProviderPageResponse, TranslationProviderResponse, TranslationSettingsResponse,
+    TranslationStatus, UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest,
+    UpdateMetadataIndexRequest, UpdateTaskMaintenanceSettingsRequest,
+    UpdateTranslationSettingsRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
+    UrlBatchRequest,
 };
 
 #[derive(OpenApi)]
@@ -303,6 +306,14 @@ use crate::contracts::{
         ExtractionHealthResponse,
         RebuildDocumentExtractionsRequest,
         LibraryFileIngestOptions,
+        ApiErrorCode,
+        CanonicalApiErrorResponse,
+        OffsetPageQuery,
+        CursorPageQuery,
+        CanonicalSearchRequest,
+        CanonicalTaskListQuery,
+        CanonicalUpdateSearchSettingsRequest,
+        SecretPatch,
         EnsureScopeResponse,
         FileBatchItem,
         FileBatchRequest,
@@ -484,7 +495,7 @@ mod tests {
             "DoclingSettingsResponse",
             "UpdateDoclingSettingsRequest",
             "SearchSettingsResponse",
-            "UpdateSearchSettingsRequest",
+            "CanonicalUpdateSearchSettingsRequest",
             "SearchRequest",
             "SearchResponse",
             "DocumentResponse",
@@ -609,12 +620,14 @@ mod tests {
                 }
             }
         }
-        let inventory_map: std::collections::HashMap<_, _> =
-            rows.iter().map(|(oid, m, p)| (oid.clone(), (m.clone(), p.clone()))).collect();
+        let inventory_map: std::collections::HashMap<_, _> = rows
+            .iter()
+            .map(|(oid, m, p)| (oid.clone(), (m.clone(), p.clone())))
+            .collect();
         for (oid, method, path) in &openapi_ops {
-            let found = inventory_map.get(oid).unwrap_or_else(|| {
-                panic!("unclassified OpenAPI operation: {oid} {method} {path}")
-            });
+            let found = inventory_map
+                .get(oid)
+                .unwrap_or_else(|| panic!("unclassified OpenAPI operation: {oid} {method} {path}"));
             assert_eq!(&found.0, method, "method mismatch for {oid}");
             assert_eq!(&found.1, path, "path mismatch for {oid}");
         }
@@ -623,9 +636,9 @@ mod tests {
             .map(|(oid, m, p)| (oid.clone(), (m.clone(), p.clone())))
             .collect();
         for (oid, method, path) in &rows {
-            let found = openapi_map.get(oid).unwrap_or_else(|| {
-                panic!("inventory row not in OpenAPI: {oid} {method} {path}")
-            });
+            let found = openapi_map
+                .get(oid)
+                .unwrap_or_else(|| panic!("inventory row not in OpenAPI: {oid} {method} {path}"));
             assert_eq!(method, &found.0, "method mismatch for {oid}");
             assert_eq!(path, &found.1, "path mismatch for {oid}");
         }
@@ -644,5 +657,120 @@ mod tests {
                 "inventory shared schema missing in OpenAPI: {name}"
             );
         }
+    }
+
+    #[test]
+    fn openapi_has_no_duplicate_stream_or_source_key_schemas() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let schemas = json
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas to exist");
+        for removed in ["SearchStreamQuery", "SourceKeyQuery"] {
+            assert!(
+                !schemas.contains_key(removed),
+                "duplicate/private query schema must not appear in OpenAPI: {removed}"
+            );
+        }
+        let raw = serde_json::to_string(&json).expect("openapi string");
+        assert!(
+            !raw.contains("SearchStreamQuery"),
+            "OpenAPI must not reference removed SearchStreamQuery"
+        );
+        for canonical in [
+            "CanonicalSearchRequest",
+            "CanonicalTaskListQuery",
+            "ApiErrorCode",
+        ] {
+            assert!(
+                schemas.contains_key(canonical),
+                "canonical v0.16 schema must be exposed: {canonical}"
+            );
+        }
+    }
+
+    #[test]
+    fn openapi_canonical_task_list_has_no_trashed_and_requires_view() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let params = json
+            .pointer("/paths/~1v1~1tasks/get/parameters")
+            .and_then(Value::as_array)
+            .expect("list_tasks params to exist");
+        let names: Vec<&str> = params
+            .iter()
+            .filter_map(|p| p.get("name").and_then(Value::as_str))
+            .collect();
+        assert!(
+            !names.contains(&"trashed"),
+            "v0.16 list_tasks must not expose legacy trashed; got {names:?}"
+        );
+        assert!(
+            names.contains(&"view"),
+            "v0.16 list_tasks must require typed view; got {names:?}"
+        );
+        let page = params
+            .iter()
+            .find(|p| p.get("name").and_then(Value::as_str) == Some("page"))
+            .expect("page param");
+        let page_schema = page.get("schema").expect("page schema");
+        assert_eq!(
+            page_schema.get("minimum").and_then(Value::as_u64),
+            Some(1),
+            "page minimum must be 1"
+        );
+        assert_eq!(
+            page_schema.get("maximum").and_then(Value::as_u64),
+            Some(10_000),
+            "page maximum must be 10000"
+        );
+        let page_size = params
+            .iter()
+            .find(|p| p.get("name").and_then(Value::as_str) == Some("page_size"))
+            .expect("page_size param");
+        let size_schema = page_size.get("schema").expect("page_size schema");
+        assert_eq!(
+            size_schema.get("minimum").and_then(Value::as_u64),
+            Some(1),
+            "page_size minimum must be 1"
+        );
+        assert_eq!(
+            size_schema.get("maximum").and_then(Value::as_u64),
+            Some(100),
+            "page_size maximum must be 100"
+        );
+    }
+
+    #[test]
+    fn openapi_canonical_stream_has_no_page_and_bounds_limit() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let params = json
+            .pointer("/paths/~1v1~1search~1stream/get/parameters")
+            .and_then(Value::as_array)
+            .expect("search_stream params to exist");
+        let names: Vec<&str> = params
+            .iter()
+            .filter_map(|p| p.get("name").and_then(Value::as_str))
+            .collect();
+        assert!(
+            !names.contains(&"page"),
+            "v0.16 search_stream must not expose legacy page; got {names:?}"
+        );
+        assert!(names.contains(&"query"), "stream must keep query");
+        assert!(names.contains(&"cursor"), "stream must keep cursor");
+        let limit = params
+            .iter()
+            .find(|p| p.get("name").and_then(Value::as_str) == Some("limit"))
+            .expect("limit param");
+        let limit_schema = limit.get("schema").expect("limit schema");
+        assert_eq!(
+            limit_schema.get("minimum").and_then(Value::as_u64),
+            Some(1),
+            "stream limit minimum must be 1"
+        );
+        assert_eq!(
+            limit_schema.get("maximum").and_then(Value::as_u64),
+            Some(100),
+            "stream limit maximum must be 100"
+        );
     }
 }

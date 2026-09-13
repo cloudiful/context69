@@ -315,7 +315,8 @@ export function useSettingsPage() {
     const response = await apiClient.listTasks({
       page: 1,
       pageSize: 1,
-      kind: "vector_rebuild",
+      view: "processing",
+       kind: "vector_rebuild",
       status: null,
       stage: null,
       waitingReason: null,

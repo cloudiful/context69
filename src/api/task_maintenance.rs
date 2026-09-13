@@ -12,8 +12,7 @@ use context69_contracts::{
 };
 use uuid::Uuid;
 
-use super::{ApiState, auth::CurrentUser, errors::error_response};
-use crate::services::tasks::TaskMaintenanceError;
+use super::{ApiState, auth::CurrentUser};
 
 #[utoipa::path(
     get,
@@ -201,24 +200,5 @@ pub(crate) async fn quarantine_stale_submitting(
 }
 
 fn task_maintenance_error_response(error: anyhow::Error) -> Response {
-    let message = error.to_string();
-    let recovery_error = error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<TaskMaintenanceError>());
-    let status = if let Some(recovery_error) = recovery_error {
-        match recovery_error {
-            TaskMaintenanceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            TaskMaintenanceError::Conflict(_) => StatusCode::CONFLICT,
-            TaskMaintenanceError::NotFound(_) => StatusCode::NOT_FOUND,
-        }
-    } else if message.contains("admin access required") {
-        StatusCode::FORBIDDEN
-    } else if message.contains("must be cancelled") {
-        StatusCode::CONFLICT
-    } else if message.contains("must be between") {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    (status, Json(error_response(status, message))).into_response()
+    super::error_mapping::task_maintenance_error_response(error)
 }

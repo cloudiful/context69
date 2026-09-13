@@ -385,3 +385,16 @@ async fn delete_group_member(
         Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn shared_pagination_bounds_match_canonical_kernel() {
+        assert!(context69_http_support::validate_canonical_offset(1, 50).is_ok());
+        assert!(context69_http_support::validate_canonical_offset(0, 50).is_err());
+        assert!(context69_http_support::validate_canonical_offset(1, 0).is_err());
+        assert!(context69_http_support::validate_canonical_offset(1, 101).is_err());
+        assert!(context69_http_support::validate_cursor_limit(50).is_ok());
+        assert!(context69_http_support::validate_cursor_limit(0).is_err());
+    }
+}

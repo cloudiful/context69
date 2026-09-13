@@ -166,17 +166,12 @@ pub(crate) async fn list_metadata_indexes(
     }
 }
 
-#[derive(serde::Deserialize, utoipa::IntoParams)]
-pub(crate) struct SourceKeyQuery {
-    source_key: String,
-}
-
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), SourceKeyQuery), request_body = CreateMetadataIndexRequest, responses((status = 201, body = MetadataIndexResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), super::error_mapping::SourceKeyQuery), request_body = CreateMetadataIndexRequest, responses((status = 201, body = MetadataIndexResponse)))]
 pub(crate) async fn create_metadata_index(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
     Path(group_path): Path<String>,
-    Query(query): Query<SourceKeyQuery>,
+    Query(query): Query<super::error_mapping::SourceKeyQuery>,
     Json(request): Json<CreateMetadataIndexRequest>,
 ) -> impl IntoResponse {
     let group = match group_for_user(&state, session.user.id, &group_path).await {

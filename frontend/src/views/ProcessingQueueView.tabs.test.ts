@@ -84,7 +84,7 @@ describe("ProcessingQueueView tabs", () => {
     // Default tab uses the typed processing view, not null status guessing.
     expect(listTasks).toHaveBeenCalledOnce();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "processing", status: null, trashed: false }),
+       expect.objectContaining({ view: "processing", status: null }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
@@ -98,7 +98,7 @@ describe("ProcessingQueueView tabs", () => {
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "completed", status: null, trashed: false }),
+       expect.objectContaining({ view: "completed", status: null }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -108,7 +108,7 @@ describe("ProcessingQueueView tabs", () => {
     await tabButton(wrapper, "Processing")!.trigger("mousedown");
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "processing", status: null, trashed: false }),
+       expect.objectContaining({ view: "processing", status: null }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
@@ -122,7 +122,7 @@ describe("ProcessingQueueView tabs", () => {
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "trash", trashed: true, status: null }),
+       expect.objectContaining({ view: "trash", status: null }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     // Trash never exposes the live status filter.
@@ -131,7 +131,7 @@ describe("ProcessingQueueView tabs", () => {
     await tabButton(wrapper, "Processing")!.trigger("mousedown");
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "processing", trashed: false }),
+       expect.objectContaining({ view: "processing" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();

@@ -24,6 +24,7 @@ use crate::contracts::{
         (status = 202, body = crate::contracts::TaskRef),
         (status = 403),
         (status = 404),
+        (status = 422, body = crate::contracts::ApiErrorResponse),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
     )
 )]
@@ -33,6 +34,14 @@ pub(crate) async fn import_group_library_file_url(
     Path(group_path): Path<String>,
     Json(request): Json<ImportLibraryFileFromUrlRequest>,
 ) -> impl IntoResponse {
+    if let Some(metadata) = request.metadata.as_ref()
+        && crate::contracts::strict_metadata_object(&metadata.metadata_json).is_err()
+    {
+        return context69_http_support::json_error_for_code(
+            context69_contracts::ApiErrorCode::UnprocessableEntity,
+            "metadata_json must be an object",
+        );
+    }
     let group = match group_for_user(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
@@ -81,7 +90,8 @@ use crate::services::tasks::TaskSubmission;
         (status = 202, body = PrepareLibraryUploadResponse),
         (status = 403),
         (status = 404),
-        (status = 409, body = crate::contracts::ApiErrorResponse)
+        (status = 409, body = crate::contracts::ApiErrorResponse),
+        (status = 422, body = crate::contracts::ApiErrorResponse)
     )
 )]
 pub(crate) async fn prepare_group_library_upload(
@@ -90,6 +100,14 @@ pub(crate) async fn prepare_group_library_upload(
     Path(group_path): Path<String>,
     Json(request): Json<PrepareLibraryUploadRequest>,
 ) -> impl IntoResponse {
+    if let Some(metadata) = request.metadata.as_ref()
+        && crate::contracts::strict_metadata_object(&metadata.metadata_json).is_err()
+    {
+        return context69_http_support::json_error_for_code(
+            context69_contracts::ApiErrorCode::UnprocessableEntity,
+            "metadata_json must be an object",
+        );
+    }
     let group = match group_for_user(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
@@ -246,6 +264,7 @@ pub(crate) async fn create_group_library_folder(
         (status = 202, description = "Text task accepted", body = crate::contracts::TaskRef),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group not found"),
+        (status = 422, description = "Metadata JSON must be an object", body = crate::contracts::ApiErrorResponse),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
     )
 )]
@@ -421,6 +440,7 @@ pub(crate) async fn delete_group_library_folder(
     request_body(content = String, content_type = "multipart/form-data"),
     responses(
         (status = 202, description = "File task accepted", body = crate::contracts::TaskRef),
+        (status = 400, description = "Invalid upload", body = crate::contracts::ApiErrorResponse),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group not found"),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)

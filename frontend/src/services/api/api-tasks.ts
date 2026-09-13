@@ -19,6 +19,7 @@ import type {
   TaskRef,
   TaskResponse,
   TaskRetryResponse,
+  SortDirection,
   TaskSortBy,
   TaskStatus,
   TaskSubmitRequest,
@@ -44,13 +45,12 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
       query?: string;
       kind?: TaskKind | null;
       status?: TaskStatus | null;
-      trashed?: boolean;
-      view?: TaskListView | null;
+      view: TaskListView;
       stage?: string | null;
       waitingReason?: string | null;
       dependencyKey?: string | null;
       sortBy?: TaskSortBy | null;
-      sortDirection?: "asc" | "desc" | null;
+      sortDirection?: SortDirection | null;
     }, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/tasks", {
         params: {
@@ -60,8 +60,7 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
             query: params.query || undefined,
             kind: params.kind ?? undefined,
             status: params.status ?? undefined,
-            trashed: params.trashed ?? false,
-            view: params.view ?? undefined,
+            view: params.view,
             stage: params.stage || undefined,
             waiting_reason: params.waitingReason || undefined,
             dependency_key: params.dependencyKey || undefined,

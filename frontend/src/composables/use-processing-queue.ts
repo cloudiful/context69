@@ -94,7 +94,6 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         query: query.value,
         kind: kindFilter.value,
         status: statusFilter.value,
-        trashed: trashedFilter.value,
         view: viewFilter.value,
         stage: stageFilter.value,
         waitingReason: waitingReasonFilter.value,

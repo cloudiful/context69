@@ -198,6 +198,7 @@ pub(crate) async fn delete_library_folder(
     responses(
         (status = 202, description = "File task accepted", body = crate::contracts::TaskRef),
         (status = 400, description = "Invalid upload", body = ApiErrorResponse),
+        (status = 422, description = "Metadata JSON must be an object", body = ApiErrorResponse),
         (status = 503, description = "Library dependency unavailable", body = ApiErrorResponse),
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )

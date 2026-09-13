@@ -257,8 +257,7 @@ describe("SettingsView", () => {
     expect(apiSpies.updateSearchSettings).toHaveBeenCalledWith(expect.objectContaining({
       mode: "hybrid",
       rerank_enabled: true,
-      api_key: "rerank-secret",
-      clear_api_key: false,
+       api_key: { op: "set", value: "rerank-secret" },
       vector_weight: 0.65,
       keyword_weight: 0.35,
     }));

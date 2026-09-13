@@ -5,8 +5,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use context69_contracts::{
-    ApiErrorResponse, DeleteBatchRequest, FileBatchRequest, ScopeSpec, TaskItemsQuery,
-    TaskListQuery, TaskRef, TaskSubmitRequest, TextBatchRequest, UrlBatchRequest,
+    ApiErrorResponse, CanonicalTaskListQuery, DeleteBatchRequest, FileBatchRequest, ScopeSpec,
+    TaskItemsQuery, TaskListQuery, TaskRef, TaskSubmitRequest, TextBatchRequest, UrlBatchRequest,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::{
     ApiState,
     auth::CurrentUser,
-    errors::error_response,
+    errors::task_error,
     group_access::{group_access_error_response, group_for_user, require_group_role},
 };
 use crate::{contracts::TaskKind, services::tasks::TaskSubmission};
@@ -330,13 +330,22 @@ pub(crate) async fn get_task(
     }
 }
 
-#[utoipa::path(get, path = "/v1/tasks", params(TaskListQuery), responses((status = 200, body = crate::contracts::TaskPageResponse)))]
+#[utoipa::path(get, path = "/v1/tasks", params(CanonicalTaskListQuery), responses((status = 200, body = crate::contracts::TaskPageResponse), (status = 400, body = ApiErrorResponse)))]
 pub(crate) async fn list_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
-    Query(query): Query<TaskListQuery>,
+    Query(query): Query<CanonicalTaskListQuery>,
 ) -> Response {
-    match state.app.tasks.list(session.user.id, &query).await {
+    if let Err(error) = query.validate() {
+        return task_error(error);
+    }
+    if let Err(error) =
+        context69_http_support::validate_canonical_offset(query.page, query.page_size)
+    {
+        return task_error(error);
+    }
+    let legacy: TaskListQuery = query.into();
+    match state.app.tasks.list(session.user.id, &legacy).await {
         Ok(tasks) => (StatusCode::OK, Json(tasks)).into_response(),
         Err(error) => task_error(error),
     }
@@ -464,28 +473,71 @@ fn idempotency_key(headers: &HeaderMap) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn task_error(error: anyhow::Error) -> Response {
-    let message = error.to_string();
-    let status = if message.contains("not found") || message.contains("unknown group") {
-        StatusCode::NOT_FOUND
-    } else if message.contains("conflict")
-        || message.contains("duplicate key")
-        || message.contains("already used")
-        || message.contains("terminal")
-        || message.contains("cannot be trashed")
-        || message.contains("must be trashed")
-    {
-        StatusCode::CONFLICT
-    } else if message.contains("permission") {
-        StatusCode::FORBIDDEN
-    } else if message.contains("must")
-        || message.contains("requires")
-        || message.contains("no retryable")
-        || message.contains("no failed items to retry")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    (status, Json(error_response(status, message))).into_response()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_task_list_query_requires_view_and_rejects_trashed_shape() {
+        let canonical: CanonicalTaskListQuery = serde_json::from_value(serde_json::json!({
+            "page": 1,
+            "page_size": 25,
+            "view": "processing"
+        }))
+        .expect("canonical requires view");
+        assert_eq!(
+            canonical.view,
+            context69_contracts::TaskListView::Processing
+        );
+        assert!(canonical.validate().is_ok());
+        let legacy: TaskListQuery = canonical.into();
+        assert_eq!(legacy.trashed, None);
+        assert!(legacy.view.is_some());
+
+        let missing_view = serde_json::from_value::<CanonicalTaskListQuery>(serde_json::json!({
+            "page": 1,
+            "page_size": 25
+        }));
+        assert!(
+            missing_view.is_err(),
+            "v0.16 path must require view; legacy trashed-only queries belong to TaskListQuery"
+        );
+
+        let zero_page = CanonicalTaskListQuery {
+            page: 0,
+            page_size: 25,
+            query: None,
+            kind: None,
+            status: None,
+            view: context69_contracts::TaskListView::Processing,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+        };
+        assert!(zero_page.validate().is_err());
+        assert!(
+            context69_http_support::validate_canonical_offset(0, 25).is_err(),
+            "shared pagination bounds must reject zero page"
+        );
+        assert!(
+            context69_http_support::validate_canonical_offset(1, 101).is_err(),
+            "shared pagination bounds must reject oversized page_size"
+        );
+    }
+
+    #[test]
+    fn canonical_view_filtering_never_widens_status() {
+        use context69_contracts::{TaskListView, TaskStatus};
+        let processing = TaskListView::Processing;
+        let completed = TaskListView::Completed;
+        assert_ne!(processing, completed);
+        assert_eq!(processing.as_str(), "processing");
+        let narrowed: Option<TaskStatus> = Some(TaskStatus::Succeeded);
+        assert!(
+            narrowed.is_some(),
+            "status narrows the view; processing + succeeded matches nothing by SQL predicate"
+        );
+    }
 }

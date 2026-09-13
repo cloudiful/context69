@@ -2077,6 +2077,16 @@
           "404": {
             "description": ""
           },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Library dependency unavailable",
             "content": {
@@ -2150,6 +2160,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2186,6 +2206,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -2739,6 +2769,16 @@
           },
           "404": {
             "description": "Group not found"
+          },
+          "422": {
+            "description": "Metadata JSON must be an object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           },
           "503": {
             "description": "Library dependency unavailable",
@@ -3450,6 +3490,16 @@
               }
             }
           },
+          "422": {
+            "description": "Metadata JSON must be an object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -4087,35 +4137,18 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "limit",
             "in": "query",
+            "description": "Opaque cursor page size; defaults to 8 via the canonical search kernel.",
             "required": false,
             "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
+              "format": "int32",
               "maximum": 100,
-              "minimum": 1
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "description": "DEPRECATED page number; maps to an offset cursor when `cursor` is\nabsent. Prefer `cursor` returned in `next_cursor`/`prev_cursor`.",
-            "required": false,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
               "minimum": 1
             }
           },
@@ -4124,10 +4157,7 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
@@ -4135,62 +4165,45 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "published_after",
             "in": "query",
+            "description": "RFC3339 lower bound",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": "string",
               "format": "date-time"
             }
           },
           {
             "name": "published_before",
             "in": "query",
+            "description": "RFC3339 upper bound",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": "string",
               "format": "date-time"
             }
           },
           {
             "name": "cursor",
             "in": "query",
-            "description": "Opaque pagination cursor; only valid inside the ordering epoch that\nissued it.",
+            "description": "Opaque pagination cursor; only valid inside the ordering epoch that issued it.",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "sort",
             "in": "query",
-            "description": "Additive ordering mode. Defaults to `relevance`; `date` switches the\npipeline to a latest-first walk over `published_ts` windows without\nrerank. The cursor and the request must agree on the sort mode.",
+            "description": "Additive ordering mode. Defaults to `relevance`; `date` switches to latest-first without rerank.",
             "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/SearchSort"
-                }
-              ]
+              "$ref": "#/components/schemas/SearchSort"
             }
           }
         ],
@@ -4503,7 +4516,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateSearchSettingsRequest"
+                "$ref": "#/components/schemas/CanonicalUpdateSearchSettingsRequest"
               }
             }
           },
@@ -5128,7 +5141,8 @@
             "schema": {
               "type": "integer",
               "format": "int32",
-              "minimum": 0
+              "maximum": 10000,
+              "minimum": 1
             }
           },
           {
@@ -5138,7 +5152,8 @@
             "schema": {
               "type": "integer",
               "format": "int32",
-              "minimum": 0
+              "maximum": 100,
+              "minimum": 1
             }
           },
           {
@@ -5166,19 +5181,9 @@
             }
           },
           {
-            "name": "trashed",
-            "in": "query",
-            "description": "When true, list only trashed tasks; when false or omitted, list only\nactive (non-trashed) tasks. Trashed rows stay reachable by id for their\nowner (for example to restore them) but never appear in active lists.\nIgnored when `view` is set: the view owns the trash predicate.",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
             "name": "view",
             "in": "query",
-            "description": "Typed list view. `processing` lists non-trashed tasks whose status is\nnot `succeeded`; `completed` lists non-trashed `succeeded` tasks;\n`trash` lists trashed tasks. A user-supplied `status` further narrows\nthe view and never widens it (for example `processing` plus\n`status=succeeded` matches nothing). When omitted, the legacy\n`trashed`/`status` filters apply for external callers.",
-            "required": false,
+            "required": true,
             "schema": {
               "$ref": "#/components/schemas/TaskListView"
             }
@@ -5231,6 +5236,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskPageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -5801,8 +5816,26 @@
           "created_at"
         ]
       },
+      "ApiErrorCode": {
+        "type": "string",
+        "enum": [
+          "invalid_argument",
+          "unauthorized",
+          "forbidden",
+          "not_found",
+          "conflict",
+          "payload_too_large",
+          "unprocessable_entity",
+          "rate_limited",
+          "upstream_error",
+          "unavailable",
+          "upstream_timeout",
+          "internal"
+        ]
+      },
       "ApiErrorResponse": {
         "type": "object",
+        "description": "v0.15 error envelope kept for wire compatibility.\n\nThe `code` stays a string so existing handlers keep compiling while the\ncanonical [`crate::ApiErrorCode`] rolls out. New code should construct\n[`crate::CanonicalApiErrorResponse`] and convert with `From`.",
         "required": [
           "code",
           "message"
@@ -5816,6 +5849,12 @@
           "message": {
             "type": "string",
             "description": "Human-readable error message."
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -5954,6 +5993,227 @@
           "cancelled_tasks": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "CanonicalApiErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ApiErrorCode"
+          },
+          "details": {},
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CanonicalSearchRequest": {
+        "type": "object",
+        "description": "v0.16 canonical cursor search request: no legacy `page`, only an opaque\n`cursor` plus a bounded `limit`. Defaults (including `limit = 8`) match\n[`SearchRequest`]; only the removed `page` differs.",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata_filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetadataFilter"
+            }
+          },
+          "published_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "published_before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "query": {
+            "type": "string"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SearchSort"
+          },
+          "source_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CanonicalTaskListQuery": {
+        "type": "object",
+        "description": "v0.16 canonical task list query: typed `view` is required and the legacy\n`trashed` flag is gone. Offset bounds match [`crate::OffsetPageQuery`].",
+        "required": [
+          "view"
+        ],
+        "properties": {
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskKind"
+              }
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sort_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskSortBy"
+              }
+            ]
+          },
+          "sort_direction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SortDirection"
+              }
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskStatus"
+              }
+            ]
+          },
+          "view": {
+            "$ref": "#/components/schemas/TaskListView"
+          },
+          "waiting_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CanonicalUpdateSearchSettingsRequest": {
+        "type": "object",
+        "description": "v0.16 canonical search settings update: the `api_key`/`clear_api_key`\ndual flags collapse into one [`SecretPatch`].",
+        "required": [
+          "mode",
+          "rerank_enabled",
+          "rerank_base_url",
+          "rerank_model",
+          "candidate_limit",
+          "timeout_secs"
+        ],
+        "properties": {
+          "api_key": {
+            "$ref": "#/components/schemas/SecretPatch"
+          },
+          "candidate_limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "keyword_weight": {
+            "type": "number",
+            "format": "float"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SearchMode"
+          },
+          "rerank_base_url": {
+            "type": "string"
+          },
+          "rerank_enabled": {
+            "type": "boolean"
+          },
+          "rerank_model": {
+            "type": "string"
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "vector_weight": {
+            "type": "number",
+            "format": "float"
           }
         }
       },
@@ -6160,6 +6420,23 @@
                 "$ref": "#/components/schemas/TranslationDirective"
               }
             ]
+          }
+        }
+      },
+      "CursorPageQuery": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1
           }
         }
       },
@@ -8504,8 +8781,26 @@
           }
         }
       },
+      "OffsetPageQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1
+          }
+        }
+      },
       "Pagination": {
         "type": "object",
+        "description": "v0.15 offset window kept for wire compatibility.\n\nDeprecated: new code should use [`crate::OffsetPagination`] for exact\ntotals. Search windows should prefer cursor continuation via\n[`crate::CursorPagination`].",
         "required": [
           "page",
           "page_size",
@@ -9483,7 +9778,7 @@
       },
       "SearchPagination": {
         "type": "object",
-        "description": "Windowed pagination for search responses.\n\nMirrors `Pagination` (page/page_size/total/has_more/total_is_exact) and\nadds opaque `next_cursor`/`prev_cursor` values that encode the ordering\nepoch the page was produced under. Page-based navigation stays accepted for\ncompatibility, but cursor navigation is authoritative: the same cursor is\nonly valid within one ordering (local vs reranked).",
+        "description": "Windowed pagination for search responses.\n\nMirrors `Pagination` (page/page_size/total/has_more/total_is_exact) and\nadds opaque `next_cursor`/`prev_cursor` values that encode the ordering\nepoch the page was produced under. Page-based navigation stays accepted for\ncompatibility, but cursor navigation is authoritative: the same cursor is\nonly valid within one ordering (local vs reranked).\n\nv0.16 direction: offset windows move to [`crate::OffsetPagination`] and\npure cursor continuation moves to [`crate::CursorPagination`]; this shape\nstays for v0.15 wire compatibility.",
         "required": [
           "page",
           "page_size",
@@ -9543,6 +9838,7 @@
       },
       "SearchRequest": {
         "type": "object",
+        "description": "v0.15 search request kept for wire compatibility.\n\nDeprecated `page` stays so existing HTTP/MCP callers keep compiling; new\ncode should use [`CanonicalSearchRequest`], which keeps only opaque cursor\npagination.",
         "required": [
           "query"
         ],
@@ -9721,6 +10017,57 @@
           }
         }
       },
+      "SecretPatch": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "keep"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "set"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "clear"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Explicit tri-state for PATCH-like secret updates.\n\nReplaces the v0.15 `api_key + clear_api_key` dual flags: `Keep` leaves the\nstored secret untouched, `Set` stores a new value, `Clear` removes it.\n`Keep` is the default so missing fields never rotate or drop secrets."
+      },
       "SortDirection": {
         "type": "string",
         "enum": [
@@ -9730,6 +10077,7 @@
       },
       "SortOrder": {
         "type": "string",
+        "description": "v0.15 sort order kept for wire compatibility.\n\nDeprecated: use the single canonical [`crate::SortDirection`] for new code.\n`SortOrder::Asc` maps to `SortDirection::Asc` and `SortOrder::Desc` maps to\n`SortDirection::Desc`.",
         "enum": [
           "asc",
           "desc"
@@ -10206,6 +10554,7 @@
       },
       "TaskListQuery": {
         "type": "object",
+        "description": "v0.15 task list query kept for wire compatibility.\n\nDeprecated `trashed` stays so legacy callers keep compiling; new code\nshould use [`CanonicalTaskListQuery`], which requires a typed `view` and\ncarries no `trashed` flag.",
         "properties": {
           "dependency_key": {
             "type": [
@@ -11575,59 +11924,6 @@
           },
           "scheduler": {
             "$ref": "#/components/schemas/RuntimeSchedulerSettings"
-          }
-        }
-      },
-      "UpdateSearchSettingsRequest": {
-        "type": "object",
-        "required": [
-          "mode",
-          "rerank_enabled",
-          "rerank_base_url",
-          "rerank_model",
-          "candidate_limit",
-          "timeout_secs"
-        ],
-        "properties": {
-          "api_key": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "candidate_limit": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "clear_api_key": {
-            "type": "boolean"
-          },
-          "keyword_weight": {
-            "type": "number",
-            "format": "float",
-            "description": "Hybrid fusion weight for the keyword channel; must be in [0, 1] and may\nnot push `vector_weight + keyword_weight` above 1."
-          },
-          "mode": {
-            "$ref": "#/components/schemas/SearchMode"
-          },
-          "rerank_base_url": {
-            "type": "string"
-          },
-          "rerank_enabled": {
-            "type": "boolean"
-          },
-          "rerank_model": {
-            "type": "string"
-          },
-          "timeout_secs": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "vector_weight": {
-            "type": "number",
-            "format": "float",
-            "description": "Hybrid fusion weight for the semantic/vector channel; must be in [0, 1]\nand may not push `vector_weight + keyword_weight` above 1."
           }
         }
       },

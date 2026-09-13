@@ -10,11 +10,12 @@ use axum::{
     routing::get,
 };
 use context69_contracts::{
-    ApiErrorResponse, DoclingSettingsResponse, RuntimeSettingsResponse, SearchSettingsResponse,
-    TestRuntimeValkeyRequest, UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings,
-    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    ApiErrorResponse, CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse,
+    RuntimeSettingsResponse, SearchSettingsResponse, TestRuntimeValkeyRequest,
+    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    UpdateSearchSettingsRequest,
 };
-use context69_http_support::{internal_error_response, json_error_response, runtime_aware_status};
+use context69_http_support::{internal_error_response, map_settings_error};
 use utoipa::OpenApi;
 
 #[async_trait]
@@ -93,7 +94,7 @@ where
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
             SearchSettingsResponse,
-            UpdateSearchSettingsRequest
+            CanonicalUpdateSearchSettingsRequest
         )
     ),
     tags((name = "settings", description = "Runtime settings transport"))
@@ -172,11 +173,12 @@ async fn get_search_settings(State(state): State<SettingsHttpState>) -> impl Int
     }
 }
 
-#[utoipa::path(put, path = "/v1/settings/search", request_body = UpdateSearchSettingsRequest, responses((status = 200, body = SearchSettingsResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(put, path = "/v1/settings/search", request_body = CanonicalUpdateSearchSettingsRequest, responses((status = 200, body = SearchSettingsResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
 async fn update_search_settings(
     State(state): State<SettingsHttpState>,
-    axum::Json(request): axum::Json<UpdateSearchSettingsRequest>,
+    axum::Json(request): axum::Json<CanonicalUpdateSearchSettingsRequest>,
 ) -> impl IntoResponse {
+    let request = request.into();
     match state.settings.update_search_settings(&request).await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
         Err(error) => settings_management_error_response(error),
@@ -184,21 +186,22 @@ async fn update_search_settings(
 }
 
 fn settings_management_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if let Some(status) = runtime_aware_status(&message) {
-        status
-    } else if message.contains("already running") {
-        StatusCode::CONFLICT
-    } else if message.contains("must not be empty")
-        || message.contains("must be greater than 0")
-        || message.contains("must be one of")
-        || message.contains("is required when")
-        || message.contains("invalid runtime.scheduler.valkey_url")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
+    map_settings_error(error)
+}
 
-    json_error_response(status, message)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_error_mapping_uses_typed_codes() {
+        use axum::http::StatusCode;
+        let conflict =
+            settings_management_error_response(anyhow::anyhow!("vector rebuild already running"));
+        assert_eq!(conflict.status(), StatusCode::CONFLICT);
+        let bad_request = settings_management_error_response(anyhow::anyhow!(
+            "search.candidate_limit must be greater than 0"
+        ));
+        assert_eq!(bad_request.status(), StatusCode::BAD_REQUEST);
+    }
 }

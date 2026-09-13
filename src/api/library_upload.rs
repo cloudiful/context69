@@ -1,10 +1,16 @@
-use axum::{Json, extract::Multipart, http::StatusCode, response::IntoResponse};
+use axum::extract::Multipart;
+use context69_contracts::ApiErrorCode;
 use uuid::Uuid;
 
-use crate::{
-    contracts::{ApiErrorResponse, LibraryFileIngestOptions},
-    services::library::UploadedLibraryFile,
-};
+use crate::{contracts::LibraryFileIngestOptions, services::library::UploadedLibraryFile};
+
+fn invalid_argument(message: String) -> axum::response::Response {
+    context69_http_support::json_error_for_code(ApiErrorCode::InvalidArgument, message)
+}
+
+fn unprocessable_entity(message: String) -> axum::response::Response {
+    context69_http_support::json_error_for_code(ApiErrorCode::UnprocessableEntity, message)
+}
 
 pub(crate) async fn read_library_uploads(
     mut multipart: Multipart,
@@ -18,11 +24,7 @@ pub(crate) async fn read_library_uploads(
         let field = match multipart.next_field().await {
             Ok(field) => field,
             Err(error) => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
-                )
-                    .into_response());
+                return Err(invalid_argument(error.to_string()));
             }
         };
         let Some(field) = field else {
@@ -36,22 +38,11 @@ pub(crate) async fn read_library_uploads(
                 Ok(text) => match Uuid::parse_str(text.trim()) {
                     Ok(value) => folder_id = Some(value),
                     Err(error) => {
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(ApiErrorResponse::new(
-                                "invalid_argument",
-                                format!("invalid folder_id: {error}"),
-                            )),
-                        )
-                            .into_response());
+                        return Err(invalid_argument(format!("invalid folder_id: {error}")));
                     }
                 },
                 Err(error) => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
-                    )
-                        .into_response());
+                    return Err(invalid_argument(error.to_string()));
                 }
             }
             continue;
@@ -61,11 +52,7 @@ pub(crate) async fn read_library_uploads(
             declared_sha256 = match field.text().await {
                 Ok(value) => Some(value.trim().to_ascii_lowercase()),
                 Err(error) => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
-                    )
-                        .into_response());
+                    return Err(invalid_argument(error.to_string()));
                 }
             };
             continue;
@@ -74,34 +61,22 @@ pub(crate) async fn read_library_uploads(
         if name == "metadata" {
             options = match field.bytes().await {
                 Ok(value) => match serde_json::from_slice::<LibraryFileIngestOptions>(&value) {
-                    Ok(value) if value.metadata.metadata_json.is_object() => Some(value),
-                    Ok(_) => {
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(ApiErrorResponse::new(
-                                "invalid_argument",
-                                "metadata_json must be an object".into(),
-                            )),
-                        )
-                            .into_response());
+                    Ok(value) => {
+                        if crate::contracts::strict_metadata_object(&value.metadata.metadata_json)
+                            .is_err()
+                        {
+                            return Err(unprocessable_entity(
+                                "metadata_json must be an object".to_string(),
+                            ));
+                        }
+                        Some(value)
                     }
                     Err(error) => {
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(ApiErrorResponse::new(
-                                "invalid_argument",
-                                format!("invalid metadata JSON: {error}"),
-                            )),
-                        )
-                            .into_response());
+                        return Err(invalid_argument(format!("invalid metadata JSON: {error}")));
                     }
                 },
                 Err(error) => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
-                    )
-                        .into_response());
+                    return Err(invalid_argument(error.to_string()));
                 }
             };
             continue;
@@ -122,11 +97,7 @@ pub(crate) async fn read_library_uploads(
         let bytes = match field.bytes().await {
             Ok(bytes) => bytes,
             Err(error) => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
-                )
-                    .into_response());
+                return Err(invalid_argument(error.to_string()));
             }
         };
 
@@ -142,20 +113,43 @@ pub(crate) async fn read_library_uploads(
             staged_storage_object_id: None,
             delete_source_after_processing: options
                 .as_ref()
-                .is_some_and(|value| value.delete_source_after_processing),
+                .map(|value| {
+                    context69_contracts::SourcePolicy::from_delete_flag(
+                        value.delete_source_after_processing,
+                    )
+                    .as_delete_flag()
+                })
+                .unwrap_or(false),
         });
     }
 
     if uploads.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse::new(
-                "invalid_argument",
-                "at least one file is required".to_string(),
-            )),
-        )
-            .into_response());
+        return Err(invalid_argument(
+            "at least one file is required".to_string(),
+        ));
     }
 
     Ok(uploads)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn canonical_ingest_options_preserves_source_policy() {
+        use context69_contracts::SourcePolicy;
+        assert_eq!(SourcePolicy::from_delete_flag(false), SourcePolicy::Retain);
+        assert_eq!(
+            SourcePolicy::from_delete_flag(true),
+            SourcePolicy::ReleaseAfterProcessing
+        );
+        let options = context69_contracts::IngestOptions::from_legacy(None, None, None, true);
+        assert!(options.is_release());
+        assert!(options.as_delete_flag());
+    }
+
+    #[test]
+    fn strict_metadata_object_rejects_non_objects_at_boundary() {
+        assert!(crate::contracts::strict_metadata_object(&serde_json::json!([1, 2])).is_err());
+        assert!(crate::contracts::strict_metadata_object(&serde_json::json!({ "k": "v" })).is_ok());
+    }
 }

@@ -10,6 +10,14 @@ pub(crate) fn file_batch_payloads(files: Vec<UploadedLibraryFile>) -> Result<Vec
     files
         .into_iter()
         .map(|file| {
+            if let Some(metadata) = file.metadata.as_ref()
+                && crate::contracts::strict_metadata_object(&metadata.metadata_json).is_err()
+            {
+                return Err(anyhow::anyhow!("metadata_json must be an object"));
+            }
+            let policy = context69_contracts::SourcePolicy::from_delete_flag(
+                file.delete_source_after_processing,
+            );
             serde_json::to_value(FileBatchItem {
                 folder_id: file.folder_id,
                 filename: file.filename,
@@ -19,7 +27,7 @@ pub(crate) fn file_batch_payloads(files: Vec<UploadedLibraryFile>) -> Result<Vec
                 metadata: file.metadata,
                 translation: file.translation,
                 extraction: file.extraction,
-                delete_source_after_processing: file.delete_source_after_processing,
+                delete_source_after_processing: policy.as_delete_flag(),
             })
             .map_err(Into::into)
         })

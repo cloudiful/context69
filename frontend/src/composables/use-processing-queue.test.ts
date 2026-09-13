@@ -112,8 +112,7 @@ describe("useProcessingQueue", () => {
         query: "",
         kind: null,
         status: null,
-        trashed: false,
-        view: "processing",
+         view: "processing",
         stage: null,
         waitingReason: null,
         dependencyKey: null,
@@ -437,28 +436,28 @@ describe("useProcessingQueue", () => {
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "processing", status: null, trashed: false }),
+       expect.objectContaining({ view: "processing", status: null }),
       expect.anything(),
     );
 
     state.setListView({ view: "completed" });
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "completed", status: null, trashed: false }),
+       expect.objectContaining({ view: "completed", status: null }),
       expect.anything(),
     );
 
     state.setListView({ view: "trash" });
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "trash", status: null, trashed: true }),
+       expect.objectContaining({ view: "trash", status: null }),
       expect.anything(),
     );
 
     state.setListView({ view: "processing" });
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "processing", status: null, trashed: false }),
+       expect.objectContaining({ view: "processing", status: null }),
       expect.anything(),
     );
 
@@ -466,7 +465,7 @@ describe("useProcessingQueue", () => {
     state.setStatusFilter("failed");
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "processing", status: "failed", trashed: false }),
+       expect.objectContaining({ view: "processing", status: "failed" }),
       expect.anything(),
     );
     wrapper.unmount();

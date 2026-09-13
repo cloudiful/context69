@@ -1494,12 +1494,22 @@ export interface components {
         };
         /** @enum {string} */
         AdminUserSortBy: "login_name" | "display_name" | "created_at";
+        /** @enum {string} */
+        ApiErrorCode: "invalid_argument" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "payload_too_large" | "unprocessable_entity" | "rate_limited" | "upstream_error" | "unavailable" | "upstream_timeout" | "internal";
+        /**
+         * @description v0.15 error envelope kept for wire compatibility.
+         *
+         *     The `code` stays a string so existing handlers keep compiling while the
+         *     canonical [`crate::ApiErrorCode`] rolls out. New code should construct
+         *     [`crate::CanonicalApiErrorResponse`] and convert with `From`.
+         */
         ApiErrorResponse: {
             /** @description Stable machine-readable error code for programmatic handling. */
             code: string;
             details?: unknown;
             /** @description Human-readable error message. */
             message: string;
+            request_id?: string | null;
         };
         AuthLoginRequest: {
             login_name: string;
@@ -1533,6 +1543,69 @@ export interface components {
         CancelActiveTasksResponse: {
             /** Format: int64 */
             cancelled_tasks: number;
+        };
+        CanonicalApiErrorResponse: {
+            code: components["schemas"]["ApiErrorCode"];
+            details?: unknown;
+            message: string;
+            request_id?: string | null;
+        };
+        /**
+         * @description v0.16 canonical cursor search request: no legacy `page`, only an opaque
+         *     `cursor` plus a bounded `limit`. Defaults (including `limit = 8`) match
+         *     [`SearchRequest`]; only the removed `page` differs.
+         */
+        CanonicalSearchRequest: {
+            cursor?: string | null;
+            group_path?: string | null;
+            /** Format: int32 */
+            limit?: number;
+            locale?: string | null;
+            metadata_filters?: components["schemas"]["MetadataFilter"][];
+            /** Format: date-time */
+            published_after?: string | null;
+            /** Format: date-time */
+            published_before?: string | null;
+            query: string;
+            sort?: components["schemas"]["SearchSort"];
+            source_key?: string | null;
+        };
+        /**
+         * @description v0.16 canonical task list query: typed `view` is required and the legacy
+         *     `trashed` flag is gone. Offset bounds match [`crate::OffsetPageQuery`].
+         */
+        CanonicalTaskListQuery: {
+            dependency_key?: string | null;
+            kind?: null | components["schemas"]["TaskKind"];
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+            query?: string | null;
+            sort_by?: null | components["schemas"]["TaskSortBy"];
+            sort_direction?: null | components["schemas"]["SortDirection"];
+            stage?: string | null;
+            status?: null | components["schemas"]["TaskStatus"];
+            view: components["schemas"]["TaskListView"];
+            waiting_reason?: string | null;
+        };
+        /**
+         * @description v0.16 canonical search settings update: the `api_key`/`clear_api_key`
+         *     dual flags collapse into one [`SecretPatch`].
+         */
+        CanonicalUpdateSearchSettingsRequest: {
+            api_key?: components["schemas"]["SecretPatch"];
+            candidate_limit: number;
+            /** Format: float */
+            keyword_weight?: number;
+            mode: components["schemas"]["SearchMode"];
+            rerank_base_url: string;
+            rerank_enabled: boolean;
+            rerank_model: string;
+            /** Format: int64 */
+            timeout_secs: number;
+            /** Format: float */
+            vector_weight?: number;
         };
         CreateAdminUserRequest: {
             display_name: string;
@@ -1583,6 +1656,11 @@ export interface components {
             summary?: string | null;
             title: string;
             translation?: null | components["schemas"]["TranslationDirective"];
+        };
+        CursorPageQuery: {
+            cursor?: string | null;
+            /** Format: int32 */
+            limit?: number;
         };
         /** @enum {string} */
         DeeplPlan: "free" | "pro";
@@ -2189,6 +2267,19 @@ export interface components {
             sort_direction?: null | components["schemas"]["SortDirection"];
             visibility?: null | components["schemas"]["Visibility"];
         };
+        OffsetPageQuery: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+        };
+        /**
+         * @description v0.15 offset window kept for wire compatibility.
+         *
+         *     Deprecated: new code should use [`crate::OffsetPagination`] for exact
+         *     totals. Search windows should prefer cursor continuation via
+         *     [`crate::CursorPagination`].
+         */
         Pagination: {
             /**
              * @description `true` when the service observed at least one extra candidate beyond
@@ -2516,6 +2607,10 @@ export interface components {
          *     epoch the page was produced under. Page-based navigation stays accepted for
          *     compatibility, but cursor navigation is authoritative: the same cursor is
          *     only valid within one ordering (local vs reranked).
+         *
+         *     v0.16 direction: offset windows move to [`crate::OffsetPagination`] and
+         *     pure cursor continuation moves to [`crate::CursorPagination`]; this shape
+         *     stays for v0.15 wire compatibility.
          */
         SearchPagination: {
             has_more?: boolean | null;
@@ -2546,6 +2641,13 @@ export interface components {
              */
             total_pages: number;
         };
+        /**
+         * @description v0.15 search request kept for wire compatibility.
+         *
+         *     Deprecated `page` stays so existing HTTP/MCP callers keep compiling; new
+         *     code should use [`CanonicalSearchRequest`], which keeps only opaque cursor
+         *     pagination.
+         */
         SearchRequest: {
             /**
              * @description Opaque pagination cursor returned in `SearchPagination.next_cursor` /
@@ -2640,9 +2742,34 @@ export interface components {
             items: components["schemas"]["SearchHit"][];
             pagination: components["schemas"]["SearchPagination"];
         };
+        /**
+         * @description Explicit tri-state for PATCH-like secret updates.
+         *
+         *     Replaces the v0.15 `api_key + clear_api_key` dual flags: `Keep` leaves the
+         *     stored secret untouched, `Set` stores a new value, `Clear` removes it.
+         *     `Keep` is the default so missing fields never rotate or drop secrets.
+         */
+        SecretPatch: {
+            /** @enum {string} */
+            op: "keep";
+        } | {
+            /** @enum {string} */
+            op: "set";
+            value: string;
+        } | {
+            /** @enum {string} */
+            op: "clear";
+        };
         /** @enum {string} */
         SortDirection: "asc" | "desc";
-        /** @enum {string} */
+        /**
+         * @description v0.15 sort order kept for wire compatibility.
+         *
+         *     Deprecated: use the single canonical [`crate::SortDirection`] for new code.
+         *     `SortOrder::Asc` maps to `SortDirection::Asc` and `SortOrder::Desc` maps to
+         *     `SortDirection::Desc`.
+         * @enum {string}
+         */
         SortOrder: "asc" | "desc";
         SourceConfigInput: {
             base_query: string;
@@ -2760,6 +2887,13 @@ export interface components {
         };
         /** @enum {string} */
         TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild";
+        /**
+         * @description v0.15 task list query kept for wire compatibility.
+         *
+         *     Deprecated `trashed` stays so legacy callers keep compiling; new code
+         *     should use [`CanonicalTaskListQuery`], which requires a typed `view` and
+         *     carries no `trashed` flag.
+         */
         TaskListQuery: {
             dependency_key?: string | null;
             kind?: null | components["schemas"]["TaskKind"];
@@ -3136,29 +3270,6 @@ export interface components {
             file_library: components["schemas"]["UpdateRuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
-        };
-        UpdateSearchSettingsRequest: {
-            api_key?: string | null;
-            candidate_limit: number;
-            clear_api_key?: boolean;
-            /**
-             * Format: float
-             * @description Hybrid fusion weight for the keyword channel; must be in [0, 1] and may
-             *     not push `vector_weight + keyword_weight` above 1.
-             */
-            keyword_weight?: number;
-            mode: components["schemas"]["SearchMode"];
-            rerank_base_url: string;
-            rerank_enabled: boolean;
-            rerank_model: string;
-            /** Format: int64 */
-            timeout_secs: number;
-            /**
-             * Format: float
-             * @description Hybrid fusion weight for the semantic/vector channel; must be in [0, 1]
-             *     and may not push `vector_weight + keyword_weight` above 1.
-             */
-            vector_weight?: number;
         };
         UpdateTaskMaintenanceSettingsRequest: {
             cleanup_enabled: boolean;
@@ -4733,6 +4844,14 @@ export interface operations {
                 };
                 content?: never;
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
             /** @description Library dependency unavailable */
             503: {
                 headers: {
@@ -4795,6 +4914,14 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
         };
     };
     upload_group_library_files: {
@@ -4820,6 +4947,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            /** @description Invalid upload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
             /** @description Insufficient permissions */
@@ -5265,6 +5401,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Metadata JSON must be an object */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
             /** @description Library dependency unavailable */
             503: {
@@ -5737,6 +5882,15 @@ export interface operations {
             };
             /** @description Invalid upload */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Metadata JSON must be an object */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6235,28 +6389,19 @@ export interface operations {
             query: {
                 /** @description The search query text. */
                 query: string;
-                locale?: string | null;
-                limit?: number | null;
-                /**
-                 * @description DEPRECATED page number; maps to an offset cursor when `cursor` is
-                 *     absent. Prefer `cursor` returned in `next_cursor`/`prev_cursor`.
-                 */
-                page?: number | null;
-                source_key?: string | null;
-                group_path?: string | null;
-                published_after?: string | null;
-                published_before?: string | null;
-                /**
-                 * @description Opaque pagination cursor; only valid inside the ordering epoch that
-                 *     issued it.
-                 */
-                cursor?: string | null;
-                /**
-                 * @description Additive ordering mode. Defaults to `relevance`; `date` switches the
-                 *     pipeline to a latest-first walk over `published_ts` windows without
-                 *     rerank. The cursor and the request must agree on the sort mode.
-                 */
-                sort?: null | components["schemas"]["SearchSort"];
+                locale?: string;
+                /** @description Opaque cursor page size; defaults to 8 via the canonical search kernel. */
+                limit?: number;
+                source_key?: string;
+                group_path?: string;
+                /** @description RFC3339 lower bound */
+                published_after?: string;
+                /** @description RFC3339 upper bound */
+                published_before?: string;
+                /** @description Opaque pagination cursor; only valid inside the ordering epoch that issued it. */
+                cursor?: string;
+                /** @description Additive ordering mode. Defaults to `relevance`; `date` switches to latest-first without rerank. */
+                sort?: components["schemas"]["SearchSort"];
             };
             header?: never;
             path?: never;
@@ -6551,7 +6696,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateSearchSettingsRequest"];
+                "application/json": components["schemas"]["CanonicalUpdateSearchSettingsRequest"];
             };
         };
         responses: {
@@ -7059,28 +7204,13 @@ export interface operations {
     };
     list_tasks: {
         parameters: {
-            query?: {
+            query: {
                 page?: number;
                 page_size?: number;
                 query?: string;
                 kind?: components["schemas"]["TaskKind"];
                 status?: components["schemas"]["TaskStatus"];
-                /**
-                 * @description When true, list only trashed tasks; when false or omitted, list only
-                 *     active (non-trashed) tasks. Trashed rows stay reachable by id for their
-                 *     owner (for example to restore them) but never appear in active lists.
-                 *     Ignored when `view` is set: the view owns the trash predicate.
-                 */
-                trashed?: boolean;
-                /**
-                 * @description Typed list view. `processing` lists non-trashed tasks whose status is
-                 *     not `succeeded`; `completed` lists non-trashed `succeeded` tasks;
-                 *     `trash` lists trashed tasks. A user-supplied `status` further narrows
-                 *     the view and never widens it (for example `processing` plus
-                 *     `status=succeeded` matches nothing). When omitted, the legacy
-                 *     `trashed`/`status` filters apply for external callers.
-                 */
-                view?: components["schemas"]["TaskListView"];
+                view: components["schemas"]["TaskListView"];
                 stage?: string;
                 waiting_reason?: string;
                 dependency_key?: string;
@@ -7099,6 +7229,14 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskPageResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };

@@ -17,6 +17,7 @@ mod admin_users;
 mod auth;
 mod docs;
 mod documents;
+mod error_mapping;
 mod errors;
 mod extractions;
 mod group_access;

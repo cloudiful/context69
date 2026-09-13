@@ -89,7 +89,7 @@ describe("ProcessingQueueView trash actions", () => {
     await openTrash(wrapper);
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "trash", trashed: true }),
+       expect.objectContaining({ view: "trash" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -141,7 +141,7 @@ describe("ProcessingQueueView trash actions", () => {
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "processing", trashed: false }),
+       expect.objectContaining({ view: "processing" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();

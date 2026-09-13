@@ -17,8 +17,13 @@ use context69_contracts::search::{
     SearchPagination, SearchRequest, SearchResponse, SearchSort, SearchStreamDone,
     SearchStreamEvent, SearchStreamPage,
 };
-use context69_contracts::{ApiErrorResponse, DocumentResponse};
-use context69_http_support::{CurrentUser, internal_error_response, json_error_response};
+use context69_contracts::{
+    ApiErrorCode, ApiErrorResponse, CanonicalSearchRequest, DocumentResponse,
+};
+use context69_http_support::{
+    CurrentUser, json_error_response, map_document_lookup_error,
+    map_search_service_error,
+};
 use context69_search::{AbortSignal, abort_pair};
 use tokio::sync::mpsc;
 use utoipa::OpenApi;
@@ -66,7 +71,9 @@ where
     paths(search, search_stream, get_document),
     components(schemas(
         ApiErrorResponse,
+        ApiErrorCode,
         SearchRequest,
+        CanonicalSearchRequest,
         SearchResponse,
         SearchPagination,
         SearchSort,
@@ -80,51 +87,6 @@ struct SearchApiDoc;
 
 pub fn openapi_document() -> utoipa::openapi::OpenApi {
     SearchApiDoc::openapi()
-}
-
-/// GET query parameters mirroring the `SearchRequest` filters for the
-/// streaming endpoint. `metadata_filters` is intentionally not exposed over a
-/// GET query string; POST `/v1/search` remains the metadata-filtered surface.
-#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
-pub struct SearchStreamQuery {
-    /// The search query text.
-    pub query: String,
-    pub locale: Option<String>,
-    #[param(minimum = 1, maximum = 100)]
-    pub limit: Option<usize>,
-    /// DEPRECATED page number; maps to an offset cursor when `cursor` is
-    /// absent. Prefer `cursor` returned in `next_cursor`/`prev_cursor`.
-    #[param(minimum = 1)]
-    pub page: Option<usize>,
-    pub source_key: Option<String>,
-    pub group_path: Option<String>,
-    pub published_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub published_before: Option<chrono::DateTime<chrono::Utc>>,
-    /// Opaque pagination cursor; only valid inside the ordering epoch that
-    /// issued it.
-    pub cursor: Option<String>,
-    /// Additive ordering mode. Defaults to `relevance`; `date` switches the
-    /// pipeline to a latest-first walk over `published_ts` windows without
-    /// rerank. The cursor and the request must agree on the sort mode.
-    pub sort: Option<context69_contracts::SearchSort>,
-}
-
-impl SearchStreamQuery {
-    fn into_search_request(self) -> SearchRequest {
-        SearchRequest {
-            query: self.query,
-            locale: self.locale,
-            limit: self.limit.unwrap_or(8),
-            page: self.page.unwrap_or(1),
-            source_key: self.source_key,
-            group_path: self.group_path,
-            published_after: self.published_after,
-            published_before: self.published_before,
-            cursor: self.cursor,
-            metadata_filters: Vec::new(),
-            sort: self.sort.unwrap_or_default(),
-        }
-    }
 }
 
 #[utoipa::path(
@@ -154,10 +116,7 @@ async fn search(
     }
     match state.search.search(Some(user.user_id), request).await {
         Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
-        Err(error) if is_validation_error(&error) => {
-            json_error_response(StatusCode::BAD_REQUEST, error.to_string())
-        }
-        Err(error) => internal_error_response(error),
+        Err(error) => map_search_service_error(error),
     }
 }
 
@@ -198,27 +157,75 @@ fn validate_post_request(request: &SearchRequest) -> Result<()> {
     Ok(())
 }
 
-/// True when the error belongs to a client-facing validation problem
-/// (page/limit/cursor geometry or a blank query in date mode) and must
-/// surface as a clean 400. Database or upstream failures keep their 500
-/// meaning. The blank-query message mirrors `validate_post_request` so a
-/// service-side `Err` (e.g. from a direct call) still surfaces as 400
-/// instead of 500.
-fn is_validation_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    message.contains("cursor")
-        || message.contains("page_size must be between 1 and 100")
-        || message.contains("page must be greater than 0")
-        || message.contains("page is too large")
-        || message.contains("search result limit is too large")
-        || (message.contains("page > 1") && message.contains("sort=date"))
-        || (message.contains("query text is required") && message.contains("sort=date"))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_stream_defaults_match_legacy_wire() {
+        let decoded: CanonicalSearchRequest = serde_json::from_value(serde_json::json!({
+            "query": "hello"
+        }))
+        .expect("stream decodes with canonical defaults");
+        assert_eq!(decoded.limit, 8);
+        assert!(validate_canonical_stream(&decoded).is_ok());
+        let request: SearchRequest = decoded.into();
+        assert_eq!(request.limit, 8);
+        assert_eq!(request.page, 1);
+    }
+
+    #[test]
+    fn canonical_stream_rejects_zero_limit_and_date_blank_query() {
+        let bad_limit: CanonicalSearchRequest = serde_json::from_value(serde_json::json!({
+            "query": "hello",
+            "limit": 0
+        }))
+        .expect("decodes zero limit");
+        assert!(validate_canonical_stream(&bad_limit).is_err());
+
+        let date_blank: CanonicalSearchRequest = serde_json::from_value(serde_json::json!({
+            "query": "   ",
+            "limit": 8,
+            "sort": "date"
+        }))
+        .expect("decodes date blank");
+        assert!(validate_canonical_stream(&date_blank).is_err());
+    }
+
+    #[test]
+    fn canonical_stream_decodes_explicit_url_limit() {
+        let uri = axum::http::Uri::from_static("/v1/search/stream?query=hello&limit=8");
+        let axum::extract::Query(decoded) =
+            axum::extract::Query::<CanonicalSearchRequest>::try_from_uri(&uri)
+                .expect("url query decodes");
+        assert_eq!(decoded.limit, 8);
+        assert!(validate_canonical_stream(&decoded).is_ok());
+    }
+
+    #[test]
+    fn search_service_validation_maps_to_bad_request() {
+        let response =
+            map_search_service_error(anyhow::anyhow!("page_size must be between 1 and 100"));
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let lookup = map_document_lookup_error(anyhow::anyhow!("document 42 not found"));
+        assert_eq!(lookup.status(), StatusCode::NOT_FOUND);
+    }
 }
 
 #[utoipa::path(
     get,
     path = "/v1/search/stream",
-    params(SearchStreamQuery),
+    params(
+        ("query" = String, Query, description = "The search query text."),
+        ("locale" = Option<String>, Query),
+        ("limit" = Option<u32>, Query, minimum = 1, maximum = 100, description = "Opaque cursor page size; defaults to 8 via the canonical search kernel."),
+        ("source_key" = Option<String>, Query),
+        ("group_path" = Option<String>, Query),
+        ("published_after" = Option<chrono::DateTime<chrono::Utc>>, Query, description = "RFC3339 lower bound"),
+        ("published_before" = Option<chrono::DateTime<chrono::Utc>>, Query, description = "RFC3339 upper bound"),
+        ("cursor" = Option<String>, Query, description = "Opaque pagination cursor; only valid inside the ordering epoch that issued it."),
+        ("sort" = Option<SearchSort>, Query, description = "Additive ordering mode. Defaults to `relevance`; `date` switches to latest-first without rerank.")
+    ),
     responses(
         (
             status = 200,
@@ -234,16 +241,16 @@ fn is_validation_error(error: &anyhow::Error) -> bool {
 async fn search_stream(
     State(state): State<SearchHttpState>,
     CurrentUser(user): CurrentUser,
-    Query(query): Query<SearchStreamQuery>,
+    Query(decoded): Query<CanonicalSearchRequest>,
 ) -> impl IntoResponse {
-    // F6: validate the query parameters BEFORE opening the SSE response so
-    // an invalid limit/page/cursor returns 400 instead of starting a 200
+    // F6: validate the canonical query BEFORE opening the SSE response so
+    // an invalid limit/cursor returns 400 instead of starting a 200
     // stream that immediately errors out.
-    if let Err(error) = validate_stream_query(&query) {
+    if let Err(error) = validate_canonical_stream(&decoded) {
         return json_error_response(StatusCode::BAD_REQUEST, error.to_string());
     }
     let (tx, rx) = mpsc::channel::<SearchStreamEvent>(8);
-    let request = query.into_search_request();
+    let request: SearchRequest = decoded.into();
     let search = state.search.clone();
     let user_id = user.user_id;
     // F1: tie the in-flight work to the SSE response body. The producer
@@ -271,36 +278,17 @@ async fn search_stream(
         .into_response()
 }
 
-/// Validate `SearchStreamQuery` parameters before opening the 200 stream.
-/// Invalid limit/page/cursor and a blank query in `sort=date` mode
-/// surface as 400; the SSE body never starts. Date mode is forward-only
-/// keyset pagination: `page > 1` is rejected (the client must use the
-/// cursor returned in `next_cursor` to fetch the next page). A blank
-/// query in date mode is rejected because the date pipeline matches the
-/// query text against hydrated hits and never silently serves a
-/// "latest N" browse.
-fn validate_stream_query(query: &SearchStreamQuery) -> Result<()> {
-    if let Some(limit) = query.limit {
-        if !(1..=100).contains(&limit) {
-            return Err(anyhow::anyhow!("page_size must be between 1 and 100"));
-        }
+/// Validate the canonical stream query before opening the 200 stream.
+/// Invalid limit/cursor and a blank query in `sort=date` mode surface as 400;
+/// the SSE body never starts. Shares limits and cursor validation with the
+/// canonical [`CanonicalSearchRequest`] kernel; legacy `page` is not part of
+/// the v0.16 query surface.
+fn validate_canonical_stream(query: &CanonicalSearchRequest) -> Result<()> {
+    if query.limit == 0 || query.limit > 100 {
+        return Err(anyhow::anyhow!("page_size must be between 1 and 100"));
     }
-    if let Some(page) = query.page {
-        if page == 0 {
-            return Err(anyhow::anyhow!("page must be greater than 0"));
-        }
-        if query.sort == Some(context69_contracts::SearchSort::Date)
-            && page > 1
-            && query.cursor.is_none()
-        {
-            return Err(anyhow::anyhow!(
-                "page > 1 is not supported for sort=date; pass the cursor returned in `next_cursor` to fetch the next page"
-            ));
-        }
-    }
-    if query.sort == Some(context69_contracts::SearchSort::Date)
-        && query.query.trim().is_empty()
-    {
+    context69_http_support::validate_cursor_limit(query.limit)?;
+    if query.sort == context69_contracts::SearchSort::Date && query.query.trim().is_empty() {
         return Err(anyhow::anyhow!(
             "query text is required for sort=date; the date pipeline matches the query against hydrated hits (title + chunk_text) and never browses the index"
         ));
@@ -350,10 +338,7 @@ async fn get_document(
         .await
     {
         Ok(document) => (StatusCode::OK, axum::Json(document)).into_response(),
-        Err(error) if error.to_string().contains("not found") => {
-            json_error_response(StatusCode::NOT_FOUND, error.to_string())
-        }
-        Err(error) => internal_error_response(error),
+        Err(error) => map_document_lookup_error(error),
     }
 }
 

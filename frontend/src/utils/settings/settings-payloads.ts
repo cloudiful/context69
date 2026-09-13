@@ -82,11 +82,11 @@ export function buildSearchSettingsPayload(
 ): UpdateSearchSettingsRequest {
   const payload: UpdateSearchSettingsRequest = {
     ...buildSearchSettingsComparablePayload(draft),
-    clear_api_key: clearStoredRerankApiKey,
+    api_key: clearStoredRerankApiKey ? { op: "clear" } : { op: "keep" },
   };
   const apiKey = rerankApiKeyDraft.trim();
   if (apiKey) {
-    payload.api_key = apiKey;
+    payload.api_key = { op: "set", value: apiKey };
   }
   return payload;
 }

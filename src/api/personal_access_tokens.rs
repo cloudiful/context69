@@ -79,11 +79,10 @@ pub(crate) async fn create_personal_access_token(
         Ok(created) => {
             (StatusCode::OK, Json(create_response_from_created(created))).into_response()
         }
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
-        )
-            .into_response(),
+        Err(error) => context69_http_support::json_error_for_code(
+            context69_contracts::ApiErrorCode::InvalidArgument,
+            error.to_string(),
+        ),
     }
 }
 
@@ -110,12 +109,16 @@ pub(crate) async fn revoke_personal_access_token(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) if error.to_string().contains("not found") => (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse::new("invalid_argument", error.to_string())),
-        )
-            .into_response(),
-        Err(error) => internal_error_response(error),
+        Err(error) => {
+            if context69_http_support::is_not_found_message(&error.to_string()) {
+                context69_http_support::json_error_for_code(
+                    context69_contracts::ApiErrorCode::NotFound,
+                    error.to_string(),
+                )
+            } else {
+                internal_error_response(error)
+            }
+        }
     }
 }
 

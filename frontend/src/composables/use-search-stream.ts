@@ -25,7 +25,6 @@ export function buildSearchStreamUrl(payload: SearchRequest): string {
   if (payload.group_path) params.set("group_path", payload.group_path);
   if (payload.published_after) params.set("published_after", payload.published_after);
   if (payload.published_before) params.set("published_before", payload.published_before);
-  if (payload.page && payload.page > 1) params.set("page", String(payload.page));
   if (payload.cursor) params.set("cursor", payload.cursor);
   if (payload.sort && payload.sort !== "relevance") {
     params.set("sort", payload.sort);
