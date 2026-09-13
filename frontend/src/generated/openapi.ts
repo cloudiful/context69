@@ -2776,10 +2776,14 @@ export interface components {
              * @description When true, list only trashed tasks; when false or omitted, list only
              *     active (non-trashed) tasks. Trashed rows stay reachable by id for their
              *     owner (for example to restore them) but never appear in active lists.
+             *     Ignored when `view` is set: the view owns the trash predicate.
              */
             trashed?: boolean | null;
+            view?: null | components["schemas"]["TaskListView"];
             waiting_reason?: string | null;
         };
+        /** @enum {string} */
+        TaskListView: "processing" | "completed" | "trash";
         TaskMaintenanceOverview: {
             settings: components["schemas"]["TaskMaintenanceSettings"];
             stats: components["schemas"]["TaskMaintenanceStats"];
@@ -7065,8 +7069,18 @@ export interface operations {
                  * @description When true, list only trashed tasks; when false or omitted, list only
                  *     active (non-trashed) tasks. Trashed rows stay reachable by id for their
                  *     owner (for example to restore them) but never appear in active lists.
+                 *     Ignored when `view` is set: the view owns the trash predicate.
                  */
                 trashed?: boolean;
+                /**
+                 * @description Typed list view. `processing` lists non-trashed tasks whose status is
+                 *     not `succeeded`; `completed` lists non-trashed `succeeded` tasks;
+                 *     `trash` lists trashed tasks. A user-supplied `status` further narrows
+                 *     the view and never widens it (for example `processing` plus
+                 *     `status=succeeded` matches nothing). When omitted, the legacy
+                 *     `trashed`/`status` filters apply for external callers.
+                 */
+                view?: components["schemas"]["TaskListView"];
                 stage?: string;
                 waiting_reason?: string;
                 dependency_key?: string;

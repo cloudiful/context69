@@ -81,16 +81,16 @@ describe("ProcessingQueueView tabs", () => {
     expect(trash).toBeDefined();
     expect(trash!.attributes("disabled")).toBeUndefined();
 
-    // Default tab keeps the unfiltered active-task list query.
+    // Default tab uses the typed processing view, not null status guessing.
     expect(listTasks).toHaveBeenCalledOnce();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: null, trashed: false }),
+      expect.objectContaining({ view: "processing", status: null, trashed: false }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
   });
 
-  it("narrows the same list to succeeded when Completed is selected", async () => {
+  it("narrows the same list to the completed view when Completed is selected", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
@@ -98,7 +98,7 @@ describe("ProcessingQueueView tabs", () => {
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: "succeeded", trashed: false }),
+      expect.objectContaining({ view: "completed", status: null, trashed: false }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -108,7 +108,7 @@ describe("ProcessingQueueView tabs", () => {
     await tabButton(wrapper, "Processing")!.trigger("mousedown");
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: null, trashed: false }),
+      expect.objectContaining({ view: "processing", status: null, trashed: false }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
@@ -122,7 +122,7 @@ describe("ProcessingQueueView tabs", () => {
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ trashed: true, status: null }),
+      expect.objectContaining({ view: "trash", trashed: true, status: null }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     // Trash never exposes the live status filter.
@@ -131,7 +131,7 @@ describe("ProcessingQueueView tabs", () => {
     await tabButton(wrapper, "Processing")!.trigger("mousedown");
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ trashed: false }),
+      expect.objectContaining({ view: "processing", trashed: false }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();

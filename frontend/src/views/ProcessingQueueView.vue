@@ -22,11 +22,9 @@ const maintenance = proxyRefs(useTaskMaintenance({
 
 const AUTO_REFRESH_INTERVAL = 20_000;
 
-// Processing is the live working set (the unfiltered active list, which
-// already carries failed tasks for retry); Completed narrows it to the
-// terminal `succeeded` status; Trash lists soft-deleted task history. The
-// list API carries both a `status` and a `trashed` filter, so each tab is a
-// single query and trashed rows never leak into the working views.
+// Processing is the live working set (failed tasks stay retryable there);
+// Completed and Trash are mutually exclusive typed views. Each tab passes a
+// single `view` query and a user-selected status only narrows that view.
 const activeTab = ref<QueueTab>("processing");
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -51,11 +49,11 @@ function stopAutoRefresh() {
 watch(activeTab, (tab) => {
   if (tab === "trash") {
     stopAutoRefresh();
-    queue.setListView({ trashed: true, status: null });
+    queue.setListView({ view: "trash" });
     return;
   }
   startAutoRefresh();
-  queue.setListView({ trashed: false, status: tab === "completed" ? "succeeded" : null });
+  queue.setListView({ view: tab === "completed" ? "completed" : "processing" });
 });
 
 onMounted(() => {

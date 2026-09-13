@@ -5168,10 +5168,19 @@
           {
             "name": "trashed",
             "in": "query",
-            "description": "When true, list only trashed tasks; when false or omitted, list only\nactive (non-trashed) tasks. Trashed rows stay reachable by id for their\nowner (for example to restore them) but never appear in active lists.",
+            "description": "When true, list only trashed tasks; when false or omitted, list only\nactive (non-trashed) tasks. Trashed rows stay reachable by id for their\nowner (for example to restore them) but never appear in active lists.\nIgnored when `view` is set: the view owns the trash predicate.",
             "required": false,
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "Typed list view. `processing` lists non-trashed tasks whose status is\nnot `succeeded`; `completed` lists non-trashed `succeeded` tasks;\n`trash` lists trashed tasks. A user-supplied `status` further narrows\nthe view and never widens it (for example `processing` plus\n`status=succeeded` matches nothing). When omitted, the legacy\n`trashed`/`status` filters apply for external callers.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskListView"
             }
           },
           {
@@ -10271,7 +10280,18 @@
               "boolean",
               "null"
             ],
-            "description": "When true, list only trashed tasks; when false or omitted, list only\nactive (non-trashed) tasks. Trashed rows stay reachable by id for their\nowner (for example to restore them) but never appear in active lists."
+            "description": "When true, list only trashed tasks; when false or omitted, list only\nactive (non-trashed) tasks. Trashed rows stay reachable by id for their\nowner (for example to restore them) but never appear in active lists.\nIgnored when `view` is set: the view owns the trash predicate."
+          },
+          "view": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskListView",
+                "description": "Typed list view. `processing` lists non-trashed tasks whose status is\nnot `succeeded`; `completed` lists non-trashed `succeeded` tasks;\n`trash` lists trashed tasks. A user-supplied `status` further narrows\nthe view and never widens it (for example `processing` plus\n`status=succeeded` matches nothing). When omitted, the legacy\n`trashed`/`status` filters apply for external callers."
+              }
+            ]
           },
           "waiting_reason": {
             "type": [
@@ -10280,6 +10300,14 @@
             ]
           }
         }
+      },
+      "TaskListView": {
+        "type": "string",
+        "enum": [
+          "processing",
+          "completed",
+          "trash"
+        ]
       },
       "TaskMaintenanceOverview": {
         "type": "object",

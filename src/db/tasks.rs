@@ -490,6 +490,7 @@ impl Database {
         sort_direction: Option<&str>,
         limit: i64,
         offset: i64,
+        view: Option<&str>,
     ) -> Result<Vec<StoredTask>> {
         Ok(sqlx::query_file_as!(
             StoredTask,
@@ -505,7 +506,8 @@ impl Database {
             sort_direction,
             limit,
             offset,
-            trashed
+            trashed,
+            view
         )
         .fetch_all(self.pool())
         .await?)
@@ -521,6 +523,7 @@ impl Database {
         waiting_reason: Option<&str>,
         dependency_key: Option<&str>,
         trashed: bool,
+        view: Option<&str>,
     ) -> Result<i64> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/db/tasks/count.sql",
@@ -531,7 +534,8 @@ impl Database {
             stage,
             waiting_reason,
             dependency_key,
-            trashed
+            trashed,
+            view
         )
         .fetch_one(self.pool())
         .await?

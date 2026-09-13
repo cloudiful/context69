@@ -113,6 +113,7 @@ describe("useProcessingQueue", () => {
         kind: null,
         status: null,
         trashed: false,
+        view: "processing",
         stage: null,
         waitingReason: null,
         dependencyKey: null,
@@ -428,6 +429,46 @@ describe("useProcessingQueue", () => {
     expect(retryTask).toHaveBeenCalledWith("task-id");
     expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
     expect(listTasks).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("switches typed list views without status guessing and narrows processing by status", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "processing", status: null, trashed: false }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "completed" });
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed", status: null, trashed: false }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "trash" });
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "trash", status: null, trashed: true }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "processing" });
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "processing", status: null, trashed: false }),
+      expect.anything(),
+    );
+
+    // A user-selected status within processing narrows the same view.
+    state.setStatusFilter("failed");
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "processing", status: "failed", trashed: false }),
+      expect.anything(),
+    );
     wrapper.unmount();
   });
 });

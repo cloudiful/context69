@@ -201,6 +201,24 @@ impl TaskSortBy {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskListView {
+    Processing,
+    Completed,
+    Trash,
+}
+
+impl TaskListView {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Processing => "processing",
+            Self::Completed => "completed",
+            Self::Trash => "trash",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
 #[into_params(parameter_in = Query)]
 pub struct TaskListQuery {
@@ -217,8 +235,17 @@ pub struct TaskListQuery {
     /// When true, list only trashed tasks; when false or omitted, list only
     /// active (non-trashed) tasks. Trashed rows stay reachable by id for their
     /// owner (for example to restore them) but never appear in active lists.
+    /// Ignored when `view` is set: the view owns the trash predicate.
     #[serde(default)]
     pub trashed: Option<bool>,
+    /// Typed list view. `processing` lists non-trashed tasks whose status is
+    /// not `succeeded`; `completed` lists non-trashed `succeeded` tasks;
+    /// `trash` lists trashed tasks. A user-supplied `status` further narrows
+    /// the view and never widens it (for example `processing` plus
+    /// `status=succeeded` matches nothing). When omitted, the legacy
+    /// `trashed`/`status` filters apply for external callers.
+    #[serde(default)]
+    pub view: Option<TaskListView>,
     #[serde(default)]
     pub stage: Option<String>,
     #[serde(default)]

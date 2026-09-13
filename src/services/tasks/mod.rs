@@ -13,7 +13,7 @@ use context69_contracts::{
     CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, ExternalJobInfo,
     FileBatchItem, GroupResponse, MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse,
     ScopeSpec, SortDirection, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
-    TaskListQuery, TaskOrigin, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
+    TaskListQuery, TaskListView, TaskOrigin, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
     TaskRetryResponse, TaskSortBy, TaskStatus,
 };
 use context69_translation::TranslationService;
@@ -237,6 +237,7 @@ impl TaskService {
         let bounds = PageBounds::new(query.page, query.page_size)?;
         let kind = query.kind.map(TaskKind::as_str);
         let status = query.status.map(TaskStatus::as_str);
+        let view = query.view.map(TaskListView::as_str);
         let trashed = query.trashed.unwrap_or(false);
         let total = self
             .db
@@ -249,6 +250,7 @@ impl TaskService {
                 query.waiting_reason.as_deref(),
                 query.dependency_key.as_deref(),
                 trashed,
+                view,
             )
             .await?;
         let items = self
@@ -266,6 +268,7 @@ impl TaskService {
                 query.sort_direction.map(SortDirection::as_str),
                 i64::from(bounds.page_size),
                 bounds.offset,
+                view,
             )
             .await?
             .into_iter()
@@ -826,7 +829,7 @@ fn is_conflict_error(error: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{normalize_task_worker_concurrency, parse_kind, split_scope_path};
-    use context69_contracts::TaskKind;
+    use context69_contracts::{TaskKind, TaskListQuery, TaskListView};
 
     #[test]
     fn task_worker_concurrency_clamps_zero_and_preserves_capacity() {
@@ -861,6 +864,64 @@ mod tests {
             TaskKind::VectorRebuild,
         ] {
             assert_eq!(parse_kind(kind.as_str()).expect("kind"), kind);
+        }
+    }
+
+    #[test]
+    fn task_list_view_wire_names_are_stable() {
+        assert_eq!(TaskListView::Processing.as_str(), "processing");
+        assert_eq!(TaskListView::Completed.as_str(), "completed");
+        assert_eq!(TaskListView::Trash.as_str(), "trash");
+        let decoded: TaskListView =
+            serde_json::from_value(serde_json::json!("processing")).expect("decode view");
+        assert_eq!(decoded, TaskListView::Processing);
+    }
+
+    #[test]
+    fn task_list_query_view_defaults_to_none_for_legacy_callers() {
+        let legacy: TaskListQuery = serde_json::from_value(serde_json::json!({
+            "page": 1,
+            "page_size": 25
+        }))
+        .expect("legacy query without view");
+        assert_eq!(legacy.view, None);
+        assert_eq!(legacy.trashed, None);
+        let with_view: TaskListQuery = serde_json::from_value(serde_json::json!({
+            "page": 1,
+            "page_size": 25,
+            "view": "processing"
+        }))
+        .expect("query with view");
+        assert_eq!(with_view.view, Some(TaskListView::Processing));
+    }
+
+    #[test]
+    fn task_list_and_count_share_one_view_predicate() {
+        let list = include_str!("../../sql/db/tasks/list.sql");
+        let count = include_str!("../../sql/db/tasks/count.sql");
+        for branch in [
+            "task.deleted_at IS NULL AND task.status <> 'succeeded'",
+            "task.deleted_at IS NULL AND task.status = 'succeeded'",
+            "AND task.deleted_at IS NOT NULL",
+        ] {
+            assert!(
+                list.contains(branch),
+                "list.sql must contain view branch {branch}"
+            );
+            assert!(
+                count.contains(branch),
+                "count.sql must contain view branch {branch}"
+            );
+        }
+        for view in ["'processing'", "'completed'", "'trash'"] {
+            assert!(
+                list.contains(view),
+                "list.sql must contain view literal {view}"
+            );
+            assert!(
+                count.contains(view),
+                "count.sql must contain view literal {view}"
+            );
         }
     }
 }

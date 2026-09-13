@@ -13,6 +13,7 @@ import type {
   TaskItemsResponse,
   TaskKind,
   TaskListQuery,
+  TaskListView,
   TaskMaintenanceOverview,
   TaskPageResponse,
   TaskRef,
@@ -44,6 +45,7 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
       kind?: TaskKind | null;
       status?: TaskStatus | null;
       trashed?: boolean;
+      view?: TaskListView | null;
       stage?: string | null;
       waitingReason?: string | null;
       dependencyKey?: string | null;
@@ -59,6 +61,7 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
             kind: params.kind ?? undefined,
             status: params.status ?? undefined,
             trashed: params.trashed ?? false,
+            view: params.view ?? undefined,
             stage: params.stage || undefined,
             waiting_reason: params.waitingReason || undefined,
             dependency_key: params.dependencyKey || undefined,

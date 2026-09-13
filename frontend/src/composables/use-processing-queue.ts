@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { apiClient, type TaskKind, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
+import { apiClient, type TaskKind, type TaskListView, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
 import { ApiError } from "../services/api/api-core";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
@@ -47,6 +47,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const query = ref("");
   const statusFilter = ref<TaskStatus | null>(null);
   const trashedFilter = ref(false);
+  const viewFilter = ref<TaskListView>("processing");
   const kindFilter = ref<TaskKind | null>(null);
   const stageFilter = ref<string | null>(null);
   const waitingReasonFilter = ref<string | null>(null);
@@ -94,6 +95,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         kind: kindFilter.value,
         status: statusFilter.value,
         trashed: trashedFilter.value,
+        view: viewFilter.value,
         stage: stageFilter.value,
         waitingReason: waitingReasonFilter.value,
         dependencyKey: dependencyKeyFilter.value,
@@ -125,13 +127,16 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     void load({ resetPage: true });
   }
 
-  // Tab changes move two list dimensions at once (trash vs active, plus the
-  // fixed status of the Completed tab). A single load keeps the switch atomic
-  // instead of firing one request per filter.
-  function setListView(next: { trashed: boolean; status: TaskStatus | null }) {
-    if (trashedFilter.value === next.trashed && statusFilter.value === next.status) return;
-    trashedFilter.value = next.trashed;
-    statusFilter.value = next.status;
+  // Tab changes move the typed list view at once (processing/completed/trash).
+  // The backend view owns the trash/succeeded predicate; a user-selected
+  // status only narrows the view and never widens it. A single load keeps
+  // the switch atomic instead of firing one request per filter.
+  function setListView(next: { view: TaskListView }) {
+    const trashed = next.view === "trash";
+    if (viewFilter.value === next.view && trashedFilter.value === trashed && statusFilter.value === null) return;
+    viewFilter.value = next.view;
+    trashedFilter.value = trashed;
+    statusFilter.value = null;
     void load({ resetPage: true });
   }
 
@@ -442,6 +447,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     sort,
     statusFilter,
     trashedFilter,
+    viewFilter,
     kindFilter,
     stageFilter,
     waitingReasonFilter,

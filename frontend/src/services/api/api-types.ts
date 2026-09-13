@@ -95,6 +95,7 @@ export type TaskItemStatus = Schemas["TaskItemStatus"];
 export type TaskItemResponse = Schemas["TaskItemResponse"];
 export type TaskSortBy = Schemas["TaskSortBy"];
 export type TaskListQuery = Schemas["TaskListQuery"];
+export type TaskListView = Schemas["TaskListView"];
 export type TaskPageResponse = Schemas["TaskPageResponse"];
 export type TaskResponse = Schemas["TaskResponse"];
 export type TaskItemsResponse = Schemas["TaskItemsResponse"];

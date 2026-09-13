@@ -81,7 +81,7 @@ pub use tasks::{
     QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
     RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskMaintenanceOverview, TaskMaintenanceSettings,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskMaintenanceOverview, TaskMaintenanceSettings,
     TaskMaintenanceStats, TaskOrigin, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef,
     TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
     TranslationSubmitItem, UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
