@@ -1,3 +1,5 @@
+mod tools;
+
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -11,8 +13,7 @@ use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{
         ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
-        ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
-        ResourceTemplate,
+        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ResourceTemplate,
     },
     service::{RequestContext, RoleServer},
     tool, tool_handler, tool_router,
@@ -22,14 +23,14 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     api::{RequestAuth, optional_auth_middleware},
     contracts::{
-        DocumentKey, DocumentQueryRequest, DocumentResponse, McpBatchDocumentArgs,
-        McpBatchDocumentItem, McpBatchDocumentResponse, McpDocumentArgs, McpDocumentDetailResponse,
-        McpDocumentQueryResponse, McpDocumentSummary, McpSearchHit, McpSearchResponse,
-        McpSourceListResponse, SearchRequest,
+        McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpDocumentArgs,
+        McpDocumentKeyArgs, McpDocumentQueryArgs, McpDocumentQueryResponse, McpSearchRequest,
+        McpSearchResponse, McpSourceListArgs, McpSourceListResponse,
     },
     domain::AccessScope,
     services::app::Context69App,
 };
+use tools::{documents as document_tools, search as search_tools, sources as source_tools};
 
 #[derive(Clone)]
 pub struct Context69McpServer {
@@ -84,59 +85,35 @@ impl Context69McpServer {
 impl Context69McpServer {
     #[tool(
         name = "search_documents",
-        description = "Search indexed documents with vector and hybrid retrieval."
+        description = "Search indexed documents with vector and hybrid retrieval. Returns compact hits with a next_cursor when more results exist."
     )]
     async fn search_documents(
         &self,
-        Parameters(mut request): Parameters<SearchRequest>,
+        Parameters(request): Parameters<McpSearchRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpSearchResponse>, McpError> {
-        if request.limit == 0 {
-            return Err(McpError::invalid_params(
-                "limit must be between 1 and 20".to_string(),
-                Some(serde_json::json!({"fix": "set limit to a value between 1 and 20"})),
-            ));
-        }
-        let limit = request.limit.min(20);
-        let truncated = request.limit > limit;
-        request.limit = limit;
+        search_tools::checked_request(&request)?;
         let user_id = self.user_id_from_context(&context)?;
+        let internal = request.to_search_request();
         let response = self
             .app
             .query
-            .search(user_id, request)
+            .search(user_id, internal)
             .await
             .map_err(service_error)?;
-        Ok(Json(McpSearchResponse {
-            query: response.query,
-            hits: response
-                .items
-                .into_iter()
-                .map(|hit| McpSearchHit {
-                    document_id: hit.document_id,
-                    external_id: hit.external_id,
-                    title: hit.title,
-                    summary: hit.summary,
-                    source_uri: hit.source_uri,
-                    published_at: hit.published_at,
-                    score: hit.score,
-                    snippet: hit.chunk_text.chars().take(600).collect(),
-                })
-                .collect(),
-            truncated,
-            has_more: truncated,
-        }))
+        Ok(Json(search_tools::search_response(response)))
     }
 
     #[tool(
         name = "get_document",
-        description = "Fetch a document and all of its indexed chunks."
+        description = "Fetch one document's bounded metadata and chunk window. Pass next_chunk_cursor to fetch the next chunk page."
     )]
     async fn get_document(
         &self,
         Parameters(args): Parameters<McpDocumentArgs>,
         context: RequestContext<RoleServer>,
-    ) -> Result<Json<McpDocumentDetailResponse>, McpError> {
+    ) -> Result<Json<crate::contracts::McpDocumentDetailResponse>, McpError> {
+        let start = document_tools::checked_document_args(&args)?;
         let scope = self.scope_from_context(&context, None).await?;
         let response = self
             .app
@@ -150,18 +127,23 @@ impl Context69McpServer {
                     internal_error(error)
                 }
             })?;
-        Ok(Json(paginate_document(response, &args)?))
+        Ok(Json(document_tools::detail_window(
+            &response,
+            start,
+            args.chunk_limit,
+        )?))
     }
 
     #[tool(
         name = "query_documents",
-        description = "List and filter structured documents in one group."
+        description = "List and filter structured documents in one group. Returns bounded summaries with a next_cursor when more results exist."
     )]
     async fn query_documents(
         &self,
         Parameters(request): Parameters<McpDocumentQueryArgs>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpDocumentQueryResponse>, McpError> {
+        document_tools::checked_query_args(&request)?;
         let user_id = self
             .user_id_from_context(&context)?
             .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
@@ -173,46 +155,36 @@ impl Context69McpServer {
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
         let scope = self
-            .scope_from_context(&context, Some(request.group_path))
+            .scope_from_context(&context, Some(request.group_path.clone()))
             .await?;
-        let mut query = request.query;
-        if query.limit == 0 {
-            return Err(McpError::invalid_params(
-                "limit must be between 1 and 20".to_string(),
-                Some(serde_json::json!({"fix": "set limit to a value between 1 and 20"})),
-            ));
-        }
-        let limit = query.limit.min(20);
-        let truncated = query.limit > limit;
-        query.limit = limit;
+        let internal = request.query.to_document_query_request();
         let response = self
             .app
             .document_store
-            .query(group.id, &query, &scope)
+            .query(group.id, &internal, &scope)
             .await
             .map_err(service_error)?;
-        let has_more = truncated || response.next_cursor.is_some();
-        Ok(Json(McpDocumentQueryResponse {
-            documents: response
-                .documents
-                .into_iter()
-                .map(document_summary)
-                .collect(),
-            next_cursor: response.next_cursor,
-            truncated,
-            has_more,
-        }))
+        let documents = response
+            .documents
+            .iter()
+            .map(document_tools::summary)
+            .collect();
+        Ok(Json(McpDocumentQueryResponse::new(
+            documents,
+            response.next_cursor,
+        )))
     }
 
     #[tool(
         name = "get_document_by_external_id",
-        description = "Fetch a structured document by group, source key and external id."
+        description = "Fetch a structured document by group, source key and external id. Returns the first bounded chunk window."
     )]
     async fn get_document_by_external_id(
         &self,
         Parameters(request): Parameters<McpDocumentKeyArgs>,
         context: RequestContext<RoleServer>,
-    ) -> Result<Json<McpDocumentDetailResponse>, McpError> {
+    ) -> Result<Json<crate::contracts::McpDocumentDetailResponse>, McpError> {
+        document_tools::checked_key_args(&request)?;
         let user_id = self
             .user_id_from_context(&context)?
             .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
@@ -224,7 +196,7 @@ impl Context69McpServer {
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
         let scope = self
-            .scope_from_context(&context, Some(request.group_path))
+            .scope_from_context(&context, Some(request.group_path.clone()))
             .await?;
         let document = self
             .app
@@ -232,15 +204,7 @@ impl Context69McpServer {
             .get_by_key(group.id, &request.key, request.locale.as_deref(), &scope)
             .await
             .map_err(internal_error)?;
-        Ok(Json(paginate_document(
-            document,
-            &McpDocumentArgs {
-                document_id: 0,
-                locale: request.locale,
-                chunk_cursor: None,
-                chunk_limit: 20,
-            },
-        )?))
+        Ok(Json(document_tools::first_page_detail(&document)?))
     }
 
     #[tool(
@@ -252,6 +216,7 @@ impl Context69McpServer {
         Parameters(args): Parameters<McpBatchDocumentArgs>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpBatchDocumentResponse>, McpError> {
+        document_tools::checked_batch_args(&args)?;
         let user_id = self.user_id_from_context(&context)?.ok_or_else(|| {
             McpError::invalid_request("authentication required".to_string(), None)
         })?;
@@ -263,39 +228,27 @@ impl Context69McpServer {
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
         let scope = self
-            .scope_from_context(&context, Some(args.group_path))
+            .scope_from_context(&context, Some(args.group_path.clone()))
             .await?;
-        let mut request = args.request;
-        if request.keys.is_empty() {
-            return Err(McpError::invalid_params(
-                "keys must contain at least one document key".to_string(),
-                Some(serde_json::json!({"fix": "provide one or more document keys"})),
-            ));
-        }
-        let truncated = request.keys.len() > 20;
-        request.keys.truncate(20);
         let response = self
             .app
             .document_store
-            .batch_get(group.id, &request.keys, request.locale.as_deref(), &scope)
+            .batch_get(
+                group.id,
+                &args.request.keys,
+                args.request.locale.as_deref(),
+                &scope,
+            )
             .await
             .map_err(service_error)?;
         let items = response
             .items
             .into_iter()
             .map(|item| {
-                let document = item.document.and_then(|document| {
-                    paginate_document(
-                        document,
-                        &McpDocumentArgs {
-                            document_id: 0,
-                            locale: request.locale.clone(),
-                            chunk_cursor: None,
-                            chunk_limit: 5,
-                        },
-                    )
-                    .ok()
-                });
+                let document = item
+                    .document
+                    .as_ref()
+                    .and_then(|document| document_tools::batch_item_detail(document).ok());
                 McpBatchDocumentItem {
                     key: item.key,
                     document,
@@ -304,17 +257,17 @@ impl Context69McpServer {
             .collect();
         Ok(Json(McpBatchDocumentResponse {
             items,
-            truncated,
-            has_more: truncated,
+            has_more: false,
         }))
     }
 
     #[tool(
         name = "list_sources",
-        description = "List configured source connectors and checkpoint status."
+        description = "List configured sources as safe summaries with cursor pagination. Operational source configuration is never disclosed."
     )]
     async fn list_sources(
         &self,
+        Parameters(args): Parameters<McpSourceListArgs>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpSourceListResponse>, McpError> {
         let user_id = self.user_id_from_context(&context)?;
@@ -322,14 +275,8 @@ impl Context69McpServer {
             .visible_sources(user_id)
             .await
             .map_err(internal_error)?;
-        let truncated = sources.len() > 100;
-        let mut sources = sources;
-        sources.truncate(100);
-        Ok(Json(McpSourceListResponse {
-            sources,
-            truncated,
-            has_more: truncated,
-        }))
+        let summaries = source_tools::summarize_all(&sources);
+        Ok(Json(source_tools::paged_response(&summaries, &args)?))
     }
 
     async fn visible_sources(
@@ -344,103 +291,27 @@ impl Context69McpServer {
     }
 }
 
-fn document_summary(document: DocumentResponse) -> McpDocumentSummary {
-    McpDocumentSummary {
-        document_id: document.document_id,
-        external_id: document.external_id,
-        title: document.title,
-        summary: document.summary,
-        source_uri: document.source_uri,
-        published_at: document.published_at,
-        updated_at: document.updated_at,
-    }
-}
-
-fn paginate_document(
-    mut document: DocumentResponse,
-    args: &McpDocumentArgs,
-) -> Result<McpDocumentDetailResponse, McpError> {
-    if args.chunk_limit == 0 || args.chunk_limit > 50 {
-        return Err(McpError::invalid_params(
-            "chunk_limit must be between 1 and 50".to_string(),
-            Some(serde_json::json!({"fix": "set chunk_limit to a value between 1 and 50"})),
-        ));
-    }
-    let start = args
-        .chunk_cursor
-        .as_deref()
-        .unwrap_or("0")
-        .parse::<usize>()
-        .map_err(|_| {
-            McpError::invalid_params(
-                "chunk_cursor must be a non-negative integer".to_string(),
-                Some(serde_json::json!({"fix": "use the next_chunk_cursor returned by get_document"})),
-            )
-        })?;
-    let end = start
-        .saturating_add(args.chunk_limit)
-        .min(document.chunks.len());
-    let has_more = end < document.chunks.len();
-    let next_chunk_cursor = has_more.then(|| end.to_string());
-    document.chunks = document
-        .chunks
-        .into_iter()
-        .skip(start)
-        .take(args.chunk_limit)
-        .collect();
-    for chunk in &mut document.chunks {
-        chunk.text = chunk.text.chars().take(4_000).collect();
-    }
-    Ok(McpDocumentDetailResponse {
-        document,
-        next_chunk_cursor,
-        has_more,
-        truncated: has_more,
-    })
-}
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-struct McpDocumentQueryArgs {
-    group_path: String,
-    query: DocumentQueryRequest,
-}
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-struct McpDocumentKeyArgs {
-    group_path: String,
-    key: DocumentKey,
-    #[serde(default)]
-    locale: Option<String>,
-}
-
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Context69McpServer {
     async fn list_resources(
         &self,
-        _request: Option<PaginatedRequestParams>,
+        request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
+        let start = source_tools::resource_offset(
+            request.as_ref().and_then(|params| params.cursor.as_deref()),
+        )?;
         let user_id = self.user_id_from_context(&context)?;
-        let mut sources = self
+        let sources = self
             .visible_sources(user_id)
             .await
             .map_err(internal_error)?;
-        let truncated = sources.len() > 100;
-        sources.truncate(100);
-        let resources = sources
-            .into_iter()
-            .map(|source| {
-                Resource::new(
-                    format!("context69://sources/{}", source.source_key),
-                    source.source_key,
-                )
-                .with_description("Configured source checkpoint status")
-                .with_mime_type("application/json")
-            })
-            .collect::<Vec<_>>();
+        let summaries = source_tools::summarize_all(&sources);
+        let (resources, next_cursor) = source_tools::resource_page(&summaries, start);
         Ok(ListResourcesResult {
             meta: None,
             resources,
-            next_cursor: truncated.then(|| "100".to_string()),
+            next_cursor,
         })
     }
 
@@ -472,16 +343,14 @@ impl ServerHandler for Context69McpServer {
                 .visible_sources(user_id)
                 .await
                 .map_err(internal_error)?;
-            let source = sources
+            let summaries = source_tools::summarize_all(&sources);
+            let summary = summaries
                 .into_iter()
-                .find(|source| source.source_key == source_key)
+                .find(|summary| summary.source_key == source_key)
                 .context("source not found")
                 .map_err(|error| McpError::resource_not_found(error.to_string(), None))?;
-            let content = serde_json::to_string_pretty(&source)
-                .map_err(|error| internal_error(anyhow::Error::new(error)))?;
-            return Ok(ReadResourceResult::new(vec![
-                ResourceContents::text(content, uri).with_mime_type("application/json"),
-            ]));
+            let content = source_tools::resource_content(&uri, &summary)?;
+            return Ok(ReadResourceResult::new(vec![content]));
         }
 
         if let Some(document_id) = uri.strip_prefix("context69://documents/") {
@@ -501,15 +370,7 @@ impl ServerHandler for Context69McpServer {
                         internal_error(error)
                     }
                 })?;
-            let detail = paginate_document(
-                document,
-                &McpDocumentArgs {
-                    document_id,
-                    locale: None,
-                    chunk_cursor: None,
-                    chunk_limit: 20,
-                },
-            )?;
+            let detail = document_tools::first_page_detail(&document)?;
             let content = serde_json::to_string_pretty(&detail)
                 .map_err(|error| internal_error(anyhow::Error::new(error)))?;
             return Ok(ReadResourceResult::new(vec![
@@ -577,7 +438,7 @@ fn cors_layer() -> CorsLayer {
         ])
 }
 
-fn internal_error<E>(error: E) -> McpError
+pub(crate) fn internal_error<E>(error: E) -> McpError
 where
     E: Into<anyhow::Error>,
 {

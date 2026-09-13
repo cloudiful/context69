@@ -8,6 +8,7 @@ pub mod library;
 pub mod mcp;
 pub mod namespace;
 pub mod pagination;
+pub mod projections;
 pub mod search;
 pub mod settings;
 pub mod sources;
@@ -53,9 +54,11 @@ pub use library::{
     PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
 pub use mcp::{
-    McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpDocumentArgs,
-    McpDocumentDetailResponse, McpDocumentQueryResponse, McpDocumentSummary, McpSearchHit,
-    McpSearchResponse, McpSourceListResponse,
+    MCP_QUERY_LIMIT_DEFAULT, MCP_TOOL_NAMES, McpBatchDocumentArgs, McpBatchDocumentItem,
+    McpBatchDocumentKeys, McpBatchDocumentResponse, McpDocumentArgs, McpDocumentDetailResponse,
+    McpDocumentKeyArgs, McpDocumentQuery, McpDocumentQueryArgs, McpDocumentQueryResponse,
+    McpSearchRequest, McpSearchResponse, McpSourceListArgs, McpSourceListResponse,
+    paginate_document_detail, paginate_source_summaries, parse_chunk_cursor, parse_offset_cursor,
 };
 pub use namespace::{
     CreateGroupRequest, GroupKind, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
@@ -67,6 +70,16 @@ pub use pagination::{
     CURSOR_LIMIT_MAX, CURSOR_LIMIT_MIN, CursorPageQuery, CursorPagination, OffsetPageQuery,
     OffsetPagination, PAGE_MAX, PAGE_MIN, PAGE_SIZE_MAX, PAGE_SIZE_MIN, SortDirection,
     default_limit, default_page, default_page_size,
+};
+pub use projections::{
+    MCP_BATCH_CHUNKS_PER_ITEM, MCP_BATCH_KEYS_MAX, MCP_CHUNK_LIMIT_DEFAULT, MCP_CHUNK_LIMIT_MAX,
+    MCP_CHUNK_LIMIT_MIN, MCP_CHUNK_TEXT_MAX_CHARS, MCP_CURSOR_MAX_CHARS, MCP_DESCRIPTION_MAX_CHARS,
+    MCP_DISPLAY_NAME_MAX_CHARS, MCP_EXTERNAL_ID_MAX_CHARS, MCP_GROUP_PATH_MAX_CHARS,
+    MCP_LOCALE_MAX_CHARS, MCP_QUERY_MAX_CHARS, MCP_SEARCH_LIMIT_DEFAULT, MCP_SEARCH_LIMIT_MAX,
+    MCP_SEARCH_LIMIT_MIN, MCP_SNIPPET_MAX_CHARS, MCP_SOURCE_KEY_MAX_CHARS,
+    MCP_SOURCE_LIMIT_DEFAULT, MCP_SOURCE_LIMIT_MAX, MCP_SOURCE_LIMIT_MIN, MCP_SOURCE_URI_MAX_CHARS,
+    MCP_SUMMARY_MAX_CHARS, MCP_TITLE_MAX_CHARS, McpDocumentChunk, McpDocumentDetail,
+    McpDocumentSummary, McpSearchHit, McpSourceSummary, truncate_chars,
 };
 pub use search::{
     CanonicalSearchRequest, DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode,
