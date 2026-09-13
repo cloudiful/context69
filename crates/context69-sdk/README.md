@@ -122,7 +122,37 @@ bounded `search_compact` projection, document detail/batch detail,
 extraction templates, health, and authentication identity. Every type needed
 to construct a call (`TaskListView`, `TaskItemsQuery`, `SortDirection`,
 `SourcePolicy`, `IngestOptions`, canonical search/settings types) is
-re-exported from `context69_sdk` alone. The complete low-level transport
-covering all 116 HTTP operations is Task 4b remaining work and is not
-claimed here; low-level REST handles and `authorized_request` are not part
-of this SDK.
+re-exported from `context69_sdk` alone.
+
+## Raw transport (all 116 operations)
+
+`client.raw()` is the complete low-level surface. Every HTTP operation in
+the current OpenAPI appears exactly once in `OPERATIONS` (sorted by
+`operation_id` with method, path template, auth, body kind, shared-contract
+request/response names, success status, and idempotency). Build a
+`RawRequest` with explicit `path_param`/`query`/`query_opt`/`json_body`
+helpers and run it with `RawClient::execute`; decode success JSON with
+`RawResponse::decode` into shared contract types.
+
+```rust,no_run
+use context69_sdk::{Context69Client, RawRequest};
+
+# async fn example(client: &Context69Client) -> Result<(), Box<dyn std::error::Error>> {
+let request = RawRequest::new("get_task")?
+    .path_param("task_id", "11111111-1111-1111-1111-111111111111");
+let raw = client.raw().execute(&request).await?;
+let task: context69_sdk::TaskResponse = raw.decode()?;
+# let _ = task;
+# Ok(())
+# }
+```
+
+Path segments use the shared transport encoder, queries are sent
+explicitly with no hidden defaults, `healthz`/`login`/`logout` need no
+token while every other operation sends `Bearer`, and the six
+task-submitting operations support a stable `ctx69-sdk-*`
+`Idempotency-Key` via `with_auto_idempotency_key`. Limitation: with the
+current `reqwest` features the two `multipart/form-data` uploads accept
+pre-encoded bytes via `raw_body`, `search_stream` returns SSE bytes for
+the caller to parse, and there are no per-operation typed methods by
+design; the generic registry plus shared contract types is the surface.

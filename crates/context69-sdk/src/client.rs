@@ -1,5 +1,5 @@
 mod facade;
-mod transport;
+pub(crate) mod transport;
 
 use std::{sync::Arc, time::Duration};
 
@@ -52,6 +52,18 @@ pub struct Context69ClientBuilder {
 }
 
 impl Context69Client {
+    pub(crate) fn http_client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    pub(crate) fn base_url_ref(&self) -> &Url {
+        &self.base_url
+    }
+
+    pub(crate) async fn bearer_token(&self) -> Option<String> {
+        self.session.read().await.personal_access_token.clone()
+    }
+
     pub fn builder() -> Context69ClientBuilder {
         Context69ClientBuilder {
             base_url: None,
