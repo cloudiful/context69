@@ -99,3 +99,135 @@ fn pagination_window_signals_are_optional_and_backward_compatible() {
     assert_eq!(decoded.has_more, None);
     assert_eq!(decoded.total_is_exact, Some(false));
 }
+
+const INVENTORY: &str = include_str!("../../../docs/contracts/v0.16-inventory.md");
+
+fn inventory_http_rows() -> Vec<Vec<String>> {
+    let marker = "## HTTP operations";
+    let start = INVENTORY
+        .find(marker)
+        .expect("inventory has ## HTTP operations");
+    let rest = &INVENTORY[start..];
+    let end = rest[marker.len()..]
+        .find("\n## ")
+        .map(|i| i + marker.len())
+        .unwrap_or(rest.len());
+    let section = &rest[..end];
+    let mut rows = Vec::new();
+    for line in section.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('|') {
+            continue;
+        }
+        let raw: Vec<&str> = trimmed.split('|').collect();
+        if raw.len() < 11 {
+            continue;
+        }
+        let inner: Vec<String> = raw[1..raw.len() - 1]
+            .iter()
+            .map(|s| s.trim().to_string())
+            .collect();
+        if inner.len() != 9 || inner[0] == "operation_id" || inner[0].starts_with("---") {
+            continue;
+        }
+        rows.push(inner);
+    }
+    rows
+}
+
+fn inventory_shared_schemas() -> Vec<String> {
+    let marker = "## Shared schemas";
+    let start = INVENTORY
+        .find(marker)
+        .expect("inventory has ## Shared schemas");
+    let rest = &INVENTORY[start..];
+    let end = rest[marker.len()..]
+        .find("\n## ")
+        .map(|i| i + marker.len())
+        .unwrap_or(rest.len());
+    let section = &rest[..end];
+    let mut out = Vec::new();
+    for line in section.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- `") {
+            continue;
+        }
+        let begin = trimmed.find('`').expect("backtick") + 1;
+        let finish = trimmed[begin..].find('`').expect("closing") + begin;
+        let name = trimmed[begin..finish].trim().to_string();
+        if !name.is_empty() {
+            out.push(name);
+        }
+    }
+    out
+}
+
+#[test]
+fn contract_inventory_is_machine_checkable_and_frozen() {
+    let rows = inventory_http_rows();
+    assert!(!rows.is_empty(), "inventory must list HTTP operations");
+    let mut ids = std::collections::HashSet::new();
+    for row in &rows {
+        assert_eq!(row.len(), 9, "each inventory row has 9 columns: {row:?}");
+        assert!(
+            ids.insert(row[0].clone()),
+            "duplicate operation_id in inventory: {}",
+            row[0]
+        );
+        assert!(
+            ["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&row[1].as_str()),
+            "bad method {} for {}",
+            row[1],
+            row[0]
+        );
+        assert!(
+            ["high-level", "none", "raw"].contains(&row[6].as_str()),
+            "bad sdk_surface {} for {}",
+            row[6],
+            row[0]
+        );
+        assert!(
+            ["public", "authenticated", "admin"].contains(&row[8].as_str()),
+            "bad visibility {} for {}",
+            row[8],
+            row[0]
+        );
+    }
+    let shared = inventory_shared_schemas();
+    assert!(!shared.is_empty(), "inventory must list shared schemas");
+    let mut shared_seen = std::collections::HashSet::new();
+    for name in &shared {
+        assert!(
+            shared_seen.insert(name.clone()),
+            "duplicate shared schema: {name}"
+        );
+    }
+    for required in [
+        "ApiErrorResponse",
+        "SearchRequest",
+        "SearchResponse",
+        "TaskListQuery",
+        "TaskPageResponse",
+        "Pagination",
+        "SourceStatus",
+        "DocumentResponse",
+    ] {
+        assert!(
+            shared_seen.contains(required),
+            "inventory shared schemas must contain {required}"
+        );
+    }
+    // SDK and MCP surfaces are enumerated in prose sections.
+    for method in ["task_items", "search_compact", "release_file_source", "me"] {
+        assert!(
+            INVENTORY.contains(&format!("`{method}`")),
+            "inventory must mention SDK method `{method}`"
+        );
+    }
+    for tool in ["search_documents", "list_sources"] {
+        assert!(
+            INVENTORY.contains(tool),
+            "inventory must mention MCP tool {tool}"
+        );
+    }
+}

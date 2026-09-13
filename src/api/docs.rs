@@ -509,5 +509,140 @@ mod tests {
         assert!(source_status_properties.contains_key("display_name"));
         assert!(source_status_properties.contains_key("description"));
         assert!(source_status_properties.contains_key("example_queries"));
+
+        // Task 1 parity: inventory, OpenAPI operation ids, and shared schemas agree.
+        assert_inventory_matches_openapi(&json);
+    }
+
+    const INVENTORY: &str = include_str!("../../docs/contracts/v0.16-inventory.md");
+
+    fn inventory_http_section() -> String {
+        let marker = "## HTTP operations";
+        let start = INVENTORY
+            .find(marker)
+            .expect("inventory has ## HTTP operations");
+        let rest = &INVENTORY[start..];
+        let end = rest[marker.len()..]
+            .find("\n## ")
+            .map(|i| i + marker.len())
+            .unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    fn inventory_shared_schemas() -> Vec<String> {
+        let marker = "## Shared schemas";
+        let start = INVENTORY
+            .find(marker)
+            .expect("inventory has ## Shared schemas");
+        let rest = &INVENTORY[start..];
+        let end = rest[marker.len()..]
+            .find("\n## ")
+            .map(|i| i + marker.len())
+            .unwrap_or(rest.len());
+        let section = &rest[..end];
+        let mut out = Vec::new();
+        for line in section.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("- `") {
+                continue;
+            }
+            let begin = trimmed.find('`').expect("backtick") + 1;
+            let finish = trimmed[begin..].find('`').expect("closing") + begin;
+            let name = trimmed[begin..finish].trim().to_string();
+            if !name.is_empty() {
+                out.push(name);
+            }
+        }
+        out
+    }
+
+    fn assert_inventory_matches_openapi(json: &Value) {
+        let section = inventory_http_section();
+        let mut rows: Vec<(String, String, String)> = Vec::new();
+        for line in section.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with('|') {
+                continue;
+            }
+            let raw: Vec<&str> = trimmed.split('|').collect();
+            if raw.len() < 11 {
+                continue;
+            }
+            let inner: Vec<String> = raw[1..raw.len() - 1]
+                .iter()
+                .map(|s| s.trim().to_string())
+                .collect();
+            if inner.len() != 9 || inner[0] == "operation_id" || inner[0].starts_with("---") {
+                continue;
+            }
+            rows.push((inner[0].clone(), inner[1].clone(), inner[2].clone()));
+        }
+        assert!(!rows.is_empty(), "inventory HTTP rows must not be empty");
+        let mut seen = std::collections::HashSet::new();
+        for (oid, _, _) in &rows {
+            assert!(
+                seen.insert(oid.clone()),
+                "duplicate operation_id in inventory: {oid}"
+            );
+        }
+        let paths = json
+            .get("paths")
+            .and_then(Value::as_object)
+            .expect("paths to exist");
+        let mut openapi_ops: Vec<(String, String, String)> = Vec::new();
+        let mut openapi_ids = std::collections::HashSet::new();
+        for (path, methods) in paths {
+            let methods = methods.as_object().expect("path object");
+            for method in ["get", "post", "put", "patch", "delete"] {
+                if let Some(op) = methods.get(method) {
+                    let oid = op
+                        .get("operationId")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    assert!(!oid.is_empty(), "missing operationId for {method} {path}");
+                    assert!(
+                        openapi_ids.insert(oid.clone()),
+                        "duplicate operationId in OpenAPI: {oid}"
+                    );
+                    openapi_ops.push((oid, method.to_uppercase(), path.clone()));
+                }
+            }
+        }
+        let inventory_map: std::collections::HashMap<_, _> =
+            rows.iter().map(|(oid, m, p)| (oid.clone(), (m.clone(), p.clone()))).collect();
+        for (oid, method, path) in &openapi_ops {
+            let found = inventory_map.get(oid).unwrap_or_else(|| {
+                panic!("unclassified OpenAPI operation: {oid} {method} {path}")
+            });
+            assert_eq!(&found.0, method, "method mismatch for {oid}");
+            assert_eq!(&found.1, path, "path mismatch for {oid}");
+        }
+        let openapi_map: std::collections::HashMap<_, _> = openapi_ops
+            .iter()
+            .map(|(oid, m, p)| (oid.clone(), (m.clone(), p.clone())))
+            .collect();
+        for (oid, method, path) in &rows {
+            let found = openapi_map.get(oid).unwrap_or_else(|| {
+                panic!("inventory row not in OpenAPI: {oid} {method} {path}")
+            });
+            assert_eq!(method, &found.0, "method mismatch for {oid}");
+            assert_eq!(path, &found.1, "path mismatch for {oid}");
+        }
+        assert_eq!(
+            rows.len(),
+            openapi_ops.len(),
+            "inventory and OpenAPI operation counts must match"
+        );
+        let schemas = json
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas to exist");
+        for name in inventory_shared_schemas() {
+            assert!(
+                schemas.contains_key(&name),
+                "inventory shared schema missing in OpenAPI: {name}"
+            );
+        }
     }
 }
