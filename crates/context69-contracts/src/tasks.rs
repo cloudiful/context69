@@ -219,6 +219,11 @@ impl TaskListView {
     }
 }
 
+/// v0.15 task list query kept for wire compatibility.
+///
+/// Deprecated `trashed` stays so legacy callers keep compiling; new code
+/// should use [`CanonicalTaskListQuery`], which requires a typed `view` and
+/// carries no `trashed` flag.
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
 #[into_params(parameter_in = Query)]
 pub struct TaskListQuery {
@@ -256,6 +261,71 @@ pub struct TaskListQuery {
     pub sort_by: Option<TaskSortBy>,
     #[serde(default)]
     pub sort_direction: Option<crate::SortDirection>,
+}
+
+/// v0.16 canonical task list query: typed `view` is required and the legacy
+/// `trashed` flag is gone. Offset bounds match [`crate::OffsetPageQuery`].
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
+#[into_params(parameter_in = Query)]
+pub struct CanonicalTaskListQuery {
+    #[serde(default = "default_page")]
+    #[param(minimum = 1, maximum = 10_000)]
+    #[schema(minimum = 1, maximum = 10_000)]
+    #[schemars(range(min = 1, max = 10_000))]
+    pub page: u32,
+    #[serde(default = "default_page_size")]
+    #[param(minimum = 1, maximum = 100)]
+    #[schema(minimum = 1, maximum = 100)]
+    #[schemars(range(min = 1, max = 100))]
+    pub page_size: u32,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub kind: Option<TaskKind>,
+    #[serde(default)]
+    pub status: Option<TaskStatus>,
+    pub view: TaskListView,
+    #[serde(default)]
+    pub stage: Option<String>,
+    #[serde(default)]
+    pub waiting_reason: Option<String>,
+    #[serde(default)]
+    pub dependency_key: Option<String>,
+    #[serde(default)]
+    pub sort_by: Option<TaskSortBy>,
+    #[serde(default)]
+    pub sort_direction: Option<crate::SortDirection>,
+}
+
+impl CanonicalTaskListQuery {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.page == 0 || self.page > 10_000 {
+            return Err(anyhow::anyhow!("page must be between 1 and 10000"));
+        }
+        if self.page_size == 0 || self.page_size > 100 {
+            return Err(anyhow::anyhow!("page_size must be between 1 and 100"));
+        }
+        Ok(())
+    }
+}
+
+impl From<CanonicalTaskListQuery> for TaskListQuery {
+    fn from(canonical: CanonicalTaskListQuery) -> Self {
+        Self {
+            page: canonical.page,
+            page_size: canonical.page_size,
+            query: canonical.query,
+            kind: canonical.kind,
+            status: canonical.status,
+            trashed: None,
+            view: Some(canonical.view),
+            stage: canonical.stage,
+            waiting_reason: canonical.waiting_reason,
+            dependency_key: canonical.dependency_key,
+            sort_by: canonical.sort_by,
+            sort_direction: canonical.sort_direction,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -598,13 +668,25 @@ pub struct QuarantineStaleSubmittingResponse {
 }
 
 fn default_page() -> u32 {
-    1
+    crate::pagination::default_page()
 }
 
 fn default_page_size() -> u32 {
-    50
+    crate::pagination::default_page_size()
 }
 
 fn default_item_limit() -> u32 {
     100
+}
+
+impl FileBatchItem {
+    /// Canonical [`crate::IngestOptions`] view of the flattened v0.15 fields.
+    pub fn ingest_options(&self) -> crate::IngestOptions {
+        crate::IngestOptions::from_legacy(
+            self.metadata.clone(),
+            self.translation.clone(),
+            self.extraction.clone(),
+            self.delete_source_after_processing,
+        )
+    }
 }

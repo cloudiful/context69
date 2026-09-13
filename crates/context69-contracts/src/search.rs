@@ -7,6 +7,11 @@ use uuid::Uuid;
 
 use crate::Visibility;
 
+/// v0.15 search request kept for wire compatibility.
+///
+/// Deprecated `page` stays so existing HTTP/MCP callers keep compiling; new
+/// code should use [`CanonicalSearchRequest`], which keeps only opaque cursor
+/// pagination.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct SearchRequest {
     pub query: String,
@@ -59,6 +64,75 @@ fn default_sort() -> SearchSort {
     SearchSort::Relevance
 }
 
+/// Matches the v0.15 [`SearchRequest`] wire default so callers omitting
+/// `limit` observe no change when moving to the canonical shape.
+fn default_canonical_limit() -> u32 {
+    8
+}
+
+/// v0.16 canonical cursor search request: no legacy `page`, only an opaque
+/// `cursor` plus a bounded `limit`. Defaults (including `limit = 8`) match
+/// [`SearchRequest`]; only the removed `page` differs.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct CanonicalSearchRequest {
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    #[serde(default = "default_canonical_limit")]
+    #[schema(minimum = 1, maximum = 100)]
+    #[schemars(range(min = 1, max = 100))]
+    pub limit: u32,
+    #[serde(default)]
+    pub source_key: Option<String>,
+    #[serde(default)]
+    pub group_path: Option<String>,
+    #[serde(default)]
+    pub published_after: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub published_before: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub metadata_filters: Vec<crate::MetadataFilter>,
+    #[serde(default = "default_sort")]
+    pub sort: SearchSort,
+}
+
+impl CanonicalSearchRequest {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.query.trim().is_empty() {
+            return Err(anyhow::anyhow!("query must not be blank"));
+        }
+        if self.limit == 0 || self.limit > 100 {
+            return Err(anyhow::anyhow!("limit must be between 1 and 100"));
+        }
+        Ok(())
+    }
+
+    pub fn with_cursor(mut self, cursor: Option<String>) -> Self {
+        self.cursor = cursor;
+        self
+    }
+}
+
+impl From<CanonicalSearchRequest> for SearchRequest {
+    fn from(canonical: CanonicalSearchRequest) -> Self {
+        Self {
+            query: canonical.query,
+            locale: canonical.locale,
+            limit: canonical.limit as usize,
+            page: 1,
+            source_key: canonical.source_key,
+            group_path: canonical.group_path,
+            published_after: canonical.published_after,
+            published_before: canonical.published_before,
+            cursor: canonical.cursor,
+            metadata_filters: canonical.metadata_filters,
+            sort: canonical.sort,
+        }
+    }
+}
+
 /// Ordering applied to a `SearchRequest`. `Relevance` is the default and
 /// preserves the existing vector/hybrid + rerank pipeline. `Date` switches the
 /// pipeline to a `published_ts DESC` walk over Qdrant that emits latest-first
@@ -71,9 +145,12 @@ fn default_sort() -> SearchSort {
 /// ties follow the Qdrant `scroll` return order (deterministic per ordering
 /// epoch); the cursor pins the resume key so a replayed request continues
 /// the walk in the same order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchSort {
+    #[default]
     Relevance,
     Date,
 }
@@ -87,12 +164,6 @@ impl SearchSort {
     }
 }
 
-impl Default for SearchSort {
-    fn default() -> Self {
-        Self::Relevance
-    }
-}
-
 /// Windowed pagination for search responses.
 ///
 /// Mirrors `Pagination` (page/page_size/total/has_more/total_is_exact) and
@@ -100,6 +171,10 @@ impl Default for SearchSort {
 /// epoch the page was produced under. Page-based navigation stays accepted for
 /// compatibility, but cursor navigation is authoritative: the same cursor is
 /// only valid within one ordering (local vs reranked).
+///
+/// v0.16 direction: offset windows move to [`crate::OffsetPagination`] and
+/// pure cursor continuation moves to [`crate::CursorPagination`]; this shape
+/// stays for v0.15 wire compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct SearchPagination {
     pub page: u32,
@@ -157,7 +232,7 @@ impl SearchPagination {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {
     Vector,

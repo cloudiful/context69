@@ -2,6 +2,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// v0.15 offset window kept for wire compatibility.
+///
+/// Deprecated: new code should use [`crate::OffsetPagination`] for exact
+/// totals. Search windows should prefer cursor continuation via
+/// [`crate::CursorPagination`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct Pagination {
     pub page: u32,
@@ -100,14 +105,51 @@ pub struct HealthResponse {
     pub library_processing_queue: Option<crate::LibraryProcessingQueueHealth>,
 }
 
+/// Explicit object map for `metadata_json` payloads.
+///
+/// v0.16 handlers validate "must be an object" at the type boundary with this
+/// alias instead of after deserialization. Legacy `metadata_json: Value`
+/// fields keep `serde_json::Value` for v0.15 wire compatibility; new code
+/// should use this alias and convert with the helpers below.
+pub type MetadataObject = std::collections::BTreeMap<String, serde_json::Value>;
+
+pub fn default_metadata_object() -> MetadataObject {
+    MetadataObject::new()
+}
+
+pub fn default_metadata_json() -> serde_json::Value {
+    serde_json::json!({})
+}
+
+pub fn metadata_object_to_value(map: &MetadataObject) -> serde_json::Value {
+    serde_json::to_value(map).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+pub fn strict_metadata_object(value: &serde_json::Value) -> anyhow::Result<MetadataObject> {
+    match value {
+        serde_json::Value::Object(map) => Ok(map
+            .iter()
+            .map(|(key, val)| (key.clone(), val.clone()))
+            .collect()),
+        _ => Err(anyhow::anyhow!("metadata_json must be an object")),
+    }
+}
+
+/// v0.15 error envelope kept for wire compatibility.
+///
+/// The `code` stays a string so existing handlers keep compiling while the
+/// canonical [`crate::ApiErrorCode`] rolls out. New code should construct
+/// [`crate::CanonicalApiErrorResponse`] and convert with `From`.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ApiErrorResponse {
     /// Stable machine-readable error code for programmatic handling.
     pub code: String,
     /// Human-readable error message.
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 impl ApiErrorResponse {
@@ -116,7 +158,17 @@ impl ApiErrorResponse {
             code: code.to_string(),
             message,
             details: None,
+            request_id: None,
         }
+    }
+
+    pub fn with_request_id(mut self, request_id: String) -> Self {
+        self.request_id = Some(request_id);
+        self
+    }
+
+    pub fn code_enum(&self) -> anyhow::Result<crate::ApiErrorCode> {
+        self.code.parse()
     }
 
     pub fn code_for_status(status: u16) -> &'static str {

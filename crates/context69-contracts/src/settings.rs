@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -35,6 +36,49 @@ pub struct SearchSettingsResponse {
     pub keyword_weight: f32,
 }
 
+/// Explicit tri-state for PATCH-like secret updates.
+///
+/// Replaces the v0.15 `api_key + clear_api_key` dual flags: `Keep` leaves the
+/// stored secret untouched, `Set` stores a new value, `Clear` removes it.
+/// `Keep` is the default so missing fields never rotate or drop secrets.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(tag = "op", content = "value", rename_all = "snake_case")]
+pub enum SecretPatch {
+    #[default]
+    Keep,
+    Set(String),
+    Clear,
+}
+
+impl SecretPatch {
+    pub fn is_keep(&self) -> bool {
+        matches!(self, Self::Keep)
+    }
+
+    pub fn from_legacy(api_key: Option<String>, clear_api_key: bool) -> Self {
+        if clear_api_key {
+            Self::Clear
+        } else if let Some(value) = api_key {
+            Self::Set(value)
+        } else {
+            Self::Keep
+        }
+    }
+
+    pub fn apply_to(&self, current: Option<String>) -> Option<String> {
+        match self {
+            Self::Keep => current,
+            Self::Set(value) => Some(value.clone()),
+            Self::Clear => None,
+        }
+    }
+}
+
+/// v0.15 search settings update kept for wire compatibility.
+///
+/// Deprecated `api_key`/`clear_api_key` dual flags stay; new code should use
+/// [`CanonicalUpdateSearchSettingsRequest`], which carries a single
+/// [`SecretPatch`].
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateSearchSettingsRequest {
     pub mode: SearchMode,
@@ -55,6 +99,52 @@ pub struct UpdateSearchSettingsRequest {
     /// not push `vector_weight + keyword_weight` above 1.
     #[serde(default = "default_search_keyword_weight")]
     pub keyword_weight: f32,
+}
+
+/// v0.16 canonical search settings update: the `api_key`/`clear_api_key`
+/// dual flags collapse into one [`SecretPatch`].
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct CanonicalUpdateSearchSettingsRequest {
+    pub mode: SearchMode,
+    pub rerank_enabled: bool,
+    pub rerank_base_url: String,
+    pub rerank_model: String,
+    pub candidate_limit: usize,
+    pub timeout_secs: u64,
+    #[serde(default)]
+    pub api_key: SecretPatch,
+    #[serde(default = "default_search_vector_weight")]
+    pub vector_weight: f32,
+    #[serde(default = "default_search_keyword_weight")]
+    pub keyword_weight: f32,
+}
+
+impl CanonicalUpdateSearchSettingsRequest {
+    pub fn secret_patch(&self) -> &SecretPatch {
+        &self.api_key
+    }
+}
+
+impl From<CanonicalUpdateSearchSettingsRequest> for UpdateSearchSettingsRequest {
+    fn from(canonical: CanonicalUpdateSearchSettingsRequest) -> Self {
+        let (api_key, clear_api_key) = match canonical.api_key {
+            SecretPatch::Keep => (None, false),
+            SecretPatch::Set(value) => (Some(value), false),
+            SecretPatch::Clear => (None, true),
+        };
+        Self {
+            mode: canonical.mode,
+            rerank_enabled: canonical.rerank_enabled,
+            rerank_base_url: canonical.rerank_base_url,
+            rerank_model: canonical.rerank_model,
+            candidate_limit: canonical.candidate_limit,
+            timeout_secs: canonical.timeout_secs,
+            api_key,
+            clear_api_key,
+            vector_weight: canonical.vector_weight,
+            keyword_weight: canonical.keyword_weight,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

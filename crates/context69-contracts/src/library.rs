@@ -1,11 +1,14 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::{TaskRef, Visibility};
+
+pub use crate::pagination::SortDirection;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -292,28 +295,12 @@ impl LibraryResourceSortBy {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum SortDirection {
-    Asc,
-    Desc,
-}
-
-impl SortDirection {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Asc => "asc",
-            Self::Desc => "desc",
-        }
-    }
-}
-
 fn default_page() -> u32 {
-    1
+    crate::pagination::default_page()
 }
 
 fn default_page_size() -> u32 {
-    50
+    crate::pagination::default_page_size()
 }
 
 fn default_resource_sort_by() -> LibraryResourceSortBy {
@@ -427,7 +414,7 @@ pub struct LibraryFileDetailResponse {
     pub sections: Vec<LibraryDocumentSectionPreview>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct LibraryFileUploadMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
@@ -513,5 +500,47 @@ fn default_text_content_format() -> LibraryTextContentFormat {
 }
 
 fn default_metadata_json() -> Value {
-    json!({})
+    crate::common::default_metadata_json()
+}
+
+/// Canonical upload shapes share [`crate::IngestOptions`]; the flattened
+/// `metadata`/`translation`/`extraction` plus
+/// `delete_source_after_processing` fields below stay for v0.15 wire
+/// compatibility.
+///
+/// Deprecated: `delete_source_after_processing=false` means
+/// [`crate::SourcePolicy::Retain`]; `true` means
+/// [`crate::SourcePolicy::ReleaseAfterProcessing`]. New code should build an
+/// [`crate::IngestOptions`] and convert with the `ingest_options()` helpers.
+impl LibraryFileIngestOptions {
+    pub fn ingest_options(&self) -> crate::IngestOptions {
+        crate::IngestOptions::from_legacy(
+            Some(self.metadata.clone()),
+            self.translation.clone(),
+            self.extraction.clone(),
+            self.delete_source_after_processing,
+        )
+    }
+}
+
+impl PrepareLibraryUploadRequest {
+    pub fn ingest_options(&self) -> crate::IngestOptions {
+        crate::IngestOptions::from_legacy(
+            self.metadata.clone(),
+            self.translation.clone(),
+            self.extraction.clone(),
+            self.delete_source_after_processing,
+        )
+    }
+}
+
+impl ImportLibraryFileFromUrlRequest {
+    pub fn ingest_options(&self) -> crate::IngestOptions {
+        crate::IngestOptions::from_legacy(
+            self.metadata.clone(),
+            self.translation.clone(),
+            self.extraction.clone(),
+            self.delete_source_after_processing,
+        )
+    }
 }

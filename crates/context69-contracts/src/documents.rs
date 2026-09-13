@@ -84,12 +84,12 @@ pub struct MetadataIndexPageResponse {
     pub pagination: Pagination,
 }
 
-const fn default_page() -> u32 {
-    1
+fn default_page() -> u32 {
+    crate::pagination::default_page()
 }
 
-const fn default_page_size() -> u32 {
-    50
+fn default_page_size() -> u32 {
+    crate::pagination::default_page_size()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -117,11 +117,34 @@ pub struct MetadataFilter {
     pub max: Option<Value>,
 }
 
+/// v0.15 sort order kept for wire compatibility.
+///
+/// Deprecated: use the single canonical [`crate::SortDirection`] for new code.
+/// `SortOrder::Asc` maps to `SortDirection::Asc` and `SortOrder::Desc` maps to
+/// `SortDirection::Desc`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrder {
     Asc,
     Desc,
+}
+
+impl From<SortOrder> for crate::SortDirection {
+    fn from(order: SortOrder) -> Self {
+        match order {
+            SortOrder::Asc => Self::Asc,
+            SortOrder::Desc => Self::Desc,
+        }
+    }
+}
+
+impl From<crate::SortDirection> for SortOrder {
+    fn from(direction: crate::SortDirection) -> Self {
+        match direction {
+            crate::SortDirection::Asc => Self::Asc,
+            crate::SortDirection::Desc => Self::Desc,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -136,6 +159,32 @@ pub enum DocumentSortField {
 pub struct DocumentSort {
     pub field: DocumentSortField,
     pub order: SortOrder,
+}
+
+/// v0.16 canonical document sort using the single [`crate::SortDirection`].
+/// Legacy [`DocumentSort`] stays for v0.15 wire compatibility.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct CanonicalDocumentSort {
+    pub field: DocumentSortField,
+    pub direction: crate::SortDirection,
+}
+
+impl From<DocumentSort> for CanonicalDocumentSort {
+    fn from(sort: DocumentSort) -> Self {
+        Self {
+            field: sort.field,
+            direction: sort.order.into(),
+        }
+    }
+}
+
+impl From<CanonicalDocumentSort> for DocumentSort {
+    fn from(sort: CanonicalDocumentSort) -> Self {
+        Self {
+            field: sort.field,
+            order: sort.direction.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

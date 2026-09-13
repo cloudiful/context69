@@ -1,10 +1,13 @@
 pub mod auth;
 pub mod common;
 pub mod documents;
+pub mod errors;
 pub mod extraction;
+pub mod ingest;
 pub mod library;
 pub mod mcp;
 pub mod namespace;
+pub mod pagination;
 pub mod search;
 pub mod settings;
 pub mod sources;
@@ -18,20 +21,26 @@ pub use auth::{
     PersonalAccessTokenPageQuery, PersonalAccessTokenPageResponse, PersonalAccessTokenResponse,
     PersonalAccessTokenScope, ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
 };
-pub use common::{ApiErrorResponse, HealthResponse, HealthStatus, Pagination};
+pub use common::{
+    ApiErrorResponse, HealthResponse, HealthStatus, MetadataObject, Pagination,
+    default_metadata_json, default_metadata_object, metadata_object_to_value,
+    strict_metadata_object,
+};
 pub use documents::{
-    BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
+    BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CanonicalDocumentSort,
     CreateMetadataIndexRequest, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,
     DocumentQueryResponse, DocumentSort, DocumentSortField, MetadataDataType, MetadataFilter,
     MetadataFilterOperator, MetadataIndexPageQuery, MetadataIndexPageResponse,
     MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
     UpdateMetadataIndexRequest,
 };
+pub use errors::{ApiErrorCode, CanonicalApiErrorResponse};
 pub use extraction::{
     ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse,
     ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse, ExtractionTemplateInput,
     ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
 };
+pub use ingest::{CanonicalUploadMetadata, IngestOptions, SourcePolicy};
 pub use library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
     LibraryDependencyGateResponse, LibraryDocumentSectionPreview, LibraryFileDetailResponse,
@@ -41,7 +50,7 @@ pub use library::{
     LibraryResourceItem, LibraryResourceKind, LibraryResourcePageQuery,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTextContentFormat,
     LibraryTreeResponse, MoveFileRequest, MoveFolderRequest, PrepareLibraryUploadRequest,
-    PrepareLibraryUploadResponse, SortDirection, UpsertLibraryTextRequest,
+    PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
 pub use mcp::{
     McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpDocumentArgs,
@@ -54,19 +63,25 @@ pub use namespace::{
     MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest, UpsertMembershipRequest,
     UserDirectoryEntryResponse, Visibility,
 };
+pub use pagination::{
+    CURSOR_LIMIT_MAX, CURSOR_LIMIT_MIN, CursorPageQuery, CursorPagination, OffsetPageQuery,
+    OffsetPagination, PAGE_MAX, PAGE_MIN, PAGE_SIZE_MAX, PAGE_SIZE_MIN, SortDirection,
+    default_limit, default_page, default_page_size,
+};
 pub use search::{
-    DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse,
-    SearchSort,
+    CanonicalSearchRequest, DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode,
+    SearchRequest, SearchResponse, SearchSort,
 };
 pub use settings::{
-    DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,
-    DoclingVlmSettingsResponse, RuntimeChunkingSettings, RuntimeEmbeddingSettings,
-    RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeS3SettingsResponse,
-    RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse,
-    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
-    UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings,
-    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
-    VectorIndexRebuildState, VectorIndexRebuildStatus,
+    CanonicalUpdateSearchSettingsRequest, DoclingConnectionSettingsResponse,
+    DoclingSettingsResponse, DoclingSettingsSource, DoclingVlmSettingsResponse,
+    RuntimeChunkingSettings, RuntimeEmbeddingSettings, RuntimeFileLibrarySettings,
+    RuntimeQdrantSettings, RuntimeS3SettingsResponse, RuntimeSchedulerSettings,
+    RuntimeSettingsResponse, SearchSettingsResponse, SecretPatch, TestRuntimeValkeyRequest,
+    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings,
+    UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings, UpdateRuntimeS3Settings,
+    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, VectorIndexRebuildState,
+    VectorIndexRebuildStatus,
 };
 pub use sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,
@@ -75,15 +90,16 @@ pub use sources::{
     UpsertSourceConnectionRequest,
 };
 pub use tasks::{
-    CancelActiveTasksResponse, DeleteBatchRequest, EnsureScopeResponse, ExternalJobInfo,
-    FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest, PurgeTasksResponse,
-    QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse, QuarantinedExternalJob,
-    QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
-    RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
-    ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskMaintenanceOverview, TaskMaintenanceSettings,
-    TaskMaintenanceStats, TaskOrigin, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef,
-    TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
-    TranslationSubmitItem, UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
+    CancelActiveTasksResponse, CanonicalTaskListQuery, DeleteBatchRequest, EnsureScopeResponse,
+    ExternalJobInfo, FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest,
+    PurgeTasksResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
+    QuarantinedExternalJob, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,
+    QueuedDoclingTask, RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask,
+    RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus,
+    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
+    TaskMaintenanceOverview, TaskMaintenanceSettings, TaskMaintenanceStats, TaskOrigin,
+    TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse,
+    TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem,
+    UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
 };
 pub use translation::*;
