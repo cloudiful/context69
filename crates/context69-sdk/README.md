@@ -118,9 +118,14 @@ The public client surface is the ergonomic facade: scope provisioning,
 text/URL/file/delete batches via `submit_text_batch`/`submit_url_batch`/
 `submit_file_batch`/`submit_delete_batch` (SDK-generated `Idempotency-Key`), task
 submit/`get_task`/`list_tasks`/`list_task_items`/wait/retry/rerun/cancel/
-trash/restore/`purge_trashed_task`, task maintenance, `search` plus the
+trash/restore/`purge_trashed_task`, `search` plus the
 bounded `search_compact` projection, document detail/batch detail,
-extraction templates, health, and authentication identity. The v0.15 aliases
+extraction templates, health, and authentication identity. Task history is
+never auto-deleted; user bulk clear (`POST /v1/tasks/clear` with
+`ClearTaskHistoryRequest`/`ClearTaskHistoryResponse`) is raw-only via
+`client.raw()` operation `clear_task_history`. The retention/purge admin
+operations are removed; admin `cancel_active_tasks`, Docling
+`recover`/`queue` recovery, and `quarantine-submitting` stay. The v0.15 aliases
 (`text_batch`, `url_batch`, `file_batch`, `delete_batch`, `task`, `tasks`,
 `task_items`, `delete_task`) remain as deprecated shims in this release and
 are removed after the v0.16 cutover; new code must use the canonical names.
@@ -131,7 +136,7 @@ re-exported from `context69_sdk` alone. Ingest callers send
 `IngestOptions` (`source_policy: retain | release_after_processing`);
 search settings updates send `SecretPatch` (`{op: keep|set|clear}`).
 
-## Raw transport (all 116 operations)
+## Raw transport (all 114 operations)
 
 `client.raw()` is the complete low-level surface. Every HTTP operation in
 the current OpenAPI appears exactly once in `OPERATIONS` (sorted by
