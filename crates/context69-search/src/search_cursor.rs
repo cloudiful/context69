@@ -112,9 +112,9 @@
 //! + sort/context rejection) on top of the shared check.
 
 use anyhow::Result;
-use context69_contracts::DomainError;
-use context69_contracts::SearchHit;
-use context69_contracts::search::SearchPagination;
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_search::SearchHit;
+use context69_contracts_search::search::SearchPagination;
 use serde_json::{Value, json};
 
 use super::{
@@ -223,7 +223,7 @@ pub(crate) struct DateCursor {
 /// Build a context binding for a request. Both POST and SSE use the same
 /// function so the cursor and the active request share an identical context.
 pub(crate) fn cursor_context(
-    request: &context69_contracts::SearchRequest,
+    request: &context69_contracts_search::SearchRequest,
     limit: usize,
     generation: i64,
     settings: &crate::SearchSettings,

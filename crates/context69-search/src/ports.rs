@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts::{DocumentResponse, SearchHit, SearchRequest};
+use context69_contracts_search::{DocumentResponse, SearchHit, SearchRequest};
 use uuid::Uuid;
 
 use crate::{AccessScope, SearchPointHit, SearchSettings, StoredRerankItemScore};

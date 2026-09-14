@@ -1,7 +1,7 @@
 mod llm;
 
 use anyhow::Result;
-use context69_contracts::ExtractionFailureClass;
+use context69_contracts_extraction::ExtractionFailureClass;
 use serde_json::Value;
 
 use crate::store::StoredExtractionProvider;

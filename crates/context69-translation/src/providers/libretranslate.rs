@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts::DomainError;
+use context69_contracts_core::errors::DomainError;
 use serde_json::{Value, json};
 
 use super::{ProviderTranslationRequest, ProviderTranslationResult, TranslationProvider};

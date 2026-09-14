@@ -5,7 +5,7 @@ use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::Visibility;
+use context69_contracts_core::Visibility;
 
 /// v0.15 search request kept for wire compatibility.
 ///
@@ -43,7 +43,7 @@ pub struct SearchRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
     #[serde(default)]
-    pub metadata_filters: Vec<crate::MetadataFilter>,
+    pub metadata_filters: Vec<crate::documents::MetadataFilter>,
     /// Additive ordering mode. Defaults to `relevance` so existing clients
     /// observe no change. `date` is a latest-first walk over non-overlapping
     /// `published_ts` windows without rerank; the cursor pins sort+date mode
@@ -93,7 +93,7 @@ pub struct CanonicalSearchRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
     #[serde(default)]
-    pub metadata_filters: Vec<crate::MetadataFilter>,
+    pub metadata_filters: Vec<crate::documents::MetadataFilter>,
     #[serde(default = "default_sort")]
     pub sort: SearchSort,
 }
@@ -248,6 +248,14 @@ impl SearchMode {
     }
 }
 
+/// Default hybrid fusion weight for the vector channel (matches the legacy
+/// hard-coded blend in local scoring).
+pub const SEARCH_VECTOR_WEIGHT_DEFAULT: f32 = 0.55;
+/// Default hybrid fusion weight for the keyword channel (matches the legacy
+/// hard-coded blend in local scoring). The boost weight is the remaining
+/// margin of the unit budget: 1 - vector - keyword (default 0.10).
+pub const SEARCH_KEYWORD_WEIGHT_DEFAULT: f32 = 0.35;
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct SearchHit {
     pub chunk_id: Uuid,
@@ -288,7 +296,7 @@ pub struct SearchHit {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_locale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub translation_status: Option<crate::TranslationStatus>,
+    pub translation_status: Option<context69_contracts_translation::TranslationStatus>,
     #[serde(default)]
     pub is_fallback: bool,
 }
@@ -358,7 +366,7 @@ pub struct DocumentResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_locale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub translation_status: Option<crate::TranslationStatus>,
+    pub translation_status: Option<context69_contracts_translation::TranslationStatus>,
     #[serde(default)]
     pub is_fallback: bool,
 }

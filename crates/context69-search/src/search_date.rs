@@ -64,8 +64,8 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use context69_contracts::DomainError;
-use context69_contracts::{SearchHit, SearchRequest, SearchResponse};
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_search::{SearchHit, SearchRequest, SearchResponse};
 use tracing::info;
 
 use super::search_cursor::{
@@ -618,12 +618,13 @@ pub async fn run_date_search(
             None
         }
     };
-    let mut pagination = context69_contracts::search::SearchPagination::try_new_search_window(
-        1,
-        u32::try_from(limit)?,
-        accumulator.items.len() as u64,
-        if has_more { Some(true) } else { Some(false) },
-    )?;
+    let mut pagination =
+        context69_contracts_search::search::SearchPagination::try_new_search_window(
+            1,
+            u32::try_from(limit)?,
+            accumulator.items.len() as u64,
+            if has_more { Some(true) } else { Some(false) },
+        )?;
     pagination.next_cursor = next_cursor;
     pagination.prev_cursor = None;
     pagination.has_more = if has_more { Some(true) } else { Some(false) };

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use context69_contracts::SearchHit;
+use context69_contracts_search::SearchHit;
 use uuid::Uuid;
 
 use crate::{CachedRerankItemScore, RerankHit};
@@ -233,7 +233,8 @@ pub(crate) fn merge_cached_item_scores(
 
 #[cfg(test)]
 mod tests {
-    use context69_contracts::{SearchHit, Visibility};
+    use context69_contracts_core::Visibility;
+    use context69_contracts_search::SearchHit;
     use serde_json::json;
     use uuid::Uuid;
 

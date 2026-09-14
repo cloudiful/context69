@@ -9,4 +9,5 @@ publish = false
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
-context69-contracts.workspace = true
+context69-contracts-core.workspace = true
+context69-contracts-namespace.workspace = true

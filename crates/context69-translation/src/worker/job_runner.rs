@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use context69_contracts::DomainError;
-use context69_contracts::TranslationGlossaryEntry;
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_translation::TranslationGlossaryEntry;
 use tracing::warn;
 use uuid::Uuid;
 

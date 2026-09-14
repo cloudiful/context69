@@ -5,8 +5,8 @@ use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::DocumentResponse;
-use crate::Pagination;
+use crate::search::DocumentResponse;
+use context69_contracts_core::common::Pagination;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -85,11 +85,11 @@ pub struct MetadataIndexPageResponse {
 }
 
 fn default_page() -> u32 {
-    crate::pagination::default_page()
+    context69_contracts_core::pagination::default_page()
 }
 
 fn default_page_size() -> u32 {
-    crate::pagination::default_page_size()
+    context69_contracts_core::pagination::default_page_size()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -129,7 +129,7 @@ pub enum SortOrder {
     Desc,
 }
 
-impl From<SortOrder> for crate::SortDirection {
+impl From<SortOrder> for context69_contracts_core::pagination::SortDirection {
     fn from(order: SortOrder) -> Self {
         match order {
             SortOrder::Asc => Self::Asc,
@@ -138,11 +138,11 @@ impl From<SortOrder> for crate::SortDirection {
     }
 }
 
-impl From<crate::SortDirection> for SortOrder {
-    fn from(direction: crate::SortDirection) -> Self {
+impl From<context69_contracts_core::pagination::SortDirection> for SortOrder {
+    fn from(direction: context69_contracts_core::pagination::SortDirection) -> Self {
         match direction {
-            crate::SortDirection::Asc => Self::Asc,
-            crate::SortDirection::Desc => Self::Desc,
+            context69_contracts_core::pagination::SortDirection::Asc => Self::Asc,
+            context69_contracts_core::pagination::SortDirection::Desc => Self::Desc,
         }
     }
 }
@@ -166,7 +166,7 @@ pub struct DocumentSort {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct CanonicalDocumentSort {
     pub field: DocumentSortField,
-    pub direction: crate::SortDirection,
+    pub direction: context69_contracts_core::pagination::SortDirection,
 }
 
 impl From<DocumentSort> for CanonicalDocumentSort {

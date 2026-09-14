@@ -9,11 +9,11 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use context69_contracts::{
-    ApiErrorResponse, CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse,
-    RuntimeSettingsResponse, SearchSettingsResponse, TestRuntimeValkeyRequest,
-    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
-    UpdateSearchSettingsRequest,
+use context69_contracts_core::common::ApiErrorResponse;
+use context69_contracts_settings::{
+    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
+    SearchSettingsResponse, TestRuntimeValkeyRequest, UpdateDoclingSettingsRequest,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
 };
 use context69_http_support::{internal_error_response, map_settings_error};
 use utoipa::OpenApi;

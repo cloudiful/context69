@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use context69_contracts::{
+use context69_contracts_extraction::{
     ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobsResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
 };

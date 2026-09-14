@@ -1,10 +1,10 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use context69_contracts::DomainError;
-use context69_contracts::{
-    GroupTranslationSettingsResponse, Pagination, TranslationProviderPageResponse,
-    TranslationSettingsResponse, UpdateGroupTranslationSettingsRequest,
-    UpdateTranslationSettingsRequest,
+use context69_contracts_core::common::Pagination;
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_translation::{
+    GroupTranslationSettingsResponse, TranslationProviderPageResponse, TranslationSettingsResponse,
+    UpdateGroupTranslationSettingsRequest, UpdateTranslationSettingsRequest,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -188,7 +188,8 @@ impl TranslationStore {
                     .and_then(|item| clean(item.api_key.as_deref()))
                     .is_some();
             if provider.enabled
-                && provider.provider != context69_contracts::TranslationProviderKind::Libretranslate
+                && provider.provider
+                    != context69_contracts_translation::TranslationProviderKind::Libretranslate
                 && !has_key
             {
                 return Err(DomainError::invalid_argument(

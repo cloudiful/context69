@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts::{ExtractionDirective, ExtractionJobResponse};
+use context69_contracts_extraction::{ExtractionDirective, ExtractionJobResponse};
 use sqlx::PgPool;
 
 pub use store::{ExtractionStore, StoredExtractionTemplate};

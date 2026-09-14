@@ -8,10 +8,10 @@ use context69_contracts_core::Visibility;
 use context69_contracts_core::common::Pagination;
 use context69_contracts_core::pagination::SortDirection;
 
-use crate::{
-    GroupResponse, ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata,
-    UpsertLibraryTextRequest,
+use context69_contracts_library::{
+    ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata, UpsertLibraryTextRequest,
 };
+use context69_contracts_namespace::GroupResponse;
 
 pub use context69_contracts_core::TaskRef;
 
@@ -354,7 +354,7 @@ pub struct ScopeSpec {
     pub name: String,
     pub visibility: Visibility,
     #[serde(default)]
-    pub kind: Option<crate::GroupKind>,
+    pub kind: Option<context69_contracts_namespace::GroupKind>,
     #[serde(default)]
     pub metadata_indexes: Vec<ScopeMetadataIndex>,
 }
@@ -363,13 +363,13 @@ pub struct ScopeSpec {
 pub struct ScopeMetadataIndex {
     pub source_key: String,
     #[serde(flatten)]
-    pub definition: crate::CreateMetadataIndexRequest,
+    pub definition: context69_contracts_search::CreateMetadataIndexRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EnsureScopeResponse {
     pub group: GroupResponse,
-    pub metadata_indexes: Vec<crate::MetadataIndexResponse>,
+    pub metadata_indexes: Vec<context69_contracts_search::MetadataIndexResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -384,7 +384,7 @@ pub struct UrlBatchRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeleteBatchRequest {
-    pub items: Vec<crate::DocumentKey>,
+    pub items: Vec<context69_contracts_search::DocumentKey>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -400,13 +400,13 @@ pub struct FileBatchItem {
     /// deprecated flattened fields below. New code should send only this;
     /// v0.15 payloads send only the flattened fields and stay readable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub options: Option<crate::IngestOptions>,
+    pub options: Option<context69_contracts_library::IngestOptions>,
     #[serde(default)]
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default)]
-    pub translation: Option<crate::TranslationDirective>,
+    pub translation: Option<context69_contracts_translation::TranslationDirective>,
     #[serde(default)]
-    pub extraction: Option<crate::ExtractionDirective>,
+    pub extraction: Option<context69_contracts_extraction::ExtractionDirective>,
     /// Release the source object once processing succeeds. Chosen once at
     /// upload; defaults to `false` (retain the source).
     /// Deprecated: use `options.source_policy` instead.
@@ -447,7 +447,7 @@ pub enum TaskSubmitRequest {
     DeleteBatch {
         #[serde(default)]
         group_path: Option<String>,
-        items: Vec<crate::DocumentKey>,
+        items: Vec<context69_contracts_search::DocumentKey>,
     },
     SourceSync {
         #[serde(default)]
@@ -685,14 +685,14 @@ fn default_item_limit() -> u32 {
 }
 
 impl FileBatchItem {
-    /// Canonical [`crate::IngestOptions`] view. Prefers `options` when
+    /// Canonical [`context69_contracts_library::IngestOptions`] view. Prefers `options` when
     /// present (v0.16 wire); falls back to the flattened v0.15 fields for
     /// in-flight tasks and old clients.
-    pub fn ingest_options(&self) -> crate::IngestOptions {
+    pub fn ingest_options(&self) -> context69_contracts_library::IngestOptions {
         if let Some(options) = self.options.clone() {
             return options;
         }
-        crate::IngestOptions::from_legacy(
+        context69_contracts_library::IngestOptions::from_legacy(
             self.metadata.clone(),
             self.translation.clone(),
             self.extraction.clone(),
@@ -702,7 +702,10 @@ impl FileBatchItem {
 
     /// Build an item that carries both shapes: canonical `options` for new
     /// readers plus flattened duplicates for v0.15 readers.
-    pub fn with_ingest_options(mut self, options: crate::IngestOptions) -> Self {
+    pub fn with_ingest_options(
+        mut self,
+        options: context69_contracts_library::IngestOptions,
+    ) -> Self {
         self.delete_source_after_processing = options.as_delete_flag();
         self.translation = options.translation.clone();
         self.extraction = options.extraction.clone();

@@ -9,7 +9,8 @@ publish = false
 anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
-context69-contracts.workspace = true
+context69-contracts-core.workspace = true
+context69-contracts-namespace.workspace = true
 context69-http-support.workspace = true
 serde = { workspace = true, features = ["derive"] }
 utoipa.workspace = true

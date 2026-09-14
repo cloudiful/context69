@@ -1,0 +1,22 @@
+[package]
+name = "context69-contracts-tasks"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Tasks domain contracts for Context69."
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+context69-contracts-core.workspace = true
+context69-contracts-extraction.workspace = true
+context69-contracts-library.workspace = true
+context69-contracts-namespace.workspace = true
+context69-contracts-search.workspace = true
+context69-contracts-translation.workspace = true
+schemars = { workspace = true, features = ["chrono04", "uuid1"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+utoipa = { workspace = true, features = [ "chrono", "uuid" ] }
+uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }

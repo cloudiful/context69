@@ -3,15 +3,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::search::SearchMode;
+use context69_contracts_search::SearchMode;
 
-/// Default hybrid fusion weight for the vector channel (matches the legacy
-/// hard-coded blend in local scoring).
-pub const SEARCH_VECTOR_WEIGHT_DEFAULT: f32 = 0.55;
-/// Default hybrid fusion weight for the keyword channel (matches the legacy
-/// hard-coded blend in local scoring). The boost weight is the remaining
-/// margin of the unit budget: 1 - vector - keyword (default 0.10).
-pub const SEARCH_KEYWORD_WEIGHT_DEFAULT: f32 = 0.35;
+pub use context69_contracts_search::{SEARCH_KEYWORD_WEIGHT_DEFAULT, SEARCH_VECTOR_WEIGHT_DEFAULT};
 
 fn default_search_vector_weight() -> f32 {
     SEARCH_VECTOR_WEIGHT_DEFAULT

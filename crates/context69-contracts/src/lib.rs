@@ -1,20 +1,16 @@
-pub mod auth;
-pub mod documents;
-pub mod extraction;
-pub mod ingest;
-pub mod library;
-pub mod mcp;
-pub mod namespace;
-pub mod projections;
-pub mod search;
-pub mod settings;
-pub mod sources;
-pub mod tasks;
-pub mod translation;
-
+pub use context69_contracts_auth::auth;
 pub use context69_contracts_core::{common, errors, pagination};
+pub use context69_contracts_extraction::extraction;
+pub use context69_contracts_library::{ingest, library};
+pub use context69_contracts_mcp::{mcp, projections};
+pub use context69_contracts_namespace::namespace;
+pub use context69_contracts_search::{documents, search};
+pub use context69_contracts_settings::settings;
+pub use context69_contracts_sources::sources;
+pub use context69_contracts_tasks::tasks;
+pub use context69_contracts_translation::translation;
 
-pub use auth::{
+pub use context69_contracts_auth::auth::{
     AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AdminUserSortBy,
     AuthLoginRequest, AuthMeResponse, AuthUserResponse, CreateAdminUserRequest,
     CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
@@ -32,21 +28,15 @@ pub use context69_contracts_core::pagination::{
     OffsetPagination, PAGE_MAX, PAGE_MIN, PAGE_SIZE_MAX, PAGE_SIZE_MIN, SortDirection,
     default_limit, default_page, default_page_size,
 };
-pub use documents::{
-    BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CanonicalDocumentSort,
-    CreateMetadataIndexRequest, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,
-    DocumentQueryResponse, DocumentSort, DocumentSortField, MetadataDataType, MetadataFilter,
-    MetadataFilterOperator, MetadataIndexPageQuery, MetadataIndexPageResponse,
-    MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
-    UpdateMetadataIndexRequest,
-};
-pub use extraction::{
+pub use context69_contracts_extraction::extraction::{
     ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse,
     ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse, ExtractionTemplateInput,
     ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
 };
-pub use ingest::{CanonicalUploadMetadata, IngestOptions, SourcePolicy};
-pub use library::{
+pub use context69_contracts_library::ingest::{
+    CanonicalUploadMetadata, IngestOptions, SourcePolicy,
+};
+pub use context69_contracts_library::library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
     LibraryDependencyGateResponse, LibraryDocumentSectionPreview, LibraryFileDetailResponse,
     LibraryFileIngestOptions, LibraryFileSummary, LibraryFileUploadMetadata, LibraryFolderNode,
@@ -57,20 +47,14 @@ pub use library::{
     LibraryTreeResponse, MoveFileRequest, MoveFolderRequest, PrepareLibraryUploadRequest,
     PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
-pub use mcp::{
+pub use context69_contracts_mcp::mcp::{
     MCP_QUERY_LIMIT_DEFAULT, MCP_TOOL_NAMES, McpBatchDocumentArgs, McpBatchDocumentItem,
     McpBatchDocumentKeys, McpBatchDocumentResponse, McpDocumentArgs, McpDocumentDetailResponse,
     McpDocumentKeyArgs, McpDocumentQuery, McpDocumentQueryArgs, McpDocumentQueryResponse,
     McpSearchRequest, McpSearchResponse, McpSourceListArgs, McpSourceListResponse,
     paginate_document_detail, paginate_source_summaries, parse_chunk_cursor, parse_offset_cursor,
 };
-pub use namespace::{
-    CreateGroupRequest, GroupKind, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
-    GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy, MembershipRole,
-    MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest, UpsertMembershipRequest,
-    UserDirectoryEntryResponse, Visibility,
-};
-pub use projections::{
+pub use context69_contracts_mcp::projections::{
     MCP_BATCH_CHUNKS_PER_ITEM, MCP_BATCH_KEYS_MAX, MCP_CHUNK_LIMIT_DEFAULT, MCP_CHUNK_LIMIT_MAX,
     MCP_CHUNK_LIMIT_MIN, MCP_CHUNK_TEXT_MAX_CHARS, MCP_CURSOR_MAX_CHARS, MCP_DESCRIPTION_MAX_CHARS,
     MCP_DISPLAY_NAME_MAX_CHARS, MCP_EXTERNAL_ID_MAX_CHARS, MCP_GROUP_PATH_MAX_CHARS,
@@ -80,11 +64,25 @@ pub use projections::{
     MCP_SUMMARY_MAX_CHARS, MCP_TITLE_MAX_CHARS, McpDocumentChunk, McpDocumentDetail,
     McpDocumentSummary, McpSearchHit, McpSourceSummary, truncate_chars,
 };
-pub use search::{
+pub use context69_contracts_namespace::namespace::{
+    CreateGroupRequest, GroupKind, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
+    GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy, MembershipRole,
+    MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest, UpsertMembershipRequest,
+    UserDirectoryEntryResponse, Visibility,
+};
+pub use context69_contracts_search::documents::{
+    BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CanonicalDocumentSort,
+    CreateMetadataIndexRequest, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,
+    DocumentQueryResponse, DocumentSort, DocumentSortField, MetadataDataType, MetadataFilter,
+    MetadataFilterOperator, MetadataIndexPageQuery, MetadataIndexPageResponse,
+    MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
+    UpdateMetadataIndexRequest,
+};
+pub use context69_contracts_search::search::{
     CanonicalSearchRequest, DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode,
     SearchRequest, SearchResponse, SearchSort,
 };
-pub use settings::{
+pub use context69_contracts_settings::settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingConnectionSettingsResponse,
     DoclingSettingsResponse, DoclingSettingsSource, DoclingVlmSettingsResponse,
     RuntimeChunkingSettings, RuntimeEmbeddingSettings, RuntimeFileLibrarySettings,
@@ -95,13 +93,13 @@ pub use settings::{
     UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, VectorIndexRebuildState,
     VectorIndexRebuildStatus,
 };
-pub use sources::{
+pub use context69_contracts_sources::sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,
     SourceConnectorType, SourceFolderResponse, SourceOriginStatusKind, SourcePageQuery,
     SourcePageResponse, SourceStatus, SourceSyncStrategy, SyncOutcome,
     UpsertSourceConnectionRequest,
 };
-pub use tasks::{
+pub use context69_contracts_tasks::tasks::{
     CancelActiveTasksResponse, CanonicalTaskListQuery, DeleteBatchRequest, EnsureScopeResponse,
     ExternalJobInfo, FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest,
     PurgeTasksResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
@@ -114,4 +112,4 @@ pub use tasks::{
     TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem,
     UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
 };
-pub use translation::*;
+pub use context69_contracts_translation::translation::*;

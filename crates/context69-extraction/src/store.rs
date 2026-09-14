@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
-use context69_contracts::{
+use context69_contracts_extraction::{
     ExtractionFailureClass, ExtractionJobResponse, ExtractionJobStatus, ExtractionResultResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse,
 };

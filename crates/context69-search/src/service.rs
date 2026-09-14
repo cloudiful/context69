@@ -1,8 +1,9 @@
 use std::{sync::Arc, time::Instant};
 
 use anyhow::Result;
-use context69_contracts::{
-    DocumentResponse, DomainError, SearchHit, SearchMode, SearchRequest, SearchResponse,
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_search::{
+    DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse,
 };
 use serde_json::Value;
 use tracing::{info, warn};
@@ -190,7 +191,7 @@ impl SearchService {
         } else {
             let page = u32::try_from(request.page)
                 .map_err(|_| DomainError::invalid_argument("page is too large"))?;
-            let offset = context69_contracts::Pagination::offset(page, page_size)
+            let offset = context69_contracts_core::common::Pagination::offset(page, page_size)
                 .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
             usize::try_from(offset).map_err(|_| {
                 anyhow::Error::from(DomainError::invalid_argument("page offset is too large"))
@@ -518,7 +519,7 @@ impl SearchService {
         user_id: Option<i64>,
         request: SearchRequest,
     ) -> Result<SearchResponse> {
-        if request.sort == context69_contracts::SearchSort::Date {
+        if request.sort == context69_contracts_search::SearchSort::Date {
             return self.search_by_date(user_id, request).await;
         }
         let mut probe = SearchProbe::new();
@@ -698,7 +699,7 @@ fn metadata_filters_match(metadata: &Value, request: &SearchRequest) -> bool {
                 current.as_object()?.get(segment)
             });
         match filter.operator {
-            context69_contracts::MetadataFilterOperator::Exists => {
+            context69_contracts_search::MetadataFilterOperator::Exists => {
                 found.is_some_and(|value| !value.is_null())
                     == filter
                         .value
@@ -706,13 +707,15 @@ fn metadata_filters_match(metadata: &Value, request: &SearchRequest) -> bool {
                         .and_then(Value::as_bool)
                         .unwrap_or(true)
             }
-            context69_contracts::MetadataFilterOperator::Eq => found == filter.value.as_ref(),
-            context69_contracts::MetadataFilterOperator::In => filter
+            context69_contracts_search::MetadataFilterOperator::Eq => {
+                found == filter.value.as_ref()
+            }
+            context69_contracts_search::MetadataFilterOperator::In => filter
                 .value
                 .as_ref()
                 .and_then(Value::as_array)
                 .is_some_and(|values| found.is_some_and(|value| values.contains(value))),
-            context69_contracts::MetadataFilterOperator::Contains => {
+            context69_contracts_search::MetadataFilterOperator::Contains => {
                 found.and_then(Value::as_array).is_some_and(|values| {
                     filter
                         .value
@@ -720,22 +723,23 @@ fn metadata_filters_match(metadata: &Value, request: &SearchRequest) -> bool {
                         .is_some_and(|value| values.contains(value))
                 })
             }
-            context69_contracts::MetadataFilterOperator::Range => found.is_some_and(|value| {
-                let compare = |left: &Value, right: &Value| match (left.as_f64(), right.as_f64()) {
-                    (Some(left), Some(right)) => left.partial_cmp(&right),
-                    _ => left
-                        .as_str()
-                        .zip(right.as_str())
-                        .map(|(left, right)| left.cmp(right)),
-                };
-                filter
-                    .min
-                    .as_ref()
-                    .is_none_or(|bound| compare(value, bound).is_some_and(|order| order.is_ge()))
-                    && filter.max.as_ref().is_none_or(|bound| {
+            context69_contracts_search::MetadataFilterOperator::Range => {
+                found.is_some_and(|value| {
+                    let compare =
+                        |left: &Value, right: &Value| match (left.as_f64(), right.as_f64()) {
+                            (Some(left), Some(right)) => left.partial_cmp(&right),
+                            _ => left
+                                .as_str()
+                                .zip(right.as_str())
+                                .map(|(left, right)| left.cmp(right)),
+                        };
+                    filter.min.as_ref().is_none_or(|bound| {
+                        compare(value, bound).is_some_and(|order| order.is_ge())
+                    }) && filter.max.as_ref().is_none_or(|bound| {
                         compare(value, bound).is_some_and(|order| order.is_le())
                     })
-            }),
+                })
+            }
         }
     })
 }
@@ -779,7 +783,7 @@ fn derive_match_reason(vector_score: Option<f32>, keyword_mark: Option<&str>) ->
 
 #[cfg(test)]
 mod tests {
-    use context69_contracts::Pagination;
+    use context69_contracts_core::common::Pagination;
 
     use super::{
         MAX_SEARCH_CANDIDATE_WINDOW, derive_match_reason, probe_fetch_limit, resolve_search_window,

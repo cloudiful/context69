@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::MembershipRole;
-use crate::Pagination;
+use context69_contracts_core::common::Pagination;
+use context69_contracts_namespace::MembershipRole;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuthLoginRequest {
@@ -133,7 +133,7 @@ pub struct AdminUserPageQuery {
     #[serde(default)]
     pub sort_by: Option<AdminUserSortBy>,
     #[serde(default)]
-    pub sort_direction: Option<crate::SortDirection>,
+    pub sort_direction: Option<context69_contracts_core::pagination::SortDirection>,
 }
 
 const fn default_page() -> u32 {

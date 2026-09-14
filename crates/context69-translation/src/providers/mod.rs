@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts::DomainError;
-use context69_contracts::TranslationGlossaryEntry;
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_translation::TranslationGlossaryEntry;
 
 use crate::{segmenter::TranslationSegment, store::StoredTranslationProvider};
 

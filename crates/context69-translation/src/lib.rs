@@ -7,7 +7,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts::{TranslationDirective, TranslationJobResponse};
+use context69_contracts_translation::{TranslationDirective, TranslationJobResponse};
 use sqlx::PgPool;
 use uuid::Uuid;
 

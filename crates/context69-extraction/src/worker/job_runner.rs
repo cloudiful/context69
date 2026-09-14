@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chrono::Utc;
-use context69_contracts::ExtractionFailureClass;
+use context69_contracts_extraction::ExtractionFailureClass;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts::DomainError;
-use context69_contracts::{
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_translation::{
     GroupTranslationSettingsResponse, RebuildDocumentTranslationsRequest, TranslationDirective,
     TranslationJobResponse, TranslationJobsResponse, TranslationProviderPageResponse,
     TranslationSettingsResponse, UpdateGroupTranslationSettingsRequest,

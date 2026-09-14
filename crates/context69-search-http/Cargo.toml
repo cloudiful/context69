@@ -10,7 +10,8 @@ anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 chrono = { workspace = true, features = ["serde"] }
-context69-contracts.workspace = true
+context69-contracts-core.workspace = true
+context69-contracts-search.workspace = true
 context69-http-support.workspace = true
 context69-search.workspace = true
 futures.workspace = true

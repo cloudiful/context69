@@ -5,7 +5,7 @@
 //! declares `maxLength` in its JSON Schema, and the constructors below truncate
 //! runtime values to exactly those caps so the schema never over-promises.
 //!
-//! [`crate::SourceStatus`] (connection names, base queries, origin messages,
+//! [`context69_contracts_sources::SourceStatus`] (connection names, base queries, origin messages,
 //! database state) must never cross this boundary; see [`McpSourceSummary`].
 
 use chrono::{DateTime, Utc};
@@ -87,7 +87,7 @@ pub struct McpSearchHit {
 
 impl McpSearchHit {
     /// Build a hit from a search-service hit, enforcing every schema cap.
-    pub fn from_search_hit(hit: &crate::SearchHit) -> Self {
+    pub fn from_search_hit(hit: &context69_contracts_search::SearchHit) -> Self {
         Self {
             document_id: hit.document_id,
             external_id: truncate_chars(&hit.external_id, MCP_EXTERNAL_ID_MAX_CHARS),
@@ -114,7 +114,7 @@ pub struct McpDocumentChunk {
 
 /// Bounded document detail: the second step of the progressive flow.
 ///
-/// Unlike [`crate::DocumentResponse`] this projection carries no record hash,
+/// Unlike [`context69_contracts_search::DocumentResponse`] this projection carries no record hash,
 /// metadata payload, library internals, or locale/translation bookkeeping —
 /// only the identifiers, human-readable header, and the requested chunk window.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -143,7 +143,7 @@ pub struct McpDocumentDetail {
 impl McpDocumentDetail {
     /// Build a header-only detail (no chunks); chunks are attached by the
     /// chunk-window helper in the MCP adapter.
-    pub fn header(document: &crate::DocumentResponse) -> Self {
+    pub fn header(document: &context69_contracts_search::DocumentResponse) -> Self {
         Self {
             document_id: document.document_id,
             group_path: truncate_chars(&document.group_path, MCP_GROUP_PATH_MAX_CHARS),
@@ -183,7 +183,7 @@ pub struct McpDocumentSummary {
 
 impl McpDocumentSummary {
     /// Build a summary from a full document response, enforcing schema caps.
-    pub fn from_document(document: &crate::DocumentResponse) -> Self {
+    pub fn from_document(document: &context69_contracts_search::DocumentResponse) -> Self {
         Self {
             document_id: document.document_id,
             external_id: truncate_chars(&document.external_id, MCP_EXTERNAL_ID_MAX_CHARS),
@@ -201,7 +201,7 @@ impl McpDocumentSummary {
 
 /// Safe source summary: the only source shape the MCP surface may serialize.
 ///
-/// Compared to [`crate::SourceStatus`] this drops `connection`,
+/// Compared to [`context69_contracts_sources::SourceStatus`] this drops `connection`,
 /// `has_database_url`, `origin_message`, `sync_strategy`, `connector_type`,
 /// `base_query`, `batch_size`, `example_queries`, cursor checkpoints, and
 /// success timestamps. Connection names, base queries, origin messages, and
@@ -218,13 +218,13 @@ pub struct McpSourceSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(length(max = 2000))]
     pub description: Option<String>,
-    pub visibility: crate::Visibility,
-    pub origin_status: crate::SourceOriginStatusKind,
+    pub visibility: context69_contracts_core::Visibility,
+    pub origin_status: context69_contracts_sources::SourceOriginStatusKind,
 }
 
 impl McpSourceSummary {
     /// Project a full source status onto the safe summary, enforcing caps.
-    pub fn from_status(status: &crate::SourceStatus) -> Self {
+    pub fn from_status(status: &context69_contracts_sources::SourceStatus) -> Self {
         Self {
             group_path: truncate_chars(&status.group_path, MCP_GROUP_PATH_MAX_CHARS),
             source_key: truncate_chars(&status.source_key, MCP_SOURCE_KEY_MAX_CHARS),
@@ -240,6 +240,6 @@ impl McpSourceSummary {
 
     /// Whether this summary is visible to anonymous MCP callers.
     pub fn is_public(&self) -> bool {
-        self.visibility == crate::Visibility::Public
+        self.visibility == context69_contracts_core::Visibility::Public
     }
 }

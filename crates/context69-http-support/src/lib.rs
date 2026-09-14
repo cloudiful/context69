@@ -5,9 +5,10 @@ use axum::{
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
-use context69_contracts::{ApiErrorCode, ApiErrorResponse};
+use context69_contracts_core::common::ApiErrorResponse;
+use context69_contracts_core::errors::ApiErrorCode;
 
-pub use context69_contracts::DomainError;
+pub use context69_contracts_core::errors::DomainError;
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
@@ -130,20 +131,21 @@ pub fn is_invalid_argument_error(error: &Error) -> bool {
     )
 }
 
-pub fn error_code_for_status(status: StatusCode) -> context69_contracts::ApiErrorCode {
-    context69_contracts::ApiErrorCode::code_for_status(status.as_u16())
+pub fn error_code_for_status(status: StatusCode) -> context69_contracts_core::errors::ApiErrorCode {
+    context69_contracts_core::errors::ApiErrorCode::code_for_status(status.as_u16())
 }
 
-pub fn status_for_code(code: context69_contracts::ApiErrorCode) -> StatusCode {
+pub fn status_for_code(code: context69_contracts_core::errors::ApiErrorCode) -> StatusCode {
     StatusCode::from_u16(code.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub fn json_error_for_code(
-    code: context69_contracts::ApiErrorCode,
+    code: context69_contracts_core::errors::ApiErrorCode,
     message: impl Into<String>,
 ) -> Response {
     let status = status_for_code(code);
-    let body = context69_contracts::CanonicalApiErrorResponse::new(code, message.into());
+    let body =
+        context69_contracts_core::errors::CanonicalApiErrorResponse::new(code, message.into());
     let legacy: ApiErrorResponse = body.into();
     (status, Json(legacy)).into_response()
 }
@@ -151,7 +153,7 @@ pub fn json_error_for_code(
 /// Canonical offset validation that preserves the shared-kernel message while
 /// returning a typed [`DomainError::InvalidArgument`] for mapper classification.
 pub fn validate_canonical_offset(page: u32, page_size: u32) -> anyhow::Result<()> {
-    context69_contracts::OffsetPageQuery { page, page_size }
+    context69_contracts_core::pagination::OffsetPageQuery { page, page_size }
         .validate()
         .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
     Ok(())
@@ -159,7 +161,7 @@ pub fn validate_canonical_offset(page: u32, page_size: u32) -> anyhow::Result<()
 
 /// Canonical cursor-limit validation returning typed invalid-argument errors.
 pub fn validate_cursor_limit(limit: u32) -> anyhow::Result<()> {
-    context69_contracts::CursorPageQuery {
+    context69_contracts_core::pagination::CursorPageQuery {
         limit,
         cursor: None,
     }
@@ -191,7 +193,7 @@ mod tests {
 
     #[test]
     fn error_code_status_round_trip() {
-        use context69_contracts::ApiErrorCode;
+        use context69_contracts_core::errors::ApiErrorCode;
         for code in [
             ApiErrorCode::InvalidArgument,
             ApiErrorCode::Unauthorized,

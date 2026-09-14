@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts::DomainError;
+use context69_contracts_core::errors::DomainError;
 use context69_llm_support::{
     extract_tool_payload, normalize_endpoint, require_api_key, require_api_kind, require_model,
     send_and_decode,
@@ -224,7 +224,7 @@ fn tool_parameters() -> Value {
 mod tests {
     use super::*;
     use crate::segmenter::TranslationSegment;
-    use context69_contracts::TranslationGlossaryEntry;
+    use context69_contracts_translation::TranslationGlossaryEntry;
 
     #[test]
     fn extracts_chat_tool_arguments() {

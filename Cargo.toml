@@ -2,7 +2,17 @@
 members = [
     ".",
     "crates/context69-contracts",
+    "crates/context69-contracts-auth",
     "crates/context69-contracts-core",
+    "crates/context69-contracts-extraction",
+    "crates/context69-contracts-library",
+    "crates/context69-contracts-mcp",
+    "crates/context69-contracts-namespace",
+    "crates/context69-contracts-search",
+    "crates/context69-contracts-settings",
+    "crates/context69-contracts-sources",
+    "crates/context69-contracts-tasks",
+    "crates/context69-contracts-translation",
     "crates/context69-db-schema",
     "crates/context69-extraction",
     "crates/context69-http-support",
@@ -33,7 +43,17 @@ base64 = "0.23.1"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.3" }
 context69-contracts = { path = "crates/context69-contracts", version = "0.16.0" }
+context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
 context69-contracts-core = { path = "crates/context69-contracts-core", version = "0.1.0" }
+context69-contracts-extraction = { path = "crates/context69-contracts-extraction", version = "0.1.0" }
+context69-contracts-library = { path = "crates/context69-contracts-library", version = "0.1.0" }
+context69-contracts-mcp = { path = "crates/context69-contracts-mcp", version = "0.1.0" }
+context69-contracts-namespace = { path = "crates/context69-contracts-namespace", version = "0.1.0" }
+context69-contracts-search = { path = "crates/context69-contracts-search", version = "0.1.0" }
+context69-contracts-settings = { path = "crates/context69-contracts-settings", version = "0.1.0" }
+context69-contracts-sources = { path = "crates/context69-contracts-sources", version = "0.1.0" }
+context69-contracts-tasks = { path = "crates/context69-contracts-tasks", version = "0.1.0" }
+context69-contracts-translation = { path = "crates/context69-contracts-translation", version = "0.1.0" }
 context69-db-schema = { path = "crates/context69-db-schema", version = "0.1.0" }
 context69-extraction = { path = "crates/context69-extraction", version = "0.1.0" }
 context69-http-support = { path = "crates/context69-http-support", version = "0.1.0" }

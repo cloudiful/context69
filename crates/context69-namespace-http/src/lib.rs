@@ -9,11 +9,12 @@ use axum::{
     response::IntoResponse,
     routing::{delete, get, post},
 };
-use context69_contracts::{
-    ApiErrorResponse, CreateGroupRequest, GroupMemberPageResponse, GroupMemberResponse,
-    GroupPageResponse, GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy,
-    MoveGroupRequest, NamespacePageQuery, SortDirection, UpdateGroupRequest,
-    UpsertMembershipRequest, UserDirectoryEntryResponse,
+use context69_contracts_core::common::ApiErrorResponse;
+use context69_contracts_core::pagination::SortDirection;
+use context69_contracts_namespace::{
+    CreateGroupRequest, GroupMemberPageResponse, GroupMemberResponse, GroupPageResponse,
+    GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy, MoveGroupRequest,
+    NamespacePageQuery, UpdateGroupRequest, UpsertMembershipRequest, UserDirectoryEntryResponse,
 };
 use context69_http_support::{
     AuthenticatedUser, CurrentUser, internal_error_response, json_error_response,
@@ -146,9 +147,9 @@ where
         schemas(
             ApiErrorResponse,
             UserDirectoryEntryResponse,
-            context69_contracts::Visibility,
-            context69_contracts::MembershipRole,
-            context69_contracts::GroupKind,
+            context69_contracts_namespace::Visibility,
+            context69_contracts_namespace::MembershipRole,
+            context69_contracts_namespace::GroupKind,
             GroupResponse,
             GroupMemberResponse,
             GroupPageResponse,

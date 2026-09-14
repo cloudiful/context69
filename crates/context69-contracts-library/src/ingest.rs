@@ -74,29 +74,33 @@ pub struct CanonicalUploadMetadata {
     pub published_at: Option<DateTime<Utc>>,
     #[serde(default)]
     #[schema(value_type = Object)]
-    pub metadata_json: crate::MetadataObject,
+    pub metadata_json: context69_contracts_core::common::MetadataObject,
 }
 
-impl From<CanonicalUploadMetadata> for crate::LibraryFileUploadMetadata {
+impl From<CanonicalUploadMetadata> for crate::library::LibraryFileUploadMetadata {
     fn from(canonical: CanonicalUploadMetadata) -> Self {
         Self {
             external_id: canonical.external_id,
             source_uri: canonical.source_uri,
             published_at: canonical.published_at,
-            metadata_json: crate::metadata_object_to_value(&canonical.metadata_json),
+            metadata_json: context69_contracts_core::common::metadata_object_to_value(
+                &canonical.metadata_json,
+            ),
         }
     }
 }
 
-impl TryFrom<crate::LibraryFileUploadMetadata> for CanonicalUploadMetadata {
+impl TryFrom<crate::library::LibraryFileUploadMetadata> for CanonicalUploadMetadata {
     type Error = anyhow::Error;
 
-    fn try_from(legacy: crate::LibraryFileUploadMetadata) -> Result<Self, Self::Error> {
+    fn try_from(legacy: crate::library::LibraryFileUploadMetadata) -> Result<Self, Self::Error> {
         Ok(Self {
             external_id: legacy.external_id,
             source_uri: legacy.source_uri,
             published_at: legacy.published_at,
-            metadata_json: crate::strict_metadata_object(&legacy.metadata_json)?,
+            metadata_json: context69_contracts_core::common::strict_metadata_object(
+                &legacy.metadata_json,
+            )?,
         })
     }
 }
@@ -106,9 +110,9 @@ pub struct IngestOptions {
     #[serde(default)]
     pub metadata: CanonicalUploadMetadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub translation: Option<crate::TranslationDirective>,
+    pub translation: Option<context69_contracts_translation::TranslationDirective>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extraction: Option<crate::ExtractionDirective>,
+    pub extraction: Option<context69_contracts_extraction::ExtractionDirective>,
     #[serde(default)]
     pub source_policy: SourcePolicy,
 }
@@ -130,9 +134,9 @@ impl IngestOptions {
     }
 
     pub fn from_legacy(
-        metadata: Option<crate::LibraryFileUploadMetadata>,
-        translation: Option<crate::TranslationDirective>,
-        extraction: Option<crate::ExtractionDirective>,
+        metadata: Option<crate::library::LibraryFileUploadMetadata>,
+        translation: Option<context69_contracts_translation::TranslationDirective>,
+        extraction: Option<context69_contracts_extraction::ExtractionDirective>,
         delete_source_after_processing: bool,
     ) -> Self {
         let metadata = metadata
@@ -150,8 +154,8 @@ impl IngestOptions {
     /// metadata, or `None` when the canonical metadata is empty. Used by
     /// services that still take the legacy metadata type internally while the
     /// wire prefers [`IngestOptions`].
-    pub fn legacy_metadata_opt(&self) -> Option<crate::LibraryFileUploadMetadata> {
-        let legacy: crate::LibraryFileUploadMetadata = self.metadata.clone().into();
+    pub fn legacy_metadata_opt(&self) -> Option<crate::library::LibraryFileUploadMetadata> {
+        let legacy: crate::library::LibraryFileUploadMetadata = self.metadata.clone().into();
         if legacy.external_id.is_none()
             && legacy.source_uri.is_none()
             && legacy.published_at.is_none()

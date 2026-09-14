@@ -1,5 +1,5 @@
 use anyhow::Result;
-use context69_contracts::DomainError;
+use context69_contracts_core::errors::DomainError;
 
 const MAX_SEGMENT_CHARS: usize = 8_000;
 

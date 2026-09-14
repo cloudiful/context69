@@ -16,8 +16,9 @@
 //! completion.
 
 use anyhow::Result;
-use context69_contracts::search::{SearchStreamDone, SearchStreamEvent, SearchStreamPage};
-use context69_contracts::{DomainError, SearchHit, SearchRequest};
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_search::search::{SearchStreamDone, SearchStreamEvent, SearchStreamPage};
+use context69_contracts_search::{SearchHit, SearchRequest};
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -64,7 +65,7 @@ impl SearchService {
         tx: &mpsc::Sender<SearchStreamEvent>,
         mut abort: AbortSignal,
     ) -> Result<()> {
-        if request.sort == context69_contracts::SearchSort::Date {
+        if request.sort == context69_contracts_search::SearchSort::Date {
             return self
                 .stream_search_by_date(user_id, request, tx, abort)
                 .await;

@@ -9,7 +9,8 @@ publish = false
 anyhow.workspace = true
 async-trait.workspace = true
 chrono = { workspace = true, features = ["serde"] }
-context69-contracts.workspace = true
+context69-contracts-core.workspace = true
+context69-contracts-translation.workspace = true
 context69-llm-support.workspace = true
 reqwest = { workspace = true, features = ["json", "rustls"] }
 serde.workspace = true

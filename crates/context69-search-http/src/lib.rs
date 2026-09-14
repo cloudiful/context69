@@ -13,12 +13,12 @@ use axum::{
     },
     routing::{get, post},
 };
-use context69_contracts::search::{
+use context69_contracts_core::common::ApiErrorResponse;
+use context69_contracts_core::errors::{ApiErrorCode, DomainError};
+use context69_contracts_search::search::{CanonicalSearchRequest, DocumentResponse};
+use context69_contracts_search::search::{
     SearchPagination, SearchRequest, SearchResponse, SearchSort, SearchStreamDone,
     SearchStreamEvent, SearchStreamPage,
-};
-use context69_contracts::{
-    ApiErrorCode, ApiErrorResponse, CanonicalSearchRequest, DocumentResponse, DomainError,
 };
 use context69_http_support::{
     CurrentUser, json_error_response, map_document_lookup_error, map_search_service_error,
@@ -297,7 +297,7 @@ fn validate_canonical_stream(query: &CanonicalSearchRequest) -> Result<()> {
         return Err(DomainError::invalid_argument("page_size must be between 1 and 100").into());
     }
     context69_http_support::validate_cursor_limit(query.limit)?;
-    if query.sort == context69_contracts::SearchSort::Date && query.query.trim().is_empty() {
+    if query.sort == SearchSort::Date && query.query.trim().is_empty() {
         return Err(DomainError::invalid_argument(
             "query text is required for sort=date; the date pipeline matches the query against hydrated hits (title + chunk_text) and never browses the index",
         )

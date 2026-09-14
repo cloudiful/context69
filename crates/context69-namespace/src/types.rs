@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use context69_contracts::{GroupKind, MembershipRole, Visibility};
+use context69_contracts_namespace::{GroupKind, MembershipRole, Visibility};
 
 #[derive(Debug, Clone)]
 pub struct NamespaceActor {

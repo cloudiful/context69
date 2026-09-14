@@ -6,8 +6,9 @@ use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use context69_contracts::search::SearchStreamEvent;
-use context69_contracts::{DocumentResponse, SearchHit, SearchMode, SearchRequest, Visibility};
+use context69_contracts_core::Visibility;
+use context69_contracts_search::search::SearchStreamEvent;
+use context69_contracts_search::{DocumentResponse, SearchHit, SearchMode, SearchRequest};
 use uuid::Uuid;
 
 use super::search_cursor::{CursorContext, encode_cursor};
@@ -355,7 +356,7 @@ fn test_request(page: usize, limit: usize) -> SearchRequest {
         published_before: None,
         cursor: None,
         metadata_filters: Vec::new(),
-        sort: context69_contracts::SearchSort::Relevance,
+        sort: context69_contracts_search::SearchSort::Relevance,
     }
 }
 
@@ -589,7 +590,7 @@ fn collect_stream_frames(
 fn stream_local_page(
     service: &SearchService,
     request: SearchRequest,
-) -> context69_contracts::search::SearchStreamPage {
+) -> context69_contracts_search::search::SearchStreamPage {
     let mut frames = collect_stream_frames(service, request);
     match frames.remove(0) {
         SearchStreamEvent::Local(page) => page,
@@ -598,8 +599,8 @@ fn stream_local_page(
 }
 
 fn assert_pages_equivalent(
-    post: &context69_contracts::SearchResponse,
-    page: &context69_contracts::search::SearchStreamPage,
+    post: &context69_contracts_search::SearchResponse,
+    page: &context69_contracts_search::search::SearchStreamPage,
 ) {
     let post_chunks = post
         .items
@@ -1367,7 +1368,7 @@ fn date_hit(chunk_id: Uuid, published_ts: Option<i64>) -> SearchDatePointHit {
 
 fn date_request(limit: usize) -> SearchRequest {
     let mut request = test_request(1, limit);
-    request.sort = context69_contracts::SearchSort::Date;
+    request.sort = context69_contracts_search::SearchSort::Date;
     // Date mode matches the query against `title + chunk_text`. The
     // existing date-mode fixtures use chunk text such as "fresh body
     // text" or "older body text"; the token "body" is present in every

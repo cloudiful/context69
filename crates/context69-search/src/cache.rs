@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use context69_contracts::{SearchRequest, SearchResponse};
+use context69_contracts_search::{SearchRequest, SearchResponse};
 use redis::{AsyncCommands, Client, RedisError, aio::ConnectionManager, cmd};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

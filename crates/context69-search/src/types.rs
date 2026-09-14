@@ -1,4 +1,4 @@
-use context69_contracts::SearchMode;
+use context69_contracts_search::SearchMode;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
@@ -38,8 +38,8 @@ impl Default for SearchSettings {
             candidate_limit: 40,
             timeout_secs: 10,
             api_key: None,
-            vector_weight: context69_contracts::settings::SEARCH_VECTOR_WEIGHT_DEFAULT,
-            keyword_weight: context69_contracts::settings::SEARCH_KEYWORD_WEIGHT_DEFAULT,
+            vector_weight: context69_contracts_search::SEARCH_VECTOR_WEIGHT_DEFAULT,
+            keyword_weight: context69_contracts_search::SEARCH_KEYWORD_WEIGHT_DEFAULT,
         }
     }
 }

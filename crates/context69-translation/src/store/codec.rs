@@ -1,6 +1,6 @@
 use anyhow::Result;
-use context69_contracts::DomainError;
-use context69_contracts::{
+use context69_contracts_core::errors::DomainError;
+use context69_contracts_translation::{
     DeeplPlan, TranslationGlossaryEntry, TranslationJobResponse, TranslationLlmApiKind,
     TranslationProviderInput, TranslationProviderKind, TranslationProviderResponse,
     TranslationStatus,

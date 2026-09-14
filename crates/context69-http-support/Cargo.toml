@@ -8,4 +8,4 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-context69-contracts.workspace = true
+context69-contracts-core.workspace = true

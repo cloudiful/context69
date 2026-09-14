@@ -32,7 +32,7 @@ pub const MCP_TOOL_NAMES: [&str; 6] = [
 ];
 
 /// MCP-local default result window for `query_documents` when the nested
-/// `query.limit` is omitted. The HTTP [`crate::DocumentQueryRequest`] default
+/// `query.limit` is omitted. The HTTP [`context69_contracts_search::DocumentQueryRequest`] default
 /// (50) never applies to tool calls and stays untouched for HTTP wire
 /// compatibility; an explicitly supplied `query.limit` must still be 1..=20.
 pub const MCP_QUERY_LIMIT_DEFAULT: u8 = 20;
@@ -59,7 +59,7 @@ fn non_blank(value: &str) -> bool {
 
 /// MCP-only search input.
 ///
-/// Intentionally narrower than the HTTP [`crate::SearchRequest`]: no deprecated
+/// Intentionally narrower than the HTTP [`context69_contracts_search::SearchRequest`]: no deprecated
 /// `page`, no `published_after`/`published_before`, no `metadata_filters`, no
 /// `sort` mode. Structured filtering stays behind `query_documents`; search is
 /// relevance retrieval with an opaque continuation cursor.
@@ -122,8 +122,8 @@ impl McpSearchRequest {
     /// Convert to the internal HTTP search DTO. The deprecated `page` is pinned
     /// to 1 (cursor pagination is authoritative) and HTTP-only filter surface
     /// is left empty.
-    pub fn to_search_request(&self) -> crate::SearchRequest {
-        crate::SearchRequest {
+    pub fn to_search_request(&self) -> context69_contracts_search::SearchRequest {
+        context69_contracts_search::SearchRequest {
             query: self.query.clone(),
             locale: self.locale.clone(),
             limit: usize::from(self.limit),
@@ -134,7 +134,7 @@ impl McpSearchRequest {
             published_before: None,
             cursor: self.cursor.clone(),
             metadata_filters: Vec::new(),
-            sort: crate::SearchSort::Relevance,
+            sort: context69_contracts_search::SearchSort::Relevance,
         }
     }
 }
@@ -253,7 +253,7 @@ impl McpDocumentDetailResponse {
 /// `start` is a chunk offset, `limit` is clamped to `1..=50` by validation;
 /// chunk texts are truncated to 4,000 characters to match the schema.
 pub fn paginate_document_detail(
-    document: &crate::DocumentResponse,
+    document: &context69_contracts_search::DocumentResponse,
     start: usize,
     limit: usize,
 ) -> anyhow::Result<McpDocumentDetailResponse> {
@@ -287,7 +287,7 @@ pub fn paginate_document_detail(
 /// `cursor`) but owned by the MCP boundary: `limit` defaults to the MCP-local
 /// 20 (never the HTTP DTO default of 50) and the schema declares the explicit
 /// 1..=20 bound with cursor continuation. A typed adapter converts this into
-/// the internal [`crate::DocumentQueryRequest`] at the service boundary.
+/// the internal [`context69_contracts_search::DocumentQueryRequest`] at the service boundary.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct McpDocumentQuery {
@@ -302,9 +302,9 @@ pub struct McpDocumentQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published_before: Option<DateTime<Utc>>,
     #[serde(default)]
-    pub metadata_filters: Vec<crate::MetadataFilter>,
+    pub metadata_filters: Vec<context69_contracts_search::MetadataFilter>,
     #[serde(default)]
-    pub sort: Vec<crate::DocumentSort>,
+    pub sort: Vec<context69_contracts_search::DocumentSort>,
     #[serde(default = "default_mcp_query_limit")]
     #[schemars(range(min = 1, max = 20))]
     pub limit: u8,
@@ -339,8 +339,8 @@ impl McpDocumentQuery {
     /// Convert to the internal document-store query. Filter contents pass
     /// through unchanged; only the MCP window (`limit` 1..=20, opaque cursor)
     /// is normalized onto the shared DTO.
-    pub fn to_document_query_request(&self) -> crate::DocumentQueryRequest {
-        crate::DocumentQueryRequest {
+    pub fn to_document_query_request(&self) -> context69_contracts_search::DocumentQueryRequest {
+        context69_contracts_search::DocumentQueryRequest {
             locale: self.locale.clone(),
             source_key: self.source_key.clone(),
             published_after: self.published_after,
@@ -415,7 +415,7 @@ impl McpDocumentQueryResponse {
 pub struct McpDocumentKeyArgs {
     #[schemars(length(min = 1, max = 1024))]
     pub group_path: String,
-    pub key: crate::DocumentKey,
+    pub key: context69_contracts_search::DocumentKey,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(length(max = 64))]
     pub locale: Option<String>,
@@ -453,7 +453,7 @@ impl McpDocumentKeyArgs {
 pub struct McpBatchDocumentKeys {
     #[serde(deserialize_with = "deserialize_keys_max_20")]
     #[schemars(length(min = 1, max = 20))]
-    pub keys: Vec<crate::DocumentKey>,
+    pub keys: Vec<context69_contracts_search::DocumentKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(length(max = 64))]
     pub locale: Option<String>,
@@ -475,11 +475,13 @@ impl McpBatchDocumentKeys {
 
 /// Reject oversized key lists while deserializing so the schema `maxItems`
 /// bound is enforced before validation runs.
-fn deserialize_keys_max_20<'de, D>(deserializer: D) -> Result<Vec<crate::DocumentKey>, D::Error>
+fn deserialize_keys_max_20<'de, D>(
+    deserializer: D,
+) -> Result<Vec<context69_contracts_search::DocumentKey>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let keys = Vec::<crate::DocumentKey>::deserialize(deserializer)?;
+    let keys = Vec::<context69_contracts_search::DocumentKey>::deserialize(deserializer)?;
     if keys.len() > crate::projections::MCP_BATCH_KEYS_MAX {
         return Err(serde::de::Error::custom(
             "keys must contain 1..=20 document keys",
@@ -511,7 +513,7 @@ impl McpBatchDocumentArgs {
 /// One batch item: the requested key plus its bounded detail when found.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct McpBatchDocumentItem {
-    pub key: crate::DocumentKey,
+    pub key: context69_contracts_search::DocumentKey,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document: Option<McpDocumentDetailResponse>,
 }

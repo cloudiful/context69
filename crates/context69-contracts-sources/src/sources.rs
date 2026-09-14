@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::Pagination;
-use crate::Visibility;
+use context69_contracts_core::Visibility;
+use context69_contracts_core::common::Pagination;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]

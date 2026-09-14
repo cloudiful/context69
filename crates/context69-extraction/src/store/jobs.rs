@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use context69_contracts::ExtractionHealthResponse;
+use context69_contracts_extraction::ExtractionHealthResponse;
 use sqlx::FromRow;
 use uuid::Uuid;
 
