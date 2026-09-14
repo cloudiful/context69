@@ -37,7 +37,7 @@ pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenReco
 use rows::*;
 pub use tasks::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, StoredTask, StoredTaskItem,
-    StoredTaskItemWithExternalJob, StoredTaskMaintenanceSettings, StoredTaskMaintenanceStats,
+    StoredTaskItemWithExternalJob, StoredTaskMaintenanceStats,
 };
 pub use vector_index_state::VectorIndexState;
 

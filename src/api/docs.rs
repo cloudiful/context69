@@ -52,9 +52,8 @@ use crate::api::{
         __path_sync_source, __path_update_source, __path_update_source_connection,
     },
     task_maintenance::{
-        __path_cancel_active_tasks, __path_get_task_maintenance, __path_purge_tasks,
-        __path_quarantine_stale_submitting, __path_queue_docling_recovery,
-        __path_recover_docling_task, __path_update_task_maintenance,
+        __path_cancel_active_tasks, __path_quarantine_stale_submitting,
+        __path_queue_docling_recovery, __path_recover_docling_task,
     },
     tasks::{
         __path_cancel_task, __path_delete_task, __path_ensure_scope, __path_get_task,
@@ -202,10 +201,7 @@ use crate::contracts::{
         trash_task,
         restore_task,
         delete_task,
-        get_task_maintenance,
-        update_task_maintenance,
         cancel_active_tasks,
-        purge_tasks,
         recover_docling_task,
         queue_docling_recovery,
         quarantine_stale_submitting
@@ -438,9 +434,7 @@ mod tests {
             "/v1/tasks/{task_id}/cancel",
             "/v1/tasks/{task_id}/trash",
             "/v1/tasks/{task_id}/restore",
-            "/v1/admin/tasks/maintenance",
             "/v1/admin/tasks/cancel-active",
-            "/v1/admin/tasks/purge",
             "/v1/admin/tasks/{task_id}/recover",
             "/v1/admin/tasks/{task_id}/recover/queue",
             "/v1/admin/tasks/quarantine-submitting",
@@ -448,6 +442,8 @@ mod tests {
             assert!(paths.contains_key(path), "missing path {path}");
         }
         for path in [
+            "/v1/admin/tasks/maintenance",
+            "/v1/admin/tasks/purge",
             "/v1/library/processing-jobs",
             "/v1/library/processing-jobs/retry-failed",
             "/v1/library/processing-jobs/cleanup-stuck",

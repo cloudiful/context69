@@ -135,8 +135,7 @@ pub(crate) use sources::{
 };
 pub(crate) use task_inputs::{create_text_payload, file_batch_payloads};
 pub(crate) use task_maintenance::{
-    cancel_active_tasks, get_task_maintenance, purge_tasks, quarantine_stale_submitting,
-    queue_docling_recovery, recover_docling_task, update_task_maintenance,
+    cancel_active_tasks, quarantine_stale_submitting, queue_docling_recovery, recover_docling_task,
 };
 pub(crate) use tasks::{
     cancel_task, delete_task, ensure_scope, get_task, list_task_items, list_tasks, rerun_task,

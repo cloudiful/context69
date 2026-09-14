@@ -35,13 +35,12 @@ use super::{
     forbid_personal_access_token_middleware, get_extraction_health, get_group_document_by_key,
     get_group_library_file, get_group_library_resources, get_group_library_tree,
     get_group_translation_settings, get_library_file, get_library_resources, get_library_tree,
-    get_task, get_task_maintenance, get_translation_settings, healthz,
-    import_group_library_file_url, list_admin_users, list_document_extraction_jobs,
-    list_document_translation_jobs, list_extraction_templates, list_metadata_indexes,
-    list_personal_access_tokens, list_source_connections, list_sources, list_task_items,
-    list_tasks, list_translation_providers, login, logout, me, move_group_library_file,
-    move_group_library_folder, move_library_file, move_library_folder, openapi_json,
-    prepare_group_library_upload, purge_tasks, quarantine_stale_submitting, query_group_documents,
+    get_task, get_translation_settings, healthz, import_group_library_file_url, list_admin_users,
+    list_document_extraction_jobs, list_document_translation_jobs, list_extraction_templates,
+    list_metadata_indexes, list_personal_access_tokens, list_source_connections, list_sources,
+    list_task_items, list_tasks, list_translation_providers, login, logout, me,
+    move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
+    openapi_json, prepare_group_library_upload, quarantine_stale_submitting, query_group_documents,
     queue_docling_recovery, rebuild_document_extractions, rebuild_document_translations,
     recover_docling_task, release_group_library_file_source, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
@@ -52,7 +51,7 @@ use super::{
     submit_vector_index_rebuild, sync_group_source_folder, sync_source,
     touch_personal_access_token_middleware, trash_task, update_admin_user,
     update_group_source_folder_config, update_group_translation_settings, update_metadata_index,
-    update_source, update_source_connection, update_task_maintenance, update_translation_settings,
+    update_source, update_source_connection, update_translation_settings,
     upload_group_library_files, upload_library_files, upsert_extraction_template,
     upsert_group_library_text,
 };
@@ -286,12 +285,7 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
             "/v1/admin/users/{login_name}/reset-password",
             post(reset_admin_user_password),
         )
-        .route(
-            "/v1/admin/tasks/maintenance",
-            get(get_task_maintenance).put(update_task_maintenance),
-        )
         .route("/v1/admin/tasks/cancel-active", post(cancel_active_tasks))
-        .route("/v1/admin/tasks/purge", post(purge_tasks))
         .route(
             "/v1/admin/tasks/{task_id}/recover",
             post(recover_docling_task),

@@ -1,5 +1,6 @@
-//! Structural regression coverage for terminal-task maintenance SQL and the
-//! phase 4 queue-only recovery / quarantine statements.
+//! Structural regression coverage for queue-only recovery / quarantine
+//! statements (issue 391 Task 1: automatic task-history cleanup removed, so
+//! no retention/purge SQL remains to guard).
 
 fn normalized_sql(path: &str) -> String {
     // Strip `--` line comments so assertions only observe executable SQL.
@@ -10,44 +11,6 @@ fn normalized_sql(path: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn assert_active_external_job_guard(sql: &str) {
-    assert!(sql.contains("candidate.status IN ('succeeded', 'failed', 'cancelled')"));
-    assert!(sql.contains(
-        "AND NOT EXISTS ( SELECT 1 FROM context69.task_items item JOIN context69.task_external_jobs job ON job.item_id = item.id WHERE item.task_id = candidate.id AND job.status IN ('submitting', 'pending', 'running') )"
-    ));
-    assert!(sql.contains("FOR UPDATE SKIP LOCKED"));
-}
-
-#[test]
-fn terminal_maintenance_excludes_tasks_with_active_external_jobs() {
-    let cleanup_sql = normalized_sql(include_str!("../src/sql/db/tasks/cleanup_expired.sql"));
-    let purge_sql = normalized_sql(include_str!("../src/sql/db/tasks/purge_terminal.sql"));
-
-    assert_active_external_job_guard(&cleanup_sql);
-    assert_active_external_job_guard(&purge_sql);
-    // Automatic retention cleanup only purges trashed terminal history.
-    assert!(cleanup_sql.contains("candidate.deleted_at IS NOT NULL"));
-    assert!(cleanup_sql.contains("candidate.deleted_at < $1"));
-    // The explicit admin all-terminal purge keeps its legacy semantics and is
-    // deliberately trash-agnostic.
-    assert!(!purge_sql.contains("deleted_at"));
-}
-
-#[test]
-fn orphaned_jobs_do_not_block_terminal_cleanup() {
-    // `orphaned` is a real non-active status: it must never appear in the
-    // blocking set, otherwise quarantined history would wedge cleanup again.
-    for sql in [
-        normalized_sql(include_str!("../src/sql/db/tasks/cleanup_expired.sql")),
-        normalized_sql(include_str!("../src/sql/db/tasks/purge_terminal.sql")),
-    ] {
-        assert!(
-            !sql.contains("orphaned"),
-            "cleanup guards must not mention orphaned; only submitting/pending/running block"
-        );
-    }
 }
 
 #[test]

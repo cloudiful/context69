@@ -2,9 +2,9 @@
 //!
 //! Trashing is a soft delete of the task history row (`deleted_at`). It must
 //! never touch task items, files, processed text, or vectors, must reject
-//! active tasks, and must be idempotent with ownership enforced. Automatic
-//! retention cleanup only purges trashed terminal history; the explicit admin
-//! all-terminal purge keeps its legacy trash-agnostic semantics.
+//! active tasks, and must be idempotent with ownership enforced. Task history
+//! is never auto-deleted (issue 391 Task 1); only per-task trash/restore and
+//! permanent delete of trashed rows remain.
 //!
 //! Cases live in `tests/task_trash/cases_*.rs` with shared fixtures in
 //! `tests/task_trash/support.rs`.

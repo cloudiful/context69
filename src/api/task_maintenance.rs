@@ -5,63 +5,13 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use context69_contracts::{
-    ApiErrorResponse, PurgeTasksRequest, QuarantineStaleSubmittingRequest,
-    QuarantineStaleSubmittingResponse, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,
-    RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, TaskMaintenanceOverview,
-    UpdateTaskMaintenanceSettingsRequest,
+    ApiErrorResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
+    QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, RecoverDoclingTaskRequest,
+    RecoverDoclingTaskResponse,
 };
 use uuid::Uuid;
 
 use super::{ApiState, auth::CurrentUser};
-
-#[utoipa::path(
-    get,
-    path = "/v1/admin/tasks/maintenance",
-    responses(
-        (status = 200, description = "Task maintenance settings and statistics", body = TaskMaintenanceOverview),
-        (status = 403, description = "Admin access required", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn get_task_maintenance(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-) -> Response {
-    match state
-        .app
-        .tasks
-        .admin_maintenance_overview(&session.user)
-        .await
-    {
-        Ok(overview) => (StatusCode::OK, Json(overview)).into_response(),
-        Err(error) => task_maintenance_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    put,
-    path = "/v1/admin/tasks/maintenance",
-    request_body = UpdateTaskMaintenanceSettingsRequest,
-    responses(
-        (status = 200, description = "Updated task maintenance settings and statistics", body = TaskMaintenanceOverview),
-        (status = 400, description = "Invalid settings payload", body = ApiErrorResponse),
-        (status = 403, description = "Admin access required", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn update_task_maintenance(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Json(request): Json<UpdateTaskMaintenanceSettingsRequest>,
-) -> Response {
-    match state
-        .app
-        .tasks
-        .admin_update_maintenance_settings(&session.user, &request)
-        .await
-    {
-        Ok(overview) => (StatusCode::OK, Json(overview)).into_response(),
-        Err(error) => task_maintenance_error_response(error),
-    }
-}
 
 #[utoipa::path(
     post,
@@ -79,33 +29,6 @@ pub(crate) async fn cancel_active_tasks(
         .app
         .tasks
         .admin_cancel_active_tasks(&session.user)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(error) => task_maintenance_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/admin/tasks/purge",
-    request_body = PurgeTasksRequest,
-    responses(
-        (status = 200, description = "Purged task history", body = crate::contracts::PurgeTasksResponse),
-        (status = 400, description = "Invalid purge mode", body = ApiErrorResponse),
-        (status = 403, description = "Admin access required", body = ApiErrorResponse),
-        (status = 409, description = "Active tasks block full history purge", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn purge_tasks(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Json(request): Json<PurgeTasksRequest>,
-) -> Response {
-    match state
-        .app
-        .tasks
-        .admin_purge_tasks(&session.user, request.mode)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),

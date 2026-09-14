@@ -115,8 +115,8 @@ impl TaskService {
         maintenance::start(self);
     }
 
-    /// Test/shutdown-aware variant: same loops as [`Self::start_maintenance`]
-    /// but the source-cleanup dispatcher exits when `shutdown` cancels.
+    /// Test/shutdown-aware variant: same dispatcher loop as
+    /// [`Self::start_maintenance`] but exits when `shutdown` cancels.
     pub fn start_maintenance_with_shutdown(&self, shutdown: tokio_util::sync::CancellationToken) {
         maintenance::start_with_shutdown(self, shutdown);
     }

@@ -9,8 +9,9 @@
 //!
 //! The quarantine API must move only stale placeholder `submitting` rows on
 //! terminal parents to the non-active `orphaned` state (preserving error
-//! history and writing one audit row per job), leave every other row
-//! untouched, and unblock terminal-task cleanup afterwards.
+//! history and writing one audit row per job) and leave every other row
+//! untouched. Task history is never auto-deleted (issue 391 Task 1), so
+//! quarantine only isolates state and preserves task rows.
 //!
 //! Like the other integration tests, these run only when
 //! CONTEXT69_TEST_DATABASE_URL is set; they are skipped otherwise.
@@ -784,9 +785,12 @@ async fn quarantine_isolates_only_eligible_rows_and_preserves_history() {
 }
 
 #[tokio::test]
-async fn quarantined_rows_no_longer_block_terminal_cleanup() {
+async fn quarantined_rows_isolate_to_orphaned_without_history_cleanup() {
+    // Issue 391 Task 1 removed automatic task-history cleanup: quarantine now
+    // only isolates the stale submitting row as `orphaned` and preserves the
+    // terminal task row. There is no retention SQL left to unblock.
     let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping cleanup unblock test");
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping quarantine isolation test");
         return;
     };
     let _guard = QUEUE_QUARANTINE_LOCK.lock().await;
@@ -796,7 +800,7 @@ async fn quarantined_rows_no_longer_block_terminal_cleanup() {
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
     let file_id = insert_file(&db, group_id).await;
-    let (task_id, _) = seed_terminal_item_with_job(
+    let (task_id, item_id) = seed_terminal_item_with_job(
         &db,
         user_id,
         file_id,
@@ -806,35 +810,12 @@ async fn quarantined_rows_no_longer_block_terminal_cleanup() {
         true,
     )
     .await;
-    // Make the terminal task eligible for retention cleanup: it must be
-    // trashed and the trash timestamp must be older than the cutoff.
-    sqlx::query(
-        "UPDATE context69.tasks SET deleted_at = now() - interval '2 days', \
-         finished_at = now() - interval '2 days', \
-         updated_at = now() - interval '2 days' WHERE id = $1",
-    )
-    .bind(task_id)
-    .execute(db.pool())
-    .await
-    .expect("age terminal task");
 
     let cutoff = Utc::now() - chrono::Duration::minutes(30);
-    let before: Vec<Uuid> =
-        sqlx::query_scalar(include_str!("../src/sql/db/tasks/cleanup_expired.sql"))
-            .bind(Utc::now() - chrono::Duration::days(1))
-            .bind(100_i64)
-            .fetch_all(db.pool())
-            .await
-            .expect("cleanup before quarantine");
-    assert!(
-        !before.contains(&task_id),
-        "the uncertain submitting row must block cleanup before quarantine"
-    );
-
-    let _ = sqlx::query(include_str!(
+    let quarantined: Vec<QuarantinedRow> = sqlx::query_as(include_str!(
         "../src/sql/library_store/external_jobs/quarantine_stale_submitting.sql"
     ))
-    .bind("unblock cleanup canary")
+    .bind("isolate stale submitting canary")
     .bind("quarantine-test")
     .bind(cutoff)
     .bind("submitting-%")
@@ -842,20 +823,28 @@ async fn quarantined_rows_no_longer_block_terminal_cleanup() {
     .bind(user_id)
     .fetch_all(db.pool())
     .await
-    .expect("quarantine for cleanup");
-
-    let after: Vec<Uuid> =
-        sqlx::query_scalar(include_str!("../src/sql/db/tasks/cleanup_expired.sql"))
-            .bind(Utc::now() - chrono::Duration::days(1))
-            .bind(100_i64)
-            .fetch_all(db.pool())
-            .await
-            .expect("cleanup after quarantine");
+    .expect("quarantine stale submitting");
     assert!(
-        after.contains(&task_id),
-        "the quarantined terminal task must become collectible"
+        quarantined.iter().any(|row| row.2 == task_id),
+        "the stale submitting row must quarantine"
     );
 
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM context69.task_external_jobs WHERE item_id = $1")
+            .bind(item_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("quarantined status");
+    assert_eq!(status, "orphaned");
+    assert!(
+        db.get_task_internal(task_id)
+            .await
+            .expect("load quarantined task")
+            .is_some(),
+        "quarantine must preserve the terminal task row"
+    );
+
+    cleanup_task(&db, task_id).await;
     cleanup_user_files_groups(&db, user_id, &[file_id], &[group_id]).await;
 }
 

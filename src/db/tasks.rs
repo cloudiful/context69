@@ -175,13 +175,6 @@ pub struct TaskProcessingHealth {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct StoredTaskMaintenanceSettings {
-    pub cleanup_enabled: bool,
-    pub retention_days: i64,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub struct StoredTaskMaintenanceStats {
     pub total_count: i64,
     pub queued_count: i64,
@@ -1116,32 +1109,6 @@ impl Database {
         Ok((new_task_id, item_ids))
     }
 
-    pub async fn get_task_maintenance_settings(
-        &self,
-    ) -> Result<Option<StoredTaskMaintenanceSettings>> {
-        Ok(sqlx::query_file_as!(
-            StoredTaskMaintenanceSettings,
-            "src/sql/db/tasks/maintenance_settings_get.sql"
-        )
-        .fetch_optional(self.pool())
-        .await?)
-    }
-
-    pub async fn update_task_maintenance_settings(
-        &self,
-        cleanup_enabled: bool,
-        retention_days: i64,
-    ) -> Result<StoredTaskMaintenanceSettings> {
-        Ok(sqlx::query_file_as!(
-            StoredTaskMaintenanceSettings,
-            "src/sql/db/tasks/maintenance_settings_update.sql",
-            cleanup_enabled,
-            retention_days
-        )
-        .fetch_one(self.pool())
-        .await?)
-    }
-
     pub async fn task_maintenance_stats(
         &self,
         cutoff: DateTime<Utc>,
@@ -1153,26 +1120,6 @@ impl Database {
         )
         .fetch_one(self.pool())
         .await?)
-    }
-
-    pub async fn cleanup_expired_terminal_tasks(
-        &self,
-        cutoff: DateTime<Utc>,
-        batch_size: i64,
-    ) -> Result<Vec<Uuid>> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/cleanup_expired.sql", cutoff, batch_size)
-                .fetch_all(self.pool())
-                .await?,
-        )
-    }
-
-    pub async fn purge_terminal_tasks(&self, batch_size: i64) -> Result<Vec<Uuid>> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/purge_terminal.sql", batch_size)
-                .fetch_all(self.pool())
-                .await?,
-        )
     }
 
     pub async fn cancel_all_active_tasks(&self) -> Result<i64> {
