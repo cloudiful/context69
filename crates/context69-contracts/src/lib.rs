@@ -1,19 +1,18 @@
 pub mod auth;
-pub mod common;
 pub mod documents;
-pub mod errors;
 pub mod extraction;
 pub mod ingest;
 pub mod library;
 pub mod mcp;
 pub mod namespace;
-pub mod pagination;
 pub mod projections;
 pub mod search;
 pub mod settings;
 pub mod sources;
 pub mod tasks;
 pub mod translation;
+
+pub use context69_contracts_core::{common, errors, pagination};
 
 pub use auth::{
     AdminUserPageQuery, AdminUserPageResponse, AdminUserResponse, AdminUserSortBy,
@@ -22,10 +21,16 @@ pub use auth::{
     PersonalAccessTokenPageQuery, PersonalAccessTokenPageResponse, PersonalAccessTokenResponse,
     PersonalAccessTokenScope, ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
 };
-pub use common::{
+pub use context69_contracts_core::common::{
     ApiErrorResponse, HealthResponse, HealthStatus, MetadataObject, Pagination,
     default_metadata_json, default_metadata_object, metadata_object_to_value,
     strict_metadata_object,
+};
+pub use context69_contracts_core::errors::{ApiErrorCode, CanonicalApiErrorResponse, DomainError};
+pub use context69_contracts_core::pagination::{
+    CURSOR_LIMIT_MAX, CURSOR_LIMIT_MIN, CursorPageQuery, CursorPagination, OffsetPageQuery,
+    OffsetPagination, PAGE_MAX, PAGE_MIN, PAGE_SIZE_MAX, PAGE_SIZE_MIN, SortDirection,
+    default_limit, default_page, default_page_size,
 };
 pub use documents::{
     BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CanonicalDocumentSort,
@@ -35,7 +40,6 @@ pub use documents::{
     MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
     UpdateMetadataIndexRequest,
 };
-pub use errors::{ApiErrorCode, CanonicalApiErrorResponse, DomainError};
 pub use extraction::{
     ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse,
     ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse, ExtractionTemplateInput,
@@ -65,11 +69,6 @@ pub use namespace::{
     GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy, MembershipRole,
     MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest, UpsertMembershipRequest,
     UserDirectoryEntryResponse, Visibility,
-};
-pub use pagination::{
-    CURSOR_LIMIT_MAX, CURSOR_LIMIT_MIN, CursorPageQuery, CursorPagination, OffsetPageQuery,
-    OffsetPagination, PAGE_MAX, PAGE_MIN, PAGE_SIZE_MAX, PAGE_SIZE_MIN, SortDirection,
-    default_limit, default_page, default_page_size,
 };
 pub use projections::{
     MCP_BATCH_CHUNKS_PER_ITEM, MCP_BATCH_KEYS_MAX, MCP_CHUNK_LIMIT_DEFAULT, MCP_CHUNK_LIMIT_MAX,

@@ -6,9 +6,13 @@ use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::{TaskRef, Visibility};
+use context69_contracts_core::common::Pagination;
+use context69_contracts_core::{TaskRef, Visibility};
 
-pub use crate::pagination::SortDirection;
+pub use context69_contracts_core::common::{
+    LibraryDependencyGateResponse, LibraryProcessingMetric, LibraryProcessingQueueHealth,
+};
+pub use context69_contracts_core::pagination::SortDirection;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -60,51 +64,6 @@ pub enum LibraryIngestFailureStage {
     Indexing,
     Translation,
     Other,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryDependencyGateResponse {
-    pub dependency_key: String,
-    pub state: String,
-    pub failure_count: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_probe_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-    pub last_transition_at: DateTime<Utc>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_success_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryProcessingMetric {
-    pub key: String,
-    pub count: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LibraryProcessingQueueHealth {
-    pub pending_count: u64,
-    pub queued_count: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oldest_pending_age_seconds: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oldest_queued_age_seconds: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oldest_waiting_age_seconds: Option<u64>,
-    pub recent_failure_count: u64,
-    pub docling_dependency_waiting_count: u64,
-    pub stale_waiting_count: u64,
-    pub expired_active_external_jobs: u64,
-    pub active_external_jobs: u64,
-    pub status_counts: Vec<LibraryProcessingMetric>,
-    pub stage_counts: Vec<LibraryProcessingMetric>,
-    pub waiting_reason_counts: Vec<LibraryProcessingMetric>,
-    pub dependency_counts: Vec<LibraryProcessingMetric>,
-    pub processed_last_hour: u64,
-    pub failed_last_hour: u64,
-    pub processing_rate_per_minute: f64,
-    pub failure_rate_percent: f64,
 }
 
 impl LibraryIngestFailureStage {
@@ -296,11 +255,11 @@ impl LibraryResourceSortBy {
 }
 
 fn default_page() -> u32 {
-    crate::pagination::default_page()
+    context69_contracts_core::pagination::default_page()
 }
 
 fn default_page_size() -> u32 {
-    crate::pagination::default_page_size()
+    context69_contracts_core::pagination::default_page_size()
 }
 
 fn default_resource_sort_by() -> LibraryResourceSortBy {
@@ -360,7 +319,7 @@ pub struct LibraryResourceItem {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LibraryResourcePageResponse {
     pub items: Vec<LibraryResourceItem>,
-    pub pagination: crate::Pagination,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
@@ -516,7 +475,7 @@ fn default_text_content_format() -> LibraryTextContentFormat {
 }
 
 fn default_metadata_json() -> Value {
-    crate::common::default_metadata_json()
+    context69_contracts_core::common::default_metadata_json()
 }
 
 /// Canonical upload shapes share [`crate::IngestOptions`]; the flattened

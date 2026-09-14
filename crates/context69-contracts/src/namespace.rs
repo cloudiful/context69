@@ -3,35 +3,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::Pagination;
+use context69_contracts_core::common::Pagination;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Visibility {
-    Public,
-    Private,
-}
-
-impl Visibility {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Public => "public",
-            Self::Private => "private",
-        }
-    }
-}
-
-impl std::str::FromStr for Visibility {
-    type Err = anyhow::Error;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "public" => Ok(Self::Public),
-            "private" => Ok(Self::Private),
-            other => Err(anyhow::anyhow!("unsupported visibility: {other}")),
-        }
-    }
-}
+pub use context69_contracts_core::Visibility;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -222,7 +196,7 @@ pub struct NamespacePageQuery {
     #[serde(default)]
     pub sort_by: Option<GroupSortBy>,
     #[serde(default)]
-    pub sort_direction: Option<crate::SortDirection>,
+    pub sort_direction: Option<context69_contracts_core::pagination::SortDirection>,
     #[serde(default)]
     pub visibility: Option<Visibility>,
     #[serde(default)]
@@ -241,7 +215,7 @@ pub struct MemberPageQuery {
     #[serde(default)]
     pub sort_by: Option<MemberSortBy>,
     #[serde(default)]
-    pub sort_direction: Option<crate::SortDirection>,
+    pub sort_direction: Option<context69_contracts_core::pagination::SortDirection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

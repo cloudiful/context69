@@ -15,6 +15,7 @@ publish = ["crates-io"]
 [dependencies]
 anyhow.workspace = true
 chrono = { workspace = true, features = ["serde"] }
+context69-contracts-core.workspace = true
 schemars = { workspace = true, features = ["chrono04", "uuid1"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

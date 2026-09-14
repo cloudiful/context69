@@ -2,6 +2,7 @@
 members = [
     ".",
     "crates/context69-contracts",
+    "crates/context69-contracts-core",
     "crates/context69-db-schema",
     "crates/context69-extraction",
     "crates/context69-http-support",
@@ -32,6 +33,7 @@ base64 = "0.23.1"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.3" }
 context69-contracts = { path = "crates/context69-contracts", version = "0.16.0" }
+context69-contracts-core = { path = "crates/context69-contracts-core", version = "0.1.0" }
 context69-db-schema = { path = "crates/context69-db-schema", version = "0.1.0" }
 context69-extraction = { path = "crates/context69-extraction", version = "0.1.0" }
 context69-http-support = { path = "crates/context69-http-support", version = "0.1.0" }

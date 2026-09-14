@@ -4,10 +4,16 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use context69_contracts_core::Visibility;
+use context69_contracts_core::common::Pagination;
+use context69_contracts_core::pagination::SortDirection;
+
 use crate::{
     GroupResponse, ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata,
     UpsertLibraryTextRequest,
 };
+
+pub use context69_contracts_core::TaskRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -81,13 +87,6 @@ impl TaskItemStatus {
             Self::Cancelled => "cancelled",
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct TaskRef {
-    pub task_id: Uuid,
-    #[serde(default)]
-    pub item_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -260,11 +259,11 @@ pub struct TaskListQuery {
     #[serde(default)]
     pub sort_by: Option<TaskSortBy>,
     #[serde(default)]
-    pub sort_direction: Option<crate::SortDirection>,
+    pub sort_direction: Option<SortDirection>,
 }
 
 /// v0.16 canonical task list query: typed `view` is required and the legacy
-/// `trashed` flag is gone. Offset bounds match [`crate::OffsetPageQuery`].
+/// `trashed` flag is gone. Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
 #[into_params(parameter_in = Query)]
 pub struct CanonicalTaskListQuery {
@@ -294,7 +293,7 @@ pub struct CanonicalTaskListQuery {
     #[serde(default)]
     pub sort_by: Option<TaskSortBy>,
     #[serde(default)]
-    pub sort_direction: Option<crate::SortDirection>,
+    pub sort_direction: Option<SortDirection>,
 }
 
 impl CanonicalTaskListQuery {
@@ -331,7 +330,7 @@ impl From<CanonicalTaskListQuery> for TaskListQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskPageResponse {
     pub items: Vec<TaskResponse>,
-    pub pagination: crate::Pagination,
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -353,7 +352,7 @@ pub struct TaskItemsQuery {
 pub struct ScopeSpec {
     pub group_path: String,
     pub name: String,
-    pub visibility: crate::Visibility,
+    pub visibility: Visibility,
     #[serde(default)]
     pub kind: Option<crate::GroupKind>,
     #[serde(default)]
@@ -674,11 +673,11 @@ pub struct QuarantineStaleSubmittingResponse {
 }
 
 fn default_page() -> u32 {
-    crate::pagination::default_page()
+    context69_contracts_core::pagination::default_page()
 }
 
 fn default_page_size() -> u32 {
-    crate::pagination::default_page_size()
+    context69_contracts_core::pagination::default_page_size()
 }
 
 fn default_item_limit() -> u32 {
