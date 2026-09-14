@@ -40,7 +40,6 @@ declare module 'vue' {
     MarkdownChunk: typeof import('./src/components/MarkdownChunk.vue')['default']
     MemberDialog: typeof import('./src/components/MemberDialog.vue')['default']
     MetadataIndexesSection: typeof import('./src/components/MetadataIndexesSection.vue')['default']
-    ProcessingQueueMaintenance: typeof import('./src/components/processing-queue/ProcessingQueueMaintenance.vue')['default']
     ProcessingQueueTable: typeof import('./src/components/processing-queue/ProcessingQueueTable.vue')['default']
     ProcessingQueueTabs: typeof import('./src/components/processing-queue/ProcessingQueueTabs.vue')['default']
     ProjectFilesPanel: typeof import('./src/components/ProjectFilesPanel.vue')['default']

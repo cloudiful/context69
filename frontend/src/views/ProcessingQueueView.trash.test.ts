@@ -10,10 +10,10 @@ import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const listTasks = vi.spyOn(apiClient, "listTasks");
-const getTaskMaintenance = vi.spyOn(apiClient, "getTaskMaintenance");
 const trashTask = vi.spyOn(apiClient, "trashTask");
 const restoreTask = vi.spyOn(apiClient, "restoreTask");
 const deleteTask = vi.spyOn(apiClient, "deleteTask");
+const clearTaskHistory = vi.spyOn(apiClient, "clearTaskHistory");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 const useToast = vi.spyOn(nuxtUiComposables, "useToast");
 
@@ -72,10 +72,10 @@ describe("ProcessingQueueView trash actions", () => {
   beforeEach(() => {
     setGuest();
     listTasks.mockReset();
-    getTaskMaintenance.mockReset().mockResolvedValue({} as never);
     trashTask.mockReset().mockResolvedValue(task({}) as never);
     restoreTask.mockReset().mockResolvedValue(task({ deleted_at: null }) as never);
     deleteTask.mockReset().mockResolvedValue(undefined as never);
+    clearTaskHistory.mockReset().mockResolvedValue({ deleted_count: 2 } as never);
     useOverlay.mockReset().mockReturnValue({ create: () => ({ open: async () => true }) } as never);
     useToast.mockReset().mockReturnValue({ add: vi.fn() } as never);
   });
@@ -144,6 +144,44 @@ describe("ProcessingQueueView trash actions", () => {
        expect.objectContaining({ view: "processing" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    wrapper.unmount();
+  });
+
+  it("shows an empty-trash action only in Trash and clears user trash after confirmation", async () => {
+    const trashed = task({ task_id: "trashed-task", deleted_at: "2026-07-21T00:00:00Z" });
+    listTasks.mockResolvedValue(response([trashed]) as never);
+
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="clear-trash-button"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
+
+    await openTrash(wrapper);
+
+    const clearButton = wrapper.find('[data-testid="clear-trash-button"]');
+    expect(clearButton.exists()).toBe(true);
+    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
+
+    await clearButton.trigger("click");
+    await flushPromises();
+
+    expect(clearTaskHistory).toHaveBeenCalledWith({ view: "trash" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "trash" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("never renders task history maintenance in the trash view", async () => {
+    listTasks.mockResolvedValue(response([]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+    await openTrash(wrapper);
+
+    expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Task history maintenance");
     wrapper.unmount();
   });
 });

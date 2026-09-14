@@ -11,7 +11,7 @@ import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const listTasks = vi.spyOn(apiClient, "listTasks");
-const getTaskMaintenance = vi.spyOn(apiClient, "getTaskMaintenance");
+const clearTaskHistory = vi.spyOn(apiClient, "clearTaskHistory");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 const useToast = vi.spyOn(nuxtUiComposables, "useToast");
 
@@ -62,7 +62,7 @@ describe("ProcessingQueueView tabs", () => {
   beforeEach(() => {
     setGuest();
     listTasks.mockReset().mockResolvedValue(response([row]) as never);
-    getTaskMaintenance.mockReset().mockResolvedValue({} as never);
+    clearTaskHistory.mockReset().mockResolvedValue({ deleted_count: 1 } as never);
     useOverlay.mockReset().mockReturnValue({ create: () => ({ open: async () => true }) } as never);
     useToast.mockReset().mockReturnValue({ add: vi.fn() } as never);
   });
@@ -172,6 +172,68 @@ describe("ProcessingQueueView tabs", () => {
     vi.advanceTimersByTime(20_000);
     await flushPromises();
     expect(listTasks.mock.calls.length).toBe(afterReturn + 1);
+    wrapper.unmount();
+  });
+
+  it("wires the completed tab to the user-scoped clear completed action", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
+
+    await tabButton(wrapper, "Completed")!.trigger("mousedown");
+    await flushPromises();
+
+    const clearButton = wrapper.find('[data-testid="clear-completed-button"]');
+    expect(clearButton.exists()).toBe(true);
+    expect(wrapper.find('[data-testid="clear-trash-button"]').exists()).toBe(false);
+
+    await clearButton.trigger("click");
+    await flushPromises();
+
+    expect(clearTaskHistory).toHaveBeenCalledWith({ view: "completed" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("wires the trash tab to the user-scoped empty trash action", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await tabButton(wrapper, "Trash")!.trigger("mousedown");
+    await flushPromises();
+
+    const clearButton = wrapper.find('[data-testid="clear-trash-button"]');
+    expect(clearButton.exists()).toBe(true);
+    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
+
+    await clearButton.trigger("click");
+    await flushPromises();
+
+    expect(clearTaskHistory).toHaveBeenCalledWith({ view: "trash" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "trash" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("never renders task history maintenance alongside the tabs", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
+
+    await tabButton(wrapper, "Completed")!.trigger("mousedown");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
+
+    await tabButton(wrapper, "Trash")!.trigger("mousedown");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
     wrapper.unmount();
   });
 });

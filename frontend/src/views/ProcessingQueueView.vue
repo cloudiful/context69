@@ -3,11 +3,10 @@ import { computed, onBeforeUnmount, onMounted, proxyRefs, ref, watch } from "vue
 import { useI18n } from "vue-i18n";
 
 import AppServerList from "../components/AppServerList.vue";
-import ProcessingQueueMaintenance from "../components/processing-queue/ProcessingQueueMaintenance.vue";
 import ProcessingQueueTable from "../components/processing-queue/ProcessingQueueTable.vue";
 import ProcessingQueueTabs from "../components/processing-queue/ProcessingQueueTabs.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
-import { useTaskMaintenance } from "../composables/use-task-maintenance";
+import { authSessionState } from "../services/auth/session";
 import type { SortDirection, TaskKind, TaskListView, TaskSortBy, TaskStatus } from "../services/api";
 import { LIBRARY_DEPENDENCY_KEYS } from "../utils/library-status";
 
@@ -15,10 +14,7 @@ type QueueTab = TaskListView;
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
-const maintenance = proxyRefs(useTaskMaintenance({
-  t,
-  onTasksChanged: () => { void queue.refresh(); },
-}));
+const isAdmin = computed(() => authSessionState.user?.is_admin === true);
 
 const AUTO_REFRESH_INTERVAL = 20_000;
 
@@ -57,7 +53,6 @@ watch(activeTab, (tab) => {
 });
 
 onMounted(() => {
-  if (maintenance.isAdmin) void maintenance.load();
   startAutoRefresh();
 });
 
@@ -117,9 +112,11 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
         <div class="flex flex-wrap items-start justify-between gap-3">
           <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
           <div class="flex flex-wrap items-center justify-end gap-2">
-            <UButton v-if="activeTab !== 'trash' && queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
-            <UButton v-if="activeTab !== 'trash' && queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
-            <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
+            <UButton v-if="activeTab !== 'trash' && queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
+            <UButton v-if="activeTab !== 'trash' && queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
+            <UButton v-if="activeTab === 'completed'" data-testid="clear-completed-button" color="neutral" variant="outline" icon="i-lucide-trash-2" :loading="queue.clearAction === 'completed'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.clearCompleted')" @click="queue.confirmClearCompleted" />
+            <UButton v-if="activeTab === 'trash'" data-testid="clear-trash-button" color="error" variant="outline" icon="i-lucide-trash-2" :loading="queue.clearAction === 'trash'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.clearTrash')" @click="queue.confirmClearTrash" />
+            <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction || !!queue.clearAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
           </div>
         </div>
 
@@ -146,7 +143,7 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
         <ProcessingQueueTable
           :items="queue.items"
           :loading="queue.loading"
-          :is-admin="maintenance.isAdmin"
+          :is-admin="isAdmin"
           :trash-view="activeTab === 'trash'"
           :is-acting="queue.isActing"
           :is-recoverable-task="queue.isRecoverableTask"
@@ -164,23 +161,5 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
         {{ t(activeTab === "completed" ? "processingQueue.tabs.noCompletedTasks" : activeTab === "trash" ? "processingQueue.tabs.noTrashedTasks" : "processingQueue.noTasks") }}
       </div>
     </AppServerList>
-
-    <ProcessingQueueMaintenance
-      v-if="maintenance.isAdmin"
-      :error="maintenance.error"
-      :stats="maintenance.stats"
-      :active-count="maintenance.activeCount"
-      :uncertain-submitting="maintenance.uncertainSubmitting"
-      :quarantinable-submitting="maintenance.quarantinableSubmitting"
-      :orphaned-external-jobs="maintenance.orphanedExternalJobs"
-      :last-quarantine="maintenance.lastQuarantine"
-      :action="maintenance.action"
-      :saving="maintenance.saving"
-      :settings="maintenance.settings"
-      @confirm-cancel="maintenance.confirmCancelActive"
-      @confirm-purge="maintenance.confirmPurge"
-      @save-settings="maintenance.saveSettings"
-      @quarantine="maintenance.quarantineStaleSubmitting"
-    />
   </section>
 </template>

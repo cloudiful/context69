@@ -13,6 +13,7 @@ const rerunTask = vi.spyOn(apiClient, "rerunTask");
 const recoverDoclingTask = vi.spyOn(apiClient, "recoverDoclingTask");
 const queueDoclingRecovery = vi.spyOn(apiClient, "queueDoclingRecovery");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
+const clearTaskHistory = vi.spyOn(apiClient, "clearTaskHistory");
 
 const failedTask: TaskResponse = {
   task_id: "task-id",
@@ -86,6 +87,7 @@ describe("useProcessingQueue", () => {
     recoverDoclingTask.mockReset().mockResolvedValue({ recovered: { task_id: "waiting-docling-poll-task-id" } } as never);
     queueDoclingRecovery.mockReset().mockResolvedValue({ queued: { task_id: "failed-docling-task-id", item_id: "item-id", stage: "docling", queued_at: "2026-07-20T00:04:00Z", already_queued: false } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
+    clearTaskHistory.mockReset().mockResolvedValue({ deleted_count: 3 } as never);
   });
 
   function mountState() {
@@ -468,6 +470,75 @@ describe("useProcessingQueue", () => {
        expect.objectContaining({ view: "processing", status: "failed" }),
       expect.anything(),
     );
+    wrapper.unmount();
+  });
+
+  it("clears completed history through the user-scoped endpoint and refreshes", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.clearHistory("completed");
+
+    expect(clearTaskHistory).toHaveBeenCalledWith({ view: "completed" });
+    expect(listTasks).toHaveBeenCalledTimes(2);
+    expect(state.clearAction.value).toBeNull();
+    wrapper.unmount();
+  });
+
+  it("clears trashed history through the user-scoped endpoint and refreshes", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.clearHistory("trash");
+
+    expect(clearTaskHistory).toHaveBeenCalledWith({ view: "trash" });
+    expect(listTasks).toHaveBeenCalledTimes(2);
+    expect(state.clearAction.value).toBeNull();
+    wrapper.unmount();
+  });
+
+  it("clears the completed view with an explicit deleted count", async () => {
+    clearTaskHistory.mockResolvedValueOnce({ deleted_count: 0 } as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    await state.clearHistory("completed");
+
+    expect(clearTaskHistory).toHaveBeenCalledWith({ view: "completed" });
+    expect(listTasks).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("does not clear while a bulk recover or cancel is in flight", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.bulkAction.value = "recover";
+    await state.clearHistory("completed");
+
+    expect(clearTaskHistory).not.toHaveBeenCalled();
+    state.bulkAction.value = null;
+    wrapper.unmount();
+  });
+
+  it("does not bulk recover while a history clear is in flight", async () => {
+    let resolveClear: ((value: { deleted_count: number }) => void) | null = null;
+    clearTaskHistory.mockReset().mockImplementationOnce(() => new Promise((resolve) => {
+      resolveClear = resolve as (value: { deleted_count: number }) => void;
+    }));
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    const clearing = state.clearHistory("trash");
+    expect(state.clearAction.value).toBe("trash");
+
+    await state.recoverAll();
+    expect(retryTask).not.toHaveBeenCalled();
+    expect(rerunTask).not.toHaveBeenCalled();
+
+    resolveClear!({ deleted_count: 1 });
+    await clearing;
+    expect(clearTaskHistory).toHaveBeenCalledWith({ view: "trash" });
     wrapper.unmount();
   });
 });

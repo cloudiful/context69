@@ -2,8 +2,6 @@ import type {
   CancelActiveTasksResponse,
   ClearTaskHistoryRequest,
   ClearTaskHistoryResponse,
-  PurgeTasksRequest,
-  PurgeTasksResponse,
   QuarantineStaleSubmittingRequest,
   QuarantineStaleSubmittingResponse,
   QueueDoclingRecoveryRequest,
@@ -16,7 +14,6 @@ import type {
   TaskKind,
   TaskListQuery,
   TaskListView,
-  TaskMaintenanceOverview,
   TaskPageResponse,
   TaskRef,
   TaskResponse,
@@ -25,7 +22,6 @@ import type {
   TaskSortBy,
   TaskStatus,
   TaskSubmitRequest,
-  UpdateTaskMaintenanceSettingsRequest,
 } from "./api-types";
 
 type Deps = {
@@ -130,27 +126,10 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         signal: options?.signal,
       })) as Promise<ClearTaskHistoryResponse>;
     },
-    getTaskMaintenance(options?: RequestOptions) {
-      return unwrapResponse(openapiClient.GET("/v1/admin/tasks/maintenance", {
-        signal: options?.signal,
-      })) as Promise<TaskMaintenanceOverview>;
-    },
-    updateTaskMaintenance(payload: UpdateTaskMaintenanceSettingsRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.PUT("/v1/admin/tasks/maintenance", {
-        body: payload,
-        signal: options?.signal,
-      })) as Promise<TaskMaintenanceOverview>;
-    },
     cancelActiveTasks(options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/admin/tasks/cancel-active", {
         signal: options?.signal,
       })) as Promise<CancelActiveTasksResponse>;
-    },
-    purgeTasks(payload: PurgeTasksRequest, options?: RequestOptions) {
-      return unwrapResponse(openapiClient.POST("/v1/admin/tasks/purge", {
-        body: payload,
-        signal: options?.signal,
-      })) as Promise<PurgeTasksResponse>;
     },
     recoverDoclingTask(
       taskId: string,

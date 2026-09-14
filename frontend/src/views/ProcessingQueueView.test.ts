@@ -4,8 +4,7 @@ import * as nuxtUiComposables from "@nuxt/ui/composables";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import ProcessingQueueView from "./ProcessingQueueView.vue";
-import TaskQuarantineDialog from "../components/TaskQuarantineDialog.vue";
-import { apiClient, type TaskMaintenanceOverview, type TaskResponse } from "../services/api";
+import { apiClient, type TaskResponse } from "../services/api";
 import { setAuthenticatedUser, setGuest } from "../test-utils/auth";
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
@@ -14,8 +13,6 @@ const listTasks = vi.spyOn(apiClient, "listTasks");
 const retryTask = vi.spyOn(apiClient, "retryTask");
 const recoverDoclingTask = vi.spyOn(apiClient, "recoverDoclingTask");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
-const getTaskMaintenance = vi.spyOn(apiClient, "getTaskMaintenance");
-const quarantineStaleSubmitting = vi.spyOn(apiClient, "quarantineStaleSubmitting");
 const getTaskItems = vi.spyOn(apiClient, "getTaskItems");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
 const addToast = vi.fn();
@@ -86,11 +83,6 @@ function response(items: TaskResponse[]) {
   };
 }
 
-const maintenanceOverview: TaskMaintenanceOverview = {
-  settings: { cleanup_enabled: true, retention_days: 30, updated_at: "2026-07-20T00:00:00Z" },
-  stats: { total: 40, queued: 2, running: 1, waiting: 3, succeeded: 25, failed: 5, cancelled: 4, active: 6, expired_terminal: 12, uncertain_submitting: 2, quarantinable_submitting: 1, orphaned_external_jobs: 3 },
-};
-
 async function mountQueue() {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -110,14 +102,6 @@ describe("ProcessingQueueView", () => {
     retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
     recoverDoclingTask.mockReset().mockResolvedValue({ recovered: { task_id: "task-id" } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
-    getTaskMaintenance.mockReset().mockResolvedValue(maintenanceOverview as never);
-    quarantineStaleSubmitting.mockReset().mockResolvedValue({
-      quarantined: [],
-      quarantined_count: 2,
-      skipped_non_terminal: 1,
-      skipped_fresh: 3,
-      skipped_real_remote: 4,
-    } as never);
     getTaskItems.mockReset();
     useOverlay.mockReset().mockReturnValue({
       create: () => ({ open: async () => true }),
@@ -259,16 +243,14 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("keeps the admin maintenance toolbar outside the table scroll region", async () => {
+  it("keeps the queue toolbar outside the table scroll region", async () => {
     setAuthenticatedUser({ is_admin: true });
     const wrapper = await mountQueue();
     await flushPromises();
 
     const scroll = wrapper.find('[data-testid="processing-queue-table-scroll"]');
     expect(scroll.exists()).toBe(true);
-    const toolbar = wrapper.find('[data-testid="task-maintenance-toolbar"]');
-    expect(toolbar.exists()).toBe(true);
-    expect(toolbar.classes()).toContain("shrink-0");
+    expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
     expect(scroll.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
     wrapper.unmount();
   });
@@ -360,124 +342,37 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("hides maintenance controls from non-admin users", async () => {
+  it("never renders task history maintenance controls in the normal queue", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
     expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
-    expect(getTaskMaintenance).not.toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain("Task history maintenance");
+    expect(wrapper.text()).not.toContain("Auto-cleanup of expired tasks");
+    expect(wrapper.text()).not.toContain("Purge expired");
+    expect(wrapper.text()).not.toContain("Purge all");
     wrapper.unmount();
   });
 
-  it("shows a compact admin toolbar and opens cleanup settings in a modal", async () => {
+  it("never renders maintenance controls for admins in the normal queue", async () => {
     setAuthenticatedUser({ is_admin: true });
     const wrapper = await mountQueue();
     await flushPromises();
 
-    expect(getTaskMaintenance).toHaveBeenCalledOnce();
-    const toolbar = wrapper.find('[data-testid="task-maintenance-toolbar"]');
-    expect(toolbar.exists()).toBe(true);
-    expect(toolbar.classes()).toContain("border-t");
-    expect(toolbar.text()).toContain("Task history maintenance");
-    expect(toolbar.text()).toContain("Total tasks: 40");
-    expect(toolbar.text()).toContain("Active: 6");
-    expect(toolbar.text()).toContain("Expired history: 12");
-    expect(toolbar.text()).toContain("Uncertain: 2");
-    expect(toolbar.text()).toContain("Quarantinable: 1");
-    expect(toolbar.text()).toContain("Quarantined: 3");
-
-    // Inline settings form must not reserve page height; it lives in the modal.
-    expect(wrapper.find('[data-testid="maintenance-cleanup-toggle"]').exists()).toBe(false);
-
-    const settingsButton = toolbar.find('[data-testid="maintenance-settings-button"]');
-    expect(settingsButton.attributes("aria-label")).toBe("Cleanup settings");
-
-    expect(document.body.textContent).not.toContain("Retention (days)");
-    await settingsButton.trigger("click");
-    await flushPromises();
-
-    expect(document.body.textContent).toContain("Cleanup settings");
-    expect(document.body.textContent).toContain("Auto-cleanup of expired tasks");
-    expect(document.body.textContent).toContain("Retention (days)");
-    expect(document.body.textContent).toContain("Save");
+    expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Task history maintenance");
+    expect(wrapper.text()).not.toContain("Expired history");
+    expect(wrapper.text()).not.toContain("Uncertain");
+    expect(wrapper.text()).not.toContain("Quarantinable");
     wrapper.unmount();
   });
 
-  it("opens the quarantine dialog with a reason field and disabled confirm", async () => {
-    setAuthenticatedUser({ is_admin: true });
+  it("hides history clear actions on the processing tab", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    await wrapper.find('[data-testid="maintenance-quarantine-button"]').trigger("click");
-    await flushPromises();
-
-    expect(document.body.textContent).toContain("Quarantine stale submits");
-    expect(document.querySelector('[data-testid="maintenance-quarantine-reason"]')).not.toBeNull();
-    const confirm = document.querySelector('[data-testid="maintenance-quarantine-confirm"]') as HTMLButtonElement | null;
-    expect(confirm).not.toBeNull();
-    expect(confirm!.disabled).toBe(true);
-    wrapper.unmount();
-  });
-
-  it("renders the inline quarantine summary with skip counts after a successful quarantine", async () => {
-    setAuthenticatedUser({ is_admin: true });
-    const wrapper = await mountQueue();
-    await flushPromises();
-
-    await wrapper.find('[data-testid="maintenance-quarantine-button"]').trigger("click");
-    await flushPromises();
-
-    const dialog = wrapper.findComponent(TaskQuarantineDialog);
-    expect(dialog.exists()).toBe(true);
-    await dialog.vm.$emit("update:reason", "stale placeholder review");
-    await flushPromises();
-    await dialog.vm.$emit("confirm");
-    await flushPromises();
-
-    expect(quarantineStaleSubmitting).toHaveBeenCalledWith({
-      reason: "stale placeholder review",
-      grace_minutes: 30,
-      limit: 100,
-    });
-    const toolbar = wrapper.find('[data-testid="task-maintenance-toolbar"]');
-    expect(toolbar.text()).toContain("Stale submits quarantined");
-    expect(toolbar.text()).toContain("2 quarantined");
-    expect(toolbar.text()).toContain("1 non-terminal skipped");
-    expect(toolbar.text()).toContain("3 fresh skipped");
-    expect(toolbar.text()).toContain("4 real-remote skipped");
-    wrapper.unmount();
-  });
-
-  it("restores persisted settings when the modal is reopened after cancel", async () => {
-    setAuthenticatedUser({ is_admin: true });
-    const wrapper = await mountQueue();
-    await flushPromises();
-
-    await wrapper.find('[data-testid="maintenance-settings-button"]').trigger("click");
-    await flushPromises();
-
-    const toggle = document.querySelector('[data-testid="maintenance-cleanup-toggle"]');
-    expect(toggle).not.toBeNull();
-    expect(toggle!.getAttribute("aria-checked")).toBe("true");
-
-    toggle!.dispatchEvent(new Event("click", { bubbles: true }));
-    await flushPromises();
-    expect(toggle!.getAttribute("aria-checked")).toBe("false");
-
-    const cancelButton = Array.from(document.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Cancel",
-    );
-    expect(cancelButton).toBeDefined();
-    cancelButton!.click();
-    await flushPromises();
-    expect(document.body.textContent).not.toContain("Retention (days)");
-
-    // Reopening must discard the discarded draft and restart from persisted values.
-    await wrapper.find('[data-testid="maintenance-settings-button"]').trigger("click");
-    await flushPromises();
-
-    const reopenedToggle = document.querySelector('[data-testid="maintenance-cleanup-toggle"]');
-    expect(reopenedToggle!.getAttribute("aria-checked")).toBe("true");
+    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="clear-trash-button"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

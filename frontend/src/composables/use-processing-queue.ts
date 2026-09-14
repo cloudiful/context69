@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { apiClient, type SortDirection, type TaskKind, type TaskListView, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
+import { apiClient, type ClearTaskHistoryView, type SortDirection, type TaskKind, type TaskListView, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
 import { ApiError } from "../services/api/api-core";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
@@ -54,6 +54,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const sort = ref<{ field: TaskSortBy; direction: SortDirection } | null>(null);
   const actionTaskIds = ref<string[]>([]);
   const bulkAction = ref<"recover" | "cancel" | null>(null);
+  const clearAction = ref<ClearTaskHistoryView | null>(null);
   let requestController: AbortController | null = null;
   let requestId = 0;
 
@@ -353,7 +354,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   }
 
   async function recoverAll() {
-    if (recoverableCount.value === 0 || bulkAction.value) return;
+    if (recoverableCount.value === 0 || bulkAction.value || clearAction.value) return;
     bulkAction.value = "recover";
     try {
       const tasks = items.value.filter(isRecoverableTask);
@@ -377,7 +378,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   }
 
   async function cancelActive() {
-    if (activeCount.value === 0 || bulkAction.value) return;
+    if (activeCount.value === 0 || bulkAction.value || clearAction.value) return;
     bulkAction.value = "cancel";
     try {
       const results = await Promise.allSettled(items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).map((task) => apiClient.cancelTask(task.task_id)));
@@ -400,7 +401,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   }
 
   function confirmRecoverAll() {
-    if (recoverableCount.value === 0 || bulkAction.value) return;
+    if (recoverableCount.value === 0 || bulkAction.value || clearAction.value) return;
     confirm.require({
       header: t("processingQueue.retryAll"),
       message: t("processingQueue.recoverAllConfirm", {
@@ -415,13 +416,59 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   }
 
   function confirmCancelActive() {
-    if (activeCount.value === 0 || bulkAction.value) return;
+    if (activeCount.value === 0 || bulkAction.value || clearAction.value) return;
     confirm.require({
       header: t("processingQueue.cancelActive"),
       message: t("processingQueue.cancelActiveConfirm"),
       rejectLabel: t("common.cancel"),
       acceptLabel: t("processingQueue.cancelActiveAction"),
       accept: () => void cancelActive(),
+    });
+  }
+
+  // User-scoped history clearing. `completed` removes only the current
+  // user's untrashed succeeded tasks; `trash` removes only the current
+  // user's trashed terminal tasks. Active tasks, other users' tasks, and
+  // files/documents/vectors are never touched. Repeat calls are idempotent
+  // and report the actual deleted count.
+  async function clearHistory(view: ClearTaskHistoryView) {
+    if (clearAction.value || bulkAction.value) return;
+    clearAction.value = view;
+    try {
+      const response = await apiClient.clearTaskHistory({ view });
+      await load();
+      toast.add({
+        color: "success",
+        title: t(view === "completed" ? "processingQueue.clearCompletedAccepted" : "processingQueue.clearTrashAccepted"),
+        description: String(response.deleted_count),
+        duration: 3000,
+      });
+    } catch (clearError) {
+      showErrorToast(clearError, t(view === "completed" ? "processingQueue.clearCompletedFailed" : "processingQueue.clearTrashFailed"));
+    } finally {
+      clearAction.value = null;
+    }
+  }
+
+  function confirmClearCompleted() {
+    if (clearAction.value || bulkAction.value) return;
+    confirm.require({
+      header: t("processingQueue.clearCompleted"),
+      message: t("processingQueue.clearCompletedConfirm"),
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("processingQueue.clearCompletedAction"),
+      accept: () => void clearHistory("completed"),
+    });
+  }
+
+  function confirmClearTrash() {
+    if (clearAction.value || bulkAction.value) return;
+    confirm.require({
+      header: t("processingQueue.clearTrash"),
+      message: t("processingQueue.clearTrashConfirm"),
+      rejectLabel: t("common.cancel"),
+      acceptLabel: t("processingQueue.clearTrashAction"),
+      accept: () => void clearHistory("trash"),
     });
   }
 
@@ -449,6 +496,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     dependencyKeyFilter,
     actionTaskIds,
     bulkAction,
+    clearAction,
     recoverableCount,
     doclingRecoveryCount,
     failedCount,
@@ -481,5 +529,8 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     cancelActive,
     confirmRecoverAll,
     confirmCancelActive,
+    clearHistory,
+    confirmClearCompleted,
+    confirmClearTrash,
   };
 }
