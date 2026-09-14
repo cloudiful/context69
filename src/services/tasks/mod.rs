@@ -115,6 +115,12 @@ impl TaskService {
         maintenance::start(self);
     }
 
+    /// Test/shutdown-aware variant: same loops as [`Self::start_maintenance`]
+    /// but the source-cleanup dispatcher exits when `shutdown` cancels.
+    pub fn start_maintenance_with_shutdown(&self, shutdown: tokio_util::sync::CancellationToken) {
+        maintenance::start_with_shutdown(self, shutdown);
+    }
+
     pub async fn submit(&self, request: TaskSubmission) -> Result<TaskRef> {
         if request.payloads.is_empty() {
             return Err(

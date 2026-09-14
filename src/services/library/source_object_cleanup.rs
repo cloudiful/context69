@@ -61,6 +61,7 @@ impl LibraryService {
         let batch_size = batch_size.max(1);
         let mut summary = SourceObjectCleanupSummary::default();
         for _ in 0..batch_size {
+            let intent_started = std::time::Instant::now();
             let mut tx = self.db.pool().begin().await?;
             let intents = self
                 .store
@@ -77,20 +78,60 @@ impl LibraryService {
                         .complete_source_object_cleanup(&mut tx, intent.id, None)
                         .await?;
                     summary.deleted += 1;
+                    info!(
+                        intent_id = intent.id,
+                        object_id = ?intent.object_id,
+                        object_key = %intent.object_key,
+                        attempts = intent.attempts,
+                        elapsed_ms = intent_started.elapsed().as_millis() as u64,
+                        "cleanup_deleted"
+                    );
                 }
                 Ok(CleanupOutcome::Cancelled(reason)) => {
                     self.store
                         .complete_source_object_cleanup(&mut tx, intent.id, Some(reason))
                         .await?;
                     summary.cancelled += 1;
+                    if reason.contains("referenced again") {
+                        info!(
+                            intent_id = intent.id,
+                            object_id = ?intent.object_id,
+                            object_key = %intent.object_key,
+                            attempts = intent.attempts,
+                            elapsed_ms = intent_started.elapsed().as_millis() as u64,
+                            reason,
+                            "cleanup_cancelled_reference_reappeared"
+                        );
+                    } else {
+                        info!(
+                            intent_id = intent.id,
+                            object_id = ?intent.object_id,
+                            object_key = %intent.object_key,
+                            attempts = intent.attempts,
+                            elapsed_ms = intent_started.elapsed().as_millis() as u64,
+                            reason,
+                            "cleanup_cancelled"
+                        );
+                    }
                 }
                 Ok(CleanupOutcome::Retry(reason)) => {
-                    self.reschedule_cleanup(&mut tx, &intent, &reason).await?;
+                    self.reschedule_cleanup(
+                        &mut tx,
+                        &intent,
+                        &reason,
+                        intent_started.elapsed().as_millis() as u64,
+                    )
+                    .await?;
                     summary.failed += 1;
                 }
                 Err(error) => {
-                    self.reschedule_cleanup(&mut tx, &intent, &error.to_string())
-                        .await?;
+                    self.reschedule_cleanup(
+                        &mut tx,
+                        &intent,
+                        &error.to_string(),
+                        intent_started.elapsed().as_millis() as u64,
+                    )
+                    .await?;
                     summary.failed += 1;
                 }
             }
@@ -104,15 +145,19 @@ impl LibraryService {
         tx: &mut sqlx::PgConnection,
         intent: &crate::library_store::SourceObjectCleanupIntent,
         reason: &str,
+        elapsed_ms: u64,
     ) -> Result<()> {
         let delay = cleanup_backoff_seconds(intent.attempts);
         warn!(
             intent_id = intent.id,
+            object_id = ?intent.object_id,
             object_key = %intent.object_key,
             attempts = intent.attempts,
+            elapsed_ms,
             delay_seconds = delay,
+            next_retry_secs = delay,
             reason,
-            "source object cleanup failed; rescheduled"
+            "cleanup_rescheduled"
         );
         self.store
             .reschedule_source_object_cleanup(tx, intent.id, delay, reason)

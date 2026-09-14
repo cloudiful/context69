@@ -53,17 +53,30 @@ impl LibraryService {
         file_id: Uuid,
     ) -> Result<LibraryFileDetailResponse> {
         match self.release_source_with_policy(project.id, file_id).await? {
-            SourceReleaseDisposition::Released | SourceReleaseDisposition::AlreadyReleased => {
+            (SourceReleaseDisposition::Released, recorded) => {
+                // Commit already succeeded; wake only now so a crash before
+                // commit never triggers an empty drain, and never wait for
+                // physical S3 deletion inside the request.
+                if recorded {
+                    self.wake_source_cleanup();
+                    info!(
+                        file_id = %file_id,
+                        "cleanup_woken after logical_release_committed"
+                    );
+                }
                 self.get_file_in_project(project, file_id).await
             }
-            SourceReleaseDisposition::NotFound => {
+            (SourceReleaseDisposition::AlreadyReleased, _) => {
+                self.get_file_in_project(project, file_id).await
+            }
+            (SourceReleaseDisposition::NotFound, _) => {
                 Err(DomainError::not_found(format!("unknown file {file_id}")).into())
             }
-            SourceReleaseDisposition::NotSucceeded => Err(DomainError::conflict(
+            (SourceReleaseDisposition::NotSucceeded, _) => Err(DomainError::conflict(
                 "file is not succeeded and cannot release its source",
             )
             .into()),
-            SourceReleaseDisposition::ActiveProcessing => Err(DomainError::conflict(
+            (SourceReleaseDisposition::ActiveProcessing, _) => Err(DomainError::conflict(
                 "file has an active processing task and cannot release its source",
             )
             .into()),
@@ -73,6 +86,12 @@ impl LibraryService {
     /// Best-effort auto-release attempt for one file after a successful
     /// processing result. No-op unless the file opted in at upload and has not
     /// been released yet. Never changes the file's processing status.
+    ///
+    /// Returns `Ok(true)` only when a release committed with a cleanup intent
+    /// and a wake was actually sent (`Released` + recorded). A `Released`
+    /// commit without an intent (already detached) and `AlreadyReleased`
+    /// send no wake and return `Ok(false)` so callers never log a
+    /// false-positive `cleanup_woken`.
     pub async fn try_auto_release_source_for_file(&self, file_id: Uuid) -> Result<bool> {
         let Some(state) = self.store.get_file_source_lifecycle(file_id).await? else {
             return Ok(false);
@@ -80,11 +99,29 @@ impl LibraryService {
         if !state.delete_source_after_processing || state.source_released_at.is_some() {
             return Ok(false);
         }
-        Ok(matches!(
-            self.release_source_with_policy(state.group_id, file_id)
-                .await?,
-            SourceReleaseDisposition::Released | SourceReleaseDisposition::AlreadyReleased
-        ))
+        let (disposition, recorded) = self
+            .release_source_with_policy(state.group_id, file_id)
+            .await?;
+        match disposition {
+            SourceReleaseDisposition::Released if recorded => {
+                // Success commit with an intent; a failure leaves the file
+                // pending for the retry sweep and never changes `succeeded`.
+                self.wake_source_cleanup();
+                info!(
+                    file_id = %file_id,
+                    "cleanup_woken after logical_release_committed (auto)"
+                );
+                Ok(true)
+            }
+            SourceReleaseDisposition::Released => {
+                // Committed but detached: no intent was recorded so no wake
+                // was sent. The detached outcome is already logged inside
+                // `release_source_with_policy`.
+                Ok(false)
+            }
+            SourceReleaseDisposition::AlreadyReleased => Ok(false),
+            _ => Ok(false),
+        }
     }
 
     /// Retry opted-in, succeeded, not-yet-released files. Safe to run at
@@ -102,15 +139,20 @@ impl LibraryService {
         let mut summary = SourceReleaseSweepSummary::default();
         for file in pending {
             summary.scanned += 1;
+            // Runs inside the dispatcher drain: never wake here. Intents
+            // recorded by this sweep are cleaned by the same drain's
+            // cleanup phase, and a wake would self-trigger an extra loop.
             match self
                 .release_source_with_policy(file.group_id, file.id)
                 .await
             {
-                Ok(SourceReleaseDisposition::Released) => summary.released += 1,
-                Ok(SourceReleaseDisposition::AlreadyReleased) => {}
-                Ok(SourceReleaseDisposition::ActiveProcessing) => summary.skipped_active += 1,
-                Ok(SourceReleaseDisposition::NotSucceeded) => summary.skipped_not_succeeded += 1,
-                Ok(SourceReleaseDisposition::NotFound) => {}
+                Ok((SourceReleaseDisposition::Released, _)) => summary.released += 1,
+                Ok((SourceReleaseDisposition::AlreadyReleased, _)) => {}
+                Ok((SourceReleaseDisposition::ActiveProcessing, _)) => summary.skipped_active += 1,
+                Ok((SourceReleaseDisposition::NotSucceeded, _)) => {
+                    summary.skipped_not_succeeded += 1;
+                }
+                Ok((SourceReleaseDisposition::NotFound, _)) => {}
                 Err(error) => {
                     summary.errors += 1;
                     warn!(
@@ -128,7 +170,7 @@ impl LibraryService {
         &self,
         group_id: i64,
         file_id: Uuid,
-    ) -> Result<SourceReleaseDisposition> {
+    ) -> Result<(SourceReleaseDisposition, bool)> {
         let mut tx = self.db.pool().begin().await?;
         // Same per-file advisory lock the create/retry/rerun paths take, so a
         // release cannot interleave with a reprocess being enqueued.
@@ -139,15 +181,15 @@ impl LibraryService {
             .await?
         else {
             tx.rollback().await?;
-            return Ok(SourceReleaseDisposition::NotFound);
+            return Ok((SourceReleaseDisposition::NotFound, false));
         };
         if state.group_id != group_id {
             tx.rollback().await?;
-            return Ok(SourceReleaseDisposition::NotFound);
+            return Ok((SourceReleaseDisposition::NotFound, false));
         }
         if state.source_released_at.is_some() {
             tx.commit().await?;
-            return Ok(SourceReleaseDisposition::AlreadyReleased);
+            return Ok((SourceReleaseDisposition::AlreadyReleased, false));
         }
         if is_sync_control_file(&state) {
             tx.rollback().await?;
@@ -157,11 +199,11 @@ impl LibraryService {
         }
         if state.ingest_status != LibraryIngestStatus::Succeeded.as_str() {
             tx.rollback().await?;
-            return Ok(SourceReleaseDisposition::NotSucceeded);
+            return Ok((SourceReleaseDisposition::NotSucceeded, false));
         }
         if self.store.count_active_file_items(&mut tx, file_id).await? > 0 {
             tx.rollback().await?;
-            return Ok(SourceReleaseDisposition::ActiveProcessing);
+            return Ok((SourceReleaseDisposition::ActiveProcessing, false));
         }
 
         let previous_object_id = state.storage_object_id;
@@ -171,7 +213,7 @@ impl LibraryService {
             .await?
         {
             tx.rollback().await?;
-            return Ok(SourceReleaseDisposition::AlreadyReleased);
+            return Ok((SourceReleaseDisposition::AlreadyReleased, false));
         }
         // Record a durable cleanup intent instead of deleting anything here.
         // The worker deletes the physical bytes first and the storage-object
@@ -232,16 +274,16 @@ impl LibraryService {
             info!(
                 file_id = %file_id,
                 group_id,
-                "library source released; physical deletion queued"
+                "logical_release_committed; physical deletion queued"
             );
         } else {
             info!(
                 file_id = %file_id,
                 group_id,
-                "library source released; storage object already detached"
+                "logical_release_committed; storage object already detached"
             );
         }
-        Ok(SourceReleaseDisposition::Released)
+        Ok((SourceReleaseDisposition::Released, recorded))
     }
 }
 

@@ -194,7 +194,7 @@ impl Context69App {
         } else {
             QueryService::disabled(db.clone())
         };
-        let library = LibraryService::new(
+        let mut library = LibraryService::new(
             db.clone(),
             embedding.clone(),
             index.clone(),
@@ -214,6 +214,12 @@ impl Context69App {
             extraction.clone(),
         )
         .await?;
+        // Shared source-cleanup dispatcher (issue 389): one Notify for the
+        // process. Manual and auto releases wake it after commit; the
+        // background loop drains on wake with a 5-minute fallback. Wired
+        // before startup drains and task creation so every clone shares it.
+        let source_cleanup_dispatcher = crate::services::library::SourceCleanupDispatcher::new();
+        library.set_source_cleanup_dispatcher(source_cleanup_dispatcher);
         // Before task workers resume, migrate any remaining legacy UUID
         // direct-path library files (storage_object_id IS NULL) onto the
         // content-addressed layout. This runs after LibraryService is ready and

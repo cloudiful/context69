@@ -72,6 +72,11 @@ polling, and metadata-index workers remain server-side.
   confirmed deleted, and a storage failure or crash reschedules the deletion
   with backoff instead of leaving an unrecoverable orphan. The bytes of an
   object that is referenced again are never deleted.
+- Release success means the logical release committed and physical deletion
+  was queued, not that S3 deletion finished. Both manual and auto releases
+  wake a shared cleanup dispatcher immediately after commit without waiting
+  for S3; the dispatcher also drains once at startup and every 5 minutes as
+  a fallback, and exits on shutdown.
 - A released file cannot be reprocessed until its bytes are uploaded again; the
   upload restores the source and keeps the original upload-time policy.
 - `context69-sdk` exposes `release_file_source(group_path, file_id)` and carries

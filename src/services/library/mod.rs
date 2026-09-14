@@ -78,6 +78,8 @@ pub(crate) mod object_storage;
 mod remote_download;
 mod remote_proxy;
 mod resources;
+mod source_cleanup_dispatcher;
+pub use source_cleanup_dispatcher::{SOURCE_CLEANUP_FALLBACK_INTERVAL, SourceCleanupDispatcher};
 mod source_object_cleanup;
 pub use source_object_cleanup::{
     DEFAULT_SOURCE_OBJECT_CLEANUP_BATCH_SIZE, SourceObjectCleanupSummary,
@@ -152,6 +154,10 @@ pub struct LibraryService {
     /// Serializes capacity resizes so concurrent workers cannot interleave
     /// opposite-direction deltas computed from different base totals.
     docling_resize_lock: Arc<Mutex<()>>,
+    /// Wake handle for the shared source-cleanup dispatcher (issue 389).
+    /// `None` until the application wires it; release paths wake only when
+    /// present so unit-constructed services keep working without a loop.
+    source_cleanup_dispatcher: Option<SourceCleanupDispatcher>,
 }
 
 pub struct LibraryServiceConfig {
@@ -459,6 +465,7 @@ impl LibraryService {
             docling_capacity: Arc::new(AtomicUsize::new(docling_limit)),
             docling_poll_capacity: Arc::new(AtomicUsize::new(docling_limit)),
             docling_resize_lock: Arc::new(Mutex::new(())),
+            source_cleanup_dispatcher: None,
         })
     }
 
@@ -537,6 +544,29 @@ impl LibraryService {
     /// surface for one-off admin flows.
     pub(super) fn store(&self) -> &LibraryStore {
         &self.store
+    }
+
+    /// Wire the shared source-cleanup dispatcher (issue 389). The same
+    /// handle is cloned into the background loop and woken by release
+    /// call sites after commit. Must be called before workers resume so
+    /// manual and auto releases share one `Notify`.
+    pub fn set_source_cleanup_dispatcher(&mut self, dispatcher: SourceCleanupDispatcher) {
+        self.source_cleanup_dispatcher = Some(dispatcher);
+    }
+
+    /// Borrow the wired dispatcher, if any. Release paths wake only when
+    /// present; an unwired service still commits durably and relies on the
+    /// fallback drain.
+    pub(crate) fn source_cleanup_dispatcher(&self) -> Option<SourceCleanupDispatcher> {
+        self.source_cleanup_dispatcher.clone()
+    }
+
+    /// Wake the dispatcher after a release commit. No-op when unwired.
+    /// Never blocks on physical S3 deletion; the drain runs in background.
+    pub(crate) fn wake_source_cleanup(&self) {
+        if let Some(dispatcher) = self.source_cleanup_dispatcher.as_ref() {
+            dispatcher.wake();
+        }
     }
 }
 
