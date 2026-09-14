@@ -1,7 +1,10 @@
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use bytes::Bytes;
+use opendal::ErrorKind;
+
+use crate::domain_errors::DomainError;
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -25,19 +28,23 @@ impl LibraryService {
             .await?
             .into_iter()
             .find(|gate| gate.dependency_key == LibraryDependency::S3.as_str())
-            .ok_or_else(|| anyhow!("s3 dependency unavailable: dependency gate is missing"))?;
+            .ok_or_else(|| {
+                DomainError::unavailable("s3 dependency unavailable: dependency gate is missing")
+            })
+            .map_err(anyhow::Error::from)?;
         let probe_owned = gate.state == "half_open"
             && lease_token.is_some()
             && gate.probe_lease_token == lease_token;
         if gate.state != "closed" && !probe_owned {
-            return Err(anyhow!(
+            return Err(DomainError::unavailable(format!(
                 "s3 dependency unavailable: state={}{}",
                 gate.state,
                 gate.last_error
                     .as_deref()
                     .map(|error| format!("; last_error={error}"))
                     .unwrap_or_default()
-            ));
+            ))
+            .into());
         }
         Ok(())
     }
@@ -81,7 +88,7 @@ impl LibraryService {
                     &error,
                 )
                 .await;
-                Err(error.context("s3 dependency unavailable"))
+                Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
         }
@@ -124,7 +131,7 @@ impl LibraryService {
                     &error,
                 )
                 .await;
-                Err(error.context("s3 dependency unavailable"))
+                Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
         }
@@ -168,7 +175,7 @@ impl LibraryService {
                     &error,
                 )
                 .await;
-                Err(error.context("s3 dependency unavailable"))
+                Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
         }
@@ -211,10 +218,26 @@ impl LibraryService {
                     &error,
                 )
                 .await;
-                Err(error.context("s3 dependency unavailable"))
+                Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
         }
+    }
+}
+
+/// Typed error for an S3 operation that failed without retry: the message
+/// keeps the `s3 operation ... kind=...` shape the dependency classifiers
+/// match on, while the variant carries the API status (missing keys are
+/// 404, key conflicts are 409, anything else is an upstream failure).
+fn s3_operation_error(operation: &str, error: &opendal::Error) -> DomainError {
+    let message = format!(
+        "s3 operation {operation} failed: kind={:?}: {error}",
+        error.kind()
+    );
+    match error.kind() {
+        ErrorKind::NotFound => DomainError::not_found(message),
+        ErrorKind::AlreadyExists => DomainError::conflict(message),
+        _ => DomainError::upstream_error(message),
     }
 }
 
@@ -232,10 +255,7 @@ where
                 Ok(Ok(value)) => return Ok(value),
                 Ok(Err(error)) => {
                     if !is_s3_attempt_retryable(&error) {
-                        return Err(anyhow!(
-                            "s3 operation {operation} failed: kind={:?}: {error}",
-                            error.kind()
-                        ));
+                        return Err(s3_operation_error(operation, &error).into());
                     }
                     retryable_error_seen = true;
                     last_error = Some(format!("kind={:?}: {error}", error.kind()));
@@ -253,7 +273,7 @@ where
             }
         }
 
-        Err(anyhow!(
+        Err(DomainError::unavailable(format!(
             "s3 operation {operation} failed after {} attempts: {}{}",
             S3_RETRY_LIMIT + 1,
             last_error.unwrap_or_else(|| "unknown error".to_string()),
@@ -263,14 +283,16 @@ where
                 ""
             }
         ))
+        .into())
     })
     .await;
 
     result.unwrap_or_else(|_| {
-        Err(anyhow!(
+        Err(DomainError::upstream_timeout(format!(
             "s3 operation {operation} timed out after {}s",
             S3_OPERATION_TIMEOUT.as_secs()
         ))
+        .into())
     })
 }
 

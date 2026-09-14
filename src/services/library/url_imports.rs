@@ -1,6 +1,7 @@
 use super::*;
 use crate::contracts::ImportLibraryFileFromUrlRequest;
-use anyhow::{Context, Result, anyhow};
+use crate::domain_errors::DomainError;
+use anyhow::Result;
 
 impl LibraryService {
     pub(crate) async fn download_url_for_task(
@@ -13,20 +14,24 @@ impl LibraryService {
             self.store
                 .get_folder_in_project(group_id, folder_id)
                 .await?
-                .with_context(|| format!("unknown folder {folder_id}"))?;
+                .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))
+                .map_err(anyhow::Error::from)?;
         }
         if request
             .metadata
             .as_ref()
             .is_some_and(|value| !value.metadata_json.is_object())
         {
-            return Err(anyhow!("metadata_json must be an object"));
+            return Err(
+                DomainError::unprocessable_entity("metadata_json must be an object").into(),
+            );
         }
         let trusted_proxy_enabled = self.settings.trusted_proxy_enabled().await?;
         let limiter = self
             .url_import_runtime
             .limiter()
-            .ok_or_else(|| anyhow!("URL import rate limiter is unavailable"))?;
+            .ok_or_else(|| DomainError::unavailable("URL import rate limiter is unavailable"))
+            .map_err(anyhow::Error::from)?;
         let downloaded = remote_download::download(
             url.as_str(),
             request.filename.as_deref(),

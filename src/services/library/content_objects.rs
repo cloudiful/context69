@@ -8,14 +8,12 @@ impl LibraryService {
         request: &PrepareLibraryUploadRequest,
     ) -> Result<PrepareLibraryUploadResponse> {
         validate_sha256(&request.sha256)?;
-        if request.size_bytes < 0 || request.size_bytes as usize > self.max_upload_size_bytes {
-            return Err(anyhow!("invalid upload size {}", request.size_bytes));
-        }
+        validate_upload_size(request.size_bytes, self.max_upload_size_bytes)?;
         if let Some(folder_id) = request.folder_id {
             self.store
                 .get_folder_in_project(project.id, folder_id)
                 .await?
-                .with_context(|| format!("unknown folder {folder_id}"))?;
+                .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         }
         storage::detect_file_kind(&request.filename, &request.media_type)?;
         if let Some(external_id) = request
@@ -120,11 +118,11 @@ impl LibraryService {
             .store
             .get_storage_object(project.id, &request.sha256)
             .await?
-            .with_context(|| {
-                format!(
+            .ok_or_else(|| {
+                DomainError::not_found(format!(
                     "missing storage object for duplicate-content reuse {}",
                     request.sha256
-                )
+                ))
             })?;
         if storage_object.storage_backend != self.storage.backend() {
             return Ok(upload_required());
@@ -363,19 +361,61 @@ fn upload_required() -> PrepareLibraryUploadResponse {
 
 fn validate_sha256(value: &str) -> Result<()> {
     if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(anyhow!("sha256 must be 64 hexadecimal characters"));
+        return Err(
+            DomainError::invalid_argument("sha256 must be 64 hexadecimal characters").into(),
+        );
+    }
+    Ok(())
+}
+
+/// Upload-size gate split from the pre-typed single `anyhow!("invalid upload
+/// size")` (500): negative sizes are client errors (400), oversize payloads
+/// are 413. Both keep the legacy message text.
+fn validate_upload_size(size_bytes: i64, max_upload_size_bytes: usize) -> Result<()> {
+    if size_bytes < 0 {
+        return Err(
+            DomainError::invalid_argument(format!("invalid upload size {size_bytes}")).into(),
+        );
+    }
+    if size_bytes as usize > max_upload_size_bytes {
+        return Err(
+            DomainError::payload_too_large(format!("invalid upload size {size_bytes}")).into(),
+        );
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::validate_sha256;
+    use super::{validate_sha256, validate_upload_size};
+    use crate::domain_errors::{DomainError, find_domain_error};
 
     #[test]
     fn sha256_requires_exact_hex_digest() {
         assert!(validate_sha256(&"a".repeat(64)).is_ok());
         assert!(validate_sha256(&"a".repeat(63)).is_err());
         assert!(validate_sha256(&"z".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn negative_upload_size_is_invalid_argument() {
+        let error = validate_upload_size(-1, 1024).expect_err("negative must fail");
+        assert!(matches!(
+            find_domain_error(&error),
+            Some(DomainError::InvalidArgument(message))
+                if message == "invalid upload size -1"
+        ));
+    }
+
+    #[test]
+    fn oversize_upload_is_payload_too_large() {
+        let error = validate_upload_size(1025, 1024).expect_err("oversize must fail");
+        assert!(matches!(
+            find_domain_error(&error),
+            Some(DomainError::PayloadTooLarge(message))
+                if message == "invalid upload size 1025"
+        ));
+        assert!(validate_upload_size(1024, 1024).is_ok());
+        assert!(validate_upload_size(0, 1024).is_ok());
     }
 }

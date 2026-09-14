@@ -9,7 +9,9 @@
 //! `source_released_at` so the legacy missing-source cleanup can tell it apart
 //! from a source that vanished on its own and must not delete the results.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 
 use crate::db::lock_file_processing_slots;
 use crate::library_store::FileSourceLifecycleRow;
@@ -54,13 +56,17 @@ impl LibraryService {
             SourceReleaseDisposition::Released | SourceReleaseDisposition::AlreadyReleased => {
                 self.get_file_in_project(project, file_id).await
             }
-            SourceReleaseDisposition::NotFound => Err(anyhow!("unknown file {file_id}")),
-            SourceReleaseDisposition::NotSucceeded => Err(anyhow!(
-                "file is not succeeded and cannot release its source"
-            )),
-            SourceReleaseDisposition::ActiveProcessing => Err(anyhow!(
-                "file has an active processing task and cannot release its source"
-            )),
+            SourceReleaseDisposition::NotFound => {
+                Err(DomainError::not_found(format!("unknown file {file_id}")).into())
+            }
+            SourceReleaseDisposition::NotSucceeded => Err(DomainError::conflict(
+                "file is not succeeded and cannot release its source",
+            )
+            .into()),
+            SourceReleaseDisposition::ActiveProcessing => Err(DomainError::conflict(
+                "file has an active processing task and cannot release its source",
+            )
+            .into()),
         }
     }
 
@@ -145,7 +151,9 @@ impl LibraryService {
         }
         if is_sync_control_file(&state) {
             tx.rollback().await?;
-            return Err(anyhow!("sync control files cannot release their source"));
+            return Err(
+                DomainError::conflict("sync control files cannot release their source").into(),
+            );
         }
         if state.ingest_status != LibraryIngestStatus::Succeeded.as_str() {
             tx.rollback().await?;

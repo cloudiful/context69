@@ -1,4 +1,6 @@
-use anyhow::{Context, Result, anyhow};
+use crate::domain_errors::DomainError;
+
+use anyhow::{Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use context69_contracts::{RebuildDocumentTranslationsRequest, TranslationStatus};
 use serde_json::json;
@@ -17,11 +19,14 @@ pub(super) async fn process_translation(
     if stage == "finalize" {
         return Ok(ProcessResult::Succeeded(Some(task.id.to_string())));
     }
-    let group = group.context("translation tasks require group_id")?;
+    let group = group.context(DomainError::invalid_argument(
+        "translation tasks require group_id",
+    ))?;
     if stage != "translation" {
         return Ok(process_error(
             stage,
-            anyhow!("unsupported translation task stage {stage}"),
+            DomainError::invalid_argument(format!("unsupported translation task stage {stage}"))
+                .into(),
         ));
     }
     let request: TranslationTaskItem = match serde_json::from_value(item.payload.clone()) {
@@ -40,8 +45,7 @@ pub(super) async fn process_translation(
                         target_locales: request.target_locales,
                     },
                 )
-                .await
-                .map_err(|error| anyhow!(error.to_string()))?
+                .await?
                 .jobs;
             let job_ids = jobs.iter().map(|job| job.job_id).collect::<Vec<_>>();
             let mut payload = item.payload.clone();
@@ -51,9 +55,10 @@ pub(super) async fn process_translation(
                 .set_task_item_payload(item.id, item.lease_token, &payload)
                 .await?
             {
-                return Err(anyhow!(
-                    "task item lease was lost while saving translation jobs"
-                ));
+                return Err(DomainError::conflict(
+                    "task item lease was lost while saving translation jobs",
+                )
+                .into());
             }
             job_ids
         }

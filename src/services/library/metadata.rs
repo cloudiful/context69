@@ -1,5 +1,6 @@
 use super::*;
 use crate::domain::{AccessScope, ChunkPayload, SourceRecord};
+use crate::domain_errors::DomainError;
 
 impl LibraryService {
     pub(super) async fn apply_file_extraction_directive(
@@ -14,7 +15,7 @@ impl LibraryService {
             .store
             .get_file(file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?
             .ingest_status
             == crate::contracts::LibraryIngestStatus::Succeeded;
         if should_enqueue {
@@ -50,7 +51,7 @@ impl LibraryService {
             .store
             .get_file(file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?
             .ingest_status
             == crate::contracts::LibraryIngestStatus::Succeeded;
         if should_enqueue {
@@ -80,13 +81,16 @@ impl LibraryService {
         metadata: &crate::contracts::LibraryFileUploadMetadata,
     ) -> Result<crate::domain::LibraryFileRecord> {
         if !metadata.metadata_json.is_object() {
-            return Err(anyhow!("metadata_json must be an object"));
+            return Err(
+                DomainError::unprocessable_entity("metadata_json must be an object").into(),
+            );
         }
         let current = self
             .store
             .get_file(file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
+            .map_err(anyhow::Error::from)?;
         let folder_path = self.folder_path_by_id(current.folder_id).await?;
         let mappings = self.store.list_file_documents(file_id).await?;
         for definition in self
@@ -114,7 +118,8 @@ impl LibraryService {
             .store
             .update_business_metadata(current.group_id, file_id, metadata)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
+            .map_err(anyhow::Error::from)?;
         self.refresh_metadata_for_file(file_id).await?;
         self.bump_search_generation("library file business metadata update")
             .await?;
@@ -125,11 +130,12 @@ impl LibraryService {
         let chunk_ids = self.store.list_chunk_ids_for_library_file(file_id).await?;
         if !chunk_ids.is_empty() {
             let runtime = self.runtime.as_ref().ok_or_else(|| {
-                anyhow!(
+                DomainError::unavailable(format!(
                     "embedding/vector dependency unavailable: cannot clean {} indexed chunks without vector runtime",
                     chunk_ids.len()
-                )
-            })?;
+                ))
+            })
+            .map_err(anyhow::Error::from)?;
             // Keep SQL chunks and their deterministic IDs until the remote delete succeeds.
             // A later retry needs those IDs to remove points left by a partial ingest.
             // Operation context (operation=delete_points, collection, category, point_count) is
@@ -171,7 +177,8 @@ impl LibraryService {
             .store
             .get_file(file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
+            .map_err(anyhow::Error::from)?;
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
         let mappings = self.store.list_file_documents(file_id).await?;
         for mapping in mappings {

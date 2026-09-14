@@ -15,6 +15,8 @@ use tokio::time::timeout;
 use tracing::info;
 use uuid::Uuid;
 
+use crate::domain_errors::DomainError;
+
 const QDRANT_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 const QDRANT_ERROR_PREVIEW_LIMIT: usize = 800;
 
@@ -112,22 +114,54 @@ pub fn format_qdrant_error(
         "{}: operation={} collection={} category={} {} underlying_preview={:?}",
         legacy, operation, collection, category, extra, preview
     );
-    // Chain underlying as source so dependency_is_transient sees original signals.
-    let res: Result<(), anyhow::Error> = Err(underlying);
-    res.context(outer).unwrap_err()
+    // Return the typed error directly so `find_domain_error` sees the
+    // `DomainError` via `Error::new`. The outer message already embeds the
+    // bounded underlying preview, so text-only classifiers
+    // (`is_qdrant_transient`, `dependency_is_transient`) keep matching
+    // without chaining the raw underlying source (chaining via
+    // `.context(typed)` would hide the typed variant from chain downcast).
+    anyhow::Error::new(qdrant_category_error(category, outer))
+}
+
+/// Typed outer error for a classified Qdrant failure. The message is the
+/// caller-supplied `format_qdrant_error` text verbatim so chain-text
+/// classifiers (`is_qdrant_transient`, `dependency_is_transient`,
+/// `is_qdrant_idempotent_not_found`) keep matching; the variant only adds
+/// the API status (timeout -> 504, rate limiting -> 429, transport/server
+/// failures -> 502, auth/permission failures -> 403, bad filters -> 400).
+fn qdrant_category_error(category: &str, message: String) -> DomainError {
+    match category {
+        "timeout" => DomainError::upstream_timeout(message),
+        "rate_limited" => DomainError::rate_limited(message),
+        "transport" | "server" => DomainError::upstream_error(message),
+        "client_error" => {
+            let lower = message.to_ascii_lowercase();
+            if lower.contains("permission")
+                || lower.contains("unauthenticated")
+                || lower.contains("unauthorized")
+                || lower.contains("forbidden")
+                || lower.contains("authentication")
+            {
+                DomainError::forbidden(message)
+            } else {
+                DomainError::invalid_argument(message)
+            }
+        }
+        _ => DomainError::upstream_error(message),
+    }
 }
 
 pub fn qdrant_timeout_error(operation: &str, collection: &str, extra: &str) -> anyhow::Error {
     let legacy = legacy_qdrant_prefix(operation);
     // Keep legacy timed out substring for classification while adding structured context.
-    anyhow!(
+    anyhow::Error::new(DomainError::upstream_timeout(format!(
         "{}: operation={} collection={} category=timeout {} timed out after {}s",
         legacy,
         operation,
         collection,
         extra,
         QDRANT_OPERATION_TIMEOUT.as_secs()
-    )
+    )))
 }
 
 /// Human-readable idempotence helper for tests: returns true only for
@@ -522,12 +556,15 @@ impl QdrantIndex {
                     .and_then(|value| value.variant.as_ref())
                 {
                     Some(qdrant_client::qdrant::order_value::Variant::Int(value)) => Some(*value),
-                    _ => point.payload.get("published_ts").and_then(|value| match value.kind {
-                        Some(qdrant_client::qdrant::value::Kind::IntegerValue(integer)) => {
-                            Some(integer)
-                        }
-                        _ => None,
-                    }),
+                    _ => point
+                        .payload
+                        .get("published_ts")
+                        .and_then(|value| match value.kind {
+                            Some(qdrant_client::qdrant::value::Kind::IntegerValue(integer)) => {
+                                Some(integer)
+                            }
+                            _ => None,
+                        }),
                 };
                 Ok(crate::services::query::SearchDatePointHit {
                     chunk_id,
@@ -536,15 +573,16 @@ impl QdrantIndex {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let next_offset: Option<uuid::Uuid> = response
-            .next_page_offset
-            .as_ref()
-            .and_then(|pid| match &pid.point_id_options {
-                Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(value)) => {
-                    uuid::Uuid::parse_str(value).ok()
-                }
-                _ => None,
-            });
+        let next_offset: Option<uuid::Uuid> =
+            response
+                .next_page_offset
+                .as_ref()
+                .and_then(|pid| match &pid.point_id_options {
+                    Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(value)) => {
+                        uuid::Uuid::parse_str(value).ok()
+                    }
+                    _ => None,
+                });
         info!(
             candidate_count = hits.len(),
             has_next_offset = next_offset.is_some(),
@@ -552,10 +590,7 @@ impl QdrantIndex {
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant date window completed"
         );
-        Ok(DateWindowPage {
-            hits,
-            next_offset,
-        })
+        Ok(DateWindowPage { hits, next_offset })
     }
 
     /// Build the access/locale/source/date/metadata conditions shared by the
@@ -669,12 +704,15 @@ impl QdrantIndex {
                     _ => None,
                 })
                 .or_else(|| {
-                    point.payload.get("published_ts").and_then(|value| match value.kind {
-                        Some(qdrant_client::qdrant::value::Kind::IntegerValue(integer)) => {
-                            Some(integer)
-                        }
-                        _ => None,
-                    })
+                    point
+                        .payload
+                        .get("published_ts")
+                        .and_then(|value| match value.kind {
+                            Some(qdrant_client::qdrant::value::Kind::IntegerValue(integer)) => {
+                                Some(integer)
+                            }
+                            _ => None,
+                        })
                 })
         }))
     }
@@ -943,6 +981,77 @@ mod tests {
         assert!(msg.contains("batch_size=3"), "missing extra: {msg}");
         // Must not contain document text; only preview of underlying
         assert!(!msg.contains("secret document payload"), "leaked payload");
+    }
+
+    #[test]
+    fn formatted_errors_carry_typed_category_for_status_mapping() {
+        use crate::domain_errors::{DomainError, find_domain_error};
+
+        let cases = [
+            (
+                format_qdrant_error("search_points", "c1", "", anyhow!("request timed out")),
+                "UpstreamTimeout",
+            ),
+            (
+                format_qdrant_error("search_points", "c1", "", anyhow!("status 429")),
+                "RateLimited",
+            ),
+            (
+                format_qdrant_error(
+                    "upsert_points",
+                    "c1",
+                    "",
+                    anyhow!("transport error: connection reset"),
+                ),
+                "UpstreamError",
+            ),
+            (
+                format_qdrant_error("search_points", "c1", "", anyhow!("status 503")),
+                "UpstreamError",
+            ),
+            (
+                format_qdrant_error(
+                    "search_points",
+                    "c1",
+                    "",
+                    anyhow!("validation error: filter format is invalid"),
+                ),
+                "InvalidArgument",
+            ),
+            (
+                format_qdrant_error(
+                    "delete_points",
+                    "c1",
+                    "",
+                    anyhow!("qdrant error: permission denied"),
+                ),
+                "Forbidden",
+            ),
+            (
+                format_qdrant_error("count_points", "c1", "", anyhow!("random glitch")),
+                "UpstreamError",
+            ),
+        ];
+        for (error, expected) in cases {
+            let found = find_domain_error(&error);
+            let actual = match found {
+                Some(DomainError::UpstreamTimeout(_)) => "UpstreamTimeout",
+                Some(DomainError::RateLimited(_)) => "RateLimited",
+                Some(DomainError::UpstreamError(_)) => "UpstreamError",
+                Some(DomainError::InvalidArgument(_)) => "InvalidArgument",
+                Some(DomainError::Forbidden(_)) => "Forbidden",
+                other => panic!("expected typed error, found {other:?} in {}", error),
+            };
+            assert_eq!(actual, expected, "message: {}", error);
+        }
+        let timeout = qdrant_timeout_error("delete_points", "c1", "");
+        assert!(
+            matches!(
+                find_domain_error(&timeout),
+                Some(DomainError::UpstreamTimeout(_))
+            ),
+            "timeout helper must be typed: {timeout}"
+        );
     }
 
     #[test]

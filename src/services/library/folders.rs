@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain_errors::DomainError;
 
 impl LibraryService {
     pub async fn create_folder(
@@ -7,16 +8,15 @@ impl LibraryService {
     ) -> Result<LibraryFolderResponse> {
         let name = request.name.trim();
         if name.is_empty() {
-            return Err(anyhow!("folder name must not be empty"));
+            return Err(DomainError::invalid_argument("folder name must not be empty").into());
         }
         if name.contains('/') {
-            return Err(anyhow!("folder name must not contain '/'"));
+            return Err(DomainError::invalid_argument("folder name must not contain '/'").into());
         }
         if let Some(parent_id) = request.parent_folder_id {
-            self.store
-                .get_folder(parent_id)
-                .await?
-                .with_context(|| format!("unknown parent folder {parent_id}"))?;
+            self.store.get_folder(parent_id).await?.ok_or_else(|| {
+                DomainError::not_found(format!("unknown parent folder {parent_id}"))
+            })?;
         }
 
         let folder = self
@@ -45,16 +45,18 @@ impl LibraryService {
     ) -> Result<LibraryFolderResponse> {
         let name = request.name.trim();
         if name.is_empty() {
-            return Err(anyhow!("folder name must not be empty"));
+            return Err(DomainError::invalid_argument("folder name must not be empty").into());
         }
         if name.contains('/') {
-            return Err(anyhow!("folder name must not contain '/'"));
+            return Err(DomainError::invalid_argument("folder name must not contain '/'").into());
         }
         if let Some(parent_id) = request.parent_folder_id {
             self.store
                 .get_folder_in_project(project.id, parent_id)
                 .await?
-                .with_context(|| format!("unknown parent folder {parent_id}"))?;
+                .ok_or_else(|| {
+                    DomainError::not_found(format!("unknown parent folder {parent_id}"))
+                })?;
         }
 
         let folder = self
@@ -84,20 +86,22 @@ impl LibraryService {
         self.store
             .get_folder(folder_id)
             .await?
-            .with_context(|| format!("unknown folder {folder_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         if let Some(target_id) = request.target_folder_id
             && target_id == folder_id
         {
-            return Err(anyhow!("folder cannot be moved into itself"));
+            return Err(DomainError::invalid_argument("folder cannot be moved into itself").into());
         }
         if let Some(target_id) = request.target_folder_id {
-            self.store
-                .get_folder(target_id)
-                .await?
-                .with_context(|| format!("unknown target folder {target_id}"))?;
+            self.store.get_folder(target_id).await?.ok_or_else(|| {
+                DomainError::not_found(format!("unknown target folder {target_id}"))
+            })?;
             let descendants = self.store.descendant_folder_ids(folder_id).await?;
             if descendants.contains(&target_id) {
-                return Err(anyhow!("folder cannot be moved into its descendant"));
+                return Err(DomainError::invalid_argument(
+                    "folder cannot be moved into its descendant",
+                )
+                .into());
             }
         }
 
@@ -105,7 +109,7 @@ impl LibraryService {
             .store
             .move_folder(folder_id, request.target_folder_id)
             .await?
-            .with_context(|| format!("unknown folder {folder_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         self.refresh_metadata_for_folder_subtree(folder_id).await?;
         self.bump_search_generation("library folder move").await?;
         let path = self.folder_path(moved.parent_id, &moved.name).await?;
@@ -132,23 +136,28 @@ impl LibraryService {
         self.store
             .get_folder_in_project(project.id, folder_id)
             .await?
-            .with_context(|| format!("unknown folder {folder_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         if let Some(target_id) = request.target_folder_id
             && target_id == folder_id
         {
-            return Err(anyhow!("folder cannot be moved into itself"));
+            return Err(DomainError::invalid_argument("folder cannot be moved into itself").into());
         }
         if let Some(target_id) = request.target_folder_id {
             self.store
                 .get_folder_in_project(project.id, target_id)
                 .await?
-                .with_context(|| format!("unknown target folder {target_id}"))?;
+                .ok_or_else(|| {
+                    DomainError::not_found(format!("unknown target folder {target_id}"))
+                })?;
             let descendants = self
                 .store
                 .descendant_folder_ids_in_project(project.id, folder_id)
                 .await?;
             if descendants.contains(&target_id) {
-                return Err(anyhow!("folder cannot be moved into its descendant"));
+                return Err(DomainError::invalid_argument(
+                    "folder cannot be moved into its descendant",
+                )
+                .into());
             }
         }
 
@@ -156,7 +165,7 @@ impl LibraryService {
             .store
             .move_folder_in_project(project.id, folder_id, request.target_folder_id)
             .await?
-            .with_context(|| format!("unknown folder {folder_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         self.refresh_metadata_for_folder_subtree(folder_id).await?;
         self.bump_search_generation("library folder move").await?;
         let path = self.folder_path(moved.parent_id, &moved.name).await?;
@@ -178,7 +187,7 @@ impl LibraryService {
         self.store
             .get_folder(folder_id)
             .await?
-            .with_context(|| format!("unknown folder {folder_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         let file_ids = self.descendant_file_ids(folder_id).await?;
         let paths = self.store.list_storage_paths_for_files(&file_ids).await?;
         self.delete_file_ids(&file_ids).await?;
@@ -216,7 +225,7 @@ impl LibraryService {
         self.store
             .get_folder_in_project(project.id, folder_id)
             .await?
-            .with_context(|| format!("unknown folder {folder_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         let file_ids = self
             .descendant_file_ids_in_project(project.id, folder_id)
             .await?;

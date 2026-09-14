@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
+use context69_contracts::DomainError;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -39,7 +40,8 @@ impl DeepLProvider {
             .api_key
             .as_deref()
             .filter(|value| !value.is_empty())
-            .context("DeepL api_key is not configured")
+            .ok_or_else(|| DomainError::invalid_argument("DeepL api_key is not configured"))
+            .map_err(anyhow::Error::from)
     }
 
     async fn create_glossary(
@@ -52,7 +54,10 @@ impl DeepLProvider {
         let source = request
             .source_locale
             .map(language_code)
-            .context("DeepL glossary requires a detected source locale")?;
+            .ok_or_else(|| {
+                DomainError::invalid_argument("DeepL glossary requires a detected source locale")
+            })
+            .map_err(anyhow::Error::from)?;
         let entries = request
             .glossary
             .iter()
@@ -78,13 +83,20 @@ impl DeepLProvider {
         let status = response.status();
         let value = response.json::<serde_json::Value>().await?;
         if !status.is_success() {
-            return Err(anyhow!("DeepL glossary returned {status}: {value}"));
+            return Err(super::provider_status_error(
+                status,
+                format!("DeepL glossary returned {status}: {value}"),
+            )
+            .into());
         }
         Ok(Some(TemporaryGlossary {
             id: value
                 .get("glossary_id")
                 .and_then(serde_json::Value::as_str)
-                .context("DeepL glossary response omitted glossary_id")?
+                .ok_or_else(|| {
+                    DomainError::upstream_error("DeepL glossary response omitted glossary_id")
+                })
+                .map_err(anyhow::Error::from)?
                 .to_string(),
         }))
     }
@@ -150,11 +162,17 @@ impl TranslationProvider for DeepLProvider {
         let status = response.status();
         let value = response.text().await?;
         if !status.is_success() {
-            return Err(anyhow!("DeepL returned {status}: {value}"));
+            return Err(super::provider_status_error(
+                status,
+                format!("DeepL returned {status}: {value}"),
+            )
+            .into());
         }
         let parsed: DeepLResponse = serde_json::from_str(&value)?;
         if parsed.translations.len() != request.segments.len() {
-            return Err(anyhow!("DeepL returned an incomplete segment set"));
+            return Err(
+                DomainError::upstream_error("DeepL returned an incomplete segment set").into(),
+            );
         }
         Ok(ProviderTranslationResult {
             translations: request

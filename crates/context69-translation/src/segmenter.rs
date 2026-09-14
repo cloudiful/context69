@@ -1,4 +1,5 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use context69_contracts::DomainError;
 
 const MAX_SEGMENT_CHARS: usize = 8_000;
 
@@ -73,7 +74,13 @@ fn translated_value(
         .get(&segment.id)
         .filter(|value| !value.trim().is_empty())
         .cloned()
-        .ok_or_else(|| anyhow!("provider omitted translation segment {}", segment.id))
+        .ok_or_else(|| {
+            DomainError::upstream_error(format!(
+                "provider omitted translation segment {}",
+                segment.id
+            ))
+        })
+        .map_err(anyhow::Error::from)
 }
 
 fn segment_body(body: &str) -> Vec<TranslationSegment> {

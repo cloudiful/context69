@@ -4,8 +4,9 @@ mod llm;
 
 use std::collections::HashMap;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
+use context69_contracts::DomainError;
 use context69_contracts::TranslationGlossaryEntry;
 
 use crate::{segmenter::TranslationSegment, store::StoredTranslationProvider};
@@ -32,6 +33,17 @@ trait TranslationProvider: Send + Sync {
     ) -> Result<ProviderTranslationResult>;
 }
 
+/// Typed error for a failed provider HTTP response, classified by the
+/// response status value (not message text): 429 is rate limiting, anything
+/// else is an upstream failure.
+pub(super) fn provider_status_error(status: reqwest::StatusCode, message: String) -> DomainError {
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        DomainError::rate_limited(message)
+    } else {
+        DomainError::upstream_error(message)
+    }
+}
+
 pub async fn translate(
     client: &reqwest::Client,
     provider: &StoredTranslationProvider,
@@ -53,7 +65,10 @@ pub async fn translate(
                 .translate(request)
                 .await
         }
-        other => Err(anyhow!("unsupported translation provider {other}")),
+        other => Err(DomainError::invalid_argument(format!(
+            "unsupported translation provider {other}"
+        ))
+        .into()),
     }?;
     validate_result(request, &result)?;
     Ok(result)
@@ -64,7 +79,9 @@ fn validate_result(
     result: &ProviderTranslationResult,
 ) -> Result<()> {
     if result.translations.len() != request.segments.len() {
-        return Err(anyhow!("provider returned an incomplete segment set"));
+        return Err(
+            DomainError::upstream_error("provider returned an incomplete segment set").into(),
+        );
     }
     for segment in request.segments {
         if result
@@ -72,10 +89,11 @@ fn validate_result(
             .get(&segment.id)
             .is_none_or(|value| value.trim().is_empty())
         {
-            return Err(anyhow!(
+            return Err(DomainError::upstream_error(format!(
                 "provider omitted translation segment {}",
                 segment.id
-            ));
+            ))
+            .into());
         }
     }
     Ok(())

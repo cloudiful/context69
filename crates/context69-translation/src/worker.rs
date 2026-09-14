@@ -3,8 +3,9 @@ mod readiness;
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
+use context69_contracts::DomainError;
 use context69_contracts::{
     GroupTranslationSettingsResponse, RebuildDocumentTranslationsRequest, TranslationDirective,
     TranslationJobResponse, TranslationJobsResponse, TranslationProviderPageResponse,
@@ -85,7 +86,8 @@ impl TranslationService {
             self.store
                 .job_in_group(group_id, id)
                 .await?
-                .context("translation job not found")?,
+                .ok_or_else(|| DomainError::not_found("translation job not found"))
+                .map_err(anyhow::Error::from)?,
         )
     }
 
@@ -109,7 +111,8 @@ impl TranslationService {
             .store
             .retry_job(group_id, id)
             .await?
-            .context("translation job is not retryable")?;
+            .ok_or_else(|| DomainError::conflict("translation job is not retryable"))
+            .map_err(anyhow::Error::from)?;
         self.spawn_worker();
         job_response(job)
     }
@@ -122,7 +125,7 @@ impl TranslationService {
     ) -> Result<TranslationJobsResponse> {
         let document = self.store.document(document_id).await?;
         if document.group_id != group_id {
-            return Err(anyhow!("translation document not found"));
+            return Err(DomainError::not_found("translation document not found").into());
         }
         let directive = if request.target_locales.is_empty() {
             None

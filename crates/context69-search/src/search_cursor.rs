@@ -111,7 +111,8 @@
 //! formats. The date path adds `validate_date_cursor` (window-bound sanity
 //! + sort/context rejection) on top of the shared check.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use context69_contracts::DomainError;
 use context69_contracts::SearchHit;
 use context69_contracts::search::SearchPagination;
 use serde_json::{Value, json};
@@ -346,40 +347,46 @@ pub(crate) fn decode_cursor(raw: &str) -> Result<DecodedCursor> {
         // so clients restart from the first page rather than silently
         // replaying a stale window shape.
         let _ = hex;
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "date cursor version {DATE_CURSOR_LEGACY_V3_VERSION} is no longer supported; restart from the first page"
-        ));
+        )).into());
     }
     if let Some(_hex) = raw.strip_prefix(DATE_CURSOR_PREFIX) {
         // Legacy `c2:` date cursors are not accepted by the current date
         // pipeline (the keyset walk changed). Reject so clients restart
         // from the first page rather than silently replaying a stale
         // window shape.
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "date cursor version {DATE_CURSOR_LEGACY_VERSION} is no longer supported; restart from the first page"
-        ));
+        )).into());
     }
     if let Some(hex) = raw.strip_prefix(CURSOR_PREFIX) {
         return Ok(DecodedCursor::Relevance(decode_relevance_cursor_body(hex)?));
     }
-    Err(anyhow!("unknown cursor prefix or version"))
+    Err(DomainError::invalid_argument("unknown cursor prefix or version").into())
 }
 
 fn decode_relevance_cursor_body(hex: &str) -> Result<RelevanceCursor> {
-    let bytes = decode_hex(hex).ok_or_else(|| anyhow!("cursor payload is not valid hex"))?;
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|error| anyhow!("cursor payload is not valid JSON: {error}"))?;
+    let bytes = decode_hex(hex)
+        .ok_or_else(|| DomainError::invalid_argument("cursor payload is not valid hex"))?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|error| {
+        DomainError::invalid_argument(format!("cursor payload is not valid JSON: {error}"))
+    })?;
     let version = value
         .get("v")
         .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("cursor payload is missing its version"))?;
+        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its version"))?;
     if version != CURSOR_SCHEMA_VERSION {
-        return Err(anyhow!("unsupported cursor version {version}"));
+        return Err(
+            DomainError::invalid_argument(format!("unsupported cursor version {version}")).into(),
+        );
     }
     let rerank_applied = value
         .get("reranked")
         .and_then(Value::as_bool)
-        .ok_or_else(|| anyhow!("cursor payload is missing its ordering flag"))?;
+        .ok_or_else(|| {
+            DomainError::invalid_argument("cursor payload is missing its ordering flag")
+        })?;
     let mode = match value
         .get("mode")
         .and_then(Value::as_str)
@@ -387,51 +394,67 @@ fn decode_relevance_cursor_body(hex: &str) -> Result<RelevanceCursor> {
     {
         "rerank" => CursorMode::Rerank,
         "local" => CursorMode::Local,
-        other => return Err(anyhow!("cursor payload has an unknown mode '{other}'")),
+        other => {
+            return Err(DomainError::invalid_argument(format!(
+                "cursor payload has an unknown mode '{other}'"
+            ))
+            .into());
+        }
     };
     if rerank_applied != matches!(mode, CursorMode::Rerank) {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "cursor payload is inconsistent: mode {mode:?} does not match reranked={rerank_applied}"
-        ));
+        ))
+        .into());
     }
     let offset = value
         .get("offset")
         .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("cursor payload is missing its offset"))?;
+        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its offset"))?;
     let limit = value
         .get("limit")
         .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("cursor payload is missing its page size"))?;
+        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its page size"))?;
     let query_hash = value
         .get("qh")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("cursor payload is missing its query context"))?
+        .ok_or_else(|| {
+            DomainError::invalid_argument("cursor payload is missing its query context")
+        })?
         .to_string();
     let filter_hash = value
         .get("fh")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("cursor payload is missing its filter context"))?
+        .ok_or_else(|| {
+            DomainError::invalid_argument("cursor payload is missing its filter context")
+        })?
         .to_string();
     let generation = value
         .get("gen")
         .and_then(Value::as_i64)
-        .ok_or_else(|| anyhow!("cursor payload is missing its generation"))?;
+        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its generation"))?;
     let settings_hash = value
         .get("sh")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("cursor payload is missing its settings context"))?
+        .ok_or_else(|| {
+            DomainError::invalid_argument("cursor payload is missing its settings context")
+        })?
         .to_string();
-    let offset = usize::try_from(offset).map_err(|_| anyhow!("cursor offset is out of range"))?;
-    let limit = usize::try_from(limit).map_err(|_| anyhow!("cursor page size is out of range"))?;
+    let offset = usize::try_from(offset)
+        .map_err(|_| DomainError::invalid_argument("cursor offset is out of range"))?;
+    let limit = usize::try_from(limit)
+        .map_err(|_| DomainError::invalid_argument("cursor page size is out of range"))?;
     if !(1..=100).contains(&limit) {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "cursor page size {limit} is outside the allowed 1..=100 range"
-        ));
+        ))
+        .into());
     }
     if offset > MAX_SEARCH_CANDIDATE_WINDOW {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "cursor offset {offset} exceeds the searchable candidate window"
-        ));
+        ))
+        .into());
     }
     Ok(RelevanceCursor {
         rerank_applied,
@@ -446,103 +469,130 @@ fn decode_relevance_cursor_body(hex: &str) -> Result<RelevanceCursor> {
 }
 
 fn decode_date_cursor_body(hex: &str) -> Result<DateCursor> {
-    let bytes = decode_hex(hex).ok_or_else(|| anyhow!("cursor payload is not valid hex"))?;
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|error| anyhow!("cursor payload is not valid JSON: {error}"))?;
+    let bytes = decode_hex(hex)
+        .ok_or_else(|| DomainError::invalid_argument("cursor payload is not valid hex"))?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|error| {
+        DomainError::invalid_argument(format!("cursor payload is not valid JSON: {error}"))
+    })?;
     let version = value
         .get("v")
         .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("cursor payload is missing its version"))?;
+        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its version"))?;
     if version != DATE_CURSOR_SCHEMA_VERSION {
-        return Err(anyhow!("unsupported cursor version {version}"));
+        return Err(
+            DomainError::invalid_argument(format!("unsupported cursor version {version}")).into(),
+        );
     }
-    let sort = value
-        .get("sort")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("date cursor payload is missing its sort field"))?;
+    let sort = value.get("sort").and_then(Value::as_str).ok_or_else(|| {
+        DomainError::invalid_argument("date cursor payload is missing its sort field")
+    })?;
     if sort != "date" {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "date cursor payload has an unsupported sort value '{sort}'"
-        ));
+        ))
+        .into());
     }
     let query_hash = value
         .get("qh")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("date cursor payload is missing its query context"))?
+        .ok_or_else(|| {
+            DomainError::invalid_argument("date cursor payload is missing its query context")
+        })?
         .to_string();
     let filter_hash = value
         .get("fh")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("date cursor payload is missing its filter context"))?
+        .ok_or_else(|| {
+            DomainError::invalid_argument("date cursor payload is missing its filter context")
+        })?
         .to_string();
-    let generation = value
-        .get("gen")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| anyhow!("date cursor payload is missing its generation"))?;
+    let generation = value.get("gen").and_then(Value::as_i64).ok_or_else(|| {
+        DomainError::invalid_argument("date cursor payload is missing its generation")
+    })?;
     let settings_hash = value
         .get("sh")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("date cursor payload is missing its settings context"))?
+        .ok_or_else(|| {
+            DomainError::invalid_argument("date cursor payload is missing its settings context")
+        })?
         .to_string();
-    let limit = value
-        .get("limit")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("date cursor payload is missing its page size"))?;
-    let limit = usize::try_from(limit).map_err(|_| anyhow!("date cursor page size is too large"))?;
+    let limit = value.get("limit").and_then(Value::as_u64).ok_or_else(|| {
+        DomainError::invalid_argument("date cursor payload is missing its page size")
+    })?;
+    let limit = usize::try_from(limit)
+        .map_err(|_| DomainError::invalid_argument("date cursor page size is too large"))?;
     if !(1..=100).contains(&limit) {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "date cursor page size {limit} is outside the allowed 1..=100 range"
-        ));
+        ))
+        .into());
     }
     let before = match value.get("before") {
         Some(Value::Null) | None => None,
-        Some(Value::Number(number)) => Some(
-            number
-                .as_i64()
-                .ok_or_else(|| anyhow!("date cursor before must be an integer"))?,
-        ),
-        _ => return Err(anyhow!("date cursor before must be an integer or null")),
+        Some(Value::Number(number)) => Some(number.as_i64().ok_or_else(|| {
+            DomainError::invalid_argument("date cursor before must be an integer")
+        })?),
+        _ => {
+            return Err(DomainError::invalid_argument(
+                "date cursor before must be an integer or null",
+            )
+            .into());
+        }
     };
     if let Some(value) = before
         && !(0..=DATE_TIMESTAMP_CAP).contains(&value)
     {
-        return Err(anyhow!("date cursor before is out of range"));
+        return Err(DomainError::invalid_argument("date cursor before is out of range").into());
     }
     let upper = match value.get("upper") {
         Some(Value::Null) | None => None,
-        Some(Value::Number(number)) => Some(
-            number
-                .as_i64()
-                .ok_or_else(|| anyhow!("date cursor upper must be an integer"))?,
-        ),
-        _ => return Err(anyhow!("date cursor upper must be an integer or null")),
+        Some(Value::Number(number)) => Some(number.as_i64().ok_or_else(|| {
+            DomainError::invalid_argument("date cursor upper must be an integer")
+        })?),
+        _ => {
+            return Err(DomainError::invalid_argument(
+                "date cursor upper must be an integer or null",
+            )
+            .into());
+        }
     };
     if let Some(value) = upper
         && !(0..=DATE_TIMESTAMP_CAP).contains(&value)
     {
-        return Err(anyhow!("date cursor upper is out of range"));
+        return Err(DomainError::invalid_argument("date cursor upper is out of range").into());
     }
     let boundary_ts = match value.get("boundary_ts") {
         Some(Value::Null) | None => None,
-        Some(Value::Number(number)) => Some(
-            number
-                .as_i64()
-                .ok_or_else(|| anyhow!("date cursor boundary_ts must be an integer"))?,
-        ),
-        _ => return Err(anyhow!("date cursor boundary_ts must be an integer or null")),
+        Some(Value::Number(number)) => Some(number.as_i64().ok_or_else(|| {
+            DomainError::invalid_argument("date cursor boundary_ts must be an integer")
+        })?),
+        _ => {
+            return Err(DomainError::invalid_argument(
+                "date cursor boundary_ts must be an integer or null",
+            )
+            .into());
+        }
     };
     if let Some(value) = boundary_ts
         && !(0..=DATE_TIMESTAMP_CAP).contains(&value)
     {
-        return Err(anyhow!("date cursor boundary_ts is out of range"));
+        return Err(
+            DomainError::invalid_argument("date cursor boundary_ts is out of range").into(),
+        );
     }
     let offset = match value.get("offset") {
         Some(Value::Null) | None => None,
-        Some(Value::String(raw)) => Some(
-            uuid::Uuid::parse_str(raw)
-                .map_err(|error| anyhow!("date cursor offset is not a valid uuid: {error}"))?,
-        ),
-        _ => return Err(anyhow!("date cursor offset must be a uuid string or null")),
+        Some(Value::String(raw)) => Some(uuid::Uuid::parse_str(raw).map_err(|error| {
+            DomainError::invalid_argument(format!(
+                "date cursor offset is not a valid uuid: {error}"
+            ))
+        })?),
+        _ => {
+            return Err(DomainError::invalid_argument(
+                "date cursor offset must be a uuid string or null",
+            )
+            .into());
+        }
     };
     Ok(DateCursor {
         limit,
@@ -568,19 +618,20 @@ pub(crate) fn ensure_cursor_ordering(raw_cursor: Option<&str>, rerank_applied: b
     };
     let cursor = decode_cursor(raw)?;
     match cursor {
-        DecodedCursor::Date(_) => Err(anyhow!(
+        DecodedCursor::Date(_) => Err(DomainError::invalid_argument(
             "cursor ordering mismatch: the cursor belongs to the date ordering; date cursors are only valid against `sort=date` requests"
-        )),
+        ).into()),
         DecodedCursor::Relevance(rel) => {
             if rel.rerank_applied == rerank_applied {
                 return Ok(());
             }
             let epoch = |reranked: bool| if reranked { "reranked" } else { "local" };
-            Err(anyhow!(
+            Err(DomainError::invalid_argument(format!(
                 "cursor ordering mismatch: the cursor belongs to the {} ordering but the current search resolves to the {} ordering; start again from the first page",
                 epoch(rel.rerank_applied),
                 epoch(rerank_applied)
             ))
+            .into())
         }
     }
 }
@@ -602,31 +653,31 @@ pub(crate) fn validate_cursor_context(
         DecodedCursor::Date(date) => validate_date_context(&date, context),
         DecodedCursor::Relevance(rel) => {
             if rel.query_hash != context.query_hash {
-                return Err(anyhow!(
+                return Err(DomainError::invalid_argument(
                     "cursor context mismatch: the cursor belongs to a different query; start again from the first page"
-                ));
+                ).into());
             }
             if rel.filter_hash != context.filter_hash {
-                return Err(anyhow!(
+                return Err(DomainError::invalid_argument(
                     "cursor context mismatch: filters (locale, source, group, date range, or metadata filters) changed; start again from the first page"
-                ));
+                ).into());
             }
             if rel.settings_hash != context.settings_hash {
-                return Err(anyhow!(
+                return Err(DomainError::invalid_argument(
                     "cursor context mismatch: search settings changed; start again from the first page"
-                ));
+                ).into());
             }
             if rel.generation != context.generation {
-                return Err(anyhow!(
+                return Err(DomainError::invalid_argument(
                     "cursor context mismatch: the indexed data has been refreshed; start again from the first page"
-                ));
+                ).into());
             }
             if rel.limit != context.limit {
-                return Err(anyhow!(
+                return Err(DomainError::invalid_argument(format!(
                     "cursor context mismatch: page size changed from {} to {}; start again from the first page",
                     rel.limit,
                     context.limit
-                ));
+                )).into());
             }
             Ok(())
         }
@@ -635,31 +686,32 @@ pub(crate) fn validate_cursor_context(
 
 fn validate_date_context(date: &DateCursor, context: &CursorContext) -> Result<()> {
     if date.query_hash != context.query_hash {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "cursor context mismatch: the cursor belongs to a different query; start again from the first page"
-        ));
+        ).into());
     }
     if date.filter_hash != context.filter_hash {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "cursor context mismatch: filters (locale, source, group, date range, or metadata filters) changed; start again from the first page"
-        ));
+        ).into());
     }
     if date.settings_hash != context.settings_hash {
-        return Err(anyhow!(
-            "cursor context mismatch: search settings changed; start again from the first page"
-        ));
+        return Err(DomainError::invalid_argument(
+            "cursor context mismatch: search settings changed; start again from the first page",
+        )
+        .into());
     }
     if date.generation != context.generation {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "cursor context mismatch: the indexed data has been refreshed; start again from the first page"
-        ));
+        ).into());
     }
     if date.limit != context.limit {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "cursor context mismatch: page size changed from {} to {}; start again from the first page",
             date.limit,
             context.limit
-        ));
+        )).into());
     }
     Ok(())
 }
@@ -678,11 +730,11 @@ pub(crate) fn validate_cursor_alignment(raw_cursor: Option<&str>) -> Result<()> 
         DecodedCursor::Date(_) => Ok(()),
         DecodedCursor::Relevance(rel) => {
             if rel.offset % rel.limit != 0 {
-                return Err(anyhow!(
+                return Err(DomainError::invalid_argument(format!(
                     "cursor offset {} is not aligned to the page size {}; start again from the first page",
                     rel.offset,
                     rel.limit
-                ));
+                )).into());
             }
             Ok(())
         }
@@ -695,15 +747,16 @@ pub(crate) fn validate_cursor_alignment(raw_cursor: Option<&str>) -> Result<()> 
 /// page.
 pub(crate) fn validate_date_cursor(raw_cursor: Option<&str>) -> Result<DateCursor> {
     let Some(raw) = raw_cursor else {
-        return Err(anyhow!(
-            "date cursor missing: date-mode requests must carry a cursor or be a fresh first page"
-        ));
+        return Err(DomainError::invalid_argument(
+            "date cursor missing: date-mode requests must carry a cursor or be a fresh first page",
+        )
+        .into());
     };
     match decode_cursor(raw)? {
         DecodedCursor::Date(date) => Ok(date),
-        DecodedCursor::Relevance(_) => Err(anyhow!(
+        DecodedCursor::Relevance(_) => Err(DomainError::invalid_argument(
             "cursor ordering mismatch: the cursor belongs to the relevance ordering; relevance cursors are not valid for `sort=date` requests"
-        )),
+        ).into()),
     }
 }
 
@@ -788,7 +841,7 @@ pub(crate) fn build_search_pagination(
     context: &CursorContext,
 ) -> Result<SearchPagination> {
     if limit == 0 {
-        return Err(anyhow!("page_size must be between 1 and 100"));
+        return Err(DomainError::invalid_argument("page_size must be between 1 and 100").into());
     }
     let page = u32::try_from(offset / limit + 1)?;
     let page_size = u32::try_from(limit)?;
@@ -832,16 +885,20 @@ fn prev_cursor_of(
     if offset == 0 {
         return None;
     }
-    Some(encode_cursor(offset.saturating_sub(limit), rerank_applied, limit, context))
+    Some(encode_cursor(
+        offset.saturating_sub(limit),
+        rerank_applied,
+        limit,
+        context,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        CursorContext, DATE_TIMESTAMP_CAP, MAX_DATE_WINDOWS,
-        MAX_SEARCH_CANDIDATE_WINDOW, RelevanceCursor, decode_cursor, encode_cursor,
-        encode_date_cursor, ensure_cursor_ordering, validate_cursor_alignment,
-        validate_cursor_context, validate_date_cursor,
+        CursorContext, DATE_TIMESTAMP_CAP, MAX_DATE_WINDOWS, MAX_SEARCH_CANDIDATE_WINDOW,
+        RelevanceCursor, decode_cursor, encode_cursor, encode_date_cursor, ensure_cursor_ordering,
+        validate_cursor_alignment, validate_cursor_context, validate_date_cursor,
     };
     use super::{DateCursor, DecodedCursor};
 
@@ -996,7 +1053,9 @@ mod tests {
         // The keyset `offset` is opaque to the client; a UUID round-trips
         // through encode/decode without changing its value.
         let mut cursor = sample_date_cursor();
-        cursor.offset = Some(uuid::Uuid::from_u128(0xabcd_1234_5678_9abc_def0_1234_5678_9abc));
+        cursor.offset = Some(uuid::Uuid::from_u128(
+            0xabcd_1234_5678_9abc_def0_1234_5678_9abc,
+        ));
         let raw = encode_date_cursor(&cursor);
         assert!(raw.starts_with("c4:"));
         let decoded = decode_cursor(&raw).expect("date cursor decodes");
@@ -1110,15 +1169,8 @@ mod tests {
 
     #[test]
     fn unknown_has_more_does_not_emit_cursor() {
-        let pagination = super::build_search_pagination(
-            0,
-            8,
-            8,
-            None,
-            false,
-            &ctx(8),
-        )
-        .expect("build pagination unknown");
+        let pagination = super::build_search_pagination(0, 8, 8, None, false, &ctx(8))
+            .expect("build pagination unknown");
         assert!(pagination.next_cursor.is_none());
         assert!(pagination.prev_cursor.is_none());
     }
@@ -1180,8 +1232,8 @@ mod tests {
         let cursor = encode_date_cursor(&sample_date_cursor());
         let mut other = ctx(8);
         other.filter_hash = "different".into();
-        let error = validate_cursor_context(Some(&cursor), &other)
-            .expect_err("filter hash must differ");
+        let error =
+            validate_cursor_context(Some(&cursor), &other).expect_err("filter hash must differ");
         assert!(error.to_string().contains("filters"));
     }
 
@@ -1200,8 +1252,8 @@ mod tests {
         let cursor = encode_cursor(8, true, 8, &ctx(8));
         let mut other = ctx(8);
         other.filter_hash = "different".into();
-        let error = validate_cursor_context(Some(&cursor), &other)
-            .expect_err("filter hash must differ");
+        let error =
+            validate_cursor_context(Some(&cursor), &other).expect_err("filter hash must differ");
         assert!(error.to_string().contains("filters"));
     }
 

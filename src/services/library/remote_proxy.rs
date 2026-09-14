@@ -4,7 +4,9 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+
+use crate::domain_errors::DomainError;
 use reqwest::{Client, NoProxy, Proxy, Url};
 use tokio::net::lookup_host;
 
@@ -55,7 +57,7 @@ impl RemoteTransport {
         }) {
             return Ok(());
         }
-        Err(anyhow!("remote_url_blocked"))
+        Err(DomainError::invalid_argument("remote_url_blocked").into())
     }
 }
 
@@ -63,28 +65,35 @@ fn trusted_proxy_url(mut env_value: impl FnMut(&str) -> Option<String>) -> Resul
     let value = TRUSTED_PROXY_ENV_VARS
         .iter()
         .find_map(|name| env_value(name).filter(|value| !value.trim().is_empty()))
-        .context("trusted_proxy_missing")?;
-    let url = Url::parse(value.trim()).context("trusted_proxy_invalid")?;
+        .ok_or_else(|| DomainError::invalid_argument("trusted_proxy_missing"))
+        .map_err(anyhow::Error::from)?;
+    let url = Url::parse(value.trim()).map_err(|error| {
+        DomainError::invalid_argument(format!("trusted_proxy_invalid: {error}"))
+    })?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || url.port_or_known_default().is_none()
     {
-        return Err(anyhow!("trusted_proxy_invalid"));
+        return Err(DomainError::invalid_argument("trusted_proxy_invalid").into());
     }
     Ok(url)
 }
 
 async fn resolve_proxy_addresses(url: &Url) -> Result<HashSet<SocketAddr>> {
-    let host = url.host_str().context("trusted_proxy_invalid")?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| DomainError::invalid_argument("trusted_proxy_invalid"))
+        .map_err(anyhow::Error::from)?;
     let port = url
         .port_or_known_default()
-        .context("trusted_proxy_invalid")?;
+        .ok_or_else(|| DomainError::invalid_argument("trusted_proxy_invalid"))
+        .map_err(anyhow::Error::from)?;
     let addresses = lookup_host((host, port))
         .await
-        .context("trusted_proxy_dns_failed")?
+        .map_err(|error| DomainError::upstream_error(format!("trusted_proxy_dns_failed: {error}")))?
         .collect::<HashSet<_>>();
     if addresses.is_empty() {
-        return Err(anyhow!("trusted_proxy_dns_failed"));
+        return Err(DomainError::upstream_error("trusted_proxy_dns_failed").into());
     }
     Ok(addresses)
 }

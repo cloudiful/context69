@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::domain_errors::DomainError;
+
 impl SyncService {
     pub async fn reload_sources(&self) -> Result<()> {
         let source_connections = self.db.list_source_connections().await?;
@@ -16,10 +18,11 @@ impl SyncService {
 
     pub async fn validate_sources(&self) -> Result<()> {
         for (source_key, connector) in self.registry.read().await.connectors() {
-            connector
-                .validate()
-                .await
-                .with_context(|| format!("failed to validate source {source_key}"))?;
+            connector.validate().await.map_err(|error| {
+                DomainError::invalid_argument(format!(
+                    "failed to validate source {source_key}: {error}"
+                ))
+            })?;
         }
         Ok(())
     }

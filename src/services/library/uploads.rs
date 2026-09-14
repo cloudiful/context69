@@ -25,7 +25,7 @@ impl LibraryService {
             self.store
                 .get_folder_in_project(group_id, folder_id)
                 .await?
-                .with_context(|| format!("unknown folder {folder_id}"))?;
+                .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         }
 
         let (_kind, sha256) = self.prepare_uploaded_file(&upload).await?;
@@ -295,7 +295,7 @@ impl LibraryService {
             Ok(None) => {
                 self.delete_unreferenced_storage_object_for_lease(object.id, lease_token)
                     .await;
-                return Err(anyhow!("unknown file {}", existing.id));
+                return Err(DomainError::not_found(format!("unknown file {}", existing.id)).into());
             }
             Err(error) => {
                 self.delete_unreferenced_storage_object_for_lease(object.id, lease_token)
@@ -372,11 +372,11 @@ impl LibraryService {
         upload: &UploadedLibraryFile,
     ) -> Result<(LibraryFileKind, String)> {
         if upload.bytes.len() > self.max_upload_size_bytes {
-            return Err(anyhow!(
+            return Err(DomainError::payload_too_large(format!(
                 "file {} exceeds upload size limit of {} bytes",
-                upload.filename,
-                self.max_upload_size_bytes
-            ));
+                upload.filename, self.max_upload_size_bytes
+            ))
+            .into());
         }
         let kind = storage::detect_file_kind(&upload.filename, &upload.media_type)?;
         let sha256 = storage::hash_bytes(&upload.bytes);
@@ -385,10 +385,11 @@ impl LibraryService {
             .as_deref()
             .is_some_and(|declared| declared != sha256)
         {
-            return Err(anyhow!(
+            return Err(DomainError::invalid_argument(format!(
                 "declared SHA-256 does not match uploaded file {}",
                 upload.filename
-            ));
+            ))
+            .into());
         }
         Ok((kind, sha256))
     }

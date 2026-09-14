@@ -1,4 +1,5 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use context69_contracts::DomainError;
 use context69_contracts::{
     DeeplPlan, TranslationGlossaryEntry, TranslationJobResponse, TranslationLlmApiKind,
     TranslationProviderInput, TranslationProviderKind, TranslationProviderResponse,
@@ -34,11 +35,15 @@ pub fn normalize_locale(value: &str) -> Result<String> {
     let mut parts = value.split('-');
     let language = parts.next().unwrap_or_default().to_ascii_lowercase();
     if language.len() != 2 || !language.bytes().all(|byte| byte.is_ascii_alphabetic()) {
-        return Err(anyhow!("locale must be a BCP 47 language tag"));
+        return Err(DomainError::invalid_argument("locale must be a BCP 47 language tag").into());
     }
     Ok(match parts.next() {
         Some(region) if region.len() == 2 => format!("{language}-{}", region.to_ascii_uppercase()),
-        Some(_) => return Err(anyhow!("locale region must contain two letters")),
+        Some(_) => {
+            return Err(
+                DomainError::invalid_argument("locale region must contain two letters").into(),
+            );
+        }
         None => language,
     })
 }
@@ -104,13 +109,18 @@ pub(super) fn validate_provider_inputs(providers: &[TranslationProviderInput]) -
     let mut priorities = std::collections::HashSet::new();
     for provider in providers {
         if !priorities.insert(provider.priority) {
-            return Err(anyhow!("translation provider priorities must be unique"));
+            return Err(DomainError::invalid_argument(
+                "translation provider priorities must be unique",
+            )
+            .into());
         }
         if provider
             .monthly_character_limit
             .is_some_and(|limit| limit <= 0)
         {
-            return Err(anyhow!("monthly character limit must be positive"));
+            return Err(
+                DomainError::invalid_argument("monthly character limit must be positive").into(),
+            );
         }
     }
     Ok(())
@@ -122,7 +132,10 @@ pub(super) fn validate_glossary(values: &[TranslationGlossaryEntry]) -> Result<(
             .iter()
             .any(|item| item.source.trim().is_empty() || item.target.trim().is_empty())
     {
-        return Err(anyhow!("glossary requires 0..=500 non-empty term pairs"));
+        return Err(DomainError::invalid_argument(
+            "glossary requires 0..=500 non-empty term pairs",
+        )
+        .into());
     }
     Ok(())
 }
@@ -162,7 +175,7 @@ fn parse_provider(value: &str) -> Result<TranslationProviderKind> {
         "deepl" => Ok(TranslationProviderKind::Deepl),
         "llm" => Ok(TranslationProviderKind::Llm),
         "libretranslate" => Ok(TranslationProviderKind::Libretranslate),
-        _ => Err(anyhow!("invalid translation provider")),
+        _ => Err(DomainError::invalid_argument("invalid translation provider").into()),
     }
 }
 
@@ -171,7 +184,7 @@ fn parse_llm_api_kind(value: &str) -> Result<TranslationLlmApiKind> {
         "openai_responses" => Ok(TranslationLlmApiKind::OpenaiResponses),
         "openai_chat_completions" => Ok(TranslationLlmApiKind::OpenaiChatCompletions),
         "anthropic_messages" => Ok(TranslationLlmApiKind::AnthropicMessages),
-        _ => Err(anyhow!("invalid translation LLM api kind")),
+        _ => Err(DomainError::invalid_argument("invalid translation LLM api kind").into()),
     }
 }
 
@@ -179,7 +192,7 @@ fn parse_deepl_plan(value: &str) -> Result<DeeplPlan> {
     match value {
         "free" => Ok(DeeplPlan::Free),
         "pro" => Ok(DeeplPlan::Pro),
-        _ => Err(anyhow!("invalid DeepL plan")),
+        _ => Err(DomainError::invalid_argument("invalid DeepL plan").into()),
     }
 }
 
@@ -191,7 +204,7 @@ fn parse_status(value: &str) -> Result<TranslationStatus> {
         "failed" => Ok(TranslationStatus::Failed),
         "skipped" => Ok(TranslationStatus::Skipped),
         "quota_exceeded" => Ok(TranslationStatus::QuotaExceeded),
-        _ => Err(anyhow!("invalid translation status")),
+        _ => Err(DomainError::invalid_argument("invalid translation status").into()),
     }
 }
 

@@ -196,12 +196,18 @@ mod tests {
     #[test]
     fn settings_error_mapping_uses_typed_codes() {
         use axum::http::StatusCode;
-        let conflict =
-            settings_management_error_response(anyhow::anyhow!("vector rebuild already running"));
+        let conflict = settings_management_error_response(
+            context69_http_support::DomainError::conflict("vector rebuild already running").into(),
+        );
         assert_eq!(conflict.status(), StatusCode::CONFLICT);
-        let bad_request = settings_management_error_response(anyhow::anyhow!(
-            "search.candidate_limit must be greater than 0"
-        ));
+        let bad_request = settings_management_error_response(
+            context69_http_support::DomainError::invalid_argument(
+                "search.candidate_limit must be greater than 0",
+            )
+            .into(),
+        );
         assert_eq!(bad_request.status(), StatusCode::BAD_REQUEST);
+        let unknown = settings_management_error_response(anyhow::anyhow!("plain internal boom"));
+        assert_eq!(unknown.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

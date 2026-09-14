@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 use super::*;
 use crate::pagination::PageBounds;
@@ -36,7 +36,7 @@ impl LibraryService {
                 None => self.store.get_folder(folder_id).await?,
             };
             if folder.is_none() {
-                return Err(anyhow!("unknown folder {folder_id}"));
+                return Err(DomainError::not_found(format!("unknown folder {folder_id}")).into());
             }
         }
 

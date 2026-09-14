@@ -5,7 +5,9 @@ use axum::{
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
-use context69_contracts::ApiErrorResponse;
+use context69_contracts::{ApiErrorCode, ApiErrorResponse};
+
+pub use context69_contracts::DomainError;
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
@@ -34,80 +36,98 @@ where
     }
 }
 
+/// Canonical typed domain error taxonomy shared by HTTP mappers and service
+/// producers. The enum itself lives in `context69-contracts` so the
+/// independent `context69-search` and `context69-translation` crates can
+/// construct it without depending on HTTP types; this crate re-exports it
+/// and owns the HTTP status mapping. Mappers must classify via
+/// [`find_domain_error`] downcast through `anyhow` chains and never via
+/// message substrings. Failures without a typed category map to `internal`.
+///
+/// HTTP status for one typed [`DomainError`].
+pub fn domain_status(error: &DomainError) -> StatusCode {
+    status_for_code(error.code())
+}
+
+/// Find the first typed [`DomainError`] in an `anyhow` error, including when
+/// the typed variant is used as an outer `context()` layer.
+///
+/// `anyhow`'s `chain()` does not surface a `DomainError` supplied as outer
+/// context (e.g. `Err(plain).context(DomainError)` or
+/// `None::<()>.context(DomainError)`), while `Error::downcast_ref` does.
+/// Check the outer value first, then fall back to the chain so custom source
+/// wrappers (e.g. retry-budget errors carrying a typed source) stay visible.
+pub fn find_domain_error(error: &Error) -> Option<&DomainError> {
+    if let Some(typed) = error.downcast_ref::<DomainError>() {
+        return Some(typed);
+    }
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<DomainError>())
+}
+
+/// Typed status for an error: the inner [`DomainError`] status when present,
+/// otherwise 500 internal. Never inspects message text.
+pub fn status_for_error(error: &Error) -> StatusCode {
+    find_domain_error(error)
+        .map(domain_status)
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Typed code for an error: the inner [`DomainError`] code when present,
+/// otherwise `internal`.
+pub fn code_for_error(error: &Error) -> ApiErrorCode {
+    find_domain_error(error)
+        .map(DomainError::code)
+        .unwrap_or(ApiErrorCode::Internal)
+}
+
 pub fn json_error_response(status: StatusCode, error: impl Into<String>) -> Response {
     let code = ApiErrorResponse::code_for_status(status.as_u16());
     (status, Json(ApiErrorResponse::new(code, error.into()))).into_response()
 }
 
-pub fn internal_error_response(error: Error) -> Response {
+fn typed_response(error: Error) -> Response {
     let message = error.to_string();
-    let status = if message.contains("page must be")
-        || message.contains("page_size must be")
-        || message.contains("page offset is too large")
-        || message.contains("limit must be between 1 and 100")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        runtime_aware_status(&message).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-    };
+    let status = status_for_error(&error);
     json_error_response(status, message)
+}
+
+pub fn internal_error_response(error: Error) -> Response {
+    typed_response(error)
 }
 
 pub fn map_settings_error(error: Error) -> Response {
-    let message = error.to_string();
-    let status = if let Some(status) = runtime_aware_status(&message) {
-        status
-    } else if message.contains("already running") {
-        StatusCode::CONFLICT
-    } else if message.contains("must not be empty")
-        || message.contains("must be greater than 0")
-        || message.contains("must be one of")
-        || message.contains("is required when")
-        || message.contains("invalid runtime.scheduler.valkey_url")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    json_error_response(status, message)
+    typed_response(error)
 }
 
-pub fn runtime_aware_status(message: &str) -> Option<StatusCode> {
-    let normalized = message.to_ascii_lowercase();
-    if normalized.contains("s3 dependency unavailable")
-        || normalized.contains("docling dependency unavailable")
-        || normalized.contains("embedding/vector dependency unavailable")
-        || normalized.contains("library dependency unavailable")
-        || normalized.contains("runtime is not configured")
-        || normalized.contains("docling is not configured")
-        || message.contains("save runtime settings and restart the service")
-    {
-        Some(StatusCode::SERVICE_UNAVAILABLE)
-    } else if normalized.contains("embedding upstream transport error") {
-        if normalized.contains("kind=timeout") || normalized.contains("timed out") {
-            Some(StatusCode::GATEWAY_TIMEOUT)
-        } else {
-            Some(StatusCode::BAD_GATEWAY)
-        }
-    } else if normalized.contains("embedding request failed: status=429") {
-        Some(StatusCode::TOO_MANY_REQUESTS)
-    } else if normalized.contains("qdrant")
-        && (normalized.contains("timeout") || normalized.contains("timed out"))
-    {
-        Some(StatusCode::GATEWAY_TIMEOUT)
-    } else if normalized.contains("qdrant") && normalized.contains("429") {
-        Some(StatusCode::TOO_MANY_REQUESTS)
-    } else if (normalized.contains("qdrant")
-        && (normalized.contains("transport")
-            || normalized.contains("connect")
-            || normalized.contains("connection")))
-        || normalized.contains("embedding request failed:")
-        || normalized.contains("failed to parse embedding response:")
-    {
-        Some(StatusCode::BAD_GATEWAY)
-    } else {
-        None
-    }
+pub fn map_search_service_error(error: Error) -> Response {
+    typed_response(error)
+}
+
+pub fn map_document_lookup_error(error: Error) -> Response {
+    typed_response(error)
+}
+
+/// Typed status for an error that already carries a [`DomainError`].
+/// Returns the typed status when a [`DomainError`] is present, otherwise
+/// `None` so callers fall back to internal. Takes the full error to support
+/// nested `anyhow` contexts.
+pub fn typed_status_for_error(error: &Error) -> Option<StatusCode> {
+    find_domain_error(error).map(domain_status)
+}
+
+/// True when the error chain carries a typed not-found error.
+pub fn is_not_found_error(error: &Error) -> bool {
+    matches!(find_domain_error(error), Some(DomainError::NotFound(_)))
+}
+
+/// True when the error chain carries a typed invalid-argument error.
+pub fn is_invalid_argument_error(error: &Error) -> bool {
+    matches!(
+        find_domain_error(error),
+        Some(DomainError::InvalidArgument(_))
+    )
 }
 
 pub fn error_code_for_status(status: StatusCode) -> context69_contracts::ApiErrorCode {
@@ -128,52 +148,24 @@ pub fn json_error_for_code(
     (status, Json(legacy)).into_response()
 }
 
+/// Canonical offset validation that preserves the shared-kernel message while
+/// returning a typed [`DomainError::InvalidArgument`] for mapper classification.
 pub fn validate_canonical_offset(page: u32, page_size: u32) -> anyhow::Result<()> {
-    context69_contracts::OffsetPageQuery { page, page_size }.validate()
+    context69_contracts::OffsetPageQuery { page, page_size }
+        .validate()
+        .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
+    Ok(())
 }
 
+/// Canonical cursor-limit validation returning typed invalid-argument errors.
 pub fn validate_cursor_limit(limit: u32) -> anyhow::Result<()> {
     context69_contracts::CursorPageQuery {
         limit,
         cursor: None,
     }
     .validate()
-}
-
-pub fn is_search_validation_message(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("cursor")
-        || lower.contains("page_size must be between 1 and 100")
-        || lower.contains("page must be greater than 0")
-        || lower.contains("page must be between 1 and 10000")
-        || lower.contains("limit must be between 1 and 100")
-        || lower.contains("page is too large")
-        || lower.contains("search result limit is too large")
-        || (lower.contains("page > 1") && lower.contains("sort=date"))
-        || (lower.contains("query text is required") && lower.contains("sort=date"))
-        || lower.contains("query must not be blank")
-}
-
-pub fn is_not_found_message(message: &str) -> bool {
-    message.to_ascii_lowercase().contains("not found")
-}
-
-pub fn map_search_service_error(error: Error) -> Response {
-    let message = error.to_string();
-    if is_search_validation_message(&message) {
-        json_error_for_code(context69_contracts::ApiErrorCode::InvalidArgument, message)
-    } else {
-        internal_error_response(error)
-    }
-}
-
-pub fn map_document_lookup_error(error: Error) -> Response {
-    let message = error.to_string();
-    if is_not_found_message(&message) {
-        json_error_for_code(context69_contracts::ApiErrorCode::NotFound, message)
-    } else {
-        map_search_service_error(error)
-    }
+    .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -221,32 +213,159 @@ mod tests {
     }
 
     #[test]
-    fn runtime_aware_maps_dependencies_and_upstreams() {
-        assert_eq!(
-            runtime_aware_status("s3 dependency unavailable").map(|s| s.as_u16()),
-            Some(503)
-        );
-        assert_eq!(
-            runtime_aware_status("embedding upstream transport error: kind=timeout")
-                .map(|s| s.as_u16()),
-            Some(504)
-        );
-        assert_eq!(
-            runtime_aware_status("embedding request failed: status=429").map(|s| s.as_u16()),
-            Some(429)
-        );
-        assert!(runtime_aware_status("plain internal boom").is_none());
+    fn domain_error_code_and_status_cover_all_variants() {
+        for (error, status) in [
+            (
+                DomainError::invalid_argument("bad"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::unauthorized("unauth"),
+                StatusCode::UNAUTHORIZED,
+            ),
+            (DomainError::forbidden("denied"), StatusCode::FORBIDDEN),
+            (DomainError::not_found("missing"), StatusCode::NOT_FOUND),
+            (DomainError::conflict("clash"), StatusCode::CONFLICT),
+            (
+                DomainError::payload_too_large("big"),
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
+            (
+                DomainError::unprocessable_entity("unprocessable"),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                DomainError::rate_limited("slow"),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (
+                DomainError::unavailable("down"),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                DomainError::upstream_error("bad gateway"),
+                StatusCode::BAD_GATEWAY,
+            ),
+            (
+                DomainError::upstream_timeout("timeout"),
+                StatusCode::GATEWAY_TIMEOUT,
+            ),
+            (
+                DomainError::internal("boom"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ] {
+            assert_eq!(domain_status(&error), status);
+            assert_eq!(error.code(), error_code_for_status(status));
+            assert_eq!(status_for_code(error.code()), status);
+        }
     }
 
     #[test]
-    fn search_validation_messages_map_to_invalid_argument() {
-        assert!(is_search_validation_message(
-            "page_size must be between 1 and 100"
-        ));
-        assert!(is_search_validation_message("malformed cursor payload"));
-        assert!(is_search_validation_message("query must not be blank"));
-        assert!(!is_search_validation_message("plain internal boom"));
-        let response = map_search_service_error(anyhow::anyhow!("page must be greater than 0"));
+    fn typed_status_falls_back_to_internal_for_unknown_errors() {
+        let plain = anyhow::anyhow!("plain internal boom");
+        assert_eq!(status_for_error(&plain), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(code_for_error(&plain), ApiErrorCode::Internal);
+        assert!(typed_status_for_error(&plain).is_none());
+        assert!(!is_not_found_error(&plain));
+        assert!(!is_invalid_argument_error(&plain));
+    }
+
+    #[test]
+    fn typed_dependency_and_upstream_errors_keep_status_through_context() {
+        let unavailable: Error = DomainError::unavailable("s3 dependency unavailable").into();
+        let wrapped = unavailable.context("upload failed");
+        assert_eq!(
+            typed_status_for_error(&wrapped),
+            Some(StatusCode::SERVICE_UNAVAILABLE)
+        );
+        assert_eq!(status_for_error(&wrapped), StatusCode::SERVICE_UNAVAILABLE);
+
+        let timeout: Error = DomainError::upstream_timeout("embedding upstream timed out").into();
+        let wrapped = timeout.context("search failed");
+        assert_eq!(
+            typed_status_for_error(&wrapped),
+            Some(StatusCode::GATEWAY_TIMEOUT)
+        );
+
+        let rate: Error = DomainError::rate_limited("embedding 429").into();
+        assert_eq!(status_for_error(&rate), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn search_validation_maps_via_typed_invalid_argument() {
+        let validation: Error =
+            DomainError::invalid_argument("page_size must be between 1 and 100").into();
+        assert!(is_invalid_argument_error(&validation));
+        let response = map_search_service_error(validation);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let plain = anyhow::anyhow!("plain internal boom");
+        assert!(!is_invalid_argument_error(&plain));
+        let response = map_search_service_error(anyhow::anyhow!("plain internal boom"));
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn document_lookup_maps_via_typed_not_found() {
+        let missing: Error = DomainError::not_found("document 42 not found").into();
+        assert!(is_not_found_error(&missing));
+        let response = map_document_lookup_error(missing);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let plain = anyhow::anyhow!("plain internal boom");
+        let response = map_document_lookup_error(plain);
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn outer_domain_error_context_maps_to_typed_status() {
+        use anyhow::Context as _;
+        for (typed, status) in [
+            (
+                DomainError::not_found("missing outer"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::invalid_argument("bad outer"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::internal("boom outer"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ] {
+            let expected = typed.message().to_string();
+            let via_result: Error = Err::<(), _>(anyhow::anyhow!("plain inner"))
+                .context(typed.clone())
+                .unwrap_err();
+            assert_eq!(
+                find_domain_error(&via_result).map(DomainError::message),
+                Some(expected.as_str())
+            );
+            assert_eq!(status_for_error(&via_result), status);
+            assert_eq!(typed_status_for_error(&via_result), Some(status));
+
+            let via_option: Error = None::<()>.context(typed.clone()).unwrap_err();
+            assert_eq!(
+                find_domain_error(&via_option).map(DomainError::message),
+                Some(expected.as_str())
+            );
+            assert_eq!(status_for_error(&via_option), status);
+        }
+    }
+
+    #[test]
+    fn middle_domain_error_context_stays_visible_under_plain_outer() {
+        use anyhow::Context as _;
+        let typed = DomainError::not_found("missing middle");
+        let middle: Error = Err::<(), _>(anyhow::anyhow!("plain inner"))
+            .context(typed.clone())
+            .unwrap_err();
+        let wrapped = middle.context("plain outer");
+        assert_eq!(
+            find_domain_error(&wrapped).map(DomainError::message),
+            Some("missing middle")
+        );
+        assert_eq!(status_for_error(&wrapped), StatusCode::NOT_FOUND);
+        assert!(is_not_found_error(&wrapped));
     }
 }

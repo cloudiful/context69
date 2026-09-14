@@ -205,8 +205,7 @@ impl SearchIndex for MockIndex {
                     None => 0,
                 };
                 let slice_end = (offset_idx + effective_limit).min(matching.len());
-                let page_hits: Vec<SearchDatePointHit> =
-                    matching[offset_idx..slice_end].to_vec();
+                let page_hits: Vec<SearchDatePointHit> = matching[offset_idx..slice_end].to_vec();
                 let next_offset = if slice_end < matching.len() {
                     matching.get(slice_end).map(|hit| hit.chunk_id)
                 } else {
@@ -764,7 +763,10 @@ fn sse_hybrid_cursor_rejects_mismatch_before_local_frame() {
             score: 0.8,
         })
         .collect::<Vec<_>>();
-    let hydrated = vector_hits.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
+    let hydrated = vector_hits
+        .into_iter()
+        .map(|hit| (hit.chunk_id, hit))
+        .collect();
     let keyword_hits: Vec<SearchHit> = (6..=12)
         .map(|doc| {
             let mut hit = test_hit(doc, 0, &format!("meaningful keyword text {doc}"));
@@ -822,13 +824,12 @@ fn sse_hybrid_cursor_accepts_matching_epoch_and_replays_local_then_rerank() {
             score: 0.9 - pos as f32 * 0.005,
         })
         .collect::<Vec<_>>();
-    let hydrated = candidates.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
-    let service = build_service_with_rerank(
-        hybrid_settings(true),
-        index_hits,
-        hydrated,
-        Vec::new(),
-    );
+    let hydrated = candidates
+        .into_iter()
+        .map(|hit| (hit.chunk_id, hit))
+        .collect();
+    let service =
+        build_service_with_rerank(hybrid_settings(true), index_hits, hydrated, Vec::new());
 
     let page1 = block_on(service.search(None, test_request(1, 8))).expect("page 1");
     let next_cursor = page1
@@ -1072,13 +1073,12 @@ fn reranked_page_two_is_consistent_with_page_one() {
             score: 0.9 - pos as f32 * 0.01,
         })
         .collect::<Vec<_>>();
-    let hydrated = candidates.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
-    let service = build_service_with_rerank(
-        hybrid_settings(true),
-        index_hits,
-        hydrated,
-        Vec::new(),
-    );
+    let hydrated = candidates
+        .into_iter()
+        .map(|hit| (hit.chunk_id, hit))
+        .collect();
+    let service =
+        build_service_with_rerank(hybrid_settings(true), index_hits, hydrated, Vec::new());
 
     let page1 = block_on(service.search(None, test_request(1, 8))).expect("page 1");
     let next_cursor = page1
@@ -1112,7 +1112,10 @@ fn reranked_page_two_is_consistent_with_page_one() {
         .chain(page2.items.iter())
         .map(|hit| hit.document_id)
         .collect();
-    assert_eq!(actual, expected, "page 1 + page 2 must equal the stable rerank prefix");
+    assert_eq!(
+        actual, expected,
+        "page 1 + page 2 must equal the stable rerank prefix"
+    );
 }
 
 #[test]
@@ -1227,7 +1230,7 @@ async fn stream_abort_stops_producer_before_first_frame() {
         date_hits: Vec::new(),
         seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
         date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
-            fetch_limit_override: None,
+        fetch_limit_override: None,
     });
     let scope = Arc::new(MockScope);
     let service = SearchService::new(
@@ -1243,7 +1246,9 @@ async fn stream_abort_stops_producer_before_first_frame() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<SearchStreamEvent>(8);
     let (signal, guard) = abort_pair();
     let producer = tokio::spawn(async move {
-        let _ = service.stream_search(None, test_request(1, 8), tx, signal).await;
+        let _ = service
+            .stream_search(None, test_request(1, 8), tx, signal)
+            .await;
     });
     // Give the producer time to enter `select!` on the blocked embedding.
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -1389,19 +1394,39 @@ fn date_mode_first_page_returns_latest_first_in_qdrant_order() {
     // B-then-A order. UUIDs are fixed so the order is deterministic.
     let first = (
         Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333),
-        make_hit_with_chunk(1, Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333), 1_700_000_010, "first record body"),
+        make_hit_with_chunk(
+            1,
+            Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333),
+            1_700_000_010,
+            "first record body",
+        ),
     );
     let second = (
         Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222),
-        make_hit_with_chunk(2, Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222), 1_700_000_008, "second record body"),
+        make_hit_with_chunk(
+            2,
+            Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222),
+            1_700_000_008,
+            "second record body",
+        ),
     );
     let same_second_a = (
         Uuid::from_u128(0xaaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa),
-        make_hit_with_chunk(3, Uuid::from_u128(0xaaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa), 1_700_000_005, "same second A body"),
+        make_hit_with_chunk(
+            3,
+            Uuid::from_u128(0xaaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa),
+            1_700_000_005,
+            "same second A body",
+        ),
     );
     let same_second_b = (
         Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff),
-        make_hit_with_chunk(4, Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff), 1_700_000_005, "same second B body"),
+        make_hit_with_chunk(
+            4,
+            Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff),
+            1_700_000_005,
+            "same second B body",
+        ),
     );
     let mut hydrated = HashMap::new();
     for (id, hit) in [&first, &second, &same_second_a, &same_second_b] {
@@ -1413,11 +1438,7 @@ fn date_mode_first_page_returns_latest_first_in_qdrant_order() {
         date_hit(same_second_a.0, Some(1_700_000_005)),
         date_hit(same_second_b.0, Some(1_700_000_005)),
     ];
-    let (service, _) = build_date_service(
-        index_hits,
-        hydrated,
-        Some(1_700_000_010),
-    );
+    let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
     let response = block_on(service.search(None, date_request(4))).expect("date search");
     let actual: Vec<i64> = response.items.iter().map(|hit| hit.document_id).collect();
     // Expected order: fresh (1) → second (2) → same-second B (4, larger UUID) → A (3).
@@ -1463,11 +1484,7 @@ fn date_mode_walks_multiple_windows_without_overlap() {
         date_hit(first.0, Some(1_700_000_010)),
         date_hit(second.0, Some(1_700_000_005)),
     ];
-    let (service, mocks) = build_date_service(
-        index_hits,
-        hydrated,
-        Some(1_700_000_010),
-    );
+    let (service, mocks) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
     let response = block_on(service.search(None, date_request(2))).expect("date search");
     let actual: Vec<i64> = response.items.iter().map(|hit| hit.document_id).collect();
     assert_eq!(actual, vec![1, 2]);
@@ -1485,7 +1502,10 @@ fn date_mode_walks_multiple_windows_without_overlap() {
     );
     let mut previous_before: Option<i64> = None;
     for (after, before) in &bounds {
-        assert_eq!(*after, None, "after is open for every fetch; got {bounds:?}");
+        assert_eq!(
+            *after, None,
+            "after is open for every fetch; got {bounds:?}"
+        );
         if let Some(prev) = previous_before {
             assert!(
                 before.unwrap_or(i64::MAX) <= prev,
@@ -1501,15 +1521,15 @@ fn date_mode_walks_multiple_windows_without_overlap() {
         .pagination
         .next_cursor
         .expect("next cursor expected when window reported more");
-    let page_two = block_on(service.search(
-        None,
-        date_request_with_cursor(2, next_cursor),
-    ))
-    .expect("date search page 2");
+    let page_two = block_on(service.search(None, date_request_with_cursor(2, next_cursor)))
+        .expect("date search page 2");
     let actual: Vec<i64> = page_two.items.iter().map(|hit| hit.document_id).collect();
     // The mock is configured to return both hits on every call, so
     // page 2 must skip them via the `seen` set and emit no records.
-    assert!(actual.is_empty(), "duplicate items leaked to page 2: {actual:?}");
+    assert!(
+        actual.is_empty(),
+        "duplicate items leaked to page 2: {actual:?}"
+    );
     // The second page's calls must keep the monotonicity invariant:
     // the per-timestamp drain resumes at `boundary_ts = 1_700_000_005`
     // and the upper bound is at or below the previous page's smallest
@@ -1649,18 +1669,18 @@ fn date_mode_same_second_qdrant_order_is_deterministic_across_pages() {
         date_hit(a.0, Some(1_700_000_005)),
         date_hit(b.0, Some(1_700_000_005)),
     ];
-    let (service, _) = build_date_service(
-        index_hits,
-        hydrated,
-        Some(1_700_000_010),
-    );
+    let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
     // Page 1 (limit=2): high, B. B and A share a second; the Qdrant
     // return order is B-then-A (largest UUID first per the
     // adversarial mock), so the cursor is bound by B's
     // `published_ts = 1_700_000_005`.
     let page1 = block_on(service.search(None, date_request(2))).expect("page 1");
     assert_eq!(
-        page1.items.iter().map(|hit| hit.document_id).collect::<Vec<_>>(),
+        page1
+            .items
+            .iter()
+            .map(|hit| hit.document_id)
+            .collect::<Vec<_>>(),
         vec![1, 3]
     );
     let next_cursor = page1
@@ -1673,7 +1693,11 @@ fn date_mode_same_second_qdrant_order_is_deterministic_across_pages() {
     let page2 = block_on(service.search(None, date_request_with_cursor(2, next_cursor.clone())))
         .expect("page 2");
     assert_eq!(
-        page2.items.iter().map(|hit| hit.document_id).collect::<Vec<_>>(),
+        page2
+            .items
+            .iter()
+            .map(|hit| hit.document_id)
+            .collect::<Vec<_>>(),
         vec![2]
     );
     // Replaying page 1's cursor through the service should yield the
@@ -1681,16 +1705,35 @@ fn date_mode_same_second_qdrant_order_is_deterministic_across_pages() {
     let replay = block_on(service.search(None, date_request_with_cursor(2, next_cursor)))
         .expect("replay page 2");
     assert_eq!(
-        replay.items.iter().map(|hit| hit.document_id).collect::<Vec<_>>(),
+        replay
+            .items
+            .iter()
+            .map(|hit| hit.document_id)
+            .collect::<Vec<_>>(),
         vec![2]
     );
 }
 
 #[test]
 fn date_mode_post_and_sse_return_same_sequence() {
-    let high = make_hit_with_chunk(1, Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333), 1_700_000_010, "first record body");
-    let a = make_hit_with_chunk(2, Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222), 1_700_000_008, "second record body");
-    let b = make_hit_with_chunk(3, Uuid::from_u128(0x4444_4444_4444_4444_4444_4444_4444_4444), 1_700_000_005, "third record body");
+    let high = make_hit_with_chunk(
+        1,
+        Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333),
+        1_700_000_010,
+        "first record body",
+    );
+    let a = make_hit_with_chunk(
+        2,
+        Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222),
+        1_700_000_008,
+        "second record body",
+    );
+    let b = make_hit_with_chunk(
+        3,
+        Uuid::from_u128(0x4444_4444_4444_4444_4444_4444_4444_4444),
+        1_700_000_005,
+        "third record body",
+    );
     let mut hydrated = HashMap::new();
     for hit in [&high, &a, &b] {
         hydrated.insert(hit.0, hit.1.clone());
@@ -1700,11 +1743,7 @@ fn date_mode_post_and_sse_return_same_sequence() {
         date_hit(a.0, Some(1_700_000_008)),
         date_hit(b.0, Some(1_700_000_005)),
     ];
-    let (service, _) = build_date_service(
-        index_hits,
-        hydrated,
-        Some(1_700_000_010),
-    );
+    let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
     let post = block_on(service.search(None, date_request(2))).expect("post");
     let stream = collect_stream_frames(&service, date_request(2));
     let stream_page = match stream.into_iter().next() {
@@ -1717,7 +1756,10 @@ fn date_mode_post_and_sse_return_same_sequence() {
         .iter()
         .map(|hit| hit.document_id)
         .collect();
-    assert_eq!(post_ids, stream_ids, "POST and SSE must emit the same order");
+    assert_eq!(
+        post_ids, stream_ids,
+        "POST and SSE must emit the same order"
+    );
     assert_eq!(post_ids, vec![1, 2]);
 }
 
@@ -1762,7 +1804,7 @@ async fn date_mode_abort_stops_streaming_before_first_frame() {
         date_hits: Vec::new(),
         seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
         date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
-            fetch_limit_override: None,
+        fetch_limit_override: None,
     });
     let scope = Arc::new(MockScope);
     let service = SearchService::new(
@@ -1778,7 +1820,9 @@ async fn date_mode_abort_stops_streaming_before_first_frame() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<SearchStreamEvent>(8);
     let (signal, guard) = abort_pair();
     let producer = tokio::spawn(async move {
-        let _ = service.stream_search(None, date_request(2), tx, signal).await;
+        let _ = service
+            .stream_search(None, date_request(2), tx, signal)
+            .await;
     });
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     drop(guard);
@@ -1828,11 +1872,7 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
         hydrated.insert(id, hit);
         index_hits.push(date_hit(*chunk_id, Some(shared_ts)));
     }
-    let (service, _) = build_date_service(
-        index_hits,
-        hydrated.clone(),
-        Some(shared_ts),
-    );
+    let (service, _) = build_date_service(index_hits, hydrated.clone(), Some(shared_ts));
     // Page 1: the first 4 chunks in the Qdrant return order
     // (chunk_id DESC). The cursor's `offset` (Qdrant PointId) carries
     // the resume key so the next request continues the boundary in
@@ -1867,12 +1907,14 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
         .clone()
         .expect("in-flight drain must emit a next cursor");
     // Page 3: the last 2 chunks (9..=10) and `has_more = false`.
-    let page3 =
-        block_on(service.search(None, date_request_with_cursor(4, next_cursor_2.clone())))
-            .expect("page 3");
+    let page3 = block_on(service.search(None, date_request_with_cursor(4, next_cursor_2.clone())))
+        .expect("page 3");
     let page3_ids: Vec<Uuid> = page3.items.iter().map(|hit| hit.chunk_id).collect();
     let expected_page3: Vec<Uuid> = qdrant_order.iter().skip(8).copied().collect();
-    assert_eq!(page3_ids, expected_page3, "page 3 must hold the last 2 chunks");
+    assert_eq!(
+        page3_ids, expected_page3,
+        "page 3 must hold the last 2 chunks"
+    );
     assert_eq!(page3.pagination.has_more, Some(false));
     assert!(page3.pagination.next_cursor.is_none());
     // Pages 1, 2 and 3 are pairwise disjoint and together equal the
@@ -1883,20 +1925,31 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
     union.extend(page3_ids.iter().copied());
     union.sort();
     chunk_uuids.sort();
-    assert_eq!(union, chunk_uuids, "page 1 + 2 + 3 must equal the full population");
+    assert_eq!(
+        union, chunk_uuids,
+        "page 1 + 2 + 3 must equal the full population"
+    );
     // The replayed cursor yields the same page 2 and page 3 because
     // the Qdrant-side `offset` is deterministic per ordering epoch.
     let replay_p2 = block_on(service.search(None, date_request_with_cursor(4, next_cursor_1)))
         .expect("replay page 2");
     assert_eq!(
-        replay_p2.items.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>(),
+        replay_p2
+            .items
+            .iter()
+            .map(|hit| hit.chunk_id)
+            .collect::<Vec<_>>(),
         page2_ids,
         "replayed cursor must be deterministic for page 2"
     );
     let replay_p3 = block_on(service.search(None, date_request_with_cursor(4, next_cursor_2)))
         .expect("replay page 3");
     assert_eq!(
-        replay_p3.items.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>(),
+        replay_p3
+            .items
+            .iter()
+            .map(|hit| hit.chunk_id)
+            .collect::<Vec<_>>(),
         page3_ids,
         "replayed cursor must be deterministic for page 3"
     );
@@ -2158,11 +2211,14 @@ fn date_mode_matches_query_text_in_hydrated_chunks() {
     let matching = Uuid::from_u128(0xaaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa_aaaa);
     let non_matching = Uuid::from_u128(0xbbbb_bbbb_bbbb_bbbb_bbbb_bbbb_bbbb_bbbb);
     let mut hydrated = HashMap::new();
-    let (m_id, m_hit) =
-        make_hit_with_chunk(1, matching, ts, "fresh body text matching the query");
+    let (m_id, m_hit) = make_hit_with_chunk(1, matching, ts, "fresh body text matching the query");
     hydrated.insert(m_id, m_hit);
-    let (n_id, n_hit) =
-        make_hit_with_chunk(2, non_matching, ts, "completely unrelated text without terms");
+    let (n_id, n_hit) = make_hit_with_chunk(
+        2,
+        non_matching,
+        ts,
+        "completely unrelated text without terms",
+    );
     hydrated.insert(n_id, n_hit);
     let index_hits = vec![
         date_hit(matching, Some(ts)),
@@ -2264,8 +2320,9 @@ fn date_mode_keyset_offset_drains_truncated_boundary_across_pages() {
     // Page 2: still 100 records. The mock returns the next 100 from
     // the descending list, so page 1 + page 2 must contain 200
     // distinct UUIDs and page 2 must be disjoint from page 1.
-    let page2 = block_on(service.search(None, date_request_with_cursor(100, next_cursor_1.clone())))
-        .expect("page 2");
+    let page2 =
+        block_on(service.search(None, date_request_with_cursor(100, next_cursor_1.clone())))
+            .expect("page 2");
     assert_eq!(page2.items.len(), 100);
     let page1_ids: HashSet<Uuid> = page1.items.iter().map(|hit| hit.chunk_id).collect();
     let page2_ids: HashSet<Uuid> = page2.items.iter().map(|hit| hit.chunk_id).collect();
@@ -2290,11 +2347,9 @@ fn date_mode_keyset_offset_drains_truncated_boundary_across_pages() {
         .expect("page 2 must carry a next cursor");
     let mut pages = 2;
     while pages < 32 {
-        let page = block_on(service.search(
-            None,
-            date_request_with_cursor(100, current_cursor.clone()),
-        ))
-        .expect("page");
+        let page =
+            block_on(service.search(None, date_request_with_cursor(100, current_cursor.clone())))
+                .expect("page");
         let ids: HashSet<Uuid> = page.items.iter().map(|hit| hit.chunk_id).collect();
         for id in &ids {
             assert!(
@@ -2323,7 +2378,10 @@ fn date_mode_keyset_offset_drains_truncated_boundary_across_pages() {
         walked_ids.len(),
         expected.difference(&walked_ids).collect::<Vec<_>>()
     );
-    assert_eq!(walked_ids, expected, "cross-page union must equal the full population");
+    assert_eq!(
+        walked_ids, expected,
+        "cross-page union must equal the full population"
+    );
 }
 
 /// Date-mode regression: the per-request `MAX_DATE_WINDOWS` cap is honest.
@@ -2359,12 +2417,7 @@ fn date_mode_request_window_cap_emits_resumable_cursor() {
     // them in `chunk_uuids` order (each is its own boundary).
     for (idx, chunk_id) in chunk_uuids.iter().enumerate() {
         let ts = 1_700_000_010 - idx as i64;
-        let (id, hit) = make_hit_with_chunk(
-            (idx + 1) as i64,
-            *chunk_id,
-            ts,
-            "fresh body text",
-        );
+        let (id, hit) = make_hit_with_chunk((idx + 1) as i64, *chunk_id, ts, "fresh body text");
         hydrated.insert(id, hit);
         index_hits.push(date_hit(*chunk_id, Some(ts)));
     }
@@ -2454,12 +2507,7 @@ fn date_mode_request_window_cap_preserves_qdrant_offset_in_cursor() {
         .collect();
     for (idx, chunk_id) in chunk_uuids.iter().enumerate() {
         let ts = 1_700_000_010 - idx as i64;
-        let (id, hit) = make_hit_with_chunk(
-            (idx + 1) as i64,
-            *chunk_id,
-            ts,
-            "fresh body text",
-        );
+        let (id, hit) = make_hit_with_chunk((idx + 1) as i64, *chunk_id, ts, "fresh body text");
         hydrated.insert(id, hit);
         index_hits.push(date_hit(*chunk_id, Some(ts)));
     }
@@ -2478,8 +2526,7 @@ fn date_mode_request_window_cap_preserves_qdrant_offset_in_cursor() {
     // (the per-request budget is not accumulated in the cursor).
     // Decode the cursor and verify it does not surface a window
     // counter.
-    let decoded = super::search_cursor::decode_cursor(&cursor_1)
-        .expect("cursor decodes");
+    let decoded = super::search_cursor::decode_cursor(&cursor_1).expect("cursor decodes");
     let super::search_cursor::DecodedCursor::Date(date) = decoded else {
         panic!("expected a date cursor; got {decoded:?}");
     };
@@ -2558,12 +2605,8 @@ fn date_mode_population_strictly_exceeds_fetch_drains_in_full() {
     // `AdversarialFirstPage` with `fetch_limit_override = Some(64)`
     // so each fetch returns 64 records in descending `chunk_id`
     // order with a `next_offset` set until the slice is exhausted.
-    let (service, _) = build_date_service_with_fetch_limit(
-        index_hits,
-        hydrated,
-        Some(shared_ts),
-        fetch_limit,
-    );
+    let (service, _) =
+        build_date_service_with_fetch_limit(index_hits, hydrated, Some(shared_ts), fetch_limit);
     // Page 1: limit 8. The mock's first call returns the largest 8
     // UUIDs (out of 300); the page is full so `has_more = true`
     // and the cursor carries the Qdrant-side resume key.
@@ -2672,8 +2715,7 @@ fn date_mode_filtered_head_keeps_draining_to_match_tail() {
         hydrated.insert(id, hit);
         index_hits.push(date_hit(*chunk_id, Some(shared_ts)));
     }
-    let (service, _) =
-        build_date_service(index_hits, hydrated, Some(shared_ts));
+    let (service, _) = build_date_service(index_hits, hydrated, Some(shared_ts));
     // Page 1: query "tailtoken", limit 8. The first per-ts fetch
     // returns the head 8 (all keyword-filtered out, pushed=false)
     // with `next_offset = Some(tail_head)`. The fix: the pipeline
@@ -2770,7 +2812,8 @@ fn date_mode_punctuation_only_query_uses_phrase_substring_fallback() {
     let other = Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222);
     let plain = Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333);
     let mut hydrated: HashMap<Uuid, SearchHit> = HashMap::new();
-    let (m_id, m_hit) = make_hit_with_chunk(1, matching, shared_ts, "uses triple dashes --- in body");
+    let (m_id, m_hit) =
+        make_hit_with_chunk(1, matching, shared_ts, "uses triple dashes --- in body");
     hydrated.insert(m_id, m_hit);
     let (o_id, o_hit) = make_hit_with_chunk(2, other, shared_ts, "regular body with words");
     hydrated.insert(o_id, o_hit);

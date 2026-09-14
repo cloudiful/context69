@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
+use context69_contracts::DomainError;
 use context69_llm_support::{
     extract_tool_payload, normalize_endpoint, require_api_key, require_api_kind, require_model,
     send_and_decode,
@@ -108,10 +109,18 @@ impl TranslationProvider for LlmProvider {
             "openai_chat_completions" => self.openai_chat(request).await?,
             "openai_responses" => self.openai_responses(request).await?,
             "anthropic_messages" => self.anthropic(request).await?,
-            other => return Err(anyhow!("unsupported LLM api kind {other}")),
+            other => {
+                return Err(DomainError::invalid_argument(format!(
+                    "unsupported LLM api kind {other}"
+                ))
+                .into());
+            }
         };
         let payload = extract_tool_payload(api_kind, &response)
-            .context("LLM response omitted submit_translations payload")?;
+            .ok_or_else(|| {
+                DomainError::upstream_error("LLM response omitted submit_translations payload")
+            })
+            .map_err(anyhow::Error::from)?;
         let parsed: TranslationPayload = serde_json::from_value(payload)?;
         let translations = parsed
             .segments

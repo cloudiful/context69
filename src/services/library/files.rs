@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain_errors::DomainError;
 
 impl LibraryService {
     pub(crate) async fn file_summary_for_task(
@@ -10,7 +11,7 @@ impl LibraryService {
             .store
             .get_file_in_project(group_id, file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         Ok(crate::library_store::file_to_summary(&file))
     }
 
@@ -36,7 +37,8 @@ impl LibraryService {
         self.store
             .get_folder_in_project(project.id, folder_id)
             .await?
-            .with_context(|| format!("unknown folder {folder_id}"))
+            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))
+            .map_err(anyhow::Error::from)
     }
 
     pub(crate) async fn read_text_file_content(
@@ -67,9 +69,15 @@ impl LibraryService {
             }
             None => self.read_active_storage(&file.storage_rel_path).await?,
         }
-        .with_context(|| format!("stored file not found for file {}", file.id))?;
-        String::from_utf8(bytes.to_vec())
-            .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
+        .ok_or_else(|| {
+            DomainError::not_found(format!("stored file not found for file {}", file.id))
+        })?;
+        String::from_utf8(bytes.to_vec()).map_err(|error| {
+            anyhow::Error::from(DomainError::internal(format!(
+                "failed to decode utf-8 text {}: {error}",
+                file.filename
+            )))
+        })
     }
 
     /// Whether a file's original source is readable. A deliberate release
@@ -103,13 +111,13 @@ impl LibraryService {
             .store
             .get_file(file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
         let mut detail = self
             .store
             .get_file_detail(file_id, folder_path)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         detail.source_available = self.source_available_for_file(&file).await?;
         Ok(detail)
     }
@@ -123,13 +131,13 @@ impl LibraryService {
             .store
             .get_file_in_project(project.id, file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         let folder_path = self.folder_path_by_id(file.folder_id).await?;
         let mut detail = self
             .store
             .get_file_detail_in_project(project.id, file_id, folder_path)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         detail.source_available = self.source_available_for_file(&file).await?;
         Ok(detail)
     }
@@ -140,16 +148,15 @@ impl LibraryService {
         request: &MoveFileRequest,
     ) -> Result<LibraryFileDetailResponse> {
         if let Some(target_id) = request.target_folder_id {
-            self.store
-                .get_folder(target_id)
-                .await?
-                .with_context(|| format!("unknown target folder {target_id}"))?;
+            self.store.get_folder(target_id).await?.ok_or_else(|| {
+                DomainError::not_found(format!("unknown target folder {target_id}"))
+            })?;
         }
 
         self.store
             .move_file(file_id, request.target_folder_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         self.refresh_metadata_for_file(file_id).await?;
         self.bump_search_generation("library file move").await?;
         self.get_file(file_id).await
@@ -165,13 +172,15 @@ impl LibraryService {
             self.store
                 .get_folder_in_project(project.id, target_id)
                 .await?
-                .with_context(|| format!("unknown target folder {target_id}"))?;
+                .ok_or_else(|| {
+                    DomainError::not_found(format!("unknown target folder {target_id}"))
+                })?;
         }
 
         self.store
             .move_file_in_project(project.id, file_id, request.target_folder_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         self.refresh_metadata_for_file(file_id).await?;
         self.bump_search_generation("library file move").await?;
         self.get_file_in_project(project, file_id).await
@@ -181,7 +190,7 @@ impl LibraryService {
         let paths = self.store.list_storage_paths_for_files(&[file_id]).await?;
         self.delete_file_ids(&[file_id]).await?;
         if !self.store.delete_file_record(file_id).await? {
-            return Err(anyhow!("unknown file {file_id}"));
+            return Err(DomainError::not_found(format!("unknown file {file_id}")).into());
         }
         self.delete_unreferenced_objects(paths).await?;
         self.bump_search_generation("library file delete").await?;
@@ -220,7 +229,7 @@ impl LibraryService {
             .delete_file_record_in_project(project.id, file_id)
             .await?
         {
-            return Err(anyhow!("unknown file {file_id}"));
+            return Err(DomainError::not_found(format!("unknown file {file_id}")).into());
         }
         self.delete_unreferenced_objects_with_lease(paths, lease_token)
             .await?;

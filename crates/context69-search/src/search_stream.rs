@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use context69_contracts::search::{SearchStreamDone, SearchStreamEvent, SearchStreamPage};
-use context69_contracts::{SearchHit, SearchRequest};
+use context69_contracts::{DomainError, SearchHit, SearchRequest};
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -65,7 +65,9 @@ impl SearchService {
         mut abort: AbortSignal,
     ) -> Result<()> {
         if request.sort == context69_contracts::SearchSort::Date {
-            return self.stream_search_by_date(user_id, request, tx, abort).await;
+            return self
+                .stream_search_by_date(user_id, request, tx, abort)
+                .await;
         }
         let mut probe = SearchProbe::new();
         // F2: validate the cursor's geometry, alignment, and context BEFORE
@@ -79,7 +81,7 @@ impl SearchService {
         let offset = self.resolved_offset(&request)?;
         let requested_limit = offset
             .checked_add(request.limit)
-            .ok_or_else(|| anyhow::anyhow!("search result limit is too large"))?;
+            .ok_or_else(|| DomainError::invalid_argument("search result limit is too large"))?;
         let (fetch_limit, can_probe_window) = probe_fetch_limit(requested_limit);
         let scope = self
             .scope_resolver
@@ -179,8 +181,7 @@ impl SearchService {
                 // Cursor validates: emit the local page for the same window,
                 // then (only when rerank actually reordered) the reranked
                 // page, then `done`.
-                let local_page =
-                    self.finalize_page(local_ordering, &window, &cursor_ctx, false)?;
+                let local_page = self.finalize_page(local_ordering, &window, &cursor_ctx, false)?;
                 self.fill_probe_window(&mut probe, fetch_limit, offset, request.limit, &local_page);
                 if !send_frame(tx, SearchStreamEvent::Local(local_page)).await {
                     return Ok(());

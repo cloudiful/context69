@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use crate::domain_errors::DomainError;
+
+use anyhow::Result;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use context69_contracts::TaskKind;
 use serde_json::Value;
@@ -99,9 +101,10 @@ pub(super) async fn set_stage(
         .set_task_item_stage(task.id, item.id, item.lease_token, stage)
         .await?
     {
-        return Err(anyhow!(
+        return Err(DomainError::conflict(format!(
             "task item lease was lost while entering stage {stage}"
-        ));
+        ))
+        .into());
     }
     Ok(())
 }
@@ -117,7 +120,7 @@ pub(super) async fn set_file(
         .set_task_item_file(task.id, item.id, item.lease_token, file_id)
         .await?
     {
-        return Err(anyhow!("task item lease was lost while saving file_id"));
+        return Err(DomainError::conflict("task item lease was lost while saving file_id").into());
     }
     Ok(())
 }
@@ -141,7 +144,7 @@ pub(super) async fn save_sections(
         .set_task_item_payload(item.id, item.lease_token, &payload)
         .await?
     {
-        return Err(anyhow!("task item lease was lost while saving sections"));
+        return Err(DomainError::conflict("task item lease was lost while saving sections").into());
     }
     Ok(())
 }
@@ -156,7 +159,7 @@ pub(super) async fn save_payload(
         .set_task_item_payload(item.id, item.lease_token, &payload)
         .await?
     {
-        return Err(anyhow!("task item lease was lost while saving payload"));
+        return Err(DomainError::conflict("task item lease was lost while saving payload").into());
     }
     Ok(())
 }

@@ -110,7 +110,7 @@ pub(crate) async fn revoke_personal_access_token(
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => {
-            if context69_http_support::is_not_found_message(&error.to_string()) {
+            if context69_http_support::is_not_found_error(&error) {
                 context69_http_support::json_error_for_code(
                     context69_contracts::ApiErrorCode::NotFound,
                     error.to_string(),

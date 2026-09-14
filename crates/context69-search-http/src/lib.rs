@@ -18,11 +18,10 @@ use context69_contracts::search::{
     SearchStreamEvent, SearchStreamPage,
 };
 use context69_contracts::{
-    ApiErrorCode, ApiErrorResponse, CanonicalSearchRequest, DocumentResponse,
+    ApiErrorCode, ApiErrorResponse, CanonicalSearchRequest, DocumentResponse, DomainError,
 };
 use context69_http_support::{
-    CurrentUser, json_error_response, map_document_lookup_error,
-    map_search_service_error,
+    CurrentUser, json_error_response, map_document_lookup_error, map_search_service_error,
 };
 use context69_search::{AbortSignal, abort_pair};
 use tokio::sync::mpsc;
@@ -130,26 +129,28 @@ async fn search(
 /// "latest N" browse. Database / upstream failures keep their 500 meaning.
 fn validate_post_request(request: &SearchRequest) -> Result<()> {
     if request.limit == 0 || request.limit > 100 {
-        return Err(anyhow::anyhow!("page_size must be between 1 and 100"));
+        return Err(DomainError::invalid_argument("page_size must be between 1 and 100").into());
     }
     if request.page == 0 {
-        return Err(anyhow::anyhow!("page must be greater than 0"));
+        return Err(DomainError::invalid_argument("page must be greater than 0").into());
     }
     if request.sort == SearchSort::Date && request.page > 1 && request.cursor.is_none() {
         // Date mode is forward-only keyset pagination: the legacy
         // `(page - 1) * limit` mapping has no meaning here and silently
         // serving page 1 would be a worse failure than a clean 400.
-        return Err(anyhow::anyhow!(
-            "page > 1 is not supported for sort=date; pass the cursor returned in `next_cursor` to fetch the next page"
-        ));
+        return Err(DomainError::invalid_argument(
+            "page > 1 is not supported for sort=date; pass the cursor returned in `next_cursor` to fetch the next page",
+        )
+        .into());
     }
     if request.sort == SearchSort::Date && request.query.trim().is_empty() {
         // Date mode is "matching query, latest-first, no rerank": a
         // blank query would silently turn the request into a browse
         // and violate the contract. Reject as 400 before any work.
-        return Err(anyhow::anyhow!(
-            "query text is required for sort=date; the date pipeline matches the query against hydrated hits (title + chunk_text) and never browses the index"
-        ));
+        return Err(DomainError::invalid_argument(
+            "query text is required for sort=date; the date pipeline matches the query against hydrated hits (title + chunk_text) and never browses the index",
+        )
+        .into());
     }
     if let Some(raw) = request.cursor.as_deref() {
         context69_search::decode_search_cursor_for_validation(raw)?;
@@ -204,11 +205,19 @@ mod tests {
 
     #[test]
     fn search_service_validation_maps_to_bad_request() {
-        let response =
-            map_search_service_error(anyhow::anyhow!("page_size must be between 1 and 100"));
+        let response = map_search_service_error(
+            context69_http_support::DomainError::invalid_argument(
+                "page_size must be between 1 and 100",
+            )
+            .into(),
+        );
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let lookup = map_document_lookup_error(anyhow::anyhow!("document 42 not found"));
+        let lookup = map_document_lookup_error(
+            context69_http_support::DomainError::not_found("document 42 not found").into(),
+        );
         assert_eq!(lookup.status(), StatusCode::NOT_FOUND);
+        let unknown = map_search_service_error(anyhow::anyhow!("plain internal boom"));
+        assert_eq!(unknown.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
 
@@ -285,13 +294,14 @@ async fn search_stream(
 /// the v0.16 query surface.
 fn validate_canonical_stream(query: &CanonicalSearchRequest) -> Result<()> {
     if query.limit == 0 || query.limit > 100 {
-        return Err(anyhow::anyhow!("page_size must be between 1 and 100"));
+        return Err(DomainError::invalid_argument("page_size must be between 1 and 100").into());
     }
     context69_http_support::validate_cursor_limit(query.limit)?;
     if query.sort == context69_contracts::SearchSort::Date && query.query.trim().is_empty() {
-        return Err(anyhow::anyhow!(
-            "query text is required for sort=date; the date pipeline matches the query against hydrated hits (title + chunk_text) and never browses the index"
-        ));
+        return Err(DomainError::invalid_argument(
+            "query text is required for sort=date; the date pipeline matches the query against hydrated hits (title + chunk_text) and never browses the index",
+        )
+        .into());
     }
     if let Some(raw) = query.cursor.as_deref() {
         // Reuse the cursor decoder to reject malformed/oversized payloads.

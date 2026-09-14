@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use context69_contracts::{DocumentSort, DocumentSortField, SortOrder};
 use sqlx::{Postgres, QueryBuilder};
 
@@ -128,7 +130,12 @@ fn push_sort_bind(
         ("float", SortValue::Float(value)) => query.push_bind(*value),
         ("boolean", SortValue::Boolean(value)) => query.push_bind(*value),
         ("datetime", SortValue::Datetime(value)) => query.push_bind(*value),
-        _ => return Err(anyhow!("cursor sort value type does not match query sort")),
+        _ => {
+            return Err(DomainError::invalid_argument(
+                "cursor sort value type does not match query sort",
+            )
+            .into());
+        }
     };
     Ok(())
 }

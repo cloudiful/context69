@@ -1,6 +1,8 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+
+use crate::domain_errors::DomainError;
 use context69_translation::{TranslationCoordinator, TranslationService};
 use futures::{StreamExt, stream};
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -115,7 +117,8 @@ impl SyncService {
             .read()
             .await
             .lock(source_key)
-            .with_context(|| format!("unknown source {source_key}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown source {source_key}")))
+            .map_err(anyhow::Error::from)?;
         Ok(lock.lock_owned().await)
     }
 
@@ -131,9 +134,17 @@ impl SyncService {
             (Some(source), Some(connector)) => Some((source, connector)),
             (None, None) => None,
             (Some(_), None) => {
-                return Err(anyhow!("source origin is unavailable for {source_key}"));
+                return Err(DomainError::unavailable(format!(
+                    "source origin is unavailable for {source_key}"
+                ))
+                .into());
             }
-            _ => return Err(anyhow!("incomplete source registry for {source_key}")),
+            _ => {
+                return Err(DomainError::internal(format!(
+                    "incomplete source registry for {source_key}"
+                ))
+                .into());
+            }
         })
     }
 
@@ -158,7 +169,9 @@ impl SyncService {
     ) -> Result<StoredSourceConnection> {
         let name = connection_name.trim();
         if name.is_empty() {
-            return Err(anyhow!("source connection name must not be empty"));
+            return Err(
+                DomainError::invalid_argument("source connection name must not be empty").into(),
+            );
         }
 
         let existing = self.db.get_source_connection(name).await?;
@@ -168,19 +181,21 @@ impl SyncService {
                 existing
                     .map(|connection| connection.database_url)
                     .ok_or_else(|| {
-                        anyhow!(
-                            "source connection database_url is required when creating a new connection"
+                        DomainError::invalid_argument(
+                            "source connection database_url is required when creating a new connection",
                         )
-                    })?
+                    })
+                    .map_err(anyhow::Error::from)?
             } else {
                 trimmed.to_string()
             }
         } else if let Some(existing) = existing {
             existing.database_url
         } else {
-            return Err(anyhow!(
-                "source connection database_url is required when creating a new connection"
-            ));
+            return Err(DomainError::invalid_argument(
+                "source connection database_url is required when creating a new connection",
+            )
+            .into());
         };
 
         Ok(StoredSourceConnection {
@@ -198,7 +213,10 @@ impl SyncService {
 }
 
 fn sync_runtime_unavailable() -> anyhow::Error {
-    anyhow!("sync runtime is not configured; save runtime settings and restart the service")
+    DomainError::unavailable(
+        "sync runtime is not configured; save runtime settings and restart the service",
+    )
+    .into()
 }
 
 async fn build_source_pools(

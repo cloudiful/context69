@@ -1,3 +1,4 @@
+use anyhow::Context;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 
 use crate::library_store::LegacyDirectPathFileRow;
@@ -51,7 +52,9 @@ impl LibraryService {
         dry_run: bool,
     ) -> Result<StorageMigrationSummary> {
         if self.storage.backend() != "s3" {
-            return Err(anyhow!("S3 storage must be configured before migration"));
+            return Err(
+                DomainError::internal("S3 storage must be configured before migration").into(),
+            );
         }
         let mut summary = StorageMigrationSummary::default();
         for file in self.store.list_files().await? {
@@ -76,8 +79,9 @@ impl LibraryService {
                     continue;
                 }
                 Err(error) => {
-                    return Err(error)
-                        .with_context(|| format!("failed to read {}", local_path.display()));
+                    return Err(error).with_context(|| {
+                        DomainError::internal(format!("failed to read {}", local_path.display()))
+                    });
                 }
             };
             if bytes.len() as i64 != file.size_bytes || storage::hash_bytes(&bytes) != file.sha256 {

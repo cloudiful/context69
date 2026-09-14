@@ -1,4 +1,5 @@
-use anyhow::{Context, Result, anyhow};
+use crate::domain_errors::DomainError;
+use anyhow::Result;
 use argon2::{
     Argon2,
     password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
@@ -115,7 +116,7 @@ impl AuthService {
             .db
             .get_user_by_login_name(login_name.trim())
             .await?
-            .context("invalid login or password")?;
+            .ok_or_else(|| DomainError::unauthorized("invalid login or password"))?;
         ensure_user_enabled(&user)?;
         verify_password(&user.password_hash, password)?;
         Ok(AuthPrincipal(self.session_for_user_id(user.id).await?))
@@ -162,13 +163,13 @@ impl AuthService {
         let display_name = display_name.trim();
         let password = password.trim();
         if login_name.is_empty() {
-            return Err(anyhow!("login_name must not be empty"));
+            return Err(DomainError::invalid_argument("login_name must not be empty").into());
         }
         if display_name.is_empty() {
-            return Err(anyhow!("display_name must not be empty"));
+            return Err(DomainError::invalid_argument("display_name must not be empty").into());
         }
         if password.is_empty() {
-            return Err(anyhow!("password must not be empty"));
+            return Err(DomainError::invalid_argument("password must not be empty").into());
         }
 
         let password_hash = hash_password(password)?;
@@ -191,13 +192,14 @@ impl AuthService {
 
         let trimmed_display_name = display_name.map(str::trim);
         if let Some("") = trimmed_display_name {
-            return Err(anyhow!("display_name must not be empty"));
+            return Err(DomainError::invalid_argument("display_name must not be empty").into());
         }
 
         self.db
             .update_user(login_name, trimmed_display_name, is_admin)
             .await?
-            .context("user not found")
+            .ok_or_else(|| DomainError::not_found("user not found"))
+            .map_err(anyhow::Error::from)
     }
 
     pub async fn reset_admin_user_password(
@@ -210,14 +212,15 @@ impl AuthService {
 
         let password = password.trim();
         if password.is_empty() {
-            return Err(anyhow!("password must not be empty"));
+            return Err(DomainError::invalid_argument("password must not be empty").into());
         }
 
         let password_hash = hash_password(password)?;
         self.db
             .update_user_password_hash(login_name, &password_hash)
             .await?
-            .context("user not found")
+            .ok_or_else(|| DomainError::not_found("user not found"))
+            .map_err(anyhow::Error::from)
     }
 
     pub async fn disable_admin_user(
@@ -229,7 +232,8 @@ impl AuthService {
         self.db
             .set_user_disabled_at(login_name, Some(Utc::now()))
             .await?
-            .context("user not found")
+            .ok_or_else(|| DomainError::not_found("user not found"))
+            .map_err(anyhow::Error::from)
     }
 
     pub async fn enable_admin_user(
@@ -241,7 +245,8 @@ impl AuthService {
         self.db
             .set_user_disabled_at(login_name, None)
             .await?
-            .context("user not found")
+            .ok_or_else(|| DomainError::not_found("user not found"))
+            .map_err(anyhow::Error::from)
     }
 
     pub async fn search_user_directory(
@@ -265,7 +270,7 @@ impl AuthService {
             .db
             .get_user_by_id(user_id)
             .await?
-            .context("user not found")?;
+            .ok_or_else(|| DomainError::not_found("user not found"))?;
         ensure_user_enabled(&user)?;
         let personal_group = self.db.ensure_personal_group_for_user(&user).await?;
         Ok(AuthSession {
@@ -303,8 +308,8 @@ impl AuthnBackend for AuthService {
             Ok(principal) => Ok(Some(principal)),
             Err(error)
                 if matches!(
-                    error.to_string().as_str(),
-                    "invalid login or password" | "user account is disabled"
+                    crate::domain_errors::find_domain_error(&error),
+                    Some(DomainError::Unauthorized(_))
                 ) =>
             {
                 Ok(None)
@@ -318,8 +323,8 @@ impl AuthnBackend for AuthService {
             Ok(session) => Ok(Some(AuthPrincipal(session))),
             Err(error)
                 if matches!(
-                    error.to_string().as_str(),
-                    "user not found" | "user account is disabled"
+                    crate::domain_errors::find_domain_error(&error),
+                    Some(DomainError::NotFound(_) | DomainError::Unauthorized(_))
                 ) =>
             {
                 Ok(None)
@@ -344,28 +349,29 @@ pub fn user_response(session: &AuthSession) -> AuthUserResponse {
 fn hash_password(password: &str) -> Result<String> {
     Ok(Argon2::default()
         .hash_password(password.as_bytes())
-        .map_err(|error| anyhow!("failed to hash password: {error}"))?
+        .map_err(|error| DomainError::internal(format!("failed to hash password: {error}")))?
         .to_string())
 }
 
 fn verify_password(password_hash: &str, password: &str) -> Result<()> {
     let parsed_hash = PasswordHash::new(password_hash)
-        .map_err(|error| anyhow!("invalid stored password hash: {error}"))?;
+        .map_err(|error| DomainError::internal(format!("invalid stored password hash: {error}")))?;
     Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
-        .map_err(|_| anyhow!("invalid login or password"))
+        .map_err(|_| DomainError::unauthorized("invalid login or password"))?;
+    Ok(())
 }
 
 pub(crate) fn require_admin(actor: &UserRecord) -> Result<()> {
     if actor.is_admin {
         return Ok(());
     }
-    Err(anyhow!("admin access required"))
+    Err(DomainError::forbidden("admin access required").into())
 }
 
 fn ensure_user_enabled(user: &UserRecord) -> Result<()> {
     if user.disabled_at.is_some() {
-        return Err(anyhow!("user account is disabled"));
+        return Err(DomainError::unauthorized("user account is disabled").into());
     }
     Ok(())
 }

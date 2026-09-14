@@ -1,5 +1,6 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
+use context69_contracts::DomainError;
 use context69_contracts::{
     GroupTranslationSettingsResponse, Pagination, TranslationProviderPageResponse,
     TranslationSettingsResponse, UpdateGroupTranslationSettingsRequest,
@@ -190,7 +191,10 @@ impl TranslationStore {
                 && provider.provider != context69_contracts::TranslationProviderKind::Libretranslate
                 && !has_key
             {
-                return Err(anyhow!("enabled translation provider requires api_key"));
+                return Err(DomainError::invalid_argument(
+                    "enabled translation provider requires api_key",
+                )
+                .into());
             }
             sqlx::query_file!(
                 "sql/providers/upsert.sql",
@@ -296,7 +300,8 @@ impl TranslationStore {
         sqlx::query_file_as!(TranslationDocument, "sql/jobs/document.sql", document_id)
             .fetch_optional(&self.pool)
             .await?
-            .context("translation document not found")
+            .ok_or_else(|| DomainError::not_found("translation document not found"))
+            .map_err(anyhow::Error::from)
     }
 
     pub async fn insert_job(

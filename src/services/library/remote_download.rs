@@ -1,10 +1,11 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use rate_limiter::RateLimiter;
 use reqwest::{StatusCode, Url, header};
 use tokio::net::lookup_host;
 
 use super::remote_proxy::{RemoteTransport, is_public_ip};
+use crate::domain_errors::DomainError;
 
 const MAX_REDIRECTS: usize = 3;
 
@@ -26,37 +27,47 @@ pub(super) async fn download(
     let transport = RemoteTransport::new(trusted_proxy_enabled).await?;
     let mut url = validate_url(source).await?;
     for redirect_count in 0..=MAX_REDIRECTS {
-        limiter
-            .acquire(&origin_key(&url)?)
-            .await
-            .map_err(|error| anyhow!("remote_rate_limit_failed: {error}"))?;
+        limiter.acquire(&origin_key(&url)?).await.map_err(|error| {
+            DomainError::rate_limited(format!("remote_rate_limit_failed: {error}"))
+        })?;
         let mut response = transport
             .client()
             .get(url.clone())
             .send()
             .await
-            .context("remote_download_failed")?;
+            .map_err(|error| {
+                DomainError::upstream_timeout(format!("remote_download_failed: {error}"))
+            })?;
         transport.validate_peer(response.remote_addr())?;
         if response.status().is_redirection() {
             if redirect_count == MAX_REDIRECTS {
-                return Err(anyhow!("remote_redirect_limit"));
+                return Err(DomainError::upstream_error("remote_redirect_limit").into());
             }
             let location = response
                 .headers()
                 .get(header::LOCATION)
-                .context("remote_redirect_missing_location")?
-                .to_str()?;
+                .ok_or_else(|| DomainError::upstream_error("remote_redirect_missing_location"))?
+                .to_str()
+                .map_err(|error| {
+                    DomainError::upstream_error(format!(
+                        "remote_redirect_missing_location: {error}"
+                    ))
+                })?;
             url = validate_url(url.join(location)?.as_str()).await?;
             continue;
         }
         if response.status() != StatusCode::OK {
-            return Err(anyhow!("remote_http_status_{}", response.status().as_u16()));
+            return Err(DomainError::upstream_error(format!(
+                "remote_http_status_{}",
+                response.status().as_u16()
+            ))
+            .into());
         }
         if response
             .content_length()
             .is_some_and(|length| length > max_bytes as u64)
         {
-            return Err(anyhow!("remote_file_too_large"));
+            return Err(DomainError::payload_too_large("remote_file_too_large").into());
         }
         let filename = resolve_filename(filename, &url, response.headers())?;
         let media_type = media_type
@@ -74,12 +85,14 @@ pub(super) async fn download(
                     .map(ToOwned::to_owned)
             })
             .or_else(|| media_type_for_filename(&filename).map(ToOwned::to_owned))
-            .context("remote_media_type_required")?;
+            .ok_or_else(|| DomainError::invalid_argument("remote_media_type_required"))?;
         validate_type_match(&filename, &media_type)?;
         let mut body = BytesMut::new();
-        while let Some(chunk) = response.chunk().await.context("remote_download_failed")? {
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
+            DomainError::upstream_timeout(format!("remote_download_failed: {error}"))
+        })? {
             if body.len().saturating_add(chunk.len()) > max_bytes {
-                return Err(anyhow!("remote_file_too_large"));
+                return Err(DomainError::payload_too_large("remote_file_too_large").into());
             }
             body.extend_from_slice(&chunk);
         }
@@ -94,43 +107,54 @@ pub(super) async fn download(
 }
 
 fn origin_key(url: &Url) -> Result<String> {
-    let host = url.host_str().context("invalid_remote_url")?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| DomainError::invalid_argument("invalid_remote_url"))?;
     let host = if host.contains(':') {
         format!("[{host}]")
     } else {
         host.to_owned()
     };
-    let port = url.port_or_known_default().context("invalid_remote_url")?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| DomainError::invalid_argument("invalid_remote_url"))?;
     Ok(format!("{}://{host}:{port}", url.scheme()))
 }
 
 pub(super) async fn validate_url(source: &str) -> Result<Url> {
     let url = normalize_url(source)?;
-    let host = url.host_str().context("invalid_remote_url")?;
-    let port = url.port_or_known_default().context("invalid_remote_url")?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| DomainError::invalid_argument("invalid_remote_url"))?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| DomainError::invalid_argument("invalid_remote_url"))?;
     let mut found = false;
     for address in lookup_host((host, port))
         .await
-        .context("remote_dns_failed")?
+        .map_err(|error| DomainError::upstream_error(format!("remote_dns_failed: {error}")))?
     {
         found = true;
         if !is_public_ip(address.ip()) {
-            return Err(anyhow!("remote_url_blocked"));
+            return Err(DomainError::invalid_argument("remote_url_blocked").into());
         }
     }
     if !found {
-        return Err(anyhow!("remote_dns_failed"));
+        return Err(DomainError::upstream_error("remote_dns_failed").into());
     }
     Ok(url)
 }
 
 pub(super) fn normalize_url(source: &str) -> Result<Url> {
-    let url = Url::parse(source.trim()).context("invalid_remote_url")?;
+    let url = Url::parse(source.trim())
+        .map_err(|error| DomainError::invalid_argument(format!("invalid_remote_url: {error}")))?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
-        return Err(anyhow!("remote_url_blocked"));
+        return Err(DomainError::invalid_argument("remote_url_blocked").into());
     }
-    url.host_str().context("invalid_remote_url")?;
-    url.port_or_known_default().context("invalid_remote_url")?;
+    url.host_str()
+        .ok_or_else(|| DomainError::invalid_argument("invalid_remote_url"))?;
+    url.port_or_known_default()
+        .ok_or_else(|| DomainError::invalid_argument("invalid_remote_url"))?;
     Ok(url)
 }
 
@@ -149,14 +173,14 @@ fn resolve_filename(
                 .and_then(|mut parts| parts.rfind(|part| !part.is_empty()))
                 .map(ToOwned::to_owned)
         })
-        .context("remote_filename_required")?;
+        .ok_or_else(|| DomainError::invalid_argument("remote_filename_required"))?;
     let sanitized = candidate
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or_default()
         .trim();
     if sanitized.is_empty() || sanitized == "." || sanitized == ".." {
-        return Err(anyhow!("remote_filename_required"));
+        return Err(DomainError::invalid_argument("remote_filename_required").into());
     }
     Ok(sanitized.to_string())
 }
@@ -215,7 +239,7 @@ fn validate_type_match(filename: &str, media_type: &str) -> Result<()> {
         _ => false,
     };
     if !compatible {
-        return Err(anyhow!("remote_media_type_mismatch"));
+        return Err(DomainError::invalid_argument("remote_media_type_mismatch").into());
     }
     Ok(())
 }

@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use chrono::{DateTime, Utc};
 use context69_contracts::{DocumentQueryRequest, DocumentSortField, SortOrder};
 use sqlx::{Postgres, QueryBuilder, Row, postgres::PgRow};
@@ -180,7 +182,10 @@ async fn list_page_candidates(
 
     if let Some(cursor) = cursor {
         if cursor.values.len() != request.sort.len() {
-            return Err(anyhow!("cursor sort values do not match query sort"));
+            return Err(DomainError::invalid_argument(
+                "cursor sort values do not match query sort",
+            )
+            .into());
         }
         if request.sort.is_empty() {
             query.push(" AND d.id > ").push_bind(cursor.document_id);
@@ -209,9 +214,10 @@ async fn list_page_candidates(
         }
         query.push(", d.id ASC");
     }
-    query
-        .push(" LIMIT ")
-        .push_bind(i64::try_from(request.limit + 1).map_err(|_| anyhow!("limit is too large"))?);
+    query.push(" LIMIT ").push_bind(
+        i64::try_from(request.limit + 1)
+            .map_err(|_| DomainError::invalid_argument("limit is too large"))?,
+    );
 
     let rows = query.build().fetch_all(db.pool()).await?;
     rows.into_iter()
@@ -266,7 +272,10 @@ fn sort_value_from_row(
                     .try_get::<Option<DateTime<Utc>>, _>(alias.as_str())
                     .map(|value| value.map(SortValue::Datetime).unwrap_or(SortValue::Null))
                     .map_err(Into::into),
-                other => Err(anyhow!("unsupported metadata data type '{other}'")),
+                other => Err(DomainError::invalid_argument(format!(
+                    "unsupported metadata data type '{other}'"
+                ))
+                .into()),
             }
         }
     }

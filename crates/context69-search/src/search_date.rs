@@ -35,9 +35,9 @@
 //! Determinism within one ordering epoch: the Qdrant `scroll` return order
 //! over `published_ts DESC` is deterministic for a given filter set + offset
 //! + generation. The cursor pins the request context (query / filter /
-//! settings / generation) AND the `next_page_offset`, so a replayed request
-//! resumes exactly after the last emitted record. The `seen` set still
-//! guarantees no record is emitted twice within one request.
+//!   settings / generation) AND the `next_page_offset`, so a replayed request
+//!   resumes exactly after the last emitted record. The `seen` set still
+//!   guarantees no record is emitted twice within one request.
 //!
 //! The snapshot ceiling (`upper`) is captured under the caller's access
 //! scope on the first request and is replayed unchanged in the cursor so
@@ -62,8 +62,9 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
+use context69_contracts::DomainError;
 use context69_contracts::{SearchHit, SearchRequest, SearchResponse};
 use tracing::info;
 
@@ -120,7 +121,9 @@ impl DateRequestSnapshot {
         // distinguishes "no visible upper bound" (Ok(None)) from
         // "snapshot fetch failed" (Err(_)) so a transient Qdrant outage
         // can never silently widen a replayed upper bound.
-        let upper_ts = repository.date_request_upper_bound(user_id, request).await?;
+        let upper_ts = repository
+            .date_request_upper_bound(user_id, request)
+            .await?;
         Ok(Self {
             settings,
             generation,
@@ -221,9 +224,9 @@ fn keyword_query_parts(query: &str) -> (Vec<String>, String) {
 /// check is the authoritative guard.
 fn validate_date_query(request: &SearchRequest) -> Result<()> {
     if request.query.trim().is_empty() {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "query text is required for sort=date; the date pipeline matches the query against hydrated hits (title + chunk_text) and never browses the index"
-        ));
+        ).into());
     }
     Ok(())
 }
@@ -246,7 +249,7 @@ pub async fn run_date_search(
 ) -> Result<SearchResponse> {
     let limit = request.limit;
     if limit == 0 || limit > 100 {
-        return Err(anyhow!("page_size must be between 1 and 100"));
+        return Err(DomainError::invalid_argument("page_size must be between 1 and 100").into());
     }
     // Date mode is "query-matching, latest-first, no rerank" — a blank
     // query would silently become a browse, so the request is rejected
@@ -256,9 +259,9 @@ pub async fn run_date_search(
         // Date mode is forward-only keyset pagination: the legacy
         // `(page - 1) * limit` mapping has no meaning here and silently
         // serving page 1 would be a worse failure than a clean 400.
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "page > 1 is not supported for sort=date; pass the cursor returned in `next_cursor` to fetch the next page"
-        ));
+        ).into());
     }
     let snapshot = DateRequestSnapshot::capture(repository, user_id, &request).await?;
     let context = CursorContext {
@@ -294,7 +297,10 @@ pub async fn run_date_search(
     // continues exactly after the last emitted record.
     let mut boundary_offset: Option<uuid::Uuid> = incoming.as_ref().and_then(|d| d.offset);
 
-    let upper = incoming.as_ref().and_then(|d| d.upper).or(snapshot.upper_ts);
+    let upper = incoming
+        .as_ref()
+        .and_then(|d| d.upper)
+        .or(snapshot.upper_ts);
 
     let vector = embed_once(embedding, &request).await?;
 
@@ -487,11 +493,7 @@ pub async fn run_date_search(
         // rest of the batch is discarded for this run (those records
         // are older and will be revisited only if additional pages are
         // requested).
-        let newest_ts = page
-            .hits
-            .iter()
-            .filter_map(|hit| hit.published_ts)
-            .max();
+        let newest_ts = page.hits.iter().filter_map(|hit| hit.published_ts).max();
         let Some(newest) = newest_ts else {
             // Records without a `published_ts` are out-of-band: skip
             // them by advancing `before` below the floor so they are
@@ -739,7 +741,9 @@ async fn fetch_window(
             scope,
             DateWindowQuery {
                 after: DateBound::Unbounded,
-                before: before.map(DateBound::Inclusive).unwrap_or(DateBound::Unbounded),
+                before: before
+                    .map(DateBound::Inclusive)
+                    .unwrap_or(DateBound::Unbounded),
                 limit,
                 offset: None,
             },
@@ -814,31 +818,32 @@ async fn embed_once(
 
 fn validate_date_context(date: &DateCursor, context: &CursorContext) -> Result<()> {
     if date.query_hash != context.query_hash {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "cursor context mismatch: the cursor belongs to a different query; start again from the first page"
-        ));
+        ).into());
     }
     if date.filter_hash != context.filter_hash {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "cursor context mismatch: filters (locale, source, group, date range, or metadata filters) changed; start again from the first page"
-        ));
+        ).into());
     }
     if date.settings_hash != context.settings_hash {
-        return Err(anyhow!(
-            "cursor context mismatch: search settings changed; start again from the first page"
-        ));
+        return Err(DomainError::invalid_argument(
+            "cursor context mismatch: search settings changed; start again from the first page",
+        )
+        .into());
     }
     if date.generation != context.generation {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(
             "cursor context mismatch: the indexed data has been refreshed; start again from the first page"
-        ));
+        ).into());
     }
     if date.limit != context.limit {
-        return Err(anyhow!(
+        return Err(DomainError::invalid_argument(format!(
             "cursor context mismatch: page size changed from {} to {}; start again from the first page",
             date.limit,
             context.limit
-        ));
+        )).into());
     }
     // The request-level `MAX_DATE_WINDOWS` cap is per-request: the
     // cursor no longer carries a `windows_consumed` counter, so a

@@ -35,7 +35,7 @@ pub use documents::{
     MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
     UpdateMetadataIndexRequest,
 };
-pub use errors::{ApiErrorCode, CanonicalApiErrorResponse};
+pub use errors::{ApiErrorCode, CanonicalApiErrorResponse, DomainError};
 pub use extraction::{
     ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse,
     ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse, ExtractionTemplateInput,

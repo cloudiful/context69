@@ -1,7 +1,9 @@
 use std::{sync::Arc, time::Instant};
 
-use anyhow::{Context, Result};
-use context69_contracts::{DocumentResponse, SearchHit, SearchMode, SearchRequest, SearchResponse};
+use anyhow::Result;
+use context69_contracts::{
+    DocumentResponse, DomainError, SearchHit, SearchMode, SearchRequest, SearchResponse,
+};
 use serde_json::Value;
 use tracing::{info, warn};
 
@@ -165,10 +167,12 @@ impl SearchService {
     /// `cursor` when present, otherwise from the deprecated `page` (kept for
     /// compatibility, mapping to the offset `(page - 1) * limit`).
     fn resolved_offset(&self, request: &SearchRequest) -> Result<usize> {
-        let page_size =
-            u32::try_from(request.limit).map_err(|_| anyhow::anyhow!("page_size is too large"))?;
+        let page_size = u32::try_from(request.limit)
+            .map_err(|_| DomainError::invalid_argument("page_size is too large"))?;
         if !(1..=100).contains(&page_size) {
-            return Err(anyhow::anyhow!("page_size must be between 1 and 100"));
+            return Err(
+                DomainError::invalid_argument("page_size must be between 1 and 100").into(),
+            );
         }
         if let Some(raw_cursor) = request.cursor.as_deref() {
             // Pre-validate the cursor up front so any malformed/oversized
@@ -178,15 +182,19 @@ impl SearchService {
             let cursor = decode_cursor(raw_cursor)?;
             match cursor {
                 search_cursor::DecodedCursor::Relevance(rel) => Ok(rel.offset),
-                search_cursor::DecodedCursor::Date(_) => Err(anyhow::anyhow!(
-                    "cursor ordering mismatch: the cursor belongs to the date ordering; relevance requests cannot replay it"
-                )),
+                search_cursor::DecodedCursor::Date(_) => Err(DomainError::invalid_argument(
+                    "cursor ordering mismatch: the cursor belongs to the date ordering; relevance requests cannot replay it",
+                )
+                .into()),
             }
         } else {
-            let page =
-                u32::try_from(request.page).map_err(|_| anyhow::anyhow!("page is too large"))?;
-            usize::try_from(context69_contracts::Pagination::offset(page, page_size)?)
-                .map_err(|_| anyhow::anyhow!("page offset is too large"))
+            let page = u32::try_from(request.page)
+                .map_err(|_| DomainError::invalid_argument("page is too large"))?;
+            let offset = context69_contracts::Pagination::offset(page, page_size)
+                .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
+            usize::try_from(offset).map_err(|_| {
+                anyhow::Error::from(DomainError::invalid_argument("page offset is too large"))
+            })
         }
     }
 
@@ -366,10 +374,7 @@ impl SearchService {
         // the page offset so the cache key is constant per query epoch.
         let rerank_limit = settings.candidate_limit.min(candidates.len());
         if !settings.rerank_enabled || rerank_limit == 0 {
-            return Ok((
-                candidates.into_iter().take(fetch_limit).collect(),
-                false,
-            ));
+            return Ok((candidates.into_iter().take(fetch_limit).collect(), false));
         }
         let rerank_started = Instant::now();
         let rerank_candidates = candidates
@@ -499,10 +504,7 @@ impl SearchService {
                     }
                     Err(error) => {
                         warn!(error = %error, "rerank failed; falling back to local hybrid ranking");
-                        (
-                            candidates.into_iter().take(fetch_limit).collect(),
-                            false,
-                        )
+                        (candidates.into_iter().take(fetch_limit).collect(), false)
                     }
                 }
             }
@@ -523,7 +525,7 @@ impl SearchService {
         let offset = self.resolved_offset(&request)?;
         let requested_limit = offset
             .checked_add(request.limit)
-            .ok_or_else(|| anyhow::anyhow!("search result limit is too large"))?;
+            .ok_or_else(|| DomainError::invalid_argument("search result limit is too large"))?;
         // Probe one item beyond the requested window while staying under the cap.
         let (fetch_limit, can_probe_window) = probe_fetch_limit(requested_limit);
         let scope = self
@@ -673,7 +675,8 @@ impl SearchService {
         self.repository
             .get_document(document_id, scope)
             .await?
-            .context("document not found")
+            .ok_or_else(|| DomainError::not_found("document not found"))
+            .map_err(anyhow::Error::from)
     }
 }
 

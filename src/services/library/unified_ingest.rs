@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use anyhow::anyhow;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::timeout;
 use uuid::Uuid;
@@ -83,7 +82,7 @@ impl LibraryService {
                 Ok(result) => result,
                 Err(error) => Err(IngestFailure::new(
                     LibraryIngestFailureStage::Docling,
-                    anyhow!("docling conversion timed out: {error}"),
+                    DomainError::upstream_timeout(format!("docling conversion timed out: {error}")),
                 )),
             },
             LibraryFileKind::Docx => {
@@ -91,7 +90,9 @@ impl LibraryService {
                     Ok(result) => result,
                     Err(error) => Err(IngestFailure::new(
                         LibraryIngestFailureStage::Docling,
-                        anyhow!("docling conversion timed out: {error}"),
+                        DomainError::upstream_timeout(format!(
+                            "docling conversion timed out: {error}"
+                        )),
                     )),
                 }
             }
@@ -100,7 +101,9 @@ impl LibraryService {
                     Ok(result) => result,
                     Err(error) => Err(IngestFailure::new(
                         LibraryIngestFailureStage::Docling,
-                        anyhow!("docling conversion timed out: {error}"),
+                        DomainError::upstream_timeout(format!(
+                            "docling conversion timed out: {error}"
+                        )),
                     )),
                 }
             }
@@ -137,9 +140,9 @@ fn limit_docling_output(sections: Vec<IngestSection>) -> IngestResult<Vec<Ingest
     if output_bytes > MAX_DOCLING_OUTPUT_BYTES {
         return Err(IngestFailure::new(
             LibraryIngestFailureStage::Parsing,
-            anyhow!(
+            DomainError::payload_too_large(format!(
                 "docling output exceeds maximum of {MAX_DOCLING_OUTPUT_BYTES} bytes: {output_bytes} bytes"
-            ),
+            )),
         ));
     }
     Ok(sections)

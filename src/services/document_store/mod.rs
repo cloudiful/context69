@@ -6,7 +6,9 @@ mod sorting;
 
 use std::{sync::Arc, time::Instant};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+
+use crate::domain_errors::DomainError;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use context69_contracts::{
     BatchDocumentItem, BatchGetDocumentsResponse, CreateMetadataIndexRequest, DocumentKey,
@@ -101,11 +103,12 @@ impl DocumentStoreService {
             .db
             .find_document_id_by_key(group_id, key.source_key.trim(), key.external_id.trim())
             .await?
-            .context("document not found")?;
+            .ok_or_else(|| DomainError::not_found("document not found"))?;
         self.db
             .get_document_localized(id, locale, scope)
             .await?
-            .context("document not found")
+            .ok_or_else(|| DomainError::not_found("document not found"))
+            .map_err(anyhow::Error::from)
     }
 
     pub async fn batch_get(
@@ -116,7 +119,7 @@ impl DocumentStoreService {
         scope: &AccessScope,
     ) -> Result<BatchGetDocumentsResponse> {
         if keys.is_empty() || keys.len() > 200 {
-            return Err(anyhow!("keys must contain 1..=200 items"));
+            return Err(DomainError::invalid_argument("keys must contain 1..=200 items").into());
         }
         let source_keys = keys
             .iter()
@@ -167,9 +170,10 @@ impl DocumentStoreService {
         {
             Vec::new()
         } else {
-            return Err(anyhow!(
-                "source_key is required for metadata filters and sorting"
-            ));
+            return Err(DomainError::invalid_argument(
+                "source_key is required for metadata filters and sorting",
+            )
+            .into());
         };
         validate_query_definitions(request, &definitions)?;
         let query_hash = query_hash(request)?;
@@ -252,7 +256,7 @@ impl DocumentStoreService {
             .db
             .find_document_id_by_key(group.id, key.source_key.trim(), key.external_id.trim())
             .await?
-            .context("document not found")?;
+            .ok_or_else(|| DomainError::not_found("document not found"))?;
         let scope = AccessScope {
             user_id: None,
             include_public: true,
@@ -264,7 +268,7 @@ impl DocumentStoreService {
             .db
             .get_document(id, &scope)
             .await?
-            .context("document not found")?;
+            .ok_or_else(|| DomainError::not_found("document not found"))?;
         if let Some(file_id) = document.library_file_id {
             return match lease_token {
                 Some(lease_token) => {
@@ -319,9 +323,9 @@ impl DocumentStoreService {
             .db
             .get_metadata_index(index_id)
             .await?
-            .context("metadata index not found")?;
+            .ok_or_else(|| DomainError::not_found("metadata index not found"))?;
         if existing.group_id != group_id {
-            return Err(anyhow!("metadata index not found"));
+            return Err(DomainError::not_found("metadata index not found").into());
         }
         metadata::validate_definition(&existing.field_path, request.value_kind, request.sortable)?;
         self.db
@@ -350,9 +354,9 @@ impl DocumentStoreService {
             .db
             .get_metadata_index(index_id)
             .await?
-            .context("metadata index not found")?;
+            .ok_or_else(|| DomainError::not_found("metadata index not found"))?;
         if existing.group_id != group_id {
-            return Err(anyhow!("metadata index not found"));
+            return Err(DomainError::not_found("metadata index not found").into());
         }
         self.db
             .mark_metadata_index_building(
@@ -376,9 +380,9 @@ impl DocumentStoreService {
             .db
             .get_metadata_index(index_id)
             .await?
-            .context("metadata index not found")?;
+            .ok_or_else(|| DomainError::not_found("metadata index not found"))?;
         if existing.group_id != group_id {
-            return Err(anyhow!("metadata index not found"));
+            return Err(DomainError::not_found("metadata index not found").into());
         }
         self.db.mark_metadata_index_deleting(index_id).await?;
         self.spawn_worker();
@@ -428,10 +432,10 @@ impl DocumentStoreService {
             metadata_keys.push((definition.index_id, document.document_id));
             let values = metadata::extract_values(definition, &document.metadata_json)
                 .with_context(|| {
-                    format!(
+                    DomainError::internal(format!(
                         "document {} metadata field {}",
                         document.document_id, definition.field_path
-                    )
+                    ))
                 })?;
             metadata_values.extend(crate::db::metadata_value_rows(
                 definition.index_id,
@@ -464,10 +468,10 @@ pub(super) struct Cursor {
 
 fn validate_query(request: &DocumentQueryRequest) -> Result<()> {
     if request.limit == 0 || request.limit > 200 {
-        return Err(anyhow!("limit must be between 1 and 200"));
+        return Err(DomainError::invalid_argument("limit must be between 1 and 200").into());
     }
     if request.sort.len() > 3 {
-        return Err(anyhow!("sort supports at most 3 fields"));
+        return Err(DomainError::invalid_argument("sort supports at most 3 fields").into());
     }
     Ok(())
 }
@@ -488,9 +492,14 @@ fn validate_query_definitions(
         let definition = definitions
             .iter()
             .find(|item| item.field_path == path)
-            .ok_or_else(|| anyhow!("metadata field '{path}' is not declared"))?;
+            .ok_or_else(|| {
+                DomainError::invalid_argument(format!("metadata field '{path}' is not declared"))
+            })?;
         if definition.status != "ready" {
-            return Err(anyhow!("metadata field '{path}' is not ready"));
+            return Err(DomainError::invalid_argument(format!(
+                "metadata field '{path}' is not ready"
+            ))
+            .into());
         }
         if request
             .sort
@@ -498,7 +507,7 @@ fn validate_query_definitions(
             .any(|item| matches!(&item.field, DocumentSortField::Metadata { path: value } if value == path))
             && !definition.sortable
         {
-            return Err(anyhow!("metadata field '{path}' is not sortable"));
+            return Err(DomainError::invalid_argument(format!("metadata field '{path}' is not sortable")).into());
         }
     }
     Ok(())
@@ -637,10 +646,10 @@ fn decode_cursor(value: Option<&str>, hash: &str) -> Result<Option<Cursor>> {
     let cursor: Cursor = serde_json::from_slice(
         &URL_SAFE_NO_PAD
             .decode(value)
-            .map_err(|_| anyhow!("invalid cursor"))?,
+            .map_err(|_| DomainError::invalid_argument("invalid cursor"))?,
     )?;
     if cursor.version != 2 || cursor.query_hash != hash {
-        return Err(anyhow!("cursor does not match query"));
+        return Err(DomainError::invalid_argument("cursor does not match query").into());
     }
     Ok(Some(cursor))
 }
@@ -819,5 +828,64 @@ mod tests {
             Some(&json!("2026-07-23T09:00:00Z")),
             Some("datetime"),
         ));
+    }
+
+    #[test]
+    fn limit_sort_and_cursor_failures_are_typed_invalid_argument() {
+        use crate::domain_errors::{DomainError, find_domain_error};
+        use context69_contracts::{DocumentSort, DocumentSortField, SortOrder};
+
+        let assert_invalid = |error: anyhow::Error, expected: &str| {
+            let message = error.to_string();
+            assert!(
+                matches!(
+                    find_domain_error(&error),
+                    Some(DomainError::InvalidArgument(_))
+                ),
+                "expected typed invalid_argument for {message}"
+            );
+            assert_eq!(message, expected);
+        };
+
+        let mut query = request(Vec::new());
+        query.limit = 0;
+        assert_invalid(
+            super::validate_query(&query).unwrap_err(),
+            "limit must be between 1 and 200",
+        );
+        query.limit = 201;
+        assert_invalid(
+            super::validate_query(&query).unwrap_err(),
+            "limit must be between 1 and 200",
+        );
+
+        let sort = DocumentSort {
+            field: DocumentSortField::PublishedAt,
+            order: SortOrder::Desc,
+        };
+        let mut oversorted = request(Vec::new());
+        oversorted.sort = vec![sort.clone(), sort.clone(), sort.clone(), sort];
+        assert_invalid(
+            super::validate_query(&oversorted).unwrap_err(),
+            "sort supports at most 3 fields",
+        );
+
+        let hash = query_hash(&query).unwrap();
+        let Err(error) = decode_cursor(Some("not-base64"), &hash) else {
+            panic!("expected invalid cursor");
+        };
+        assert_invalid(error, "invalid cursor");
+
+        let encoded = encode_cursor(&Cursor {
+            version: 2,
+            query_hash: "different-query".to_string(),
+            values: Vec::new(),
+            document_id: 1,
+        })
+        .unwrap();
+        let Err(error) = decode_cursor(Some(&encoded), &hash) else {
+            panic!("expected cursor mismatch");
+        };
+        assert_invalid(error, "cursor does not match query");
     }
 }

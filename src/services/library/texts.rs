@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain_errors::DomainError;
 
 impl LibraryService {
     pub async fn upsert_text_file_in_project(
@@ -30,18 +31,20 @@ impl LibraryService {
     ) -> Result<(LibraryFileSummary, Value)> {
         let title = normalize_whitespace(&request.title);
         if title.is_empty() {
-            return Err(anyhow!("text title must not be empty"));
+            return Err(DomainError::invalid_argument("text title must not be empty").into());
         }
         let external_id = request.external_id.trim();
         if external_id.is_empty() {
-            return Err(anyhow!("external_id must not be empty"));
+            return Err(DomainError::invalid_argument("external_id must not be empty").into());
         }
         let content = request.content.trim();
         if content.is_empty() {
-            return Err(anyhow!("text content must not be empty"));
+            return Err(DomainError::invalid_argument("text content must not be empty").into());
         }
         if !request.metadata_json.is_object() {
-            return Err(anyhow!("metadata_json must be an object"));
+            return Err(
+                DomainError::unprocessable_entity("metadata_json must be an object").into(),
+            );
         }
         let summary = request
             .summary
@@ -58,11 +61,11 @@ impl LibraryService {
         let bytes = Bytes::from(content.as_bytes().to_vec());
         if bytes.len() > self.max_upload_size_bytes {
             let filename = storage::text_filename_from_title(&title, content_format);
-            return Err(anyhow!(
-                "text {} exceeds upload size limit of {} bytes",
-                filename,
+            return Err(DomainError::invalid_argument(format!(
+                "text {filename} exceeds upload size limit of {} bytes",
                 self.max_upload_size_bytes
-            ));
+            ))
+            .into());
         }
 
         let existing = self
@@ -78,7 +81,7 @@ impl LibraryService {
             self.store
                 .get_folder_in_project(project.id, folder_id)
                 .await?
-                .with_context(|| format!("unknown folder {folder_id}"))?;
+                .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         }
 
         let filename = super::filenames::resolve_project_text_filename(
@@ -159,7 +162,11 @@ impl LibraryService {
                         lease_token,
                     )
                     .await;
-                    return Err(anyhow!("unknown file {}", existing_file.id));
+                    return Err(DomainError::not_found(format!(
+                        "unknown file {}",
+                        existing_file.id
+                    ))
+                    .into());
                 }
                 Err(error) => {
                     self.rollback_project_file_change(
@@ -342,7 +349,7 @@ impl LibraryService {
             .store
             .get_file(file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         Ok((file_to_summary(&file), section_payload))
     }
 
@@ -363,30 +370,30 @@ impl LibraryService {
     ) -> Result<LibraryFileSummary> {
         let external_id = request.external_id.trim();
         if external_id.is_empty() {
-            return Err(anyhow!("external_id must not be empty"));
+            return Err(DomainError::invalid_argument("external_id must not be empty").into());
         }
         let filename = request.filename.trim();
         if filename.is_empty() {
-            return Err(anyhow!("filename must not be empty"));
+            return Err(DomainError::invalid_argument("filename must not be empty").into());
         }
         let content = request.content.as_str();
         if content.trim().is_empty() {
-            return Err(anyhow!("text content must not be empty"));
+            return Err(DomainError::invalid_argument("text content must not be empty").into());
         }
         if let Some(folder_id) = request.folder_id {
             self.store
                 .get_folder_in_project(project.id, folder_id)
                 .await?
-                .with_context(|| format!("unknown folder {folder_id}"))?;
+                .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         }
 
         let bytes = Bytes::from(content.as_bytes().to_vec());
         if bytes.len() > self.max_upload_size_bytes {
-            return Err(anyhow!(
-                "text {} exceeds upload size limit of {} bytes",
-                filename,
+            return Err(DomainError::invalid_argument(format!(
+                "text {filename} exceeds upload size limit of {} bytes",
                 self.max_upload_size_bytes
-            ));
+            ))
+            .into());
         }
 
         let existing = self
@@ -461,7 +468,11 @@ impl LibraryService {
                         lease_token,
                     )
                     .await;
-                    return Err(anyhow!("unknown file {}", existing_file.id));
+                    return Err(DomainError::not_found(format!(
+                        "unknown file {}",
+                        existing_file.id
+                    ))
+                    .into());
                 }
                 Err(error) => {
                     self.rollback_project_file_change(
@@ -580,7 +591,7 @@ impl LibraryService {
             .store
             .get_file(file_id)
             .await?
-            .with_context(|| format!("unknown file {file_id}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         Ok(file_to_summary(&file))
     }
 

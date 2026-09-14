@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
@@ -8,7 +8,7 @@ use reqwest::{Client, Response, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use crate::{config::EmbeddingConfig, retry};
+use crate::{config::EmbeddingConfig, domain_errors::DomainError, retry};
 
 mod errors;
 #[path = "embedding/retry.rs"]
@@ -33,7 +33,8 @@ pub trait EmbeddingProvider: Send + Sync {
         embeddings
             .into_iter()
             .next()
-            .ok_or_else(|| anyhow!("embedding provider returned no vectors"))
+            .ok_or_else(|| DomainError::upstream_error("embedding provider returned no vectors"))
+            .map_err(anyhow::Error::from)
     }
 }
 
@@ -172,11 +173,12 @@ impl OpenAiCompatibleEmbeddingProvider {
             .map(|item| item.embedding)
             .collect::<Vec<_>>();
         if vectors.len() != input_count {
-            return Err(anyhow!(
+            return Err(DomainError::internal(format!(
                 "embedding provider returned {} vectors for {} inputs",
                 vectors.len(),
                 input_count
-            ));
+            ))
+            .into());
         }
         Ok(vectors)
     }
@@ -218,8 +220,11 @@ where
         body.extend_from_slice(&chunk);
     }
 
-    String::from_utf8(body)
-        .map_err(|error| anyhow!("embedding response body is not valid UTF-8: {error}"))
+    String::from_utf8(body).map_err(|error| {
+        anyhow::Error::from(DomainError::internal(format!(
+            "embedding response body is not valid UTF-8: {error}"
+        )))
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -249,9 +254,9 @@ fn parse_embedding_response(
         let embedded_error = extract_error_message(body)
             .map(|message| format!(" provider_error={message}"))
             .unwrap_or_default();
-        anyhow!(
+        anyhow::Error::from(DomainError::internal(format!(
             "failed to parse embedding response: endpoint={endpoint} model={model} content_type={content_type} body_preview={preview:?}{embedded_error}: {error}"
-        )
+        )))
     })
 }
 

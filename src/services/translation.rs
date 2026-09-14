@@ -1,6 +1,8 @@
 use std::{sync::Arc, time::Instant};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use async_trait::async_trait;
 use context69_translation::{
     TranslationChunkPublication, TranslationPublication, TranslationPublicationResult,
@@ -41,7 +43,8 @@ impl TranslationPublisherAdapter {
         self.embedding
             .as_ref()
             .zip(self.index.as_ref())
-            .ok_or_else(|| anyhow!("translation embedding runtime is unavailable"))
+            .ok_or_else(|| DomainError::unavailable("translation embedding runtime is unavailable"))
+            .map_err(anyhow::Error::from)
     }
 }
 
@@ -68,7 +71,11 @@ impl TranslationPublisher for TranslationPublisherAdapter {
         let visibility = translation
             .visibility
             .parse::<Visibility>()
-            .context("invalid translation document visibility")?;
+            .map_err(|error| {
+                DomainError::invalid_argument(format!(
+                    "invalid translation document visibility: {error}"
+                ))
+            })?;
         let normalized = normalize_record(SourceRecord {
             external_id: translation.external_id.to_string(),
             title: translation.title.to_string(),

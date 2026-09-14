@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
 use serde_json::json;
 use tokio::time::Duration;
@@ -12,7 +12,7 @@ impl LibraryService {
             .settings
             .resolve_docling_config()
             .await?
-            .context("docling is not configured")?
+            .context(DomainError::internal("docling is not configured"))?
             .connection
             .task_timeout)
     }
@@ -22,7 +22,7 @@ impl LibraryService {
             .settings
             .resolve_docling_config()
             .await?
-            .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
+            .context(DomainError::internal("docling is not configured; open Settings and save the Docling base URL before uploading library files"))?;
         let runtime = crate::docling::build_runtime_config(&config)?;
         // Forward the optional picture_description_preset from settings
         // through the 0.3.3 conversion behavior. When set, the convert crate
@@ -50,7 +50,7 @@ impl LibraryService {
             .settings
             .resolve_docling_config()
             .await?
-            .context("docling is not configured; open Settings and save the Docling base URL before uploading library files")?;
+            .context(DomainError::internal("docling is not configured; open Settings and save the Docling base URL before uploading library files"))?;
         DoclingXlsxClient::new(config)
     }
 
@@ -100,7 +100,11 @@ impl LibraryService {
         let json = docling
             .convert_xlsx(&file.filename, &file.media_type, bytes)
             .await
-            .context("docling did not return json_content for xlsx")
+            .map_err(|error| {
+                DomainError::upstream_error(format!(
+                    "docling did not return json_content for xlsx: {error}"
+                ))
+            })
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         xlsx::ensure_json_output_size(&json)
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
@@ -132,11 +136,21 @@ impl LibraryService {
         bytes: &Bytes,
     ) -> IngestResult<Vec<IngestSection>> {
         let text = std::str::from_utf8(bytes)
-            .with_context(|| format!("failed to decode utf-8 text {}", file.filename))
+            .map_err(|error| {
+                DomainError::invalid_argument(format!(
+                    "failed to decode utf-8 text {}: {error}",
+                    file.filename
+                ))
+            })
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
         if file.filename.eq_ignore_ascii_case("source.json") {
             let _: SourceConfigPreview = serde_json::from_str(text)
-                .with_context(|| format!("failed to parse source config json {}", file.filename))
+                .map_err(|error| {
+                    DomainError::invalid_argument(format!(
+                        "failed to parse source config json {}: {error}",
+                        file.filename
+                    ))
+                })
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
             return Ok(vec![IngestSection {
                 section_key: "source-config".to_string(),
@@ -154,7 +168,12 @@ impl LibraryService {
         }
         if file.filename.to_ascii_lowercase().ends_with(".json") {
             let parsed: SourceRecordJson = serde_json::from_str(text)
-                .with_context(|| format!("failed to parse source record json {}", file.filename))
+                .map_err(|error| {
+                    DomainError::invalid_argument(format!(
+                        "failed to parse source record json {}: {error}",
+                        file.filename
+                    ))
+                })
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
             return Ok(vec![IngestSection {
                 section_key: "record".to_string(),
@@ -210,10 +229,10 @@ fn limit_docling_text(text: String) -> IngestResult<String> {
     if text.len() > MAX_DOCLING_OUTPUT_BYTES {
         return Err(IngestFailure::new(
             LibraryIngestFailureStage::Parsing,
-            anyhow!(
+            DomainError::payload_too_large(format!(
                 "docling output exceeds maximum of {MAX_DOCLING_OUTPUT_BYTES} bytes: {} bytes",
                 text.len()
-            ),
+            )),
         ));
     }
     Ok(text)

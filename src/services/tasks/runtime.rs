@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use crate::domain_errors::DomainError;
+
+use anyhow::{Context, Result};
 use chrono::Utc;
 use context69_contracts::TaskKind;
 use tracing::{info, warn};
@@ -22,7 +24,7 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
                 .db()
                 .get_group_by_id(group_id)
                 .await?
-                .context("task group is no longer accessible")?,
+                .context(DomainError::not_found("task group is no longer accessible"))?,
         ),
         None => None,
     };
@@ -311,7 +313,9 @@ fn parse_kind(value: &str) -> Result<TaskKind> {
         "translation" => Ok(TaskKind::Translation),
         "vector_rebuild" => Ok(TaskKind::VectorRebuild),
         "delete_batch" => Ok(TaskKind::DeleteBatch),
-        other => Err(anyhow!("unsupported task kind {other}")),
+        other => {
+            Err(DomainError::invalid_argument(format!("unsupported task kind {other}")).into())
+        }
     }
 }
 
@@ -338,7 +342,21 @@ mod tests {
         atomic::{AtomicU32, Ordering},
     };
 
-    use super::{HEARTBEAT_MAX_CONSECUTIVE_ERRORS, heartbeat_loop};
+    use super::{HEARTBEAT_MAX_CONSECUTIVE_ERRORS, heartbeat_loop, parse_kind};
+
+    #[test]
+    fn unknown_task_kind_is_typed_invalid_argument() {
+        use crate::domain_errors::{DomainError, find_domain_error};
+
+        let Err(error) = parse_kind("bogus") else {
+            panic!("expected unknown task kind to fail");
+        };
+        assert!(matches!(
+            find_domain_error(&error),
+            Some(DomainError::InvalidArgument(_))
+        ));
+        assert_eq!(error.to_string(), "unsupported task kind bogus");
+    }
 
     fn test_interval() -> std::time::Duration {
         std::time::Duration::from_millis(1)

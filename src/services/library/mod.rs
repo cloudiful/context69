@@ -1,4 +1,6 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use bytes::Bytes;
 use chrono::{Duration as ChronoDuration, Utc};
 use context69_extraction::{ExtractionCoordinator, ExtractionService};
@@ -237,19 +239,27 @@ impl LibraryService {
             .store
             .get_storage_object_by_id(object_id)
             .await?
-            .with_context(|| format!("unknown staged storage object {object_id}"))?;
+            .ok_or_else(|| {
+                DomainError::not_found(format!("unknown staged storage object {object_id}"))
+            })?;
         if object.group_id != group_id {
-            return Err(anyhow!("staged storage object belongs to another group"));
+            return Err(
+                DomainError::forbidden("staged storage object belongs to another group").into(),
+            );
         }
         if object.storage_backend != self.storage.backend() {
-            return Err(anyhow!(
+            return Err(DomainError::conflict(format!(
                 "staged storage object uses inactive backend {}",
                 object.storage_backend
-            ));
+            ))
+            .into());
         }
         self.read_active_storage_for_lease(&object.object_key, lease_token)
             .await?
-            .with_context(|| format!("staged storage object {object_id} is missing"))
+            .ok_or_else(|| {
+                DomainError::not_found(format!("staged storage object {object_id} is missing"))
+            })
+            .map_err(anyhow::Error::from)
     }
 
     pub(crate) async fn release_task_input_staging(
@@ -292,9 +302,10 @@ impl LibraryService {
             .await?
         {
             tx.rollback().await?;
-            return Err(anyhow!(
+            return Err(DomainError::conflict(format!(
                 "staged storage object {object_id} acquired a reference during release"
-            ));
+            ))
+            .into());
         }
         tx.commit().await?;
         Ok(())
@@ -462,7 +473,7 @@ impl LibraryService {
     fn runtime(&self) -> Result<&LibraryRuntime> {
         self.runtime.as_ref().ok_or_else(|| {
             if self.embedding_vector_configured {
-                anyhow!("embedding/vector runtime is unavailable")
+                DomainError::unavailable("embedding/vector runtime is unavailable").into()
             } else {
                 library_runtime_unavailable()
             }
@@ -530,9 +541,10 @@ impl LibraryService {
 }
 
 fn library_runtime_unavailable() -> anyhow::Error {
-    anyhow!(
-        "library ingest runtime is not configured; save runtime and docling settings and restart the service"
+    DomainError::unavailable(
+        "library ingest runtime is not configured; save runtime and docling settings and restart the service",
     )
+    .into()
 }
 
 /// Read the persisted Docling remote admission ceiling, falling back to the

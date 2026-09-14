@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
+use context69_contracts::DomainError;
 use serde_json::{Value, json};
 
 use super::{ProviderTranslationRequest, ProviderTranslationResult, TranslationProvider};
@@ -28,7 +29,10 @@ impl TranslationProvider for LibreTranslateProvider {
             .config
             .endpoint
             .as_deref()
-            .context("LibreTranslate endpoint is not configured")?;
+            .ok_or_else(|| {
+                DomainError::invalid_argument("LibreTranslate endpoint is not configured")
+            })
+            .map_err(anyhow::Error::from)?;
         let mut body = json!({
             "q": request.segments.iter().map(|segment| &segment.text).collect::<Vec<_>>(),
             "source": request.source_locale.map(language).unwrap_or("auto"),
@@ -47,7 +51,11 @@ impl TranslationProvider for LibreTranslateProvider {
         let status = response.status();
         let value: Value = response.json().await?;
         if !status.is_success() {
-            return Err(anyhow!("LibreTranslate returned {status}: {value}"));
+            return Err(super::provider_status_error(
+                status,
+                format!("LibreTranslate returned {status}: {value}"),
+            )
+            .into());
         }
         let values = match value.get("translatedText") {
             Some(Value::Array(values)) => values
@@ -55,10 +63,17 @@ impl TranslationProvider for LibreTranslateProvider {
                 .map(|value| value.as_str().unwrap_or_default().to_string())
                 .collect::<Vec<_>>(),
             Some(Value::String(value)) => vec![value.clone()],
-            _ => return Err(anyhow!("LibreTranslate omitted translatedText")),
+            _ => {
+                return Err(
+                    DomainError::upstream_error("LibreTranslate omitted translatedText").into(),
+                );
+            }
         };
         if values.len() != request.segments.len() {
-            return Err(anyhow!("LibreTranslate returned an incomplete segment set"));
+            return Err(DomainError::upstream_error(
+                "LibreTranslate returned an incomplete segment set",
+            )
+            .into());
         }
         Ok(ProviderTranslationResult {
             translations: request

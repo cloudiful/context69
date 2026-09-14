@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use context69_contracts::DomainError;
 use context69_contracts::TranslationGlossaryEntry;
 use tracing::warn;
 use uuid::Uuid;
@@ -347,9 +348,10 @@ impl TranslationService {
         if let Err(error) = self.store.publish_version(&input, &chunks).await {
             return match published.rollback().await {
                 Ok(()) => Err(error),
-                Err(rollback_error) => Err(anyhow!(
+                Err(rollback_error) => Err(DomainError::internal(format!(
                     "{error:#}; failed to roll back published translation points: {rollback_error:#}"
-                )),
+                ))
+                .into()),
             };
         }
         Ok(())

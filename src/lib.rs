@@ -4,6 +4,7 @@ pub mod config;
 pub mod db;
 pub mod docling;
 pub mod domain;
+pub mod domain_errors;
 pub mod embedding;
 pub mod http_adapters;
 pub mod library_store;

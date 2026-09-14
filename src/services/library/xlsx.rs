@@ -1,5 +1,7 @@
 use std::io::{self, Write};
 
+use anyhow::Context;
+
 use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
 
 use super::*;

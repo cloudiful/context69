@@ -1,5 +1,5 @@
 use super::*;
-use crate::pagination::PageBounds;
+use crate::{domain_errors::DomainError, pagination::PageBounds};
 
 impl SyncService {
     pub async fn list_sources_page(
@@ -8,7 +8,8 @@ impl SyncService {
         page_size: u32,
         query: Option<&str>,
     ) -> Result<SourcePageResponse> {
-        let bounds = PageBounds::new(page, page_size)?;
+        let bounds = PageBounds::new(page, page_size)
+            .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
         let query = query.map(str::trim).filter(|value| !value.is_empty());
         let total = self.source_store.count_sources(query).await?;
         Ok(SourcePageResponse {
@@ -62,7 +63,8 @@ impl SyncService {
         self.reload_sources().await?;
         self.get_source_for_group(scope.group_id, &source.key)
             .await?
-            .with_context(|| format!("missing source {}", source.key))
+            .ok_or_else(|| DomainError::internal(format!("missing source {}", source.key)))
+            .map_err(anyhow::Error::from)
     }
 
     pub async fn update_source_in_group(
@@ -72,7 +74,7 @@ impl SyncService {
         input: &SourceConfigInput,
     ) -> Result<SourceStatus> {
         if input.source_key != source_key {
-            return Err(anyhow!("source_key cannot be changed"));
+            return Err(DomainError::invalid_argument("source_key cannot be changed").into());
         }
 
         self.upsert_source_connection_for_source(input).await?;
@@ -98,7 +100,7 @@ impl SyncService {
             .delete_source_in_group(Some(group_id), source_key)
             .await?;
         if !deleted {
-            return Err(anyhow!("unknown source {source_key}"));
+            return Err(DomainError::not_found(format!("unknown source {source_key}")).into());
         }
         self.reload_sources().await?;
         Ok(())
@@ -136,7 +138,7 @@ impl SyncService {
         input: &SourceConfigInput,
     ) -> Result<SourceStatus> {
         if input.source_key != source_key {
-            return Err(anyhow!("source_key cannot be changed"));
+            return Err(DomainError::invalid_argument("source_key cannot be changed").into());
         }
 
         self.upsert_source_connection_for_source(input).await?;
@@ -158,7 +160,7 @@ impl SyncService {
         }
         let deleted = self.source_store.delete_source(source_key).await?;
         if !deleted {
-            return Err(anyhow!("unknown source {source_key}"));
+            return Err(DomainError::not_found(format!("unknown source {source_key}")).into());
         }
         self.reload_sources().await?;
         Ok(())

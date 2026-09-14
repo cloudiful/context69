@@ -1,6 +1,6 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 
-use crate::{contracts::MembershipRole, domain::GroupRecord};
+use crate::{contracts::MembershipRole, domain::GroupRecord, domain_errors::DomainError};
 
 use super::ApiState;
 
@@ -14,15 +14,16 @@ pub(crate) async fn group_for_user(
         .namespace
         .get_group_for_user(user_id, group_path)
         .await?
-        .context("unknown group")
+        .ok_or_else(|| DomainError::not_found("unknown group"))
+        .map_err(anyhow::Error::from)
 }
 
 pub(crate) fn require_group_role(group: &GroupRecord, required: MembershipRole) -> Result<()> {
     let Some(actual) = group.current_role else {
-        return Err(anyhow!("insufficient permissions for group"));
+        return Err(DomainError::forbidden("insufficient permissions for group").into());
     };
     if actual.rank() < required.rank() {
-        return Err(anyhow!("insufficient permissions for group"));
+        return Err(DomainError::forbidden("insufficient permissions for group").into());
     }
     Ok(())
 }
@@ -84,5 +85,13 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn group_role_errors_are_typed_forbidden() {
+        let error =
+            require_group_role(&group(None), MembershipRole::Maintainer).expect_err("should fail");
+        let status = crate::domain_errors::status_for_error(&error);
+        assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
     }
 }

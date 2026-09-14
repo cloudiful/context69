@@ -1,6 +1,8 @@
 use std::{error::Error, fmt, time::Duration};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+
+use crate::domain_errors::DomainError;
 use chrono::{DateTime, Days, Utc};
 use context69_contracts::{
     CancelActiveTasksResponse, PurgeTasksResponse, QuarantineStaleSubmittingRequest,
@@ -112,7 +114,7 @@ pub(super) fn start(service: &TaskService) {
 
 async fn run_cleanup(service: &TaskService) -> Result<()> {
     let Some(settings) = service.db().get_task_maintenance_settings().await? else {
-        return Err(anyhow!("task maintenance settings are missing"));
+        return Err(DomainError::internal("task maintenance settings are missing").into());
     };
     let mut deleted = 0i64;
     let cutoff = cutoff_at(Utc::now(), settings.retention_days);
@@ -154,11 +156,10 @@ pub(crate) fn cutoff_at(now: DateTime<Utc>, retention_days: i64) -> DateTime<Utc
 
 pub(crate) fn validate_retention_days(retention_days: i64) -> Result<()> {
     if !(MIN_RETENTION_DAYS..=MAX_RETENTION_DAYS).contains(&retention_days) {
-        return Err(anyhow!(
-            "retention_days must be between {} and {}",
-            MIN_RETENTION_DAYS,
-            MAX_RETENTION_DAYS
-        ));
+        return Err(TaskMaintenanceError::BadRequest(format!(
+            "retention_days must be between {MIN_RETENTION_DAYS} and {MAX_RETENTION_DAYS}"
+        ))
+        .into());
     }
     Ok(())
 }
@@ -166,11 +167,10 @@ pub(crate) fn validate_retention_days(retention_days: i64) -> Result<()> {
 pub(crate) fn quarantine_grace_minutes(requested: Option<i64>) -> Result<i64> {
     let minutes = requested.unwrap_or(QUARANTINE_DEFAULT_GRACE_MINUTES);
     if !(QUARANTINE_MIN_GRACE_MINUTES..=QUARANTINE_MAX_GRACE_MINUTES).contains(&minutes) {
-        return Err(anyhow!(
-            "grace_minutes must be between {} and {}",
-            QUARANTINE_MIN_GRACE_MINUTES,
-            QUARANTINE_MAX_GRACE_MINUTES
-        ));
+        return Err(TaskMaintenanceError::BadRequest(format!(
+            "grace_minutes must be between {QUARANTINE_MIN_GRACE_MINUTES} and {QUARANTINE_MAX_GRACE_MINUTES}"
+        ))
+        .into());
     }
     Ok(minutes)
 }
@@ -193,9 +193,10 @@ pub(crate) fn require_non_empty_reason(reason: &str, what: &str) -> Result<Strin
 
 pub(crate) fn require_no_active_tasks(active_count: i64, mode: TaskPurgeMode) -> Result<()> {
     if mode == TaskPurgeMode::AllTerminal && active_count > 0 {
-        return Err(anyhow!(
-            "active tasks must be cancelled before purging the full task history"
-        ));
+        return Err(DomainError::conflict(
+            "active tasks must be cancelled before purging the full task history",
+        )
+        .into());
     }
     Ok(())
 }
@@ -432,10 +433,11 @@ impl TaskService {
                     }
                 }
                 self.db().recompute_task(task_id).await?;
-                return Err(anyhow!(
+                return Err(DomainError::upstream_error(format!(
                     "fresh docling submission failed: {}",
                     failure.message
-                ));
+                ))
+                .into());
             }
         };
 
@@ -499,9 +501,10 @@ impl TaskService {
             })
             .await
         {
-            return Err(anyhow!(
+            return Err(DomainError::internal(format!(
                 "Docling recovery completed but audit insertion failed: {error}"
-            ));
+            ))
+            .into());
         }
         tracing::info!(
             task_id = %task_id,

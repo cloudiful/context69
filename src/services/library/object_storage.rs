@@ -5,6 +5,7 @@ use bytes::Bytes;
 use opendal::{Operator, services};
 
 use crate::config::FileLibraryConfig;
+use crate::domain_errors::DomainError;
 
 use super::dependency_runtime::bounded_s3_operation;
 
@@ -34,10 +35,10 @@ impl LibraryObjectStorage {
         }
 
         std::fs::create_dir_all(&config.storage_root).with_context(|| {
-            format!(
+            DomainError::internal(format!(
                 "failed to create storage root {}",
                 config.storage_root.display()
-            )
+            ))
         })?;
         let builder = services::Fs::default().root(path_text(&config.storage_root)?);
         Ok(Self {
@@ -64,12 +65,12 @@ impl LibraryObjectStorage {
         if self.backend == "s3" {
             bounded_s3_operation("check", || self.operator.check())
                 .await
-                .context("S3 connection check failed")
+                .context(DomainError::internal("S3 connection check failed"))
         } else {
             self.operator
                 .check()
                 .await
-                .context("storage connection check failed")
+                .context(DomainError::internal("storage connection check failed"))
         }
     }
 
@@ -86,12 +87,13 @@ impl LibraryObjectStorage {
                 async move { self.operator.write(&key, bytes).await }
             })
             .await
-            .with_context(|| format!("failed to write stored object {key}"))?;
+            .with_context(|| {
+                DomainError::internal(format!("failed to write stored object {key}"))
+            })?;
         } else {
-            self.operator
-                .write(key, bytes)
-                .await
-                .with_context(|| format!("failed to write stored object {key}"))?;
+            self.operator.write(key, bytes).await.with_context(|| {
+                DomainError::internal(format!("failed to write stored object {key}"))
+            })?;
         }
         Ok(())
     }
@@ -110,7 +112,9 @@ impl LibraryObjectStorage {
         match result {
             Ok(buffer) => Ok(Some(Bytes::from(buffer.to_vec()))),
             Err(error) if is_not_found_error(&error) => Ok(None),
-            Err(error) => Err(error).with_context(|| format!("failed to read stored object {key}")),
+            Err(error) => Err(error).with_context(|| {
+                DomainError::internal(format!("failed to read stored object {key}"))
+            }),
         }
     }
 
@@ -122,12 +126,13 @@ impl LibraryObjectStorage {
                 async move { self.operator.exists(&key).await }
             })
             .await
-            .with_context(|| format!("failed to inspect stored object {key}"))
+            .with_context(|| {
+                DomainError::internal(format!("failed to inspect stored object {key}"))
+            })
         } else {
-            self.operator
-                .exists(key)
-                .await
-                .with_context(|| format!("failed to inspect stored object {key}"))
+            self.operator.exists(key).await.with_context(|| {
+                DomainError::internal(format!("failed to inspect stored object {key}"))
+            })
         }
     }
 
@@ -139,12 +144,11 @@ impl LibraryObjectStorage {
                 async move { self.operator.delete(&key).await }
             })
             .await
-            .with_context(|| format!("failed to delete stored object {key}"))
+            .with_context(|| DomainError::internal(format!("failed to delete stored object {key}")))
         } else {
-            self.operator
-                .delete(key)
-                .await
-                .with_context(|| format!("failed to delete stored object {key}"))
+            self.operator.delete(key).await.with_context(|| {
+                DomainError::internal(format!("failed to delete stored object {key}"))
+            })
         }
     }
 }
@@ -154,8 +158,12 @@ pub(super) fn content_object_key(group_id: i64, sha256: &str) -> String {
 }
 
 fn path_text(path: &Path) -> Result<&str> {
-    path.to_str()
-        .with_context(|| format!("storage root is not valid UTF-8: {}", path.display()))
+    path.to_str().with_context(|| {
+        DomainError::internal(format!(
+            "storage root is not valid UTF-8: {}",
+            path.display()
+        ))
+    })
 }
 
 fn is_not_found_error(error: &anyhow::Error) -> bool {

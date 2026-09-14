@@ -1,6 +1,8 @@
 use super::*;
 use std::time::Instant;
 
+use crate::domain_errors::DomainError;
+
 impl SyncService {
     pub async fn sync_all(&self, trigger: &str) -> Result<()> {
         let source_keys = self.registry.read().await.source_keys();
@@ -31,7 +33,7 @@ impl SyncService {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(anyhow!(errors.join("; ")))
+            Err(DomainError::internal(errors.join("; ")).into())
         }
     }
 
@@ -41,7 +43,8 @@ impl SyncService {
         let (source, connector) = self
             .source_runtime(source_key)
             .await?
-            .with_context(|| format!("unknown source {source_key}"))?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown source {source_key}")))
+            .map_err(anyhow::Error::from)?;
         let run = self.db.start_run(source_key, trigger).await?;
 
         match self.sync_source_inner(&source, connector).await {
@@ -105,7 +108,9 @@ impl SyncService {
             .source_store
             .get_source_scope(&source.key)
             .await?
-            .with_context(|| format!("missing source scope for {}", source.key))?;
+            .ok_or_else(|| {
+                DomainError::internal(format!("missing source scope for {}", source.key))
+            })?;
         let mut outcome = SyncOutcome {
             records_seen: 0,
             records_changed: 0,
@@ -287,7 +292,7 @@ impl SyncService {
             }
             Err(error) => {
                 let message = error.to_string();
-                self.finish_vector_index_rebuild(Err(anyhow!(message)))
+                self.finish_vector_index_rebuild(Err(DomainError::internal(message).into()))
                     .await;
                 Err(error)
             }
@@ -298,7 +303,7 @@ impl SyncService {
         self.runtime()?;
         let mut status = self.vector_rebuild_status.write().await;
         if status.state == VectorIndexRebuildState::Running {
-            return Err(anyhow!("vector index rebuild is already running"));
+            return Err(DomainError::conflict("vector index rebuild is already running").into());
         }
         *status = VectorIndexRebuildStatus {
             state: VectorIndexRebuildState::Running,

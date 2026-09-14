@@ -199,7 +199,7 @@ fn build_folder_path(
     loop {
         let folder = folders
             .get(&current_id)
-            .with_context(|| format!("unknown folder {current_id}"))?;
+            .ok_or_else(|| DomainError::internal(format!("unknown folder {current_id}")))?;
         parts.push(folder.name.clone());
         match folder.parent_id {
             Some(parent_id) => current_id = parent_id,

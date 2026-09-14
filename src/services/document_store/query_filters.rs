@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use chrono::{DateTime, Utc};
 use context69_contracts::{MetadataFilter, MetadataFilterOperator};
 use serde_json::Value;
@@ -13,7 +15,10 @@ pub(super) fn definition_for_path<'a>(
     definitions
         .iter()
         .find(|definition| definition.field_path == path)
-        .ok_or_else(|| anyhow!("metadata field '{path}' is not declared"))
+        .ok_or_else(|| {
+            DomainError::invalid_argument(format!("metadata field '{path}' is not declared"))
+        })
+        .map_err(anyhow::Error::from)
 }
 
 pub(super) fn push_metadata_filter(
@@ -182,33 +187,32 @@ fn typed_value(data_type: &str, value: &Value) -> Result<SqlValue> {
         "keyword" => Ok(SqlValue::Keyword(
             value
                 .as_str()
-                .ok_or_else(|| anyhow!("metadata value must be a string"))?
+                .ok_or_else(|| DomainError::invalid_argument("metadata value must be a string"))?
                 .to_string(),
         )),
-        "integer" => {
-            Ok(SqlValue::Integer(value.as_i64().ok_or_else(|| {
-                anyhow!("metadata value must be an integer")
-            })?))
-        }
+        "integer" => Ok(SqlValue::Integer(value.as_i64().ok_or_else(|| {
+            DomainError::invalid_argument("metadata value must be an integer")
+        })?)),
         "float" => Ok(SqlValue::Float(
             value
                 .as_f64()
                 .filter(|value| value.is_finite())
-                .ok_or_else(|| anyhow!("metadata value must be a finite number"))?,
+                .ok_or_else(|| {
+                    DomainError::invalid_argument("metadata value must be a finite number")
+                })?,
         )),
-        "boolean" => {
-            Ok(SqlValue::Boolean(value.as_bool().ok_or_else(|| {
-                anyhow!("metadata value must be a boolean")
-            })?))
-        }
+        "boolean" => Ok(SqlValue::Boolean(value.as_bool().ok_or_else(|| {
+            DomainError::invalid_argument("metadata value must be a boolean")
+        })?)),
         "datetime" => Ok(SqlValue::Datetime(
-            DateTime::parse_from_rfc3339(
-                value
-                    .as_str()
-                    .ok_or_else(|| anyhow!("metadata value must be RFC 3339"))?,
-            )?
+            DateTime::parse_from_rfc3339(value.as_str().ok_or_else(|| {
+                DomainError::invalid_argument("metadata value must be RFC 3339")
+            })?)?
             .with_timezone(&Utc),
         )),
-        other => Err(anyhow!("unsupported metadata data type '{other}'")),
+        other => Err(DomainError::invalid_argument(format!(
+            "unsupported metadata data type '{other}'"
+        ))
+        .into()),
     }
 }

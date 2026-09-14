@@ -145,15 +145,18 @@ impl LibraryService {
                 .store
                 .get_storage_object_by_id(object_id)
                 .await?
-                .with_context(|| format!("unknown staged storage object {object_id}"))?;
+                .ok_or_else(|| {
+                    DomainError::not_found(format!("unknown staged storage object {object_id}"))
+                })?;
             if object.group_id != group_id
                 || object.sha256 != sha256
                 || object.size_bytes != upload.bytes.len() as i64
                 || object.storage_backend != self.storage.backend()
             {
-                return Err(anyhow!(
-                    "staged storage object metadata does not match upload"
-                ));
+                return Err(DomainError::conflict(
+                    "staged storage object metadata does not match upload",
+                )
+                .into());
             }
             return Ok(object);
         }

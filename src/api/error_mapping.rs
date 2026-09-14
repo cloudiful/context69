@@ -2,6 +2,7 @@ use axum::{Json, http::StatusCode, response::IntoResponse};
 use context69_contracts::ApiErrorCode;
 
 use crate::contracts::ApiErrorResponse;
+use crate::domain_errors::status_for_error;
 use crate::services::tasks::TaskMaintenanceError;
 
 pub(crate) fn error_response(status: StatusCode, message: String) -> ApiErrorResponse {
@@ -13,189 +14,54 @@ fn json_response(status: StatusCode, message: String) -> axum::response::Respons
     (status, Json(error_response(status, message))).into_response()
 }
 
-fn runtime_aware_status(message: &str) -> Option<StatusCode> {
-    context69_http_support::runtime_aware_status(message)
+fn typed_response(error: anyhow::Error) -> axum::response::Response {
+    let message = error.to_string();
+    let status = status_for_error(&error);
+    json_response(status, message)
+}
+
+fn task_maintenance_typed_status(error: &anyhow::Error) -> Option<StatusCode> {
+    error.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<TaskMaintenanceError>()
+            .map(|typed| match typed {
+                TaskMaintenanceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+                TaskMaintenanceError::Conflict(_) => StatusCode::CONFLICT,
+                TaskMaintenanceError::NotFound(_) => StatusCode::NOT_FOUND,
+            })
+    })
 }
 
 pub(crate) fn internal_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if message.contains("page must be")
-        || message.contains("page_size must be")
-        || message.contains("page offset is too large")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        runtime_aware_status(&message).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-    };
-    json_response(status, message)
+    typed_response(error)
 }
 
 pub(crate) fn source_management_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if let Some(status) = runtime_aware_status(&message) {
-        status
-    } else if message.contains("already exists") {
-        StatusCode::CONFLICT
-    } else if message.contains("unknown source") {
-        StatusCode::NOT_FOUND
-    } else if message.contains("must not be empty")
-        || message.contains("cannot be changed")
-        || message.contains("batch_size must")
-        || message.contains("unsupported")
-        || message.contains("unknown connection")
-        || message.contains("failed to validate source")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    json_response(status, message)
+    typed_response(error)
 }
 
 pub(crate) fn library_management_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if let Some(status) = runtime_aware_status(&message) {
-        status
-    } else if message.contains("processing job management requires") {
-        StatusCode::FORBIDDEN
-    } else if message.contains("unknown folder")
-        || message.contains("unknown file")
-        || message.contains("unknown job")
-        || message.contains("unknown target folder")
-        || message.contains("stored file not found for file")
-        || message.contains("unknown URL import job")
-        || message.contains("translation job not found")
-        || message.contains("translation document not found")
-    {
-        StatusCode::NOT_FOUND
-    } else if message.contains("external_id_content_conflict")
-        || message.contains("cannot be retried")
-        || message.contains("translation job is not retryable")
-        || message.contains("cannot release its source")
-        || message.contains("release their source")
-        || message.contains("released file source cannot be reprocessed")
-    {
-        StatusCode::CONFLICT
-    } else if message.contains("metadata_json must be an object")
-        || message.contains("metadata field '")
-    {
-        StatusCode::UNPROCESSABLE_ENTITY
-    } else if message.contains("must not be empty")
-        || message.contains("unsupported file type")
-        || message.contains("cannot be moved")
-        || message.contains("folder name")
-        || message.contains("invalid folder_id")
-        || message.contains("exceeds upload size limit")
-        || message.contains("page must be")
-        || message.contains("page_size must be")
-        || message.contains("page offset is too large")
-        || message.contains("duplicate key value")
-        || message.contains("invalid_remote_url")
-        || message.contains("remote_url_blocked")
-        || message.contains("remote_filename_required")
-        || message.contains("translation provider")
-        || message.contains("monthly character limit")
-        || message.contains("locale must")
-        || message.contains("locale region")
-        || message.contains("glossary requires")
-    {
-        StatusCode::BAD_REQUEST
-    } else if message.contains("remote_file_too_large") {
-        StatusCode::PAYLOAD_TOO_LARGE
-    } else if message.contains("remote_download_failed") {
-        StatusCode::GATEWAY_TIMEOUT
-    } else if message.contains("remote_") {
-        StatusCode::BAD_GATEWAY
-    } else if message.contains("is not failed and cannot be retried") {
-        StatusCode::CONFLICT
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    json_response(status, message)
+    typed_response(error)
 }
 
 pub(crate) fn admin_user_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if let Some(status) = runtime_aware_status(&message) {
-        status
-    } else if message.contains("admin access required") {
-        StatusCode::FORBIDDEN
-    } else if message.contains("user not found") {
-        StatusCode::NOT_FOUND
-    } else if message.contains("must not be empty")
-        || message.contains("last administrator")
-        || message.contains("user account is disabled")
-    {
-        StatusCode::BAD_REQUEST
-    } else if message.contains("duplicate key value") || message.contains("already exists") {
-        StatusCode::CONFLICT
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    json_response(status, message)
+    typed_response(error)
 }
 
 pub(crate) fn task_error(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if let Some(status) = runtime_aware_status(&message) {
-        status
-    } else if message.contains("not found") || message.contains("unknown group") {
-        StatusCode::NOT_FOUND
-    } else if message.contains("conflict")
-        || message.contains("duplicate key")
-        || message.contains("already used")
-        || message.contains("terminal")
-        || message.contains("cannot be trashed")
-        || message.contains("must be trashed")
-    {
-        StatusCode::CONFLICT
-    } else if message.contains("permission") {
-        StatusCode::FORBIDDEN
-    } else if message.contains("must")
-        || message.contains("requires")
-        || message.contains("no retryable")
-        || message.contains("no failed items to retry")
-    {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    json_response(status, message)
+    typed_response(error)
 }
 
 pub(crate) fn group_access_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    let status = if message.contains("unknown group") {
-        StatusCode::NOT_FOUND
-    } else if message.contains("insufficient permissions") {
-        StatusCode::FORBIDDEN
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    json_response(status, message)
+    typed_response(error)
 }
 
 pub(crate) fn task_maintenance_error_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
-    let recovery_error = error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<TaskMaintenanceError>());
-    let status = if let Some(recovery_error) = recovery_error {
-        match recovery_error {
-            TaskMaintenanceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            TaskMaintenanceError::Conflict(_) => StatusCode::CONFLICT,
-            TaskMaintenanceError::NotFound(_) => StatusCode::NOT_FOUND,
-        }
-    } else if message.contains("admin access required") {
-        StatusCode::FORBIDDEN
-    } else if message.contains("must be cancelled") {
-        StatusCode::CONFLICT
-    } else if message.contains("must be between") {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    json_response(status, message)
+    if let Some(status) = task_maintenance_typed_status(&error) {
+        return json_response(status, message);
+    }
+    typed_response(error)
 }
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
@@ -207,9 +73,14 @@ pub(crate) struct SourceKeyQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain_errors::DomainError;
 
     fn status_of(response: &axum::response::Response) -> StatusCode {
         response.status()
+    }
+
+    fn wrapped(error: DomainError) -> anyhow::Error {
+        anyhow::Error::new(error).context("outer context")
     }
 
     #[test]
@@ -241,31 +112,132 @@ mod tests {
     }
 
     #[test]
+    fn every_status_category_maps_via_typed_domain_error() {
+        let cases = [
+            (
+                DomainError::invalid_argument("page_size must be between 1 and 100"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::unauthorized("invalid login or password"),
+                StatusCode::UNAUTHORIZED,
+            ),
+            (
+                DomainError::forbidden("admin access required"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                DomainError::not_found("unknown group"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::conflict("source already exists"),
+                StatusCode::CONFLICT,
+            ),
+            (
+                DomainError::payload_too_large("remote_file_too_large"),
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
+            (
+                DomainError::unprocessable_entity("metadata_json must be an object"),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                DomainError::rate_limited("embedding 429"),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (
+                DomainError::unavailable("s3 dependency unavailable"),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                DomainError::upstream_error("qdrant transport failed"),
+                StatusCode::BAD_GATEWAY,
+            ),
+            (
+                DomainError::upstream_timeout("remote_download_failed"),
+                StatusCode::GATEWAY_TIMEOUT,
+            ),
+            (
+                DomainError::internal("plain internal boom"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ];
+        for (error, status) in cases {
+            for response in [
+                internal_error_response(anyhow::Error::new(error.clone())),
+                source_management_error_response(anyhow::Error::new(error.clone())),
+                library_management_error_response(anyhow::Error::new(error.clone())),
+                admin_user_error_response(anyhow::Error::new(error.clone())),
+                task_error(anyhow::Error::new(error.clone())),
+                group_access_error_response(anyhow::Error::new(error.clone())),
+            ] {
+                assert_eq!(status_of(&response), status, "message: {}", error.message());
+            }
+        }
+    }
+
+    #[test]
+    fn nested_anyhow_contexts_preserve_typed_status() {
+        let cases = [
+            (
+                DomainError::not_found("task not found"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::conflict("task is terminal"),
+                StatusCode::CONFLICT,
+            ),
+            (
+                DomainError::forbidden("task management permission denied"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                DomainError::conflict("task must be trashed before permanent deletion"),
+                StatusCode::CONFLICT,
+            ),
+            (
+                DomainError::invalid_argument("task has no failed items to retry"),
+                StatusCode::BAD_REQUEST,
+            ),
+        ];
+        for (error, status) in cases {
+            assert_eq!(status_of(&task_error(wrapped(error.clone()))), status);
+            assert_eq!(
+                status_of(&library_management_error_response(wrapped(error.clone()))),
+                status
+            );
+        }
+    }
+
+    #[test]
     fn typed_task_error_preserves_legacy_statuses() {
         assert_eq!(
-            status_of(&task_error(anyhow::anyhow!("task not found"))),
+            status_of(&task_error(DomainError::not_found("task not found").into())),
             StatusCode::NOT_FOUND
         );
         assert_eq!(
-            status_of(&task_error(anyhow::anyhow!("task is terminal"))),
+            status_of(&task_error(
+                DomainError::conflict("task is terminal").into()
+            )),
             StatusCode::CONFLICT
         );
         assert_eq!(
-            status_of(&task_error(anyhow::anyhow!(
-                "task management permission denied"
-            ))),
+            status_of(&task_error(
+                DomainError::forbidden("task management permission denied").into()
+            )),
             StatusCode::FORBIDDEN
         );
         assert_eq!(
-            status_of(&task_error(anyhow::anyhow!(
-                "task must be trashed before permanent deletion"
-            ))),
+            status_of(&task_error(
+                DomainError::conflict("task must be trashed before permanent deletion").into()
+            )),
             StatusCode::CONFLICT
         );
         assert_eq!(
-            status_of(&task_error(anyhow::anyhow!(
-                "task has no failed items to retry"
-            ))),
+            status_of(&task_error(
+                DomainError::invalid_argument("task has no failed items to retry").into()
+            )),
             StatusCode::BAD_REQUEST
         );
     }
@@ -273,38 +245,470 @@ mod tests {
     #[test]
     fn library_metadata_object_maps_to_unprocessable_entity() {
         assert_eq!(
-            status_of(&library_management_error_response(anyhow::anyhow!(
-                "metadata_json must be an object"
-            ))),
+            status_of(&library_management_error_response(
+                DomainError::unprocessable_entity("metadata_json must be an object").into()
+            )),
             StatusCode::UNPROCESSABLE_ENTITY
         );
         assert_eq!(
-            status_of(&library_management_error_response(anyhow::anyhow!(
-                "remote_file_too_large"
-            ))),
+            status_of(&library_management_error_response(
+                DomainError::payload_too_large("remote_file_too_large").into()
+            )),
             StatusCode::PAYLOAD_TOO_LARGE
         );
         assert_eq!(
-            status_of(&library_management_error_response(anyhow::anyhow!(
-                "remote_download_failed"
-            ))),
+            status_of(&library_management_error_response(
+                DomainError::upstream_timeout("remote_download_failed").into()
+            )),
             StatusCode::GATEWAY_TIMEOUT
+        );
+        assert_eq!(
+            status_of(&library_management_error_response(
+                DomainError::upstream_error("remote_dns_failed").into()
+            )),
+            StatusCode::BAD_GATEWAY
         );
     }
 
     #[test]
     fn group_access_maps_unknown_and_forbidden() {
         assert_eq!(
-            status_of(&group_access_error_response(anyhow::anyhow!(
-                "unknown group foo"
-            ))),
+            status_of(&group_access_error_response(
+                DomainError::not_found("unknown group foo").into()
+            )),
             StatusCode::NOT_FOUND
         );
         assert_eq!(
-            status_of(&group_access_error_response(anyhow::anyhow!(
-                "insufficient permissions for group"
-            ))),
+            status_of(&group_access_error_response(
+                DomainError::forbidden("insufficient permissions for group").into()
+            )),
             StatusCode::FORBIDDEN
         );
+    }
+
+    #[test]
+    fn dependency_and_upstream_errors_keep_typed_status_in_all_mappers() {
+        let unavailable = DomainError::unavailable("s3 dependency unavailable");
+        assert_eq!(
+            status_of(&library_management_error_response(anyhow::Error::new(
+                unavailable.clone()
+            ))),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            status_of(&source_management_error_response(anyhow::Error::new(
+                unavailable.clone()
+            ))),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let timeout = DomainError::upstream_timeout("qdrant snapshot timed out");
+        assert_eq!(
+            status_of(&task_error(anyhow::Error::new(timeout.clone()))),
+            StatusCode::GATEWAY_TIMEOUT
+        );
+        let rate = DomainError::rate_limited("embedding request failed: status=429");
+        assert_eq!(
+            status_of(&internal_error_response(anyhow::Error::new(rate))),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
+    #[test]
+    fn auth_group_library_task_settings_translation_url_and_unknown_errors() {
+        // auth: invalid credentials -> 401, disabled -> 401, admin required -> 403
+        assert_eq!(
+            status_of(&admin_user_error_response(
+                DomainError::unauthorized("invalid login or password").into()
+            )),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status_of(&admin_user_error_response(
+                DomainError::unauthorized("user account is disabled").into()
+            )),
+            StatusCode::UNAUTHORIZED
+        );
+        // group
+        assert_eq!(
+            status_of(&group_access_error_response(
+                DomainError::not_found("unknown group").into()
+            )),
+            StatusCode::NOT_FOUND
+        );
+        // library + URL validation
+        assert_eq!(
+            status_of(&library_management_error_response(
+                DomainError::invalid_argument("invalid_remote_url").into()
+            )),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            status_of(&library_management_error_response(
+                DomainError::invalid_argument("remote_url_blocked").into()
+            )),
+            StatusCode::BAD_REQUEST
+        );
+        // task
+        assert_eq!(
+            status_of(&task_error(DomainError::conflict("duplicate key").into())),
+            StatusCode::CONFLICT
+        );
+        // settings validation
+        assert_eq!(
+            status_of(&internal_error_response(
+                DomainError::invalid_argument("runtime.qdrant.url must not be empty").into()
+            )),
+            StatusCode::BAD_REQUEST
+        );
+        // translation validation
+        assert_eq!(
+            status_of(&library_management_error_response(
+                DomainError::invalid_argument("locale must be a BCP 47 language tag").into()
+            )),
+            StatusCode::BAD_REQUEST
+        );
+        // unknown -> internal
+        assert_eq!(
+            status_of(&task_error(anyhow::anyhow!("plain internal boom"))),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            status_of(&library_management_error_response(anyhow::anyhow!(
+                "plain internal boom"
+            ))),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn migrated_producers_keep_typed_status() {
+        let cases = [
+            (
+                DomainError::unauthorized("personal access token has been revoked"),
+                StatusCode::UNAUTHORIZED,
+            ),
+            (
+                DomainError::unauthorized("personal access token has expired"),
+                StatusCode::UNAUTHORIZED,
+            ),
+            (
+                DomainError::invalid_argument("token name must not be empty"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::forbidden("staged storage object belongs to another group"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                DomainError::conflict("staged storage object uses inactive backend local"),
+                StatusCode::CONFLICT,
+            ),
+            (
+                DomainError::not_found("unknown staged storage object 123"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::unavailable(
+                    "s3 operation read failed after 3 attempts: kind=Unexpected: reset; s3 transient transport failure",
+                ),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                DomainError::upstream_timeout("s3 operation read timed out after 30s"),
+                StatusCode::GATEWAY_TIMEOUT,
+            ),
+            (
+                DomainError::upstream_error("s3 operation read failed: kind=Unexpected: reset"),
+                StatusCode::BAD_GATEWAY,
+            ),
+            (
+                DomainError::not_found("s3 operation read failed: kind=NotFound: missing"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::upstream_error("fresh docling submission failed: gone"),
+                StatusCode::BAD_GATEWAY,
+            ),
+            (
+                DomainError::internal("Docling recovery completed but audit insertion failed: db"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+            // document store + document query surface
+            (
+                DomainError::not_found("document not found"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::not_found("metadata index not found"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::invalid_argument("keys must contain 1..=200 items"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("limit must be between 1 and 200"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("sort supports at most 3 fields"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("invalid cursor"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("cursor does not match query"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("metadata field 'title' is not declared"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("metadata field 'title' is not ready"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument(
+                    "source_key is required for metadata filters and sorting",
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            // query runtime gating
+            (
+                DomainError::unavailable(
+                    "vector index is rebuilding or unavailable; retry after the rebuild completes",
+                ),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                DomainError::unavailable(
+                    "search runtime is not configured; save runtime settings and restart the service",
+                ),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            // embedding + qdrant upstream surface
+            (
+                DomainError::rate_limited("embedding request failed: status=429 kind=http"),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (
+                DomainError::upstream_error("embedding request failed: status=503 kind=http"),
+                StatusCode::BAD_GATEWAY,
+            ),
+            (
+                DomainError::upstream_timeout(
+                    "embedding upstream transport error: operation=send request kind=timeout",
+                ),
+                StatusCode::GATEWAY_TIMEOUT,
+            ),
+            (
+                DomainError::payload_too_large("embedding response body exceeds 1024 bytes"),
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
+            (
+                DomainError::upstream_error("qdrant transport failed: connection refused"),
+                StatusCode::BAD_GATEWAY,
+            ),
+            (
+                DomainError::upstream_timeout("qdrant search_points request timed out after 30s"),
+                StatusCode::GATEWAY_TIMEOUT,
+            ),
+            // file upload / staged content surface
+            (
+                DomainError::payload_too_large("file big.bin exceeds upload size limit"),
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
+            (
+                DomainError::invalid_argument("sha256 must be 64 hexadecimal characters"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("unsupported file type for x.exe"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::not_found("unknown folder 123"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::conflict("staged storage object metadata does not match upload"),
+                StatusCode::CONFLICT,
+            ),
+            // task creation / payload surface
+            (
+                DomainError::invalid_argument("task payload and input object counts do not match"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::conflict("idempotency key was already used with a different request"),
+                StatusCode::CONFLICT,
+            ),
+            (
+                DomainError::not_found("unknown input storage object 123"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::forbidden("input storage object belongs to another group"),
+                StatusCode::FORBIDDEN,
+            ),
+            // task item payload / stage surface
+            (
+                DomainError::invalid_argument("unsupported task kind wat"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("unsupported file task stage bogus"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::invalid_argument("translation tasks require group_id"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::not_found("source not found in task group"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::conflict("task item lease was lost while saving payload"),
+                StatusCode::CONFLICT,
+            ),
+            // docling stage surface
+            (
+                DomainError::invalid_argument("plain text cannot be submitted to docling"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::upstream_error("Docling submission outcome is uncertain for item 1"),
+                StatusCode::BAD_GATEWAY,
+            ),
+            (
+                DomainError::upstream_timeout("docling conversion timed out: elapsed"),
+                StatusCode::GATEWAY_TIMEOUT,
+            ),
+            (
+                DomainError::payload_too_large("docling output exceeds maximum of 100 bytes"),
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
+            (
+                DomainError::internal("docling is not configured"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+            (
+                DomainError::not_found("stored file not found for file 123"),
+                StatusCode::NOT_FOUND,
+            ),
+            // sync source surface
+            (
+                DomainError::unavailable("source origin is unavailable for src"),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+        ];
+        for (error, status) in cases {
+            assert_eq!(
+                status_of(&library_management_error_response(anyhow::Error::new(
+                    error.clone()
+                ))),
+                status,
+                "message: {}",
+                error.message()
+            );
+            assert_eq!(
+                status_of(&task_error(anyhow::Error::new(error.clone()))),
+                status,
+                "message: {}",
+                error.message()
+            );
+        }
+    }
+
+    #[test]
+    fn task_maintenance_typed_and_domain_errors() {
+        assert_eq!(
+            status_of(&task_maintenance_error_response(
+                TaskMaintenanceError::BadRequest(
+                    "grace_minutes must be between 10 and 10080".to_string()
+                )
+                .into()
+            )),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            status_of(&task_maintenance_error_response(
+                TaskMaintenanceError::NotFound("task not found".to_string()).into()
+            )),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            status_of(&task_maintenance_error_response(
+                DomainError::forbidden("admin access required").into()
+            )),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            status_of(&task_maintenance_error_response(
+                DomainError::conflict("active tasks must be cancelled before purging").into()
+            )),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            status_of(&task_maintenance_error_response(anyhow::anyhow!(
+                "plain internal boom"
+            ))),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn upload_size_branches_keep_disclosed_status() {
+        // Intentional correction vs baseline single 500 `anyhow!("invalid
+        // upload size")`: negative -> 400 InvalidArgument, oversize -> 413
+        // PayloadTooLarge. Pins both branches through library and task mappers.
+        let negative = DomainError::invalid_argument("invalid upload size -1");
+        for response in [
+            library_management_error_response(anyhow::Error::new(negative.clone())),
+            task_error(anyhow::Error::new(negative.clone())),
+        ] {
+            assert_eq!(status_of(&response), StatusCode::BAD_REQUEST);
+        }
+        let oversize = DomainError::payload_too_large("invalid upload size 999999");
+        for response in [
+            library_management_error_response(anyhow::Error::new(oversize.clone())),
+            task_error(anyhow::Error::new(oversize.clone())),
+        ] {
+            assert_eq!(status_of(&response), StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    }
+
+    #[test]
+    fn outer_domain_error_context_preserves_status_in_mappers() {
+        use anyhow::Context as _;
+        for (typed, status) in [
+            (
+                DomainError::not_found("missing outer"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                DomainError::invalid_argument("bad outer"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                DomainError::internal("boom outer"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ] {
+            let via_result: anyhow::Error = Err::<(), _>(anyhow::anyhow!("plain inner"))
+                .context(typed.clone())
+                .unwrap_err();
+            assert_eq!(
+                status_of(&library_management_error_response(via_result)),
+                status
+            );
+
+            let via_option: anyhow::Error = None::<()>.context(typed.clone()).unwrap_err();
+            assert_eq!(status_of(&task_error(via_option)), status);
+        }
     }
 }

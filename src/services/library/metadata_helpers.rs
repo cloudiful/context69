@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use serde_json::{Value, json};
 
 use crate::domain::LibraryFileRecord;
@@ -26,16 +28,23 @@ pub(super) fn compose_library_metadata(
     system_metadata: Value,
 ) -> Result<Value> {
     let Some(system_object) = system_metadata.as_object() else {
-        return Err(anyhow!("system library metadata must be an object"));
+        return Err(
+            DomainError::unprocessable_entity("system library metadata must be an object").into(),
+        );
     };
     let mut merged = match section_metadata {
         Value::Null => serde_json::Map::new(),
         Value::Object(map) => map.clone(),
-        _ => return Err(anyhow!("metadata_json must be an object")),
+        _ => {
+            return Err(
+                DomainError::unprocessable_entity("metadata_json must be an object").into(),
+            );
+        }
     };
     let file_object = file_metadata
         .as_object()
-        .ok_or_else(|| anyhow!("file metadata_json must be an object"))?;
+        .ok_or_else(|| DomainError::unprocessable_entity("file metadata_json must be an object"))
+        .map_err(anyhow::Error::from)?;
     for (key, value) in file_object {
         merged.insert(key.clone(), value.clone());
     }

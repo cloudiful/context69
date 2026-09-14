@@ -1,3 +1,5 @@
+use crate::domain_errors::DomainError;
+
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use context69_contracts::{LibraryIngestStatus, UpsertLibraryTextRequest};
@@ -18,7 +20,7 @@ pub(super) async fn process_text(
     item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
-    let group = group.context("text tasks require group_id")?;
+    let group = group.context(DomainError::invalid_argument("text tasks require group_id"))?;
     if stage == "storage" {
         if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
             return Ok(waiting);
@@ -46,9 +48,10 @@ pub(super) async fn process_text(
             .set_task_item_payload(item.id, item.lease_token, &payload)
             .await?
         {
-            return Err(anyhow!(
-                "task item lease was lost while saving text sections"
-            ));
+            return Err(DomainError::conflict(
+                "task item lease was lost while saving text sections",
+            )
+            .into());
         }
         set_stage(service, task, item, "indexing").await?;
         return Ok(ProcessResult::Progressed);
@@ -63,7 +66,7 @@ pub(super) async fn process_file(
     item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
-    let group = group.context("file tasks require group_id")?;
+    let group = group.context(DomainError::invalid_argument("file tasks require group_id"))?;
     if stage == "storage" {
         if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
             return Ok(waiting);
@@ -170,7 +173,9 @@ pub(super) async fn process_file_stage(
     item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
-    let file_id = item.file_id.context("file task stage requires file_id")?;
+    let file_id = item.file_id.context(DomainError::invalid_argument(
+        "file task stage requires file_id",
+    ))?;
     match stage {
         "docling" => {
             if persisted_section_payload(&item.payload).is_some() {
@@ -371,7 +376,7 @@ pub(super) async fn process_file_stage(
         "finalize" => Ok(ProcessResult::Succeeded(Some(file_id.to_string()))),
         other => Ok(process_error(
             other,
-            anyhow!("unsupported file task stage {other}"),
+            DomainError::invalid_argument(format!("unsupported file task stage {other}")).into(),
         )),
     }
 }

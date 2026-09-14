@@ -47,7 +47,9 @@ impl LibraryService {
                 .read_active_storage_for_lease(&file.storage_rel_path, lease_token)
                 .await
                 .map_err(|error| task_failure("storage", error, true))?
-                .with_context(|| format!("stored file not found for file {file_id}"))
+                .ok_or_else(|| {
+                    DomainError::not_found(format!("stored file not found for file {file_id}"))
+                })
                 .map_err(|error| task_failure("storage", error, false))?;
             match kind {
                 LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx => {
@@ -97,7 +99,9 @@ impl LibraryService {
             .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)
             .await
             .map_err(|error| task_failure("finalize", error, true))?
-            .context("file disappeared while finalizing task ingest")
+            .context(DomainError::not_found(
+                "file disappeared while finalizing task ingest",
+            ))
             .map_err(|error| task_failure("finalize", error, false))?;
         Ok(())
     }
@@ -110,7 +114,9 @@ impl LibraryService {
             .update_file_status(file_id, LibraryIngestStatus::Running, None, false)
             .await
             .map_err(|error| task_failure("storage", error, true))?
-            .context("file disappeared while starting task ingest")
+            .context(DomainError::not_found(
+                "file disappeared while starting task ingest",
+            ))
             .map_err(|error| task_failure("storage", error, false))?;
         Ok(())
     }
@@ -195,7 +201,7 @@ impl LibraryService {
             .get_file(file_id)
             .await
             .map_err(|error| task_failure("storage", error, true))?
-            .with_context(|| format!("unknown file {file_id}"))
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
             .map_err(|error| task_failure("storage", error, false))
     }
 }
@@ -267,11 +273,10 @@ pub(crate) fn docling_admission_denied(
 ) -> UnifiedIngestError {
     task_failure(
         "docling",
-        anyhow!(
+        DomainError::upstream_error(format!(
             "docling remote admission is full ({}/{}) for item {item_id}; waiting for a remote slot without submitting",
-            inflight,
-            limit,
-        ),
+            inflight, limit,
+        )),
         true,
     )
 }
@@ -285,7 +290,32 @@ impl std::str::FromStr for LibraryDependency {
             "docling" => Ok(Self::Docling),
             "embedding" => Ok(Self::Embedding),
             "qdrant" => Ok(Self::Qdrant),
-            other => Err(anyhow!("unknown library dependency {other}")),
+            other => Err(DomainError::invalid_argument(format!(
+                "unknown library dependency {other}"
+            ))
+            .into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+    use crate::domain_errors::{DomainError, find_domain_error};
+
+    #[test]
+    fn unknown_library_dependency_is_typed_invalid_argument() {
+        let error = LibraryDependency::from_str("wat").unwrap_err();
+        assert!(matches!(
+            find_domain_error(&error),
+            Some(DomainError::InvalidArgument(_))
+        ));
+        assert_eq!(error.to_string(), "unknown library dependency wat");
+        assert_eq!(
+            LibraryDependency::from_str("embedding_vector").expect("legacy alias"),
+            LibraryDependency::Embedding
+        );
     }
 }

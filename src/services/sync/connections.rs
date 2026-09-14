@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain_errors::DomainError;
 
 impl SyncService {
     pub async fn list_source_connections(&self) -> Result<Vec<SourceConnectionResponse>> {
@@ -42,21 +43,24 @@ impl SyncService {
     pub async fn delete_source_connection(&self, name: &str) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(anyhow!("source connection name must not be empty"));
+            return Err(
+                DomainError::invalid_argument("source connection name must not be empty").into(),
+            );
         }
 
         for source in self.source_store.list_source_configs().await? {
             if source.connection == name {
-                return Err(anyhow!(
+                return Err(DomainError::conflict(format!(
                     "source connection {name} is referenced by source {}",
                     source.key
-                ));
+                ))
+                .into());
             }
         }
 
         let deleted = self.db.delete_source_connection(name).await?;
         if !deleted {
-            return Err(anyhow!("unknown source connection {name}"));
+            return Err(DomainError::not_found(format!("unknown source connection {name}")).into());
         }
         self.reload_sources().await?;
         Ok(())

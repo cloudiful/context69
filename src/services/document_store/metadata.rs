@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use chrono::{DateTime, Utc};
 use context69_contracts::MetadataValueKind;
 use serde_json::Value;
@@ -21,10 +23,14 @@ pub fn validate_definition(
 ) -> Result<()> {
     let path = path.trim();
     if path.is_empty() || path.len() > 200 {
-        return Err(anyhow!("metadata path must contain 1..=200 characters"));
+        return Err(
+            DomainError::invalid_argument("metadata path must contain 1..=200 characters").into(),
+        );
     }
     if path.split('.').count() > 8 {
-        return Err(anyhow!("metadata path must have at most 8 segments"));
+        return Err(
+            DomainError::invalid_argument("metadata path must have at most 8 segments").into(),
+        );
     }
     if path.split('.').any(|segment| {
         segment.is_empty()
@@ -32,12 +38,15 @@ pub fn validate_definition(
                 .chars()
                 .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
     }) {
-        return Err(anyhow!(
-            "metadata path segments may contain only ASCII letters, digits, '_' and '-'"
-        ));
+        return Err(DomainError::invalid_argument(
+            "metadata path segments may contain only ASCII letters, digits, '_' and '-'",
+        )
+        .into());
     }
     if sortable && value_kind == MetadataValueKind::Array {
-        return Err(anyhow!("array metadata indexes cannot be sortable"));
+        return Err(
+            DomainError::invalid_argument("array metadata indexes cannot be sortable").into(),
+        );
     }
     Ok(())
 }
@@ -55,7 +64,7 @@ pub fn extract_values(
     let values = if definition.value_kind == "array" {
         value
             .as_array()
-            .ok_or_else(|| anyhow!("expected array"))?
+            .ok_or_else(|| DomainError::internal("expected array"))?
             .iter()
             .collect::<Vec<_>>()
     } else {
@@ -79,30 +88,47 @@ fn typed_value(data_type: &str, value: &Value) -> Result<TypedMetadataValue> {
             result.keyword_value = Some(
                 value
                     .as_str()
-                    .ok_or_else(|| anyhow!("expected string"))?
+                    .ok_or_else(|| DomainError::internal("expected string"))?
                     .to_string(),
             )
         }
         "integer" => {
-            result.integer_value = Some(value.as_i64().ok_or_else(|| anyhow!("expected integer"))?)
+            result.integer_value = Some(
+                value
+                    .as_i64()
+                    .ok_or_else(|| DomainError::internal("expected integer"))?,
+            )
         }
         "float" => {
-            result.float_value = Some(value.as_f64().ok_or_else(|| anyhow!("expected number"))?)
+            result.float_value = Some(
+                value
+                    .as_f64()
+                    .ok_or_else(|| DomainError::internal("expected number"))?,
+            )
         }
         "boolean" => {
-            result.boolean_value = Some(value.as_bool().ok_or_else(|| anyhow!("expected boolean"))?)
+            result.boolean_value = Some(
+                value
+                    .as_bool()
+                    .ok_or_else(|| DomainError::internal("expected boolean"))?,
+            )
         }
         "datetime" => {
             result.datetime_value = Some(
                 DateTime::parse_from_rfc3339(
                     value
                         .as_str()
-                        .ok_or_else(|| anyhow!("expected RFC 3339 string"))?,
+                        .ok_or_else(|| DomainError::internal("expected RFC 3339 string"))?,
                 )?
                 .with_timezone(&Utc),
             )
         }
-        _ => return Err(anyhow!("unsupported metadata data type {data_type}")),
+        _ => {
+            return Err(DomainError::invalid_argument(format!(
+                "unsupported metadata data type {data_type}"
+            ))
+            .into());
+        }
     }
     Ok(result)
 }
@@ -145,6 +171,40 @@ mod tests {
     fn rejects_invalid_and_sortable_array_definitions() {
         assert!(validate_definition("provider..name", MetadataValueKind::Scalar, false).is_err());
         assert!(validate_definition("tags", MetadataValueKind::Array, true).is_err());
+    }
+
+    #[test]
+    fn definition_validation_errors_are_typed_invalid_argument() {
+        use crate::domain_errors::{DomainError, find_domain_error};
+
+        let assert_invalid = |error: anyhow::Error, expected: &str| {
+            let message = error.to_string();
+            assert!(
+                matches!(
+                    find_domain_error(&error),
+                    Some(DomainError::InvalidArgument(_))
+                ),
+                "expected typed invalid_argument for {message}"
+            );
+            assert_eq!(message, expected);
+        };
+
+        assert_invalid(
+            validate_definition("", MetadataValueKind::Scalar, false).unwrap_err(),
+            "metadata path must contain 1..=200 characters",
+        );
+        assert_invalid(
+            validate_definition("provider..name", MetadataValueKind::Scalar, false).unwrap_err(),
+            "metadata path segments may contain only ASCII letters, digits, '_' and '-'",
+        );
+        assert_invalid(
+            validate_definition("tags", MetadataValueKind::Array, true).unwrap_err(),
+            "array metadata indexes cannot be sortable",
+        );
+        assert_invalid(
+            super::typed_value("unsupported", &json!("value")).unwrap_err(),
+            "unsupported metadata data type unsupported",
+        );
     }
 
     #[test]

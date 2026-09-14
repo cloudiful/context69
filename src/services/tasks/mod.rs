@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use context69_contracts::{
@@ -28,6 +28,7 @@ use uuid::Uuid;
 use crate::{
     db::{CreateTaskSubmissionRequest, Database, StoredTask, StoredTaskItemWithExternalJob},
     domain::GroupRecord,
+    domain_errors::DomainError,
     pagination::PageBounds,
     services::{
         document_store::DocumentStoreService, library::LibraryService, namespace::NamespaceService,
@@ -116,7 +117,9 @@ impl TaskService {
 
     pub async fn submit(&self, request: TaskSubmission) -> Result<TaskRef> {
         if request.payloads.is_empty() {
-            return Err(anyhow!("a task must contain at least one item"));
+            return Err(
+                DomainError::invalid_argument("a task must contain at least one item").into(),
+            );
         }
         let request_hash = hash_payload(&request);
         let mut payloads = request.payloads.clone();
@@ -126,21 +129,34 @@ impl TaskService {
             request.input_storage_object_ids.clone()
         };
         if input_storage_object_ids.len() != payloads.len() {
-            return Err(anyhow!("task payload and input object counts do not match"));
+            return Err(DomainError::invalid_argument(
+                "task payload and input object counts do not match",
+            )
+            .into());
         }
         let mut newly_staged_object_ids = Vec::new();
         if request.kind == TaskKind::FileBatch {
-            let group_id = request.group_id.context("file tasks require group_id")?;
+            let group_id = request
+                .group_id
+                .ok_or_else(|| DomainError::invalid_argument("file tasks require group_id"))?;
             let result = async {
                 for (index, payload) in payloads.iter_mut().enumerate() {
                     if payload.get("file_id").is_some() || payload.get("content_base64").is_none() {
                         continue;
                     }
-                    let file: FileBatchItem = serde_json::from_value(payload.clone())
-                        .context("invalid file batch item")?;
+                    let file: FileBatchItem =
+                        serde_json::from_value(payload.clone()).map_err(|error| {
+                            DomainError::invalid_argument(format!(
+                                "invalid file batch item: {error}"
+                            ))
+                        })?;
                     let bytes = STANDARD
                         .decode(file.content_base64.trim())
-                        .context("invalid file batch content_base64")?;
+                        .map_err(|error| {
+                            DomainError::invalid_argument(format!(
+                                "invalid file batch content_base64: {error}"
+                            ))
+                        })?;
                     let object_id = self
                         .library
                         .stage_file_for_task_input(
@@ -229,12 +245,14 @@ impl TaskService {
         self.db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")
+            .ok_or_else(|| DomainError::not_found("task not found"))
+            .map_err(anyhow::Error::from)
             .map(task_response)
     }
 
     pub async fn list(&self, user_id: i64, query: &TaskListQuery) -> Result<TaskPageResponse> {
-        let bounds = PageBounds::new(query.page, query.page_size)?;
+        let bounds = PageBounds::new(query.page, query.page_size)
+            .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
         let kind = query.kind.map(TaskKind::as_str);
         let status = query.status.map(TaskStatus::as_str);
         let view = query.view.map(TaskListView::as_str);
@@ -276,7 +294,9 @@ impl TaskService {
             .collect();
         Ok(TaskPageResponse {
             items,
-            pagination: bounds.pagination(total)?,
+            pagination: bounds
+                .pagination(total)
+                .map_err(|error| DomainError::invalid_argument(error.to_string()))?,
         })
     }
 
@@ -290,7 +310,7 @@ impl TaskService {
         self.db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         let limit = limit.clamp(1, 200);
         let offset = offset.max(0);
         let items = self.db.list_task_items(task_id, limit, offset).await?;
@@ -306,13 +326,13 @@ impl TaskService {
         self.db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if !self.db.can_manage_task(task_id, user_id).await? {
-            return Err(anyhow!("task management permission denied"));
+            return Err(DomainError::forbidden("task management permission denied").into());
         }
         let item_ids = self.db.retry_task_items(task_id, user_id).await?;
         if item_ids.is_empty() {
-            return Err(anyhow!("task has no failed items to retry"));
+            return Err(DomainError::invalid_argument("task has no failed items to retry").into());
         }
         self.db.recompute_task(task_id).await?;
         self.notify_dispatch();
@@ -329,14 +349,14 @@ impl TaskService {
         self.db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if !self.db.can_manage_task(task_id, user_id).await? {
-            return Err(anyhow!("task management permission denied"));
+            return Err(DomainError::forbidden("task management permission denied").into());
         }
         if self.db.cancel_task(task_id, user_id).await? {
             Ok(())
         } else {
-            Err(anyhow!("task is already terminal or not found"))
+            Err(DomainError::conflict("task is already terminal or not found").into())
         }
     }
 
@@ -350,9 +370,9 @@ impl TaskService {
             .db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if !self.db.can_manage_task(task_id, user_id).await? {
-            return Err(anyhow!("task management permission denied"));
+            return Err(DomainError::forbidden("task management permission denied").into());
         }
         if task.deleted_at.is_none() {
             self.db.trash_task(task_id).await?;
@@ -361,11 +381,12 @@ impl TaskService {
             .db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if task.deleted_at.is_none() {
-            return Err(anyhow!(
-                "active task cannot be trashed until it reaches a terminal state"
-            ));
+            return Err(DomainError::conflict(
+                "active task cannot be trashed until it reaches a terminal state",
+            )
+            .into());
         }
         Ok(task_response(task))
     }
@@ -376,16 +397,16 @@ impl TaskService {
         self.db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if !self.db.can_manage_task(task_id, user_id).await? {
-            return Err(anyhow!("task management permission denied"));
+            return Err(DomainError::forbidden("task management permission denied").into());
         }
         self.db.restore_task(task_id).await?;
         let task = self
             .db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         Ok(task_response(task))
     }
 
@@ -397,15 +418,19 @@ impl TaskService {
             .db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if !self.db.can_manage_task(task_id, user_id).await? {
-            return Err(anyhow!("task management permission denied"));
+            return Err(DomainError::forbidden("task management permission denied").into());
         }
         if task.deleted_at.is_none() {
-            return Err(anyhow!("task must be trashed before permanent deletion"));
+            return Err(
+                DomainError::conflict("task must be trashed before permanent deletion").into(),
+            );
         }
         if !self.db.delete_trashed_task(task_id).await? {
-            return Err(anyhow!("task must be trashed before permanent deletion"));
+            return Err(
+                DomainError::conflict("task must be trashed before permanent deletion").into(),
+            );
         }
         Ok(())
     }
@@ -414,19 +439,20 @@ impl TaskService {
         self.db
             .get_task(task_id, user_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if !self.db.can_manage_task(task_id, user_id).await? {
-            return Err(anyhow!("task management permission denied"));
+            return Err(DomainError::forbidden("task management permission denied").into());
         }
         let source = self
             .db
             .get_task_internal(task_id)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
         if !matches!(source.status.as_str(), "cancelled" | "failed") {
-            return Err(anyhow!(
-                "task must be cancelled or failed before it can be rerun"
-            ));
+            return Err(DomainError::invalid_argument(
+                "task must be cancelled or failed before it can be rerun",
+            )
+            .into());
         }
         let (new_task_id, item_ids) = self.db.rerun_task(task_id).await?;
         if !item_ids.is_empty() {
@@ -455,7 +481,7 @@ impl TaskService {
             .db
             .get_user_by_id(user_id)
             .await?
-            .context("user not found")?;
+            .ok_or_else(|| DomainError::not_found("user not found"))?;
         let (parent_group_path, group_key) = split_scope_path(&spec.group_path)?;
         let group = match self
             .namespace
@@ -482,7 +508,7 @@ impl TaskService {
                     .namespace
                     .get_group_for_user(user_id, &spec.group_path)
                     .await?
-                    .context("scope creation conflicted")?,
+                    .ok_or_else(|| DomainError::conflict("scope creation conflicted"))?,
                 Err(error) => return Err(error),
             },
         };
@@ -517,7 +543,9 @@ impl TaskService {
                         .await?
                         .into_iter()
                         .find(|index| index.path == requested.definition.path)
-                        .context("metadata index creation conflicted")?,
+                        .ok_or_else(|| {
+                            DomainError::conflict("metadata index creation conflicted")
+                        })?,
                     Err(error) => return Err(error),
                 },
             };
@@ -578,7 +606,8 @@ impl TaskService {
         self.db
             .get_task_internal(task_id)
             .await?
-            .context("task disappeared")
+            .ok_or_else(|| DomainError::not_found("task disappeared"))
+            .map_err(anyhow::Error::from)
     }
     pub(crate) fn db(&self) -> &Database {
         &self.db
@@ -620,9 +649,11 @@ fn split_scope_path(path: &str) -> Result<(Option<String>, String)> {
         .split('/')
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>();
-    let key = parts.pop().context("scope group_path must not be empty")?;
+    let key = parts
+        .pop()
+        .ok_or_else(|| DomainError::invalid_argument("scope group_path must not be empty"))?;
     if parts.iter().any(|part| part.len() > 100) || key.len() > 100 {
-        return Err(anyhow!("scope path segment is too long"));
+        return Err(DomainError::invalid_argument("scope path segment is too long").into());
     }
     Ok((
         (!parts.is_empty()).then(|| parts.join("/")),
@@ -635,7 +666,11 @@ fn ensure_group_definition(group: &GroupRecord, spec: &ScopeSpec) -> Result<()> 
         || group.visibility != spec.visibility
         || spec.kind.is_some_and(|kind| group.kind != kind)
     {
-        return Err(anyhow!("scope definition conflict for {}", spec.group_path));
+        return Err(DomainError::conflict(format!(
+            "scope definition conflict for {}",
+            spec.group_path
+        ))
+        .into());
     }
     Ok(())
 }
@@ -648,10 +683,11 @@ fn ensure_index_definition(
         || index.value_kind != definition.value_kind
         || index.sortable != definition.sortable
     {
-        return Err(anyhow!(
+        return Err(DomainError::conflict(format!(
             "metadata index definition conflict for {}",
             definition.path
-        ));
+        ))
+        .into());
     }
     Ok(())
 }
@@ -672,11 +708,12 @@ async fn wait_for_index(
             match index.status {
                 MetadataIndexStatus::Ready => return Ok(index),
                 MetadataIndexStatus::Failed => {
-                    return Err(anyhow!(
+                    return Err(DomainError::internal(
                         index
                             .error_message
-                            .unwrap_or_else(|| "metadata index build failed".to_string())
-                    ));
+                            .unwrap_or_else(|| "metadata index build failed".to_string()),
+                    )
+                    .into());
                 }
                 _ => sleep(Duration::from_millis(50)).await,
             }
@@ -684,7 +721,10 @@ async fn wait_for_index(
             sleep(Duration::from_millis(50)).await;
         }
     }
-    Err(anyhow!("timed out waiting for metadata index {path}"))
+    Err(
+        DomainError::upstream_timeout(format!("timed out waiting for metadata index {path}"))
+            .into(),
+    )
 }
 
 fn parse_kind(value: &str) -> Result<TaskKind> {
@@ -696,7 +736,9 @@ fn parse_kind(value: &str) -> Result<TaskKind> {
         "delete_batch" => Ok(TaskKind::DeleteBatch),
         "translation" => Ok(TaskKind::Translation),
         "vector_rebuild" => Ok(TaskKind::VectorRebuild),
-        other => Err(anyhow!("unsupported task kind {other}")),
+        other => {
+            Err(DomainError::invalid_argument(format!("unsupported task kind {other}")).into())
+        }
     }
 }
 
@@ -743,7 +785,9 @@ fn parse_origin(value: &str) -> Result<TaskOrigin> {
     match value {
         "manual" => Ok(TaskOrigin::Manual),
         "rerun" => Ok(TaskOrigin::Rerun),
-        other => Err(anyhow!("unsupported task origin {other}")),
+        other => {
+            Err(DomainError::invalid_argument(format!("unsupported task origin {other}")).into())
+        }
     }
 }
 
@@ -755,7 +799,9 @@ fn parse_status(value: &str) -> Result<TaskStatus> {
         "succeeded" => Ok(TaskStatus::Succeeded),
         "failed" => Ok(TaskStatus::Failed),
         "cancelled" => Ok(TaskStatus::Cancelled),
-        other => Err(anyhow!("unsupported task status {other}")),
+        other => {
+            Err(DomainError::invalid_argument(format!("unsupported task status {other}")).into())
+        }
     }
 }
 
@@ -799,7 +845,10 @@ fn parse_item_status(value: &str) -> Result<TaskItemStatus> {
         "succeeded" => Ok(TaskItemStatus::Succeeded),
         "failed" => Ok(TaskItemStatus::Failed),
         "cancelled" => Ok(TaskItemStatus::Cancelled),
-        other => Err(anyhow!("unsupported task item status {other}")),
+        other => Err(DomainError::invalid_argument(format!(
+            "unsupported task item status {other}"
+        ))
+        .into()),
     }
 }
 
@@ -819,11 +868,22 @@ fn group_response(group: GroupRecord) -> GroupResponse {
 }
 
 fn is_conflict_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    message.contains("duplicate key")
-        || message.contains("unique constraint")
-        || message.contains("already exists")
-        || message.contains("conflict")
+    if matches!(
+        crate::domain_errors::find_domain_error(error),
+        Some(crate::domain_errors::DomainError::Conflict(_))
+    ) {
+        return true;
+    }
+    // Postgres unique-violation without message sniffing: SQLSTATE 23505.
+    for cause in error.chain() {
+        if let Some(db_error) = cause.downcast_ref::<sqlx::Error>()
+            && let sqlx::Error::Database(database_error) = db_error
+            && database_error.code().as_deref() == Some("23505")
+        {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

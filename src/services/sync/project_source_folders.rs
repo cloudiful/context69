@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use uuid::Uuid;
 
 use crate::{
@@ -314,7 +314,9 @@ impl SyncService {
             .source_store
             .get_source_scope(legacy_source_key)
             .await?
-            .with_context(|| format!("missing source scope for {legacy_source_key}"))?;
+            .ok_or_else(|| {
+                DomainError::internal(format!("missing source scope for {legacy_source_key}"))
+            })?;
         self.db
             .save_checkpoint_in_scope(scope.group_id, scope.visibility, identity, &checkpoint)
             .await
@@ -330,7 +332,10 @@ impl SyncService {
             .await
             .get(&source.connection)
             .cloned()
-            .with_context(|| format!("source origin is unavailable for {}", source.key))?;
+            .ok_or_else(|| {
+                DomainError::unavailable(format!("source origin is unavailable for {}", source.key))
+            })
+            .map_err(anyhow::Error::from)?;
         let connector = PostgresSqlSourceConnector::new(
             pool,
             source.key.clone(),

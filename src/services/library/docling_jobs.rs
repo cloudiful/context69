@@ -82,7 +82,7 @@ impl LibraryService {
         if kind == LibraryFileKind::PlainText {
             return Err(task_failure(
                 "docling",
-                anyhow!("plain text cannot be submitted to docling"),
+                DomainError::invalid_argument("plain text cannot be submitted to docling"),
                 false,
             ));
         }
@@ -117,9 +117,9 @@ impl LibraryService {
             if job.is_submitting() {
                 return Err(task_failure(
                     "docling",
-                    anyhow!(
+                    DomainError::upstream_error(format!(
                         "Docling submission outcome is uncertain for item {item_id}; manual recovery is required"
-                    ),
+                    )),
                     false,
                 ));
             }
@@ -129,7 +129,9 @@ impl LibraryService {
             .read_active_storage_for_lease(&file.storage_rel_path, lease_token)
             .await
             .map_err(|error| task_failure("storage", error, true))?
-            .with_context(|| format!("stored file not found for file {file_id}"))
+            .ok_or_else(|| {
+                DomainError::not_found(format!("stored file not found for file {file_id}"))
+            })
             .map_err(|error| task_failure("storage", error, false))?;
 
         let config = self
@@ -137,7 +139,7 @@ impl LibraryService {
             .resolve_docling_config()
             .await
             .map_err(|error| task_failure("docling", error, true))?
-            .context("docling is not configured")
+            .context(DomainError::internal("docling is not configured"))
             .map_err(|error| task_failure("docling", error, false))?;
         let now = Utc::now();
         let deadline = now
@@ -187,9 +189,9 @@ impl LibraryService {
             Err(error) => {
                 return Err(task_failure(
                     "docling",
-                    anyhow!(
+                    DomainError::upstream_error(format!(
                         "Docling submission outcome is uncertain for item {item_id}: {error}; manual recovery is required"
-                    ),
+                    )),
                     false,
                 ));
             }
@@ -307,7 +309,7 @@ impl LibraryService {
             .resolve_docling_config()
             .await
             .map_err(|error| task_failure("docling", error, true))?
-            .context("docling is not configured")
+            .context(DomainError::internal("docling is not configured"))
             .map_err(|error| task_failure("docling", error, false))?;
         // Independent poll control plane (issue #118 poll-limits): the
         // in-process `docling_poll_slots` semaphore (capacity 1) bounds poll
@@ -364,10 +366,10 @@ impl LibraryService {
         {
             Ok(Ok(status)) => status,
             Ok(Err(error)) => {
-                let context = anyhow!(
+                let context = anyhow::Error::new(DomainError::upstream_error(format!(
                     "failed to poll docling task {}: {error}",
                     job.remote_task_id
-                );
+                )));
                 if job
                     .deadline_at
                     .is_some_and(|deadline| Utc::now() >= deadline)
@@ -391,7 +393,7 @@ impl LibraryService {
                 .await);
             }
             Err(_) => {
-                let context = anyhow!(
+                let context = anyhow::Error::new(DomainError::upstream_timeout(format!(
                     "polling Docling task {} exceeded the {} second request timeout",
                     job.remote_task_id,
                     config
@@ -401,7 +403,7 @@ impl LibraryService {
                             crate::docling::DEFAULT_DOCLING_TIMEOUT_SECS,
                         ))
                         .as_secs()
-                );
+                )));
                 if job
                     .deadline_at
                     .is_some_and(|deadline| Utc::now() >= deadline)
@@ -506,10 +508,10 @@ impl LibraryService {
                 let document = match converter.fetch_remote(input, &job.remote_task_id).await {
                     Ok(document) => document,
                     Err(error) => {
-                        let context = anyhow!(
+                        let context = anyhow::Error::new(DomainError::upstream_error(format!(
                             "failed to fetch result of docling task {}: {error}",
                             job.remote_task_id
-                        );
+                        )));
                         return Ok(classify_docling_poll_error(
                             job.id,
                             &job.remote_task_id,
@@ -550,7 +552,7 @@ impl LibraryService {
             .get_file(file_id)
             .await
             .map_err(|error| task_failure("storage", error, true))?
-            .with_context(|| format!("unknown file {file_id}"))
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
             .map_err(|error| task_failure("storage", error, false))
     }
 }

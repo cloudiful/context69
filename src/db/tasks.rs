@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -282,7 +282,10 @@ impl Database {
             }
         };
         if request.payloads.len() != input_storage_object_ids.len() {
-            anyhow::bail!("task payload and input object counts do not match");
+            return Err(crate::domain_errors::DomainError::invalid_argument(
+                "task payload and input object counts do not match",
+            )
+            .into());
         }
         let task_id = request.task_id;
         let user_id = request.user_id;
@@ -305,7 +308,10 @@ impl Database {
             .await?
             {
                 if existing.request_hash != request_hash {
-                    anyhow::bail!("idempotency key was already used with a different request");
+                    return Err(crate::domain_errors::DomainError::conflict(
+                        "idempotency key was already used with a different request",
+                    )
+                    .into());
                 }
                 let item_ids =
                     sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", existing.task_id)
@@ -357,9 +363,16 @@ impl Database {
             )
             .fetch_optional(&mut *tx)
             .await?
-            .with_context(|| format!("unknown input storage object {object_id}"))?;
+            .ok_or_else(|| {
+                crate::domain_errors::DomainError::not_found(format!(
+                    "unknown input storage object {object_id}"
+                ))
+            })?;
             if Some(object.group_id) != group_id {
-                anyhow::bail!("input storage object belongs to another group");
+                return Err(crate::domain_errors::DomainError::forbidden(
+                    "input storage object belongs to another group",
+                )
+                .into());
             }
             let lock_key = format!("{}:{}", object.group_id, object.sha256);
             sqlx::query_file!("src/sql/db/tasks/lock_input_storage_object.sql", lock_key)
@@ -373,7 +386,10 @@ impl Database {
             .fetch_optional(&mut *tx)
             .await?;
             if exists.is_none() {
-                anyhow::bail!("input storage object {object_id} disappeared");
+                return Err(crate::domain_errors::DomainError::not_found(format!(
+                    "input storage object {object_id} disappeared"
+                ))
+                .into());
             }
             sqlx::query_file!(
                 "src/sql/db/tasks/refresh_input_storage_object.sql",
@@ -421,7 +437,10 @@ impl Database {
             .await?;
             if existing.task_id != task_id {
                 if existing.request_hash != request_hash {
-                    anyhow::bail!("idempotency key was already used with a different request");
+                    return Err(crate::domain_errors::DomainError::conflict(
+                        "idempotency key was already used with a different request",
+                    )
+                    .into());
                 }
                 let item_ids =
                     sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", existing.task_id)
@@ -1003,7 +1022,7 @@ impl Database {
         let task = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
             .fetch_optional(&mut *tx)
             .await?
-            .context("task not found")?;
+            .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
         claim_failed_item_file_slots(&mut *tx, task.group_id, task_id).await?;
         let ids = sqlx::query_file_scalar!("src/sql/db/tasks/retry_items.sql", task_id, user_id)
             .fetch_all(&mut *tx)
@@ -1046,9 +1065,10 @@ impl Database {
                 .fetch_all(&mut *tx)
                 .await?;
         if items.is_empty() {
-            anyhow::bail!(
-                "rerun requires at least one item whose file is not already covered by an active processing task"
-            );
+            return Err(crate::domain_errors::DomainError::invalid_argument(
+                "rerun requires at least one item whose file is not already covered by an active processing task",
+            )
+            .into());
         }
         let total = items.len() as i64;
         sqlx::query_file!(

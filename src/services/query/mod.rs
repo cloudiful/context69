@@ -3,7 +3,9 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use context69_contracts::search::SearchStreamEvent;
 use context69_search::SearchService;
 
@@ -16,8 +18,8 @@ use crate::services::auth::AuthService;
 
 mod adapters;
 
-pub(crate) use context69_search::{DateWindowPage, SearchDatePointHit};
 use adapters::{AuthScopeResolver, DbSearchRepository, EmbeddingAdapter, QdrantSearchIndex};
+pub(crate) use context69_search::{DateWindowPage, SearchDatePointHit};
 
 #[derive(Clone)]
 pub struct QueryService {
@@ -67,9 +69,10 @@ impl QueryService {
         request: SearchRequest,
     ) -> Result<SearchResponse> {
         if !self.vector_index_ready.load(Ordering::Acquire) {
-            return Err(anyhow!(
-                "vector index is rebuilding or unavailable; retry after the rebuild completes"
-            ));
+            return Err(DomainError::unavailable(
+                "vector index is rebuilding or unavailable; retry after the rebuild completes",
+            )
+            .into());
         }
         let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
         inner.search(user_id, request).await
@@ -83,9 +86,10 @@ impl QueryService {
         abort: context69_search::AbortSignal,
     ) -> Result<()> {
         if !self.vector_index_ready.load(Ordering::Acquire) {
-            return Err(anyhow!(
-                "vector index is rebuilding or unavailable; retry after the rebuild completes"
-            ));
+            return Err(DomainError::unavailable(
+                "vector index is rebuilding or unavailable; retry after the rebuild completes",
+            )
+            .into());
         }
         let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
         inner.stream_search(user_id, request, tx, abort).await
@@ -100,10 +104,14 @@ impl QueryService {
         self.db
             .get_document_localized(document_id, locale, scope)
             .await
-            .map(|document| document.ok_or_else(|| anyhow!("document not found")))?
+            .map(|document| document.ok_or_else(|| DomainError::not_found("document not found")))?
+            .map_err(anyhow::Error::from)
     }
 }
 
 fn search_runtime_unavailable() -> anyhow::Error {
-    anyhow!("search runtime is not configured; save runtime settings and restart the service")
+    DomainError::unavailable(
+        "search runtime is not configured; save runtime settings and restart the service",
+    )
+    .into()
 }

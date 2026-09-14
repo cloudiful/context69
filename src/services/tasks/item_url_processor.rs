@@ -1,3 +1,5 @@
+use crate::domain_errors::DomainError;
+
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use context69_contracts::{ImportLibraryFileFromUrlRequest, LibraryIngestStatus};
@@ -16,7 +18,7 @@ pub(super) async fn process_url(
     item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
-    let group = group.context("URL tasks require group_id")?;
+    let group = group.context(DomainError::invalid_argument("URL tasks require group_id"))?;
     if stage == "download" {
         if item.file_id.is_some() || downloaded_artifact(&item.payload).is_some() {
             set_stage(service, task, item, "storage").await?;
@@ -71,7 +73,10 @@ pub(super) async fn process_url(
                 None => {
                     return Ok(process_error(
                         stage,
-                        anyhow!("URL task storage is missing its downloaded artifact"),
+                        DomainError::not_found(
+                            "URL task storage is missing its downloaded artifact",
+                        )
+                        .into(),
                     ));
                 }
             };

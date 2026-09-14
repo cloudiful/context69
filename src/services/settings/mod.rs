@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 
 mod mappers;
 mod runtime_mappers;
@@ -95,9 +97,10 @@ impl SettingsService {
             .as_ref()
             .is_some_and(|s3| s3.secret_key.is_empty())
         {
-            return Err(anyhow!(
-                "runtime.file_library.s3.secret_key must not be empty"
-            ));
+            return Err(DomainError::invalid_argument(
+                "runtime.file_library.s3.secret_key must not be empty",
+            )
+            .into());
         }
 
         let saved = self.db.save_runtime_settings(&stored).await?;
@@ -115,7 +118,12 @@ impl SettingsService {
                     .and_then(|settings| settings.file_library.s3)
                     .map(|s3| s3.secret_key)
             })
-            .context("runtime.file_library.s3.secret_key must not be empty")?;
+            .ok_or_else(|| {
+                DomainError::invalid_argument(
+                    "runtime.file_library.s3.secret_key must not be empty",
+                )
+            })
+            .map_err(anyhow::Error::from)?;
         let config = crate::config::S3StorageConfig {
             endpoint: request.endpoint.trim().to_string(),
             region: request.region.trim().to_string(),
@@ -136,19 +144,22 @@ impl SettingsService {
     ) -> Result<()> {
         let valkey_url = request.valkey_url.trim();
         if valkey_url.is_empty() {
-            return Err(anyhow!("runtime.scheduler.valkey_url must not be empty"));
+            return Err(DomainError::invalid_argument(
+                "runtime.scheduler.valkey_url must not be empty",
+            )
+            .into());
         }
 
-        let client =
-            redis::Client::open(valkey_url).context("invalid runtime.scheduler.valkey_url")?;
-        let mut connection = client
-            .get_connection_manager()
-            .await
-            .context("failed to connect to Valkey")?;
+        let client = redis::Client::open(valkey_url).map_err(|error| {
+            DomainError::invalid_argument(format!("invalid runtime.scheduler.valkey_url: {error}"))
+        })?;
+        let mut connection = client.get_connection_manager().await.map_err(|error| {
+            DomainError::internal(format!("failed to connect to Valkey: {error}"))
+        })?;
         redis::cmd("PING")
             .query_async::<String>(&mut connection)
             .await
-            .context("Valkey PING failed")?;
+            .map_err(|error| DomainError::internal(format!("Valkey PING failed: {error}")))?;
         Ok(())
     }
 
@@ -283,9 +294,10 @@ fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
             || picture_description_model.is_some()
             || code_formula_model.is_some()
         {
-            return Err(anyhow!(
-                "docling.vlm.picture_description_preset must not be combined with the legacy OpenAI VLM bundle (openai_base_url, api_key, vlm_pipeline_model, picture_description_model, code_formula_model)"
-            ));
+            return Err(DomainError::invalid_argument(
+                "docling.vlm.picture_description_preset must not be combined with the legacy OpenAI VLM bundle (openai_base_url, api_key, vlm_pipeline_model, picture_description_model, code_formula_model)",
+            )
+            .into());
         }
         return Ok(());
     }
@@ -295,9 +307,10 @@ fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
         .filter(Option::is_some)
         .count();
     if raw_auth_count == 1 {
-        return Err(anyhow!(
-            "docling.vlm.openai_base_url and docling.vlm.api_key must be configured together"
-        ));
+        return Err(DomainError::invalid_argument(
+            "docling.vlm.openai_base_url and docling.vlm.api_key must be configured together",
+        )
+        .into());
     }
 
     let model_count = [
@@ -309,9 +322,10 @@ fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
     .filter(Option::is_some)
     .count();
     if model_count != 0 && model_count != 3 {
-        return Err(anyhow!(
-            "docling.vlm model fields must be fully configured together: vlm_pipeline_model, picture_description_model, code_formula_model"
-        ));
+        return Err(DomainError::invalid_argument(
+            "docling.vlm model fields must be fully configured together: vlm_pipeline_model, picture_description_model, code_formula_model",
+        )
+        .into());
     }
 
     let auth_configured = raw_auth_count == 2;
@@ -319,14 +333,16 @@ fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
         return Ok(());
     }
     if !auth_configured {
-        return Err(anyhow!(
-            "docling.vlm.openai_base_url and docling.vlm.api_key are required when Docling VLM models are configured"
-        ));
+        return Err(DomainError::invalid_argument(
+            "docling.vlm.openai_base_url and docling.vlm.api_key are required when Docling VLM models are configured",
+        )
+        .into());
     }
     if model_count == 0 {
-        return Err(anyhow!(
-            "docling.vlm.vlm_pipeline_model, docling.vlm.picture_description_model, and docling.vlm.code_formula_model are required when Docling VLM is configured"
-        ));
+        return Err(DomainError::invalid_argument(
+            "docling.vlm.vlm_pipeline_model, docling.vlm.picture_description_model, and docling.vlm.code_formula_model are required when Docling VLM is configured",
+        )
+        .into());
     }
 
     Ok(())

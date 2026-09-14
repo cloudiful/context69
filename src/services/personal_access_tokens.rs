@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+
+use crate::domain_errors::DomainError;
 use chrono::{Duration as ChronoDuration, Utc};
 use uuid::Uuid;
 
@@ -66,20 +68,21 @@ impl PersonalAccessTokenService {
     ) -> Result<CreatedPersonalAccessToken> {
         let trimmed_name = name.trim();
         if trimmed_name.is_empty() {
-            return Err(anyhow!("token name must not be empty"));
+            return Err(DomainError::invalid_argument("token name must not be empty").into());
         }
         if scopes.is_empty() {
-            return Err(anyhow!("at least one scope is required"));
+            return Err(DomainError::invalid_argument("at least one scope is required").into());
         }
         if !ALLOWED_EXPIRY_DAYS.contains(&expires_in_days) {
-            return Err(anyhow!(
+            return Err(DomainError::invalid_argument(format!(
                 "expires_in_days must be one of {}",
                 ALLOWED_EXPIRY_DAYS
                     .iter()
                     .map(u16::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
-            ));
+            ))
+            .into());
         }
 
         let access_token = new_personal_access_token();
@@ -142,7 +145,7 @@ impl PersonalAccessTokenService {
         self.db
             .revoke_personal_access_token(token_id, user_id)
             .await?
-            .context("personal access token not found")?;
+            .ok_or_else(|| DomainError::not_found("personal access token not found"))?;
         Ok(())
     }
 
@@ -151,7 +154,7 @@ impl PersonalAccessTokenService {
             .db
             .get_personal_access_token_by_hash(&hash_token(token))
             .await?
-            .context("invalid personal access token")?;
+            .ok_or_else(|| DomainError::unauthorized("invalid personal access token"))?;
         validate_personal_access_token_record(&record)?;
         let scopes = record
             .scopes
@@ -193,7 +196,10 @@ fn parse_scope(value: &str) -> Result<PersonalAccessTokenScope> {
         "sources" => Ok(PersonalAccessTokenScope::Sources),
         "settings" => Ok(PersonalAccessTokenScope::Settings),
         "admin" => Ok(PersonalAccessTokenScope::Admin),
-        _ => Err(anyhow!("unknown personal access token scope: {value}")),
+        _ => Err(DomainError::invalid_argument(format!(
+            "unknown personal access token scope: {value}"
+        ))
+        .into()),
     }
 }
 
@@ -217,10 +223,10 @@ fn token_view_from_record(record: PersonalAccessTokenRecord) -> Result<PersonalA
 
 fn validate_personal_access_token_record(record: &PersonalAccessTokenRecord) -> Result<()> {
     if record.revoked_at.is_some() {
-        return Err(anyhow!("personal access token has been revoked"));
+        return Err(DomainError::unauthorized("personal access token has been revoked").into());
     }
     if record.expires_at <= Utc::now() {
-        return Err(anyhow!("personal access token has expired"));
+        return Err(DomainError::unauthorized("personal access token has expired").into());
     }
     Ok(())
 }

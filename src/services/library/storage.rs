@@ -27,7 +27,7 @@ pub(super) fn detect_file_kind(filename: &str, media_type: &str) -> Result<Libra
     {
         return Ok(LibraryFileKind::PlainText);
     }
-    Err(anyhow!("unsupported file type for {}", filename))
+    Err(DomainError::invalid_argument(format!("unsupported file type for {filename}")).into())
 }
 
 pub(super) fn text_filename_from_title(title: &str, format: LibraryTextContentFormat) -> String {
@@ -81,7 +81,19 @@ pub(super) fn hash_bytes(bytes: &[u8]) -> String {
 mod tests {
     use crate::contracts::LibraryTextContentFormat;
 
-    use super::{text_filename_from_title, text_media_type};
+    use super::{detect_file_kind, text_filename_from_title, text_media_type};
+
+    #[test]
+    fn unknown_file_type_is_typed_invalid_argument() {
+        use crate::domain_errors::{DomainError, find_domain_error};
+
+        let error = detect_file_kind("payload.exe", "application/octet-stream").unwrap_err();
+        assert!(matches!(
+            find_domain_error(&error),
+            Some(DomainError::InvalidArgument(_))
+        ));
+        assert_eq!(error.to_string(), "unsupported file type for payload.exe");
+    }
 
     #[test]
     fn plain_text_title_uses_txt_extension_and_media_type() {

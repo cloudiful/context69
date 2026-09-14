@@ -1,4 +1,6 @@
-use anyhow::{Context, Result, anyhow};
+use crate::domain_errors::DomainError;
+
+use anyhow::{Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use context69_contracts::{DocumentKey, VectorIndexRebuildState};
 use serde_json::Value;
@@ -16,14 +18,16 @@ pub(super) async fn process_delete(
     item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
-    let group = group.context("delete tasks require group_id")?;
+    let group = group.context(DomainError::invalid_argument(
+        "delete tasks require group_id",
+    ))?;
     if stage == "finalize" {
         return Ok(ProcessResult::Succeeded(None));
     }
     if stage != "delete" {
         return Ok(process_error(
             stage,
-            anyhow!("unsupported delete task stage {stage}"),
+            DomainError::invalid_argument(format!("unsupported delete task stage {stage}")).into(),
         ));
     }
     if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
@@ -92,7 +96,7 @@ pub(super) async fn process_sync(
     if stage != "sync" {
         return Ok(process_error(
             stage,
-            anyhow!("unsupported sync task stage {stage}"),
+            DomainError::invalid_argument(format!("unsupported sync task stage {stage}")).into(),
         ));
     }
     if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
@@ -110,7 +114,9 @@ pub(super) async fn process_sync(
         .and_then(Value::as_str)
         .and_then(|value| value.parse::<Uuid>().ok())
     {
-        let group = group.context("source folder sync requires group_id")?;
+        let group = group.context(DomainError::invalid_argument(
+            "source folder sync requires group_id",
+        ))?;
         service
             .source_folders()
             .sync_source_folder_in_project(group, folder_id, item.lease_token)
@@ -120,8 +126,12 @@ pub(super) async fn process_sync(
         let source_key = task
             .source_key
             .as_deref()
-            .context("source_sync requires source_key")?;
-        let group = group.context("source sync requires group_id")?;
+            .context(DomainError::invalid_argument(
+                "source_sync requires source_key",
+            ))?;
+        let group = group.context(DomainError::invalid_argument(
+            "source sync requires group_id",
+        ))?;
         if service
             .sync()
             .get_source_for_group(group.id, source_key)
@@ -130,7 +140,7 @@ pub(super) async fn process_sync(
         {
             return Ok(process_error(
                 "sync",
-                anyhow!("source not found in task group"),
+                DomainError::not_found("source not found in task group").into(),
             ));
         }
         service
@@ -158,7 +168,8 @@ pub(super) async fn process_vector_rebuild(
     if stage != "indexing" {
         return Ok(process_error(
             stage,
-            anyhow!("unsupported vector rebuild stage {stage}"),
+            DomainError::invalid_argument(format!("unsupported vector rebuild stage {stage}"))
+                .into(),
         ));
     }
     if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
