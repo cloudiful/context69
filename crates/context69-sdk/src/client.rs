@@ -18,15 +18,14 @@ pub use facade::{
     ExtractionTemplateResponse, FileBatchItem, FileBatchRequest, FileMetadata, GroupKind,
     GroupResponse, HealthResponse, IngestOptions, LibraryFileDetailResponse, MetadataDataType,
     MetadataFilter, MetadataFilterOperator, MetadataValueKind, OffsetPageQuery, OffsetPagination,
-    PurgeTasksRequest, PurgeTasksResponse, RebuildDocumentExtractionsRequest, RerunTaskResponse,
-    ScopeMetadataIndex, ScopeSpec, SearchMode, SearchPagination, SearchRequest, SearchResponse,
-    SearchSort, SecretPatch, SortDirection, SourcePolicy, TaskItemResponse, TaskItemStatus,
-    TaskItemsOptions, TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListOptions, TaskListQuery,
-    TaskListView, TaskMaintenanceOverview, TaskMaintenanceSettings, TaskPageResponse, TaskProgress,
-    TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
-    TaskSubmitRequest, TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective,
-    TranslationStatus, UpdateTaskMaintenanceSettingsRequest, UrlBatchItem, UrlBatchRequest,
-    Visibility, WaitOptions,
+    RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec,
+    SearchMode, SearchPagination, SearchRequest, SearchResponse, SearchSort, SecretPatch,
+    SortDirection, SourcePolicy, TaskItemResponse, TaskItemStatus, TaskItemsOptions,
+    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListOptions, TaskListQuery, TaskListView,
+    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
+    TaskStatus, TaskSubmitRequest, TextBatchItem, TextBatchRequest, TextContentFormat,
+    TranslationDirective, TranslationStatus, UrlBatchItem, UrlBatchRequest, Visibility,
+    WaitOptions,
 };
 
 pub(crate) const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";

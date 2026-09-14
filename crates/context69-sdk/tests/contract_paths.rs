@@ -15,10 +15,9 @@ use axum::routing::{get, post};
 use context69_sdk::{
     AuthMeResponse, BatchGetDocumentsRequest, CanonicalSearchRequest, CanonicalTaskListQuery,
     CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, Context69Client, DocumentKey,
-    IngestOptions, PurgeTasksRequest, RebuildDocumentExtractionsRequest, SearchPagination,
-    SearchRequest, SearchResponse, SecretPatch, SortDirection, SourcePolicy, TaskItemsOptions,
-    TaskItemsQuery, TaskListOptions, TaskListView, TaskPurgeMode, TaskSortBy,
-    UpdateTaskMaintenanceSettingsRequest,
+    IngestOptions, RebuildDocumentExtractionsRequest, SearchPagination, SearchRequest,
+    SearchResponse, SecretPatch, SortDirection, SourcePolicy, TaskItemsOptions, TaskItemsQuery,
+    TaskListOptions, TaskListView, TaskSortBy,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -208,13 +207,6 @@ fn library_file_detail_json() -> Value {
         "created_at": now(),
         "updated_at": now(),
         "sections": []
-    })
-}
-
-fn maintenance_json() -> Value {
-    json!({
-        "settings": {"cleanup_enabled": true, "retention_days": 30, "updated_at": now()},
-        "stats": {"total": 0, "queued": 0, "running": 0, "waiting": 0, "succeeded": 0, "failed": 0, "cancelled": 0, "active": 0, "expired_terminal": 0}
     })
 }
 
@@ -468,29 +460,6 @@ async fn test_router(log: SharedLog) -> axum::Router {
             }),
         )
         .route(
-            "/v1/admin/tasks/maintenance",
-            get({
-                let log = log.clone();
-                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
-                    let log = log.clone();
-                    async move {
-                        record(&method, &uri, &headers, &log);
-                        (StatusCode::OK, Json(maintenance_json()))
-                    }
-                }
-            })
-            .put({
-                let log = log.clone();
-                move |method: Method, uri: OriginalUri, headers: HeaderMap, Json(_body): Json<Value>| {
-                    let log = log.clone();
-                    async move {
-                        record(&method, &uri, &headers, &log);
-                        (StatusCode::OK, Json(maintenance_json()))
-                    }
-                }
-            }),
-        )
-        .route(
             "/v1/admin/tasks/cancel-active",
             post({
                 let log = log.clone();
@@ -499,19 +468,6 @@ async fn test_router(log: SharedLog) -> axum::Router {
                     async move {
                         record(&method, &uri, &headers, &log);
                         (StatusCode::OK, Json(json!({"cancelled_tasks": 1})))
-                    }
-                }
-            }),
-        )
-        .route(
-            "/v1/admin/tasks/purge",
-            post({
-                let log = log.clone();
-                move |method: Method, uri: OriginalUri, headers: HeaderMap, Json(_body): Json<Value>| {
-                    let log = log.clone();
-                    async move {
-                        record(&method, &uri, &headers, &log);
-                        (StatusCode::OK, Json(json!({"deleted_tasks": 1})))
                     }
                 }
             }),
@@ -999,34 +955,12 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert_eq!(last(&log).method, "DELETE");
     assert_eq!(last(&log).path, format!("/v1/tasks/{task_uuid}"));
 
-    client.task_maintenance().await.expect("maintenance get");
-    assert_eq!(last(&log).method, "GET");
-    assert_eq!(last(&log).path, "/v1/admin/tasks/maintenance");
-
-    let maintenance_req = UpdateTaskMaintenanceSettingsRequest {
-        cleanup_enabled: true,
-        retention_days: 30,
-    };
-    client
-        .update_task_maintenance(&maintenance_req)
-        .await
-        .expect("maintenance put");
-    assert_eq!(last(&log).method, "PUT");
-    assert_eq!(last(&log).path, "/v1/admin/tasks/maintenance");
-
     client
         .cancel_active_tasks()
         .await
         .expect("cancel_active_tasks");
     assert_eq!(last(&log).method, "POST");
     assert_eq!(last(&log).path, "/v1/admin/tasks/cancel-active");
-
-    let purge_req = PurgeTasksRequest {
-        mode: TaskPurgeMode::Expired,
-    };
-    client.purge_tasks(&purge_req).await.expect("purge_tasks");
-    assert_eq!(last(&log).method, "POST");
-    assert_eq!(last(&log).path, "/v1/admin/tasks/purge");
 
     let search_req: SearchRequest =
         serde_json::from_value(json!({"query": "hello"})).expect("search");

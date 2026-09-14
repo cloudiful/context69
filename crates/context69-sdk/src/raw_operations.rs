@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (116 operations, sorted by `operation_id` for deterministic diffs).
+//! (114 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -63,6 +63,17 @@ pub const OPERATIONS: &[Operation] = &[
         request_schema: "-",
         response_schema: "-",
         success_status: 204,
+        idempotent: false,
+    },
+    Operation {
+        id: "clear_task_history",
+        method: "POST",
+        path_template: "/v1/tasks/clear",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "ClearTaskHistoryRequest",
+        response_schema: "ClearTaskHistoryResponse",
+        success_status: 200,
         idempotent: false,
     },
     Operation {
@@ -506,17 +517,6 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
-        id: "get_task_maintenance",
-        method: "GET",
-        path_template: "/v1/admin/tasks/maintenance",
-        requires_auth: true,
-        body_kind: BodyKind::Empty,
-        request_schema: "-",
-        response_schema: "TaskMaintenanceOverview",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
         id: "get_translation_settings",
         method: "GET",
         path_template: "/v1/settings/translation",
@@ -799,17 +799,6 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "PrepareLibraryUploadRequest",
         response_schema: "PrepareLibraryUploadResponse",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
-        id: "purge_tasks",
-        method: "POST",
-        path_template: "/v1/admin/tasks/purge",
-        requires_auth: true,
-        body_kind: BodyKind::Json,
-        request_schema: "PurgeTasksRequest",
-        response_schema: "PurgeTasksResponse",
         success_status: 200,
         idempotent: false,
     },
@@ -1228,17 +1217,6 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "UpsertSourceConnectionRequest",
         response_schema: "SourceConnectionResponse",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
-        id: "update_task_maintenance",
-        method: "PUT",
-        path_template: "/v1/admin/tasks/maintenance",
-        requires_auth: true,
-        body_kind: BodyKind::Json,
-        request_schema: "UpdateTaskMaintenanceSettingsRequest",
-        response_schema: "TaskMaintenanceOverview",
         success_status: 200,
         idempotent: false,
     },

@@ -28,7 +28,7 @@
 ## Advanced SDK workflow
 
 `context69-sdk` exposes the ergonomic facade plus the complete low-level
-`client.raw()` transport (all 116 OpenAPI operations via the `OPERATIONS`
+`client.raw()` transport (all 114 OpenAPI operations via the `OPERATIONS`
 registry and `RawRequest`). Use `ensure_scope` once for group provisioning
 and declared metadata indexes, then submit text, URL, file, or delete arrays
 through `submit_text_batch`, `submit_url_batch`, `submit_file_batch`, or

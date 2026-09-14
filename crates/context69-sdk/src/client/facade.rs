@@ -11,14 +11,13 @@ pub use context69_contracts::{
     IngestOptions, LibraryFileDetailResponse, LibraryFileUploadMetadata as FileMetadata,
     LibraryTextContentFormat as TextContentFormat, MetadataDataType, MetadataFilter,
     MetadataFilterOperator, MetadataValueKind, OffsetPageQuery, OffsetPagination,
-    PurgeTasksRequest, PurgeTasksResponse, RebuildDocumentExtractionsRequest, RerunTaskResponse,
-    ScopeMetadataIndex, ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort,
-    SecretPatch, SortDirection, SourcePolicy, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskMaintenanceOverview,
-    TaskMaintenanceSettings, TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef, TaskResponse,
+    RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec,
+    SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
+    SourcePolicy, TaskItemResponse, TaskItemStatus, TaskItemsQuery, TaskItemsResponse, TaskKind,
+    TaskListQuery, TaskListView, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
     TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
-    TranslationDirective, TranslationStatus, UpdateTaskMaintenanceSettingsRequest,
-    UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
+    TranslationDirective, TranslationStatus, UpsertLibraryTextRequest as TextBatchItem,
+    UrlBatchRequest, Visibility,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -485,42 +484,10 @@ impl Context69Client {
         self.purge_trashed_task(task_id).await
     }
 
-    pub async fn task_maintenance(&self) -> Result<TaskMaintenanceOverview, Error> {
-        self.execute_json(
-            self.authorized_request(Method::GET, "/v1/admin/tasks/maintenance")
-                .await?,
-        )
-        .await
-    }
-
-    pub async fn update_task_maintenance(
-        &self,
-        request: &UpdateTaskMaintenanceSettingsRequest,
-    ) -> Result<TaskMaintenanceOverview, Error> {
-        self.execute_json(
-            self.authorized_request(Method::PUT, "/v1/admin/tasks/maintenance")
-                .await?
-                .json(request),
-        )
-        .await
-    }
-
     pub async fn cancel_active_tasks(&self) -> Result<CancelActiveTasksResponse, Error> {
         self.execute_json(
             self.authorized_request(Method::POST, "/v1/admin/tasks/cancel-active")
                 .await?,
-        )
-        .await
-    }
-
-    pub async fn purge_tasks(
-        &self,
-        request: &PurgeTasksRequest,
-    ) -> Result<PurgeTasksResponse, Error> {
-        self.execute_json(
-            self.authorized_request(Method::POST, "/v1/admin/tasks/purge")
-                .await?
-                .json(request),
         )
         .await
     }

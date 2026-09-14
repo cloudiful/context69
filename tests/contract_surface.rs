@@ -339,7 +339,8 @@ fn inventory_shared_schemas_exist_in_openapi() {
 
 #[test]
 fn inventory_covers_sdk_facade_and_mcp_surfaces() {
-    // SDK facade methods (32 async methods on Context69Client).
+    // SDK facade methods on Context69Client (issue 391 Task 4: retention/purge
+    // facade removed, recovery ops preserved).
     for method in [
         "ensure_scope",
         "text_batch",
@@ -359,10 +360,7 @@ fn inventory_covers_sdk_facade_and_mcp_surfaces() {
         "trash_task",
         "restore_task",
         "delete_task",
-        "task_maintenance",
-        "update_task_maintenance",
         "cancel_active_tasks",
-        "purge_tasks",
         "search_compact",
         "get_document",
         "get_document_by_key",

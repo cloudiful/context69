@@ -2397,13 +2397,6 @@ export interface components {
             task?: null | components["schemas"]["TaskRef"];
             upload_required: boolean;
         };
-        PurgeTasksRequest: {
-            mode: components["schemas"]["TaskPurgeMode"];
-        };
-        PurgeTasksResponse: {
-            /** Format: int64 */
-            deleted_tasks: number;
-        };
         QuarantineStaleSubmittingRequest: {
             /**
              * @description When true, only read eligibility counts and return a preview without
@@ -2954,17 +2947,6 @@ export interface components {
         };
         /** @enum {string} */
         TaskListView: "processing" | "completed" | "trash";
-        TaskMaintenanceOverview: {
-            settings: components["schemas"]["TaskMaintenanceSettings"];
-            stats: components["schemas"]["TaskMaintenanceStats"];
-        };
-        TaskMaintenanceSettings: {
-            cleanup_enabled: boolean;
-            /** Format: int64 */
-            retention_days: number;
-            /** Format: date-time */
-            updated_at: string;
-        };
         TaskMaintenanceStats: {
             /** Format: int64 */
             active: number;
@@ -2973,8 +2955,7 @@ export interface components {
             /**
              * Format: int64
              * @description Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,
-             *     default 1 when unconfigured). Read-only capacity signal; the overview
-             *     never tunes admission.
+             *     default 1 when unconfigured). Read-only capacity signal.
              */
             docling_max_inflight?: number;
             /**
@@ -2984,8 +2965,6 @@ export interface components {
              *     Read-only backpressure signal paired with `docling_max_inflight`.
              */
             due_docling_waiting_count?: number;
-            /** Format: int64 */
-            expired_terminal: number;
             /** Format: int64 */
             failed: number;
             /**
@@ -3004,7 +2983,7 @@ export interface components {
             /**
              * Format: int64
              * @description Rows already isolated as `orphaned`: non-active, no longer blocking
-             *     terminal-task cleanup/purge or Docling admission.
+             *     Docling admission.
              */
             orphaned_external_jobs?: number;
             /**
@@ -3052,8 +3031,6 @@ export interface components {
             /** Format: int64 */
             waiting: number;
         };
-        /** @enum {string} */
-        TaskPurgeMode: "expired" | "all_terminal";
         TaskRef: {
             item_ids?: string[];
             /** Format: uuid */
@@ -3306,11 +3283,6 @@ export interface components {
             file_library: components["schemas"]["UpdateRuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
-        };
-        UpdateTaskMaintenanceSettingsRequest: {
-            cleanup_enabled: boolean;
-            /** Format: int64 */
-            retention_days: number;
         };
         UpdateTranslationSettingsRequest: {
             providers: components["schemas"]["TranslationProviderInput"][];

@@ -102,15 +102,13 @@ pub use context69_contracts_sources::sources::{
 pub use context69_contracts_tasks::tasks::{
     CancelActiveTasksResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest,
     ClearTaskHistoryResponse, ClearTaskHistoryView, DeleteBatchRequest, EnsureScopeResponse,
-    ExternalJobInfo, FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest,
-    PurgeTasksResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
-    QuarantinedExternalJob, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,
-    QueuedDoclingTask, RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask,
-    RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus,
-    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
-    TaskMaintenanceOverview, TaskMaintenanceSettings, TaskMaintenanceStats, TaskOrigin,
-    TaskPageResponse, TaskProgress, TaskPurgeMode, TaskRef, TaskResponse, TaskRetryResponse,
-    TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem,
-    UpdateTaskMaintenanceSettingsRequest, UrlBatchRequest,
+    ExternalJobInfo, FileBatchItem, FileBatchRequest, FileRetryItem,
+    QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse, QuarantinedExternalJob,
+    QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
+    RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
+    ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskMaintenanceStats, TaskOrigin,
+    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
+    TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
 };
 pub use context69_contracts_translation::translation::*;

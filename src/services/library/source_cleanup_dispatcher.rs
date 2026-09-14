@@ -31,6 +31,17 @@ use tokio_util::sync::CancellationToken;
 /// crash recovery and missed wakes.
 pub const SOURCE_CLEANUP_FALLBACK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
+/// Staged-input orphan grace (issue 391 Task 4): only staged storage objects
+/// whose lease expired more than 24 hours ago are eligible. Matches the
+/// pre-391 `STAGED_OBJECT_GRACE_HOURS` so dispatcher drains (startup, wake,
+/// 5-minute fallback) never delete an in-flight task input. Frequent drains
+/// are safe because the 24-hour grace filters everything recent.
+pub const STAGED_SWEEP_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Bounded staged-sweep page per drain. Same order as the source-object
+/// cleanup batch so one drain never holds the queue.
+pub const STAGED_SWEEP_BATCH_SIZE: i64 = 50;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DrainReason {
     Startup,
@@ -246,6 +257,40 @@ impl SourceCleanupDispatcher {
                 );
             }
         }
+        // Staged-input orphan sweep (issue 391 Task 4): safe to run on every
+        // drain because `STAGED_SWEEP_GRACE` (24h) filters recent inputs and
+        // the sweep itself re-validates file/task references under a lock
+        // before any S3 delete. A failure only logs and never blocks later
+        // drains; no task-history row is touched.
+        let staged_before = chrono::Utc::now()
+            - chrono::Duration::from_std(STAGED_SWEEP_GRACE).unwrap_or(chrono::Duration::hours(24));
+        match library
+            .sweep_orphaned_storage_objects(staged_before, STAGED_SWEEP_BATCH_SIZE)
+            .await
+        {
+            Ok(deleted) if deleted > 0 => {
+                tracing::info!(
+                    deleted_staged_objects = deleted,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    reason = reason_str,
+                    "staged storage sweep completed"
+                );
+            }
+            Ok(_) => {
+                tracing::debug!(
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    reason = reason_str,
+                    "staged storage sweep completed without work"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    reason = reason_str,
+                    "staged storage sweep failed"
+                );
+            }
+        }
     }
 }
 
@@ -302,6 +347,54 @@ mod tests {
             super::SOURCE_CLEANUP_FALLBACK_INTERVAL,
             Duration::from_secs(5 * 60)
         );
+    }
+
+    #[test]
+    fn staged_sweep_uses_safe_grace_and_bounded_batch() {
+        // Issue 391 Task 4: the orphaned staged sweep moved from the removed
+        // 6-hour task-history loop into this dispatcher. The 24-hour grace
+        // preserves the old `STAGED_OBJECT_GRACE_HOURS` so frequent drains
+        // (startup/wake/5-minute fallback) never delete in-flight inputs;
+        // the batch stays bounded so one drain never holds the queue.
+        assert_eq!(super::STAGED_SWEEP_GRACE, Duration::from_secs(24 * 60 * 60));
+        assert!(
+            (1..=1000).contains(&super::STAGED_SWEEP_BATCH_SIZE),
+            "staged sweep batch must stay bounded, got {}",
+            super::STAGED_SWEEP_BATCH_SIZE
+        );
+    }
+
+    #[test]
+    fn staged_sweep_sql_only_touches_expired_unreferenced_staging() {
+        fn normalized(path: &str) -> String {
+            path.lines()
+                .map(|line| line.split_once("--").map_or(line, |(code, _)| code))
+                .collect::<Vec<_>>()
+                .join(" ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        let list = normalized(include_str!(
+            "../../sql/library_store/objects/list_orphaned_storage_objects.sql"
+        ));
+        // Only staged leases past the cutoff are candidates.
+        assert!(list.contains("staging_lease_until IS NOT NULL"));
+        assert!(list.contains("staging_lease_until < $1"));
+        // Referenced bytes are never candidates: no file or task input may
+        // point at the object. No task-history row is touched.
+        assert!(list.contains("NOT EXISTS ( SELECT 1 FROM context69.library_files"));
+        assert!(list.contains("NOT EXISTS ( SELECT 1 FROM context69.task_items"));
+        assert!(list.contains("WHERE item.input_storage_object_id = object.id"));
+        assert!(!list.contains("context69.tasks"));
+        assert!(!list.contains("DELETE"));
+        let clear = normalized(include_str!(
+            "../../sql/library_store/objects/clear_expired_staging_with_file_reference.sql"
+        ));
+        // The lease-clear path only nulls the staging lease on file-backed
+        // rows with no task input; it never deletes bytes or task history.
+        assert!(clear.contains("SET staging_lease_until = NULL"));
+        assert!(!clear.contains("DELETE FROM context69.tasks"));
     }
 
     #[tokio::test]

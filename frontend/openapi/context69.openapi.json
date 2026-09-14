@@ -9074,29 +9074,6 @@
           }
         }
       },
-      "PurgeTasksRequest": {
-        "type": "object",
-        "required": [
-          "mode"
-        ],
-        "properties": {
-          "mode": {
-            "$ref": "#/components/schemas/TaskPurgeMode"
-          }
-        }
-      },
-      "PurgeTasksResponse": {
-        "type": "object",
-        "required": [
-          "deleted_tasks"
-        ],
-        "properties": {
-          "deleted_tasks": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
       "QuarantineStaleSubmittingRequest": {
         "type": "object",
         "required": [
@@ -10697,42 +10674,6 @@
           "trash"
         ]
       },
-      "TaskMaintenanceOverview": {
-        "type": "object",
-        "required": [
-          "settings",
-          "stats"
-        ],
-        "properties": {
-          "settings": {
-            "$ref": "#/components/schemas/TaskMaintenanceSettings"
-          },
-          "stats": {
-            "$ref": "#/components/schemas/TaskMaintenanceStats"
-          }
-        }
-      },
-      "TaskMaintenanceSettings": {
-        "type": "object",
-        "required": [
-          "cleanup_enabled",
-          "retention_days",
-          "updated_at"
-        ],
-        "properties": {
-          "cleanup_enabled": {
-            "type": "boolean"
-          },
-          "retention_days": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
       "TaskMaintenanceStats": {
         "type": "object",
         "required": [
@@ -10743,8 +10684,7 @@
           "succeeded",
           "failed",
           "cancelled",
-          "active",
-          "expired_terminal"
+          "active"
         ],
         "properties": {
           "active": {
@@ -10758,16 +10698,12 @@
           "docling_max_inflight": {
             "type": "integer",
             "format": "int64",
-            "description": "Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,\ndefault 1 when unconfigured). Read-only capacity signal; the overview\nnever tunes admission."
+            "description": "Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,\ndefault 1 when unconfigured). Read-only capacity signal."
           },
           "due_docling_waiting_count": {
             "type": "integer",
             "format": "int64",
             "description": "Due admission-deferred `waiting/backoff` items carrying the\n`remote admission is full` marker whose deferral delay has elapsed.\nRead-only backpressure signal paired with `docling_max_inflight`."
-          },
-          "expired_terminal": {
-            "type": "integer",
-            "format": "int64"
           },
           "failed": {
             "type": "integer",
@@ -10792,7 +10728,7 @@
           "orphaned_external_jobs": {
             "type": "integer",
             "format": "int64",
-            "description": "Rows already isolated as `orphaned`: non-active, no longer blocking\nterminal-task cleanup/purge or Docling admission."
+            "description": "Rows already isolated as `orphaned`: non-active, no longer blocking\nDocling admission."
           },
           "quarantinable_submitting": {
             "type": "integer",
@@ -10892,13 +10828,6 @@
             "format": "int64"
           }
         }
-      },
-      "TaskPurgeMode": {
-        "type": "string",
-        "enum": [
-          "expired",
-          "all_terminal"
-        ]
       },
       "TaskRef": {
         "type": "object",
@@ -11963,22 +11892,6 @@
           },
           "scheduler": {
             "$ref": "#/components/schemas/RuntimeSchedulerSettings"
-          }
-        }
-      },
-      "UpdateTaskMaintenanceSettingsRequest": {
-        "type": "object",
-        "required": [
-          "cleanup_enabled",
-          "retention_days"
-        ],
-        "properties": {
-          "cleanup_enabled": {
-            "type": "boolean"
-          },
-          "retention_days": {
-            "type": "integer",
-            "format": "int64"
           }
         }
       },
