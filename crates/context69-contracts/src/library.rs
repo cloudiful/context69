@@ -437,6 +437,10 @@ pub struct LibraryFileIngestOptions {
     pub extraction: Option<crate::ExtractionDirective>,
     /// Release the source object once processing succeeds. Chosen once at
     /// upload; defaults to `false` (retain the source).
+    /// Deprecated: use [`crate::SourcePolicy`] via [`crate::IngestOptions`]
+    /// instead. The multipart `metadata` field also accepts a bare
+    /// [`crate::IngestOptions`] document (`metadata` object plus
+    /// `source_policy`) for the v0.16 wire.
     #[serde(default)]
     pub delete_source_after_processing: bool,
 }
@@ -449,6 +453,11 @@ pub struct PrepareLibraryUploadRequest {
     pub media_type: String,
     pub size_bytes: i64,
     pub sha256: String,
+    /// Canonical ingest options. When present, takes precedence over the
+    /// deprecated flattened fields below. New clients should send only this;
+    /// v0.15 clients send only the flattened fields and stay readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<crate::IngestOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -457,6 +466,7 @@ pub struct PrepareLibraryUploadRequest {
     pub extraction: Option<crate::ExtractionDirective>,
     /// Release the source object once processing succeeds. Chosen once at
     /// upload; defaults to `false` (retain the source).
+    /// Deprecated: use `options.source_policy` instead.
     #[serde(default)]
     pub delete_source_after_processing: bool,
 }
@@ -479,6 +489,11 @@ pub struct ImportLibraryFileFromUrlRequest {
     pub filename: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
+    /// Canonical ingest options. When present, takes precedence over the
+    /// deprecated flattened fields below. New clients should send only this;
+    /// v0.15 clients send only the flattened fields and stay readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<crate::IngestOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -487,6 +502,7 @@ pub struct ImportLibraryFileFromUrlRequest {
     pub extraction: Option<crate::ExtractionDirective>,
     /// Release the source object once processing succeeds. Chosen once at
     /// upload; defaults to `false` (retain the source).
+    /// Deprecated: use `options.source_policy` instead.
     #[serde(default)]
     pub delete_source_after_processing: bool,
 }
@@ -524,7 +540,13 @@ impl LibraryFileIngestOptions {
 }
 
 impl PrepareLibraryUploadRequest {
+    /// Canonical [`crate::IngestOptions`] view. Prefers `options` when
+    /// present (v0.16 wire); falls back to the flattened v0.15 fields for
+    /// in-flight tasks and old clients.
     pub fn ingest_options(&self) -> crate::IngestOptions {
+        if let Some(options) = self.options.clone() {
+            return options;
+        }
         crate::IngestOptions::from_legacy(
             self.metadata.clone(),
             self.translation.clone(),
@@ -532,15 +554,43 @@ impl PrepareLibraryUploadRequest {
             self.delete_source_after_processing,
         )
     }
+
+    /// Build a request that carries both shapes: canonical `options` for new
+    /// readers plus flattened duplicates for v0.15 readers.
+    pub fn with_ingest_options(mut self, options: crate::IngestOptions) -> Self {
+        self.delete_source_after_processing = options.as_delete_flag();
+        self.translation = options.translation.clone();
+        self.extraction = options.extraction.clone();
+        self.metadata = options.legacy_metadata_opt();
+        self.options = Some(options);
+        self
+    }
 }
 
 impl ImportLibraryFileFromUrlRequest {
+    /// Canonical [`crate::IngestOptions`] view. Prefers `options` when
+    /// present (v0.16 wire); falls back to the flattened v0.15 fields for
+    /// in-flight tasks and old clients.
     pub fn ingest_options(&self) -> crate::IngestOptions {
+        if let Some(options) = self.options.clone() {
+            return options;
+        }
         crate::IngestOptions::from_legacy(
             self.metadata.clone(),
             self.translation.clone(),
             self.extraction.clone(),
             self.delete_source_after_processing,
         )
+    }
+
+    /// Build a request that carries both shapes: canonical `options` for new
+    /// readers plus flattened duplicates for v0.15 readers.
+    pub fn with_ingest_options(mut self, options: crate::IngestOptions) -> Self {
+        self.delete_source_after_processing = options.as_delete_flag();
+        self.translation = options.translation.clone();
+        self.extraction = options.extraction.clone();
+        self.metadata = options.legacy_metadata_opt();
+        self.options = Some(options);
+        self
     }
 }

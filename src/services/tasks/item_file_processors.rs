@@ -101,6 +101,7 @@ pub(super) async fn process_file(
                     Err(error) => return Ok(process_error(stage, anyhow!(error))),
                 }
             };
+            let ingest = request.ingest_options();
             match service
                 .library()
                 .prepare_file_for_task(
@@ -111,11 +112,11 @@ pub(super) async fn process_file(
                         media_type: request.media_type,
                         bytes,
                         declared_sha256: request.declared_sha256,
-                        metadata: request.metadata,
-                        translation: request.translation,
-                        extraction: request.extraction,
+                        metadata: ingest.legacy_metadata_opt(),
+                        translation: ingest.translation.clone(),
+                        extraction: ingest.extraction.clone(),
                         staged_storage_object_id: item.input_storage_object_id,
-                        delete_source_after_processing: request.delete_source_after_processing,
+                        delete_source_after_processing: ingest.as_delete_flag(),
                     },
                     item.lease_token,
                 )
@@ -157,6 +158,8 @@ struct StoredFileBatchItem {
     #[serde(default)]
     folder_id: Option<Uuid>,
     #[serde(default)]
+    options: Option<context69_contracts::IngestOptions>,
+    #[serde(default)]
     metadata: Option<context69_contracts::LibraryFileUploadMetadata>,
     #[serde(default)]
     translation: Option<context69_contracts::TranslationDirective>,
@@ -164,6 +167,21 @@ struct StoredFileBatchItem {
     extraction: Option<context69_contracts::ExtractionDirective>,
     #[serde(default)]
     delete_source_after_processing: bool,
+}
+
+impl StoredFileBatchItem {
+    /// Canonical view: prefer `options` (v0.16) else flattened v0.15 fields.
+    fn ingest_options(&self) -> context69_contracts::IngestOptions {
+        if let Some(options) = self.options.clone() {
+            return options;
+        }
+        context69_contracts::IngestOptions::from_legacy(
+            self.metadata.clone(),
+            self.translation.clone(),
+            self.extraction.clone(),
+            self.delete_source_after_processing,
+        )
+    }
 }
 
 pub(super) async fn process_file_stage(
@@ -404,5 +422,41 @@ async fn ingest_error_result(
             message: error.message,
             retryable: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StoredFileBatchItem;
+
+    #[test]
+    fn stored_file_payload_keeps_v015_readable_and_prefers_canonical() {
+        // v0.15 in-flight payload without `options` stays readable.
+        let legacy: StoredFileBatchItem = serde_json::from_value(serde_json::json!({
+            "filename": "a.pdf",
+            "media_type": "application/pdf",
+            "content_base64": "aGk=",
+            "metadata": { "external_id": "doc-1", "metadata_json": { "k": "v" } },
+            "delete_source_after_processing": true
+        }))
+        .expect("legacy stored payload");
+        assert!(legacy.options.is_none());
+        let ingest = legacy.ingest_options();
+        assert!(ingest.is_release());
+        assert_eq!(ingest.metadata.external_id.as_deref(), Some("doc-1"));
+
+        // Canonical payload takes precedence even when flattened duplicates disagree.
+        let canonical: StoredFileBatchItem = serde_json::from_value(serde_json::json!({
+            "filename": "a.pdf",
+            "media_type": "application/pdf",
+            "content_base64": "aGk=",
+            "options": { "metadata": { "external_id": "doc-2" }, "source_policy": "retain" },
+            "metadata": { "external_id": "doc-1", "metadata_json": {} },
+            "delete_source_after_processing": true
+        }))
+        .expect("canonical stored payload");
+        let ingest = canonical.ingest_options();
+        assert!(!ingest.is_release());
+        assert_eq!(ingest.metadata.external_id.as_deref(), Some("doc-2"));
     }
 }

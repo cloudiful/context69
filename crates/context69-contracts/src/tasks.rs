@@ -397,6 +397,11 @@ pub struct FileBatchItem {
     pub declared_sha256: Option<String>,
     #[serde(default)]
     pub folder_id: Option<Uuid>,
+    /// Canonical ingest options. When present, takes precedence over the
+    /// deprecated flattened fields below. New code should send only this;
+    /// v0.15 payloads send only the flattened fields and stay readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<crate::IngestOptions>,
     #[serde(default)]
     pub metadata: Option<LibraryFileUploadMetadata>,
     #[serde(default)]
@@ -405,6 +410,7 @@ pub struct FileBatchItem {
     pub extraction: Option<crate::ExtractionDirective>,
     /// Release the source object once processing succeeds. Chosen once at
     /// upload; defaults to `false` (retain the source).
+    /// Deprecated: use `options.source_policy` instead.
     #[serde(default)]
     pub delete_source_after_processing: bool,
 }
@@ -680,13 +686,29 @@ fn default_item_limit() -> u32 {
 }
 
 impl FileBatchItem {
-    /// Canonical [`crate::IngestOptions`] view of the flattened v0.15 fields.
+    /// Canonical [`crate::IngestOptions`] view. Prefers `options` when
+    /// present (v0.16 wire); falls back to the flattened v0.15 fields for
+    /// in-flight tasks and old clients.
     pub fn ingest_options(&self) -> crate::IngestOptions {
+        if let Some(options) = self.options.clone() {
+            return options;
+        }
         crate::IngestOptions::from_legacy(
             self.metadata.clone(),
             self.translation.clone(),
             self.extraction.clone(),
             self.delete_source_after_processing,
         )
+    }
+
+    /// Build an item that carries both shapes: canonical `options` for new
+    /// readers plus flattened duplicates for v0.15 readers.
+    pub fn with_ingest_options(mut self, options: crate::IngestOptions) -> Self {
+        self.delete_source_after_processing = options.as_delete_flag();
+        self.translation = options.translation.clone();
+        self.extraction = options.extraction.clone();
+        self.metadata = options.legacy_metadata_opt();
+        self.options = Some(options);
+        self
     }
 }

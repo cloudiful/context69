@@ -16,10 +16,11 @@ impl LibraryService {
                 .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         }
         storage::detect_file_kind(&request.filename, &request.media_type)?;
-        if let Some(external_id) = request
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.external_id.as_deref())
+        // Canonical wire: prefer `options` when present, fall back to v0.15
+        // flattened fields for old clients. Messages/status preserved.
+        let ingest = request.ingest_options();
+        let resolved_metadata = ingest.legacy_metadata_opt();
+        if let Some(external_id) = ingest.metadata.external_id.as_deref()
             && let Some(existing) = self
                 .store
                 .get_file_by_external_id_in_project(project.id, external_id)
@@ -34,9 +35,9 @@ impl LibraryService {
                 return self
                     .reuse_prepared_file(
                         existing,
-                        request.metadata.as_ref(),
-                        request.translation.as_ref(),
-                        request.extraction.as_ref(),
+                        resolved_metadata.as_ref(),
+                        ingest.translation.as_ref(),
+                        ingest.extraction.as_ref(),
                     )
                     .await;
             }
@@ -48,10 +49,7 @@ impl LibraryService {
             .get_file_by_sha_in_project(project.id, &request.sha256)
             .await?
         {
-            let requested_external_id = request
-                .metadata
-                .as_ref()
-                .and_then(|metadata| metadata.external_id.as_deref());
+            let requested_external_id = ingest.metadata.external_id.as_deref();
             if requested_external_id.is_some()
                 && existing.external_id.as_deref() != requested_external_id
             {
@@ -68,9 +66,9 @@ impl LibraryService {
             return self
                 .reuse_prepared_file(
                     existing,
-                    request.metadata.as_ref(),
-                    request.translation.as_ref(),
-                    request.extraction.as_ref(),
+                    resolved_metadata.as_ref(),
+                    ingest.translation.as_ref(),
+                    ingest.extraction.as_ref(),
                 )
                 .await;
         }
@@ -150,6 +148,8 @@ impl LibraryService {
         .await?;
 
         let file_id = Uuid::new_v4();
+        let ingest = request.ingest_options();
+        let resolved_metadata = ingest.legacy_metadata_opt();
         let mut created = match self
             .store
             .create_file_in_project(
@@ -157,17 +157,14 @@ impl LibraryService {
                 &NewLibraryFile {
                     id: file_id,
                     folder_id,
-                    external_id: request
-                        .metadata
-                        .as_ref()
-                        .and_then(|metadata| metadata.external_id.clone()),
+                    external_id: ingest.metadata.external_id.clone(),
                     filename: filename.clone(),
                     media_type: request.media_type.clone(),
                     size_bytes: request.size_bytes,
                     sha256: request.sha256.clone(),
                     storage_rel_path: storage_object.object_key.clone(),
                     storage_object_id: Some(storage_object.id),
-                    delete_source_after_processing: request.delete_source_after_processing,
+                    delete_source_after_processing: ingest.as_delete_flag(),
                 },
             )
             .await
@@ -181,7 +178,7 @@ impl LibraryService {
                 return Err(error);
             }
         };
-        if let Some(metadata) = request.metadata.as_ref() {
+        if let Some(metadata) = resolved_metadata.as_ref() {
             created = match self.apply_file_business_metadata(file_id, metadata).await {
                 Ok(file) => file,
                 Err(error) => {
@@ -191,7 +188,7 @@ impl LibraryService {
                 }
             };
         }
-        if let Some(directive) = request.translation.as_ref()
+        if let Some(directive) = ingest.translation.as_ref()
             && let Err(error) = self
                 .apply_file_translation_directive(file_id, directive)
                 .await
@@ -200,7 +197,7 @@ impl LibraryService {
                 .await;
             return Err(error);
         }
-        if let Some(directive) = request.extraction.as_ref()
+        if let Some(directive) = ingest.extraction.as_ref()
             && let Err(error) = self
                 .apply_file_extraction_directive(file_id, directive)
                 .await

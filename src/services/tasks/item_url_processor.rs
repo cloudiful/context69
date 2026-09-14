@@ -84,12 +84,24 @@ pub(super) async fn process_url(
                 Ok(bytes) => bytes,
                 Err(error) => return Ok(process_error(stage, anyhow!(error))),
             };
-            let metadata = request.metadata.clone().or_else(|| {
-                Some(context69_contracts::LibraryFileUploadMetadata {
+            // Canonical wire: prefer `options` when present, else v0.15
+            // flattened fields. In-flight URL payloads without `options`
+            // stay readable.
+            let ingest = request.ingest_options();
+            let mut metadata = ingest.legacy_metadata_opt();
+            if metadata.is_none() {
+                metadata = Some(context69_contracts::LibraryFileUploadMetadata {
                     source_uri: Some(artifact.source_url.clone()),
                     ..Default::default()
-                })
-            });
+                });
+            } else if metadata
+                .as_ref()
+                .and_then(|value| value.source_uri.clone())
+                .is_none()
+                && let Some(value) = metadata.as_mut()
+            {
+                value.source_uri = Some(artifact.source_url.clone());
+            }
             match service
                 .library()
                 .prepare_file_for_task(
@@ -101,10 +113,10 @@ pub(super) async fn process_url(
                         bytes: bytes.into(),
                         declared_sha256: Some(artifact.sha256),
                         metadata,
-                        translation: request.translation,
-                        extraction: request.extraction,
+                        translation: ingest.translation.clone(),
+                        extraction: ingest.extraction.clone(),
                         staged_storage_object_id: None,
-                        delete_source_after_processing: request.delete_source_after_processing,
+                        delete_source_after_processing: ingest.as_delete_flag(),
                     },
                     item.lease_token,
                 )

@@ -6217,6 +6217,34 @@
           }
         }
       },
+      "CanonicalUploadMetadata": {
+        "type": "object",
+        "description": "v0.16 canonical upload metadata: same wire keys as the v0.15\n[`crate::LibraryFileUploadMetadata`], but `metadata_json` is an explicit\nobject map ([`crate::MetadataObject`]) instead of `serde_json::Value`.\n\nObject-ness is enforced at the type boundary: deserializing a scalar or\narray `metadata_json` fails, and JSON Schema advertises an object (the\nlegacy `Value` shape renders as `true`/any). The v0.15 struct is unchanged\nfor wire compatibility; convert with `From`/`TryFrom` below.",
+        "properties": {
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata_json": {
+            "type": "object"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CreateAdminUserRequest": {
         "type": "object",
         "required": [
@@ -7290,7 +7318,7 @@
           },
           "delete_source_after_processing": {
             "type": "boolean",
-            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use `options.source_policy` instead."
           },
           "extraction": {
             "oneOf": [
@@ -7322,6 +7350,17 @@
               },
               {
                 "$ref": "#/components/schemas/LibraryFileUploadMetadata"
+              }
+            ]
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IngestOptions",
+                "description": "Canonical ingest options. When present, takes precedence over the\ndeprecated flattened fields below. New code should send only this;\nv0.15 payloads send only the flattened fields and stay readable."
               }
             ]
           },
@@ -7635,7 +7674,7 @@
         "properties": {
           "delete_source_after_processing": {
             "type": "boolean",
-            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use `options.source_policy` instead."
           },
           "extraction": {
             "oneOf": [
@@ -7676,6 +7715,17 @@
               }
             ]
           },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IngestOptions",
+                "description": "Canonical ingest options. When present, takes precedence over the\ndeprecated flattened fields below. New clients should send only this;\nv0.15 clients send only the flattened fields and stay readable."
+              }
+            ]
+          },
           "translation": {
             "oneOf": [
               {
@@ -7688,6 +7738,37 @@
           },
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "IngestOptions": {
+        "type": "object",
+        "properties": {
+          "extraction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionDirective"
+              }
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/CanonicalUploadMetadata"
+          },
+          "source_policy": {
+            "$ref": "#/components/schemas/SourcePolicy"
+          },
+          "translation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TranslationDirective"
+              }
+            ]
           }
         }
       },
@@ -7872,7 +7953,7 @@
             "properties": {
               "delete_source_after_processing": {
                 "type": "boolean",
-                "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+                "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use [`crate::SourcePolicy`] via [`crate::IngestOptions`]\ninstead. The multipart `metadata` field also accepts a bare\n[`crate::IngestOptions`] document (`metadata` object plus\n`source_policy`) for the v0.16 wire."
               },
               "extraction": {
                 "oneOf": [
@@ -8957,7 +9038,7 @@
         "properties": {
           "delete_source_after_processing": {
             "type": "boolean",
-            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source)."
+            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use `options.source_policy` instead."
           },
           "extraction": {
             "oneOf": [
@@ -8989,6 +9070,17 @@
               },
               {
                 "$ref": "#/components/schemas/LibraryFileUploadMetadata"
+              }
+            ]
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IngestOptions",
+                "description": "Canonical ingest options. When present, takes precedence over the\ndeprecated flattened fields below. New clients should send only this;\nv0.15 clients send only the flattened fields and stay readable."
               }
             ]
           },
@@ -10260,6 +10352,13 @@
             "$ref": "#/components/schemas/Pagination"
           }
         }
+      },
+      "SourcePolicy": {
+        "type": "string",
+        "enum": [
+          "retain",
+          "release_after_processing"
+        ]
       },
       "SourceStatus": {
         "type": "object",

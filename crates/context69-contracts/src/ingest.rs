@@ -145,4 +145,24 @@ impl IngestOptions {
             source_policy: SourcePolicy::from_delete_flag(delete_source_after_processing),
         }
     }
+
+    /// Legacy [`crate::LibraryFileUploadMetadata`] view of the canonical
+    /// metadata, or `None` when the canonical metadata is empty. Used by
+    /// services that still take the legacy metadata type internally while the
+    /// wire prefers [`IngestOptions`].
+    pub fn legacy_metadata_opt(&self) -> Option<crate::LibraryFileUploadMetadata> {
+        let legacy: crate::LibraryFileUploadMetadata = self.metadata.clone().into();
+        if legacy.external_id.is_none()
+            && legacy.source_uri.is_none()
+            && legacy.published_at.is_none()
+            && legacy
+                .metadata_json
+                .as_object()
+                .is_some_and(|map| map.is_empty())
+        {
+            None
+        } else {
+            Some(legacy)
+        }
+    }
 }

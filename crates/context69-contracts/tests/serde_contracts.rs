@@ -513,6 +513,148 @@ fn source_policy_and_ingest_options_cover_all_upload_paths() {
 }
 
 #[test]
+fn canonical_ingest_options_wire_prefers_options_and_keeps_legacy_readable() {
+    // Legacy v0.15 payloads without `options` stay readable for in-flight tasks.
+    let legacy_prepare: PrepareLibraryUploadRequest = serde_json::from_value(json!({
+        "filename": "a.pdf",
+        "media_type": "application/pdf",
+        "size_bytes": 10,
+        "sha256": "abc",
+        "metadata": { "external_id": "doc-1", "metadata_json": { "agency": "x" } },
+        "delete_source_after_processing": true
+    }))
+    .expect("legacy prepare");
+    assert!(legacy_prepare.options.is_none());
+    let legacy_ingest = legacy_prepare.ingest_options();
+    assert!(legacy_ingest.is_release());
+    assert_eq!(legacy_ingest.metadata.external_id.as_deref(), Some("doc-1"));
+
+    // Canonical v0.16 payload with `options` takes precedence over flattened
+    // duplicates, even when they disagree.
+    let canonical_prepare: PrepareLibraryUploadRequest = serde_json::from_value(json!({
+        "filename": "a.pdf",
+        "media_type": "application/pdf",
+        "size_bytes": 10,
+        "sha256": "abc",
+        "options": {
+            "metadata": { "external_id": "doc-2", "metadata_json": {} },
+            "source_policy": "retain"
+        },
+        "metadata": { "external_id": "doc-1", "metadata_json": {} },
+        "delete_source_after_processing": true
+    }))
+    .expect("canonical prepare");
+    let canonical_ingest = canonical_prepare.ingest_options();
+    assert!(!canonical_ingest.is_release());
+    assert_eq!(
+        canonical_ingest.metadata.external_id.as_deref(),
+        Some("doc-2")
+    );
+
+    // Dual-write helper carries both shapes consistently.
+    let base: PrepareLibraryUploadRequest = serde_json::from_value(json!({
+        "filename": "a.pdf",
+        "media_type": "application/pdf",
+        "size_bytes": 10,
+        "sha256": "abc"
+    }))
+    .expect("base prepare");
+    let dual = base.with_ingest_options(IngestOptions::from_legacy(
+        Some(context69_contracts::LibraryFileUploadMetadata {
+            external_id: Some("doc-3".to_string()),
+            source_uri: None,
+            published_at: None,
+            metadata_json: json!({ "k": "v" }),
+        }),
+        None,
+        None,
+        true,
+    ));
+    assert!(dual.options.as_ref().expect("options").is_release());
+    assert!(dual.delete_source_after_processing);
+    assert_eq!(
+        dual.metadata
+            .as_ref()
+            .and_then(|value| value.external_id.clone()),
+        Some("doc-3".to_string())
+    );
+    let round_trip: PrepareLibraryUploadRequest =
+        serde_json::from_value(to_value(&dual).expect("serialize dual")).expect("dual round-trips");
+    assert!(round_trip.ingest_options().is_release());
+
+    // URL import mirrors the same precedence.
+    let legacy_import: ImportLibraryFileFromUrlRequest = serde_json::from_value(json!({
+        "url": "https://files.example.test/report.pdf",
+        "delete_source_after_processing": true
+    }))
+    .expect("legacy import");
+    assert!(legacy_import.ingest_options().is_release());
+    let canonical_import: ImportLibraryFileFromUrlRequest = serde_json::from_value(json!({
+        "url": "https://files.example.test/report.pdf",
+        "options": { "metadata": {}, "source_policy": "release_after_processing" },
+        "delete_source_after_processing": false
+    }))
+    .expect("canonical import");
+    assert!(canonical_import.ingest_options().is_release());
+
+    // File batch mirrors the same precedence and stays readable without options.
+    let legacy_batch: FileBatchItem = serde_json::from_value(json!({
+        "filename": "a.pdf",
+        "media_type": "application/pdf",
+        "content_base64": "aGk=",
+        "metadata": { "metadata_json": { "k": "v" } },
+        "delete_source_after_processing": false
+    }))
+    .expect("legacy batch");
+    assert!(!legacy_batch.ingest_options().is_release());
+    let canonical_batch: FileBatchItem = serde_json::from_value(json!({
+        "filename": "a.pdf",
+        "media_type": "application/pdf",
+        "content_base64": "aGk=",
+        "options": { "metadata": {}, "source_policy": "release_after_processing" },
+        "delete_source_after_processing": false
+    }))
+    .expect("canonical batch");
+    assert!(canonical_batch.ingest_options().is_release());
+    let dual_batch = FileBatchItem {
+        filename: "a.pdf".to_string(),
+        media_type: "application/pdf".to_string(),
+        content_base64: "aGk=".to_string(),
+        declared_sha256: None,
+        folder_id: None,
+        options: None,
+        metadata: None,
+        translation: None,
+        extraction: None,
+        delete_source_after_processing: false,
+    }
+    .with_ingest_options(IngestOptions::from_legacy(None, None, None, true));
+    assert!(dual_batch.options.as_ref().expect("options").is_release());
+    assert!(dual_batch.delete_source_after_processing);
+
+    // Empty canonical metadata maps to no legacy metadata.
+    let empty = IngestOptions::default();
+    assert!(empty.legacy_metadata_opt().is_none());
+    let filled = IngestOptions::from_legacy(
+        Some(context69_contracts::LibraryFileUploadMetadata {
+            external_id: Some("doc-1".to_string()),
+            source_uri: None,
+            published_at: None,
+            metadata_json: json!({}),
+        }),
+        None,
+        None,
+        false,
+    );
+    assert_eq!(
+        filled
+            .legacy_metadata_opt()
+            .and_then(|value| value.external_id),
+        Some("doc-1".to_string())
+    );
+}
+
+#[test]
 fn canonical_search_request_is_cursor_only() {
     let minimal: CanonicalSearchRequest = serde_json::from_value(json!({
         "query": "hello"

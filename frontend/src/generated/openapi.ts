@@ -1607,6 +1607,23 @@ export interface components {
             /** Format: float */
             vector_weight?: number;
         };
+        /**
+         * @description v0.16 canonical upload metadata: same wire keys as the v0.15
+         *     [`crate::LibraryFileUploadMetadata`], but `metadata_json` is an explicit
+         *     object map ([`crate::MetadataObject`]) instead of `serde_json::Value`.
+         *
+         *     Object-ness is enforced at the type boundary: deserializing a scalar or
+         *     array `metadata_json` fails, and JSON Schema advertises an object (the
+         *     legacy `Value` shape renders as `true`/any). The v0.15 struct is unchanged
+         *     for wire compatibility; convert with `From`/`TryFrom` below.
+         */
+        CanonicalUploadMetadata: {
+            external_id?: string | null;
+            metadata_json?: Record<string, never>;
+            /** Format: date-time */
+            published_at?: string | null;
+            source_uri?: string | null;
+        };
         CreateAdminUserRequest: {
             display_name: string;
             is_admin: boolean;
@@ -1883,6 +1900,7 @@ export interface components {
             /**
              * @description Release the source object once processing succeeds. Chosen once at
              *     upload; defaults to `false` (retain the source).
+             *     Deprecated: use `options.source_policy` instead.
              */
             delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
@@ -1891,6 +1909,7 @@ export interface components {
             folder_id?: string | null;
             media_type: string;
             metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
+            options?: null | components["schemas"]["IngestOptions"];
             translation?: null | components["schemas"]["TranslationDirective"];
         };
         FileBatchRequest: {
@@ -1969,6 +1988,7 @@ export interface components {
             /**
              * @description Release the source object once processing succeeds. Chosen once at
              *     upload; defaults to `false` (retain the source).
+             *     Deprecated: use `options.source_policy` instead.
              */
             delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
@@ -1977,8 +1997,15 @@ export interface components {
             folder_id?: string | null;
             media_type?: string | null;
             metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
+            options?: null | components["schemas"]["IngestOptions"];
             translation?: null | components["schemas"]["TranslationDirective"];
             url: string;
+        };
+        IngestOptions: {
+            extraction?: null | components["schemas"]["ExtractionDirective"];
+            metadata?: components["schemas"]["CanonicalUploadMetadata"];
+            source_policy?: components["schemas"]["SourcePolicy"];
+            translation?: null | components["schemas"]["TranslationDirective"];
         };
         LibraryDependencyGateResponse: {
             dependency_key: string;
@@ -2033,6 +2060,10 @@ export interface components {
             /**
              * @description Release the source object once processing succeeds. Chosen once at
              *     upload; defaults to `false` (retain the source).
+             *     Deprecated: use [`crate::SourcePolicy`] via [`crate::IngestOptions`]
+             *     instead. The multipart `metadata` field also accepts a bare
+             *     [`crate::IngestOptions`] document (`metadata` object plus
+             *     `source_policy`) for the v0.16 wire.
              */
             delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
@@ -2345,6 +2376,7 @@ export interface components {
             /**
              * @description Release the source object once processing succeeds. Chosen once at
              *     upload; defaults to `false` (retain the source).
+             *     Deprecated: use `options.source_policy` instead.
              */
             delete_source_after_processing?: boolean;
             extraction?: null | components["schemas"]["ExtractionDirective"];
@@ -2353,6 +2385,7 @@ export interface components {
             folder_id?: string | null;
             media_type: string;
             metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
+            options?: null | components["schemas"]["IngestOptions"];
             sha256: string;
             /** Format: int64 */
             size_bytes: number;
@@ -2817,6 +2850,8 @@ export interface components {
             items: components["schemas"]["SourceStatus"][];
             pagination: components["schemas"]["Pagination"];
         };
+        /** @enum {string} */
+        SourcePolicy: "retain" | "release_after_processing";
         SourceStatus: {
             base_query: string;
             /** Format: int64 */
