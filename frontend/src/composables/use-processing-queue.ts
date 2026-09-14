@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { apiClient, type TaskKind, type TaskListView, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
+import { apiClient, type SortDirection, type TaskKind, type TaskListView, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
 import { ApiError } from "../services/api/api-core";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
@@ -46,13 +46,12 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const searchInput = ref("");
   const query = ref("");
   const statusFilter = ref<TaskStatus | null>(null);
-  const trashedFilter = ref(false);
   const viewFilter = ref<TaskListView>("processing");
   const kindFilter = ref<TaskKind | null>(null);
   const stageFilter = ref<string | null>(null);
   const waitingReasonFilter = ref<string | null>(null);
   const dependencyKeyFilter = ref<string | null>(null);
-  const sort = ref<{ field: TaskSortBy; direction: "asc" | "desc" } | null>(null);
+  const sort = ref<{ field: TaskSortBy; direction: SortDirection } | null>(null);
   const actionTaskIds = ref<string[]>([]);
   const bulkAction = ref<"recover" | "cancel" | null>(null);
   let requestController: AbortController | null = null;
@@ -131,10 +130,8 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   // status only narrows the view and never widens it. A single load keeps
   // the switch atomic instead of firing one request per filter.
   function setListView(next: { view: TaskListView }) {
-    const trashed = next.view === "trash";
-    if (viewFilter.value === next.view && trashedFilter.value === trashed && statusFilter.value === null) return;
+    if (viewFilter.value === next.view && statusFilter.value === null) return;
     viewFilter.value = next.view;
-    trashedFilter.value = trashed;
     statusFilter.value = null;
     void load({ resetPage: true });
   }
@@ -152,7 +149,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     void load();
   }
 
-  function changeSort(field: TaskSortBy, direction: "asc" | "desc") {
+  function changeSort(field: TaskSortBy, direction: SortDirection) {
     if (sort.value?.field === field && sort.value?.direction === direction) return;
     sort.value = { field, direction };
     page.value = 1;
@@ -445,7 +442,6 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     query,
     sort,
     statusFilter,
-    trashedFilter,
     viewFilter,
     kindFilter,
     stageFilter,
@@ -466,7 +462,6 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     submitSearch,
     setListView,
     setStatusFilter: (value: TaskStatus | null) => setFilter(statusFilter, value),
-    setTrashedFilter: (value: boolean) => setFilter(trashedFilter, value),
     setKindFilter: (value: TaskKind | null) => setFilter(kindFilter, value),
     setStageFilter: (value: string | null) => setFilter(stageFilter, value),
     setWaitingReasonFilter: (value: string | null) => setFilter(waitingReasonFilter, value),

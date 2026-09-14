@@ -8,10 +8,10 @@ import ProcessingQueueTable from "../components/processing-queue/ProcessingQueue
 import ProcessingQueueTabs from "../components/processing-queue/ProcessingQueueTabs.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
 import { useTaskMaintenance } from "../composables/use-task-maintenance";
-import type { TaskKind, TaskSortBy, TaskStatus } from "../services/api";
+import type { SortDirection, TaskKind, TaskListView, TaskSortBy, TaskStatus } from "../services/api";
 import { LIBRARY_DEPENDENCY_KEYS } from "../utils/library-status";
 
-type QueueTab = "processing" | "completed" | "trash";
+type QueueTab = TaskListView;
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
@@ -90,7 +90,7 @@ const dependencyOptions = computed(() => [
   ...dependencies.map((value) => ({ label: t(`processingQueue.dependencies.${value}`), value })),
 ]);
 
-function handleSort(value: { field: TaskSortBy; direction: "asc" | "desc" } | null) {
+function handleSort(value: { field: TaskSortBy; direction: SortDirection } | null) {
   if (!value) {
     queue.clearSort();
     return;

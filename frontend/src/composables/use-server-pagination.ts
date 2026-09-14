@@ -1,10 +1,10 @@
 import { onBeforeUnmount, ref } from "vue";
 
-import type { PageRequest, PaginatedResponse, RequestOptions } from "../services/api";
+import type { PageRequest, PaginatedResponse, RequestOptions, SortDirection } from "../services/api";
 
 export type ServerListSort = {
   field: string;
-  direction: "asc" | "desc";
+  direction: SortDirection;
 };
 
 export type ServerListQueryRequest = PageRequest & {
@@ -74,7 +74,7 @@ export function useServerPagination<T>(loader: ServerPageLoader<T>, initialPageS
     void load();
   }
 
-  function changeSort(field: string, direction: "asc" | "desc") {
+  function changeSort(field: string, direction: SortDirection) {
     if (sort.value?.field === field && sort.value?.direction === direction) return;
     sort.value = { field, direction };
     page.value = 1;

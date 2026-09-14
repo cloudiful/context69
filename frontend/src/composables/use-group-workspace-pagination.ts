@@ -10,6 +10,7 @@ import {
   type MemberPageQuery,
   type MemberSortBy,
   type NamespacePageQuery,
+  type SortDirection,
 } from "../services/api";
 
 function emptyGroupPage(): GroupPageResponse {
@@ -36,7 +37,7 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
   const pageSize = ref(50);
   const membersSearch = ref("");
   const childrenSearch = ref("");
-  const membersSort = ref<{ field: MemberSortBy; direction: "asc" | "desc" } | null>(null);
+  const membersSort = ref<{ field: MemberSortBy; direction: SortDirection } | null>(null);
 
   function pageQuery(page: number, query: string): NamespacePageQuery {
     return { page, page_size: pageSize.value, query: query.trim() || undefined };
@@ -92,7 +93,7 @@ export function useGroupWorkspacePagination({ groupPath, t }: Options) {
     void loadMembersPage().catch((error) => showErrorToast(error, t("groups.membersFailed")));
   }
 
-  function changeMembersSort(field: MemberSortBy, direction: "asc" | "desc") {
+  function changeMembersSort(field: MemberSortBy, direction: SortDirection) {
     if (membersSort.value?.field === field && membersSort.value?.direction === direction) return;
     membersSort.value = { field, direction };
     membersPageNumber.value = 1;
