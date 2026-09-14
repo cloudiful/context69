@@ -1500,8 +1500,8 @@ export interface components {
          * @description v0.15 error envelope kept for wire compatibility.
          *
          *     The `code` stays a string so existing handlers keep compiling while the
-         *     canonical [`crate::ApiErrorCode`] rolls out. New code should construct
-         *     [`crate::CanonicalApiErrorResponse`] and convert with `From`.
+         *     canonical [`crate::errors::ApiErrorCode`] rolls out. New code should construct
+         *     [`crate::errors::CanonicalApiErrorResponse`] and convert with `From`.
          */
         ApiErrorResponse: {
             /** @description Stable machine-readable error code for programmatic handling. */
@@ -1572,7 +1572,7 @@ export interface components {
         };
         /**
          * @description v0.16 canonical task list query: typed `view` is required and the legacy
-         *     `trashed` flag is gone. Offset bounds match [`crate::OffsetPageQuery`].
+         *     `trashed` flag is gone. Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].
          */
         CanonicalTaskListQuery: {
             dependency_key?: string | null;
@@ -2307,9 +2307,9 @@ export interface components {
         /**
          * @description v0.15 offset window kept for wire compatibility.
          *
-         *     Deprecated: new code should use [`crate::OffsetPagination`] for exact
+         *     Deprecated: new code should use [`crate::pagination::OffsetPagination`] for exact
          *     totals. Search windows should prefer cursor continuation via
-         *     [`crate::CursorPagination`].
+         *     [`crate::pagination::CursorPagination`].
          */
         Pagination: {
             /**

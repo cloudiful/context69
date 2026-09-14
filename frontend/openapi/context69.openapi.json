@@ -5835,7 +5835,7 @@
       },
       "ApiErrorResponse": {
         "type": "object",
-        "description": "v0.15 error envelope kept for wire compatibility.\n\nThe `code` stays a string so existing handlers keep compiling while the\ncanonical [`crate::ApiErrorCode`] rolls out. New code should construct\n[`crate::CanonicalApiErrorResponse`] and convert with `From`.",
+        "description": "v0.15 error envelope kept for wire compatibility.\n\nThe `code` stays a string so existing handlers keep compiling while the\ncanonical [`crate::errors::ApiErrorCode`] rolls out. New code should construct\n[`crate::errors::CanonicalApiErrorResponse`] and convert with `From`.",
         "required": [
           "code",
           "message"
@@ -6085,7 +6085,7 @@
       },
       "CanonicalTaskListQuery": {
         "type": "object",
-        "description": "v0.16 canonical task list query: typed `view` is required and the legacy\n`trashed` flag is gone. Offset bounds match [`crate::OffsetPageQuery`].",
+        "description": "v0.16 canonical task list query: typed `view` is required and the legacy\n`trashed` flag is gone. Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].",
         "required": [
           "view"
         ],
@@ -8881,7 +8881,7 @@
       },
       "Pagination": {
         "type": "object",
-        "description": "v0.15 offset window kept for wire compatibility.\n\nDeprecated: new code should use [`crate::OffsetPagination`] for exact\ntotals. Search windows should prefer cursor continuation via\n[`crate::CursorPagination`].",
+        "description": "v0.15 offset window kept for wire compatibility.\n\nDeprecated: new code should use [`crate::pagination::OffsetPagination`] for exact\ntotals. Search windows should prefer cursor continuation via\n[`crate::pagination::CursorPagination`].",
         "required": [
           "page",
           "page_size",
