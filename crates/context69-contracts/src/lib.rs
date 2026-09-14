@@ -100,7 +100,8 @@ pub use context69_contracts_sources::sources::{
     UpsertSourceConnectionRequest,
 };
 pub use context69_contracts_tasks::tasks::{
-    CancelActiveTasksResponse, CanonicalTaskListQuery, DeleteBatchRequest, EnsureScopeResponse,
+    CancelActiveTasksResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest,
+    ClearTaskHistoryResponse, ClearTaskHistoryView, DeleteBatchRequest, EnsureScopeResponse,
     ExternalJobInfo, FileBatchItem, FileBatchRequest, FileRetryItem, PurgeTasksRequest,
     PurgeTasksResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
     QuarantinedExternalJob, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,

@@ -218,6 +218,38 @@ impl TaskListView {
     }
 }
 
+/// User-scoped bulk-clear view (issue 391 Task 2).
+///
+/// `Completed` maps to untrashed `succeeded` rows; `Trash` maps to trashed
+/// terminal rows. No other status or trash combination is clearable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ClearTaskHistoryView {
+    Completed,
+    Trash,
+}
+
+impl ClearTaskHistoryView {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Trash => "trash",
+        }
+    }
+}
+
+/// Request body for `POST /v1/tasks/clear`.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct ClearTaskHistoryRequest {
+    pub view: ClearTaskHistoryView,
+}
+
+/// Response body for `POST /v1/tasks/clear`.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct ClearTaskHistoryResponse {
+    pub deleted_count: u64,
+}
+
 /// v0.15 task list query kept for wire compatibility.
 ///
 /// Deprecated `trashed` stays so legacy callers keep compiling; new code

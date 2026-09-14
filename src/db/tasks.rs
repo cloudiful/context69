@@ -758,6 +758,23 @@ impl Database {
         )
     }
 
+    /// Bulk-clear the calling user's history for one view in a single
+    /// user-scoped DELETE. `view` is `completed` or `trash`; any other value
+    /// deletes nothing. Completed matches only untrashed `succeeded` rows;
+    /// trash matches only trashed terminal rows. Active rows, other users'
+    /// rows, files, documents, vectors, and S3 objects are never touched.
+    /// Idempotent: a repeat call deletes zero rows.
+    pub async fn clear_user_task_history(&self, user_id: i64, view: &str) -> Result<u64> {
+        let result = sqlx::query_file!(
+            "src/sql/db/tasks/clear_user_task_history.sql",
+            user_id,
+            view
+        )
+        .execute(self.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn heartbeat_task_item(&self, item_id: Uuid, lease_token: Uuid) -> Result<bool> {
         Ok(
             sqlx::query_file!("src/sql/db/tasks/heartbeat_item.sql", item_id, lease_token)

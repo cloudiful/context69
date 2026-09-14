@@ -1,5 +1,7 @@
 import type {
   CancelActiveTasksResponse,
+  ClearTaskHistoryRequest,
+  ClearTaskHistoryResponse,
   PurgeTasksRequest,
   PurgeTasksResponse,
   QuarantineStaleSubmittingRequest,
@@ -121,6 +123,12 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         params: { path: { task_id: taskId } },
         signal: options?.signal,
       })) as Promise<void>;
+    },
+    clearTaskHistory(payload: ClearTaskHistoryRequest, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/clear", {
+        body: payload,
+        signal: options?.signal,
+      })) as Promise<ClearTaskHistoryResponse>;
     },
     getTaskMaintenance(options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/admin/tasks/maintenance", {

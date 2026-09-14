@@ -138,9 +138,9 @@ pub(crate) use task_maintenance::{
     cancel_active_tasks, quarantine_stale_submitting, queue_docling_recovery, recover_docling_task,
 };
 pub(crate) use tasks::{
-    cancel_task, delete_task, ensure_scope, get_task, list_task_items, list_tasks, rerun_task,
-    restore_task, retry_task, submit_delete_batch, submit_file_batch, submit_task,
-    submit_task_request, submit_text_batch, submit_url_batch, submit_vector_index_rebuild,
-    trash_task,
+    cancel_task, clear_task_history, delete_task, ensure_scope, get_task, list_task_items,
+    list_tasks, rerun_task, restore_task, retry_task, submit_delete_batch, submit_file_batch,
+    submit_task, submit_task_request, submit_text_batch, submit_url_batch,
+    submit_vector_index_rebuild, trash_task,
 };
 pub(crate) use translations::*;

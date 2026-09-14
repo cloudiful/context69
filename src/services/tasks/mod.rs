@@ -10,11 +10,12 @@ use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use context69_contracts::{
-    CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, ExternalJobInfo,
-    FileBatchItem, GroupResponse, MetadataIndexResponse, MetadataIndexStatus, RerunTaskResponse,
-    ScopeSpec, SortDirection, TaskItemResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
-    TaskListQuery, TaskListView, TaskOrigin, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
-    TaskRetryResponse, TaskSortBy, TaskStatus,
+    ClearTaskHistoryResponse, ClearTaskHistoryView, CreateGroupRequest, CreateMetadataIndexRequest,
+    EnsureScopeResponse, ExternalJobInfo, FileBatchItem, GroupResponse, MetadataIndexResponse,
+    MetadataIndexStatus, RerunTaskResponse, ScopeSpec, SortDirection, TaskItemResponse,
+    TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
+    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
+    TaskStatus,
 };
 use context69_translation::TranslationService;
 use serde_json::Value;
@@ -442,6 +443,22 @@ impl TaskService {
             );
         }
         Ok(())
+    }
+
+    /// Bulk-clear the calling user's history for one view. `Completed` deletes
+    /// only untrashed `succeeded` rows; `Trash` deletes only trashed terminal
+    /// rows. Active rows, other users' rows, files, documents, vectors, and S3
+    /// objects are never touched. Idempotent: repeats return zero.
+    pub async fn clear_task_history(
+        &self,
+        user_id: i64,
+        view: ClearTaskHistoryView,
+    ) -> Result<ClearTaskHistoryResponse> {
+        let deleted_count = self
+            .db
+            .clear_user_task_history(user_id, view.as_str())
+            .await?;
+        Ok(ClearTaskHistoryResponse { deleted_count })
     }
 
     pub async fn rerun(&self, task_id: Uuid, user_id: i64) -> Result<RerunTaskResponse> {
@@ -898,7 +915,7 @@ fn is_conflict_error(error: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{normalize_task_worker_concurrency, parse_kind, split_scope_path};
-    use context69_contracts::{TaskKind, TaskListQuery, TaskListView};
+    use context69_contracts::{ClearTaskHistoryView, TaskKind, TaskListQuery, TaskListView};
 
     #[test]
     fn task_worker_concurrency_clamps_zero_and_preserves_capacity() {
@@ -990,6 +1007,79 @@ mod tests {
             assert!(
                 count.contains(view),
                 "count.sql must contain view literal {view}"
+            );
+        }
+    }
+
+    #[test]
+    fn clear_history_view_wire_names_are_canonical() {
+        assert_eq!(ClearTaskHistoryView::Completed.as_str(), "completed");
+        assert_eq!(ClearTaskHistoryView::Trash.as_str(), "trash");
+        let completed: ClearTaskHistoryView =
+            serde_json::from_value(serde_json::json!("completed")).expect("decode completed");
+        assert_eq!(completed, ClearTaskHistoryView::Completed);
+        let trash: ClearTaskHistoryView =
+            serde_json::from_value(serde_json::json!("trash")).expect("decode trash");
+        assert_eq!(trash, ClearTaskHistoryView::Trash);
+        let request: context69_contracts::ClearTaskHistoryRequest =
+            serde_json::from_value(serde_json::json!({ "view": "completed" }))
+                .expect("decode clear request");
+        assert_eq!(request.view, ClearTaskHistoryView::Completed);
+        let response: context69_contracts::ClearTaskHistoryResponse =
+            serde_json::from_value(serde_json::json!({ "deleted_count": 3 }))
+                .expect("decode clear response");
+        assert_eq!(response.deleted_count, 3);
+    }
+
+    #[test]
+    fn clear_user_task_history_sql_is_user_scoped_and_view_guarded() {
+        let sql = include_str!("../../sql/db/tasks/clear_user_task_history.sql");
+        let code: String = sql
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            code.contains("DELETE FROM context69.tasks"),
+            "clear SQL must delete only task rows"
+        );
+        assert_eq!(
+            code.matches("DELETE FROM").count(),
+            1,
+            "clear SQL must be a single DELETE statement"
+        );
+        assert!(
+            code.contains("user_id = $1"),
+            "clear SQL must be scoped to the calling user"
+        );
+        assert!(
+            !code.contains("group_memberships") && !code.contains("inherited_groups"),
+            "clear SQL must not widen to group-shared rows; only user_id owns the delete"
+        );
+        assert!(
+            code.contains("$2::text = 'completed'")
+                && code.contains("deleted_at IS NULL")
+                && code.contains("status = 'succeeded'"),
+            "completed branch must match only untrashed succeeded rows"
+        );
+        assert!(
+            code.contains("$2::text = 'trash'")
+                && code.contains("deleted_at IS NOT NULL")
+                && code.contains("status IN ('succeeded', 'failed', 'cancelled')"),
+            "trash branch must match only trashed terminal rows"
+        );
+        for forbidden in [
+            "DELETE FROM context69.task_items",
+            "DELETE FROM context69.task_attempts",
+            "DELETE FROM context69.task_external_jobs",
+            "library_files",
+            "documents",
+            "qdrant",
+            "storage_objects",
+        ] {
+            assert!(
+                !code.contains(forbidden),
+                "clear SQL must not directly touch {forbidden}; history cascades, files stay"
             );
         }
     }

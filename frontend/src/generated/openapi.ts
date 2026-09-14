@@ -52,38 +52,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tasks/maintenance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_task_maintenance"];
-        put: operations["update_task_maintenance"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tasks/purge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["purge_tasks"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tasks/quarantine-submitting": {
         parameters: {
             query?: never;
@@ -1334,6 +1302,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clear_task_history"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -1624,6 +1608,23 @@ export interface components {
             published_at?: string | null;
             source_uri?: string | null;
         };
+        /** @description Request body for `POST /v1/tasks/clear`. */
+        ClearTaskHistoryRequest: {
+            view: components["schemas"]["ClearTaskHistoryView"];
+        };
+        /** @description Response body for `POST /v1/tasks/clear`. */
+        ClearTaskHistoryResponse: {
+            /** Format: int64 */
+            deleted_count: number;
+        };
+        /**
+         * @description User-scoped bulk-clear view (issue 391 Task 2).
+         *
+         *     `Completed` maps to untrashed `succeeded` rows; `Trash` maps to trashed
+         *     terminal rows. No other status or trash combination is clearable.
+         * @enum {string}
+         */
+        ClearTaskHistoryView: "completed" | "trash";
         CreateAdminUserRequest: {
             display_name: string;
             is_admin: boolean;
@@ -3425,128 +3426,6 @@ export interface operations {
             };
             /** @description Admin access required */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    get_task_maintenance: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Task maintenance settings and statistics */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskMaintenanceOverview"];
-                };
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    update_task_maintenance: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateTaskMaintenanceSettingsRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated task maintenance settings and statistics */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskMaintenanceOverview"];
-                };
-            };
-            /** @description Invalid settings payload */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    purge_tasks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PurgeTasksRequest"];
-            };
-        };
-        responses: {
-            /** @description Purged task history */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PurgeTasksResponse"];
-                };
-            };
-            /** @description Invalid purge mode */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Active tasks block full history purge */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7298,6 +7177,37 @@ export interface operations {
                 };
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    clear_task_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearTaskHistoryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClearTaskHistoryResponse"];
+                };
+            };
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -84,138 +84,6 @@
         }
       }
     },
-    "/v1/admin/tasks/maintenance": {
-      "get": {
-        "tags": [],
-        "operationId": "get_task_maintenance",
-        "responses": {
-          "200": {
-            "description": "Task maintenance settings and statistics",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskMaintenanceOverview"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin access required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [],
-        "operationId": "update_task_maintenance",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateTaskMaintenanceSettingsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Updated task maintenance settings and statistics",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskMaintenanceOverview"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid settings payload",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin access required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/admin/tasks/purge": {
-      "post": {
-        "tags": [],
-        "operationId": "purge_tasks",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PurgeTasksRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Purged task history",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PurgeTasksResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid purge mode",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin access required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Active tasks block full history purge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/admin/tasks/quarantine-submitting": {
       "post": {
         "tags": [],
@@ -5289,6 +5157,44 @@
         }
       }
     },
+    "/v1/tasks/clear": {
+      "post": {
+        "tags": [],
+        "operationId": "clear_task_history",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearTaskHistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClearTaskHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/{task_id}": {
       "get": {
         "tags": [],
@@ -6244,6 +6150,40 @@
             ]
           }
         }
+      },
+      "ClearTaskHistoryRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/tasks/clear`.",
+        "required": [
+          "view"
+        ],
+        "properties": {
+          "view": {
+            "$ref": "#/components/schemas/ClearTaskHistoryView"
+          }
+        }
+      },
+      "ClearTaskHistoryResponse": {
+        "type": "object",
+        "description": "Response body for `POST /v1/tasks/clear`.",
+        "required": [
+          "deleted_count"
+        ],
+        "properties": {
+          "deleted_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ClearTaskHistoryView": {
+        "type": "string",
+        "description": "User-scoped bulk-clear view (issue 391 Task 2).\n\n`Completed` maps to untrashed `succeeded` rows; `Trash` maps to trashed\nterminal rows. No other status or trash combination is clearable.",
+        "enum": [
+          "completed",
+          "trash"
+        ]
       },
       "CreateAdminUserRequest": {
         "type": "object",

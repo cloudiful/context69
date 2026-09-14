@@ -56,11 +56,11 @@ use crate::api::{
         __path_queue_docling_recovery, __path_recover_docling_task,
     },
     tasks::{
-        __path_cancel_task, __path_delete_task, __path_ensure_scope, __path_get_task,
-        __path_list_task_items, __path_list_tasks, __path_rerun_task, __path_restore_task,
-        __path_retry_task, __path_submit_delete_batch, __path_submit_file_batch,
-        __path_submit_task, __path_submit_text_batch, __path_submit_url_batch,
-        __path_submit_vector_index_rebuild, __path_trash_task,
+        __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_ensure_scope,
+        __path_get_task, __path_list_task_items, __path_list_tasks, __path_rerun_task,
+        __path_restore_task, __path_retry_task, __path_submit_delete_batch,
+        __path_submit_file_batch, __path_submit_task, __path_submit_text_batch,
+        __path_submit_url_batch, __path_submit_vector_index_rebuild, __path_trash_task,
     },
     translations::{
         __path_get_group_translation_settings, __path_get_translation_settings,
@@ -74,8 +74,9 @@ use crate::contracts::{
     ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse, BatchDocumentItem,
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
     CanonicalApiErrorResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
-    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateAdminUserRequest,
-    CreateFolderRequest, CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
+    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, ClearTaskHistoryRequest,
+    ClearTaskHistoryResponse, ClearTaskHistoryView, CreateAdminUserRequest, CreateFolderRequest,
+    CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
     CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest,
     CursorPageQuery, DeeplPlan, DeleteBatchRequest, DocumentKey, DocumentLookupQuery,
     DocumentQueryRequest, DocumentQueryResponse, DocumentSort, DocumentSortField,
@@ -201,6 +202,7 @@ use crate::contracts::{
         trash_task,
         restore_task,
         delete_task,
+        clear_task_history,
         cancel_active_tasks,
         recover_docling_task,
         queue_docling_recovery,
@@ -326,6 +328,9 @@ use crate::contracts::{
         TaskKind,
         TaskListQuery,
         TaskListView,
+        ClearTaskHistoryView,
+        ClearTaskHistoryRequest,
+        ClearTaskHistoryResponse,
         TaskPageResponse,
         TaskProgress,
         TaskRef,
@@ -736,6 +741,47 @@ mod tests {
             size_schema.get("maximum").and_then(Value::as_u64),
             Some(100),
             "page_size maximum must be 100"
+        );
+    }
+
+    #[test]
+    fn openapi_exposes_user_scoped_clear_history() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let paths = json
+            .get("paths")
+            .and_then(Value::as_object)
+            .expect("paths to exist");
+        let clear = paths
+            .get("/v1/tasks/clear")
+            .and_then(Value::as_object)
+            .expect("POST /v1/tasks/clear to exist");
+        let post = clear.get("post").expect("clear must expose POST");
+        assert_eq!(
+            post.get("operationId").and_then(Value::as_str),
+            Some("clear_task_history"),
+            "clear operationId must be clear_task_history"
+        );
+        let schemas = json
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas to exist");
+        for schema in [
+            "ClearTaskHistoryView",
+            "ClearTaskHistoryRequest",
+            "ClearTaskHistoryResponse",
+        ] {
+            assert!(
+                schemas.contains_key(schema),
+                "missing clear schema {schema}"
+            );
+        }
+        let view = schemas
+            .get("ClearTaskHistoryView")
+            .expect("ClearTaskHistoryView schema to exist");
+        let raw = serde_json::to_string(view).expect("view schema string");
+        assert!(
+            raw.contains("completed") && raw.contains("trash"),
+            "ClearTaskHistoryView must expose completed/trash, got {raw}"
         );
     }
 

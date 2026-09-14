@@ -26,21 +26,22 @@ use crate::services::app::Context69App;
 
 use super::{
     ApiState, auth_middleware, batch_get_group_documents, build_api_state, cancel_active_tasks,
-    cancel_task, create_admin_user, create_group_library_folder, create_group_library_text,
-    create_group_source_folder, create_library_folder, create_library_text, create_metadata_index,
-    create_personal_access_token, create_source, create_source_connection,
-    delete_group_document_by_key, delete_group_library_file, delete_group_library_folder,
-    delete_library_file, delete_library_folder, delete_metadata_index, delete_source,
-    delete_source_connection, delete_task, disable_admin_user, enable_admin_user, ensure_scope,
-    forbid_personal_access_token_middleware, get_extraction_health, get_group_document_by_key,
-    get_group_library_file, get_group_library_resources, get_group_library_tree,
-    get_group_translation_settings, get_library_file, get_library_resources, get_library_tree,
-    get_task, get_translation_settings, healthz, import_group_library_file_url, list_admin_users,
-    list_document_extraction_jobs, list_document_translation_jobs, list_extraction_templates,
-    list_metadata_indexes, list_personal_access_tokens, list_source_connections, list_sources,
-    list_task_items, list_tasks, list_translation_providers, login, logout, me,
-    move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
-    openapi_json, prepare_group_library_upload, quarantine_stale_submitting, query_group_documents,
+    cancel_task, clear_task_history, create_admin_user, create_group_library_folder,
+    create_group_library_text, create_group_source_folder, create_library_folder,
+    create_library_text, create_metadata_index, create_personal_access_token, create_source,
+    create_source_connection, delete_group_document_by_key, delete_group_library_file,
+    delete_group_library_folder, delete_library_file, delete_library_folder, delete_metadata_index,
+    delete_source, delete_source_connection, delete_task, disable_admin_user, enable_admin_user,
+    ensure_scope, forbid_personal_access_token_middleware, get_extraction_health,
+    get_group_document_by_key, get_group_library_file, get_group_library_resources,
+    get_group_library_tree, get_group_translation_settings, get_library_file,
+    get_library_resources, get_library_tree, get_task, get_translation_settings, healthz,
+    import_group_library_file_url, list_admin_users, list_document_extraction_jobs,
+    list_document_translation_jobs, list_extraction_templates, list_metadata_indexes,
+    list_personal_access_tokens, list_source_connections, list_sources, list_task_items,
+    list_tasks, list_translation_providers, login, logout, me, move_group_library_file,
+    move_group_library_folder, move_library_file, move_library_folder, openapi_json,
+    prepare_group_library_upload, quarantine_stale_submitting, query_group_documents,
     queue_docling_recovery, rebuild_document_extractions, rebuild_document_translations,
     recover_docling_task, release_group_library_file_source, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
@@ -152,6 +153,7 @@ fn protected_routes(upload_body_limit: usize, api_state: ApiState) -> Router<Api
 fn task_routes(api_state: ApiState) -> Router<ApiState> {
     Router::new()
         .route("/v1/scopes/ensure", post(ensure_scope))
+        .route("/v1/tasks/clear", post(clear_task_history))
         .route("/v1/tasks", get(list_tasks).post(submit_task))
         .route("/v1/tasks/{task_id}", get(get_task).delete(delete_task))
         .route("/v1/tasks/{task_id}/items", get(list_task_items))

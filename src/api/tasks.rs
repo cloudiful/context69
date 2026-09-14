@@ -5,8 +5,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use context69_contracts::{
-    ApiErrorResponse, CanonicalTaskListQuery, DeleteBatchRequest, FileBatchRequest, ScopeSpec,
-    TaskItemsQuery, TaskListQuery, TaskRef, TaskSubmitRequest, TextBatchRequest, UrlBatchRequest,
+    ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, DeleteBatchRequest,
+    FileBatchRequest, ScopeSpec, TaskItemsQuery, TaskListQuery, TaskRef, TaskSubmitRequest,
+    TextBatchRequest, UrlBatchRequest,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -430,6 +431,23 @@ pub(crate) async fn restore_task(
 ) -> Response {
     match state.app.tasks.restore(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/clear", request_body = ClearTaskHistoryRequest, responses((status = 200, body = crate::contracts::ClearTaskHistoryResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn clear_task_history(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<ClearTaskHistoryRequest>,
+) -> Response {
+    match state
+        .app
+        .tasks
+        .clear_task_history(session.user.id, request.view)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => task_error(error),
     }
 }
