@@ -68,7 +68,7 @@ pub fn abort_pair() -> (AbortSignal, AbortOnDrop) {
 
 #[cfg(test)]
 mod tests {
-    use super::{abort_pair};
+    use super::abort_pair;
 
     #[test]
     fn disarm_lets_signal_resolve_immediately() {

@@ -54,12 +54,14 @@ async fn create_task(db: &Database, user_id: i64, tag: &str) -> Uuid {
 }
 
 async fn finish_task(db: &Database, task_id: Uuid, status: &str) {
-    sqlx::query("UPDATE context69.task_items SET status = $2, finished_at = now() WHERE task_id = $1")
-        .bind(task_id)
-        .bind(status)
-        .execute(db.pool())
-        .await
-        .expect("finish task items");
+    sqlx::query(
+        "UPDATE context69.task_items SET status = $2, finished_at = now() WHERE task_id = $1",
+    )
+    .bind(task_id)
+    .bind(status)
+    .execute(db.pool())
+    .await
+    .expect("finish task items");
     db.recompute_task(task_id).await.expect("recompute task");
 }
 
@@ -99,7 +101,9 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
         return;
     };
     let _guard = TEST_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
 
@@ -111,7 +115,9 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
     let trashed_succeeded = create_task(&db, user_id, &format!("{tag}-trashed-succeeded")).await;
     finish_task(&db, trashed_succeeded, "succeeded").await;
     assert!(
-        db.trash_task(trashed_succeeded).await.expect("trash succeeded"),
+        db.trash_task(trashed_succeeded)
+            .await
+            .expect("trash succeeded"),
         "terminal succeeded task must be trashable"
     );
     let trashed_failed = create_task(&db, user_id, &format!("{tag}-trashed-failed")).await;
@@ -123,11 +129,26 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
 
     // Processing excludes succeeded and trashed.
     let processing = list_ids(&db, user_id, Some("processing"), None, false).await;
-    assert!(processing.contains(&queued), "processing must contain queued");
-    assert!(processing.contains(&failed), "processing must contain failed");
-    assert!(!processing.contains(&succeeded), "processing must exclude succeeded");
-    assert!(!processing.contains(&trashed_succeeded), "processing must exclude trashed");
-    assert!(!processing.contains(&trashed_failed), "processing must exclude trashed");
+    assert!(
+        processing.contains(&queued),
+        "processing must contain queued"
+    );
+    assert!(
+        processing.contains(&failed),
+        "processing must contain failed"
+    );
+    assert!(
+        !processing.contains(&succeeded),
+        "processing must exclude succeeded"
+    );
+    assert!(
+        !processing.contains(&trashed_succeeded),
+        "processing must exclude trashed"
+    );
+    assert!(
+        !processing.contains(&trashed_failed),
+        "processing must exclude trashed"
+    );
     assert_eq!(
         count(&db, user_id, Some("processing"), None, false).await,
         processing.len() as i64,
@@ -136,10 +157,22 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
 
     // Completed is succeeded and non-trashed only.
     let completed = list_ids(&db, user_id, Some("completed"), None, false).await;
-    assert!(completed.contains(&succeeded), "completed must contain succeeded");
-    assert!(!completed.contains(&queued), "completed must exclude queued");
-    assert!(!completed.contains(&failed), "completed must exclude failed");
-    assert!(!completed.contains(&trashed_succeeded), "completed must exclude trashed");
+    assert!(
+        completed.contains(&succeeded),
+        "completed must contain succeeded"
+    );
+    assert!(
+        !completed.contains(&queued),
+        "completed must exclude queued"
+    );
+    assert!(
+        !completed.contains(&failed),
+        "completed must exclude failed"
+    );
+    assert!(
+        !completed.contains(&trashed_succeeded),
+        "completed must exclude trashed"
+    );
     assert_eq!(
         count(&db, user_id, Some("completed"), None, false).await,
         completed.len() as i64,
@@ -148,10 +181,19 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
 
     // Trash is trashed only.
     let trash = list_ids(&db, user_id, Some("trash"), None, false).await;
-    assert!(trash.contains(&trashed_succeeded), "trash must contain trashed succeeded");
-    assert!(trash.contains(&trashed_failed), "trash must contain trashed failed");
+    assert!(
+        trash.contains(&trashed_succeeded),
+        "trash must contain trashed succeeded"
+    );
+    assert!(
+        trash.contains(&trashed_failed),
+        "trash must contain trashed failed"
+    );
     assert!(!trash.contains(&queued), "trash must exclude active");
-    assert!(!trash.contains(&succeeded), "trash must exclude active succeeded");
+    assert!(
+        !trash.contains(&succeeded),
+        "trash must exclude active succeeded"
+    );
     assert!(!trash.contains(&failed), "trash must exclude active failed");
     assert_eq!(
         count(&db, user_id, Some("trash"), None, false).await,
@@ -160,7 +202,13 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
     );
 
     // Views are mutually exclusive for these fixtures.
-    for id in [&queued, &succeeded, &failed, &trashed_succeeded, &trashed_failed] {
+    for id in [
+        &queued,
+        &succeeded,
+        &failed,
+        &trashed_succeeded,
+        &trashed_failed,
+    ] {
         let hits = [&processing, &completed, &trash]
             .iter()
             .filter(|view| view.contains(id))
@@ -176,7 +224,9 @@ async fn status_filter_narrows_but_never_widens_a_view() {
         return;
     };
     let _guard = TEST_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
 
@@ -186,7 +236,8 @@ async fn status_filter_narrows_but_never_widens_a_view() {
     finish_task(&db, failed, "failed").await;
 
     // Processing plus succeeded widens nothing: it matches nothing.
-    let processing_succeeded = list_ids(&db, user_id, Some("processing"), Some("succeeded"), false).await;
+    let processing_succeeded =
+        list_ids(&db, user_id, Some("processing"), Some("succeeded"), false).await;
     assert!(
         !processing_succeeded.contains(&succeeded),
         "processing plus status=succeeded must not widen to succeeded"

@@ -174,8 +174,7 @@ pub(crate) fn apply_rerank(
     // unranked fall back to the local hybrid ordering.
     let mut scored_snapshot: HashMap<Uuid, (usize, f32)> = HashMap::new();
     for (pos, snapshot_hit) in rerank_candidates.iter().enumerate() {
-        if let (Some(rank), Some(score)) =
-            (position_to_rank.get(&pos), position_to_score.get(&pos))
+        if let (Some(rank), Some(score)) = (position_to_rank.get(&pos), position_to_score.get(&pos))
         {
             scored_snapshot.insert(snapshot_hit.chunk_id, (*rank, *score));
         }
@@ -414,9 +413,7 @@ mod tests {
         // Dropping the keyword weight to zero disables that channel entirely.
         let vector_only = FusionWeights::new(1.0, 0.0);
         assert_eq!(local_score(&keyword, "query", vector_only), 0.0);
-        assert!(
-            (local_score(&semantic, "query", vector_only) - 0.9).abs() < 1e-6
-        );
+        assert!((local_score(&semantic, "query", vector_only) - 0.9).abs() < 1e-6);
     }
 
     #[test]
@@ -428,12 +425,7 @@ mod tests {
         keyword.keyword_score = Some(1.0);
         keyword.match_reason = Some("title_phrase".to_string());
 
-        let merged = merge_candidates(
-            vec![vector],
-            vec![keyword],
-            "deepseek",
-            default_weights(),
-        );
+        let merged = merge_candidates(vec![vector], vec![keyword], "deepseek", default_weights());
 
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].vector_score, Some(0.5));
@@ -509,9 +501,18 @@ mod tests {
 
         let snapshot = vec![a.clone(), b.clone(), c.clone()];
         let reranked = vec![
-            RerankHit { index: 1, score: 0.9 }, // b
-            RerankHit { index: 0, score: 0.7 }, // a
-            RerankHit { index: 2, score: 0.5 }, // c
+            RerankHit {
+                index: 1,
+                score: 0.9,
+            }, // b
+            RerankHit {
+                index: 0,
+                score: 0.7,
+            }, // a
+            RerankHit {
+                index: 2,
+                score: 0.5,
+            }, // c
         ];
 
         let full = vec![a, b, c, d];

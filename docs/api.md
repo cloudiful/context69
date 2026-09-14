@@ -29,19 +29,33 @@
 
 ## Advanced SDK workflow
 
-`context69-sdk` exposes only high-level operations. Use `ensure_scope` once for
-group provisioning and declared metadata indexes, then submit text, URL, or
-file arrays through the batch methods. A one-item array is the single-item
-form. Every submission returns a task reference; use task status and item
-endpoints for progress and independent failures. Queue, lease, heartbeat,
-retry-attempt, URL polling, and metadata-index workers remain server-side.
+`context69-sdk` exposes the ergonomic facade plus the complete low-level
+`client.raw()` transport (all 116 OpenAPI operations via the `OPERATIONS`
+registry and `RawRequest`). Use `ensure_scope` once for group provisioning
+and declared metadata indexes, then submit text, URL, file, or delete arrays
+through `submit_text_batch`, `submit_url_batch`, `submit_file_batch`, or
+`submit_delete_batch`. (The v0.15 `text_batch`/`url_batch`/`file_batch`/
+`delete_batch` names remain as deprecated aliases in this release.) A
+one-item array is the single-item form. Every submission returns a task
+reference; use task status and item endpoints for progress and independent
+failures. `list_tasks` requires `TaskListOptions` (`view`, `page` 1..=10_000,
+`page_size` 1..=100; default `processing`/1/25) and `list_task_items` takes
+`TaskItemsOptions` (`limit` 1..=100, default 100). `PUT /v1/settings/search`
+takes `CanonicalUpdateSearchSettingsRequest` with `api_key: SecretPatch`
+(`{op: keep|set|clear}`). Queue, lease, heartbeat, retry-attempt, URL
+polling, and metadata-index workers remain server-side.
 
 ## Source file lifecycle
 
-- Sources are retained by default. Every upload path (`multipart`, `FileBatch`
-  base64, `prepare-upload`, URL import) accepts a boolean
-  `delete_source_after_processing` (default `false`). It is chosen once at
-  upload and is never changed by a later dedup/reuse request.
+- Sources are retained by default. The canonical wire is `IngestOptions`
+  (`source_policy: retain | release_after_processing`, default `retain`)
+  carried in `options` on every upload path (`multipart`, `FileBatch`
+  base64, `prepare-upload`, URL import). The flattened v0.15 fields
+  (`metadata`/`translation`/`extraction` plus boolean
+  `delete_source_after_processing`, default `false`) are still accepted for
+  compatibility and take effect only when `options` is absent; new clients
+  send only `options`. The policy is chosen once at upload and is never
+  changed by a later dedup/reuse request.
 - With the opt-in set, the source object is released only after the ingest
   result is committed successfully. A crash or transient storage error leaves
   the release pending; the server retries it in the background.
@@ -61,7 +75,19 @@ retry-attempt, URL polling, and metadata-index workers remain server-side.
 - A released file cannot be reprocessed until its bytes are uploaded again; the
   upload restores the source and keeps the original upload-time policy.
 - `context69-sdk` exposes `release_file_source(group_path, file_id)` and carries
-  the upload flag through `FileBatchItem` / `UrlBatchItem`.
+  the upload policy through `IngestOptions` / `FileBatchItem.options`.
+
+## Contract bounds and errors
+
+- `GET /v1/tasks` requires typed `view` (no `trashed`); `GET
+  /v1/search/stream` takes the canonical cursor shape (no `page`).
+  `page` is 1..=10_000 and `page_size`/`limit` are 1..=100 in both Rust
+  validation and OpenAPI (`minimum: 1`).
+- Error responses carry a stable `code` (`ApiErrorCode`: `invalid_argument`,
+  `not_found`, `conflict`, `unavailable`, `upstream_timeout`, ...). Match on
+  `code`, not on message text.
+- Full v0.15.19 to v0.16.0 breaking notes, including SDK renames and the
+  deploy-together cutover, live in `docs/contracts/v0.16-migration.md`.
 
 ## Authentication
 

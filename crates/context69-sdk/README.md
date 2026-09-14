@@ -35,8 +35,8 @@ use context69_sdk::{
 # async fn example(client: &Context69Client, spec: ScopeSpec, texts: TextBatchRequest,
 #     files: FileBatchRequest) -> Result<(), Box<dyn std::error::Error>> {
 client.ensure_scope(&spec).await?;
-let text_task = client.text_batch(&spec.group_path, &texts).await?;
-let file_task = client.file_batch(&spec.group_path, &files).await?;
+let text_task = client.submit_text_batch(&spec.group_path, &texts).await?;
+let file_task = client.submit_file_batch(&spec.group_path, &files).await?;
 let text_result = client.wait(text_task.task_id, std::time::Duration::from_secs(600)).await?;
 println!("{} text items succeeded", text_result.progress.succeeded);
 let file_result = client.wait(file_task.task_id, std::time::Duration::from_secs(1800)).await?;
@@ -45,7 +45,7 @@ println!("{} file items failed", file_result.progress.failed);
 # }
 ```
 
-Use `url_batch` for remote files. A one-item batch is the single-item form;
+Use `submit_url_batch` for remote files. A one-item batch is the single-item form;
 there is no second single-write API to learn.
 
 Each batch receives a stable SDK-generated `Idempotency-Key` derived from its
@@ -115,14 +115,21 @@ Request document detail only when the caller needs metadata or chunks;
 ## Public surface
 
 The public client surface is the ergonomic facade: scope provisioning,
-text/URL/file batches (with SDK-generated `Idempotency-Key`), task
+text/URL/file/delete batches via `submit_text_batch`/`submit_url_batch`/
+`submit_file_batch`/`submit_delete_batch` (SDK-generated `Idempotency-Key`), task
 submit/`get_task`/`list_tasks`/`list_task_items`/wait/retry/rerun/cancel/
 trash/restore/`purge_trashed_task`, task maintenance, `search` plus the
 bounded `search_compact` projection, document detail/batch detail,
-extraction templates, health, and authentication identity. Every type needed
+extraction templates, health, and authentication identity. The v0.15 aliases
+(`text_batch`, `url_batch`, `file_batch`, `delete_batch`, `task`, `tasks`,
+`task_items`, `delete_task`) remain as deprecated shims in this release and
+are removed after the v0.16 cutover; new code must use the canonical names.
+Every type needed
 to construct a call (`TaskListView`, `TaskItemsQuery`, `SortDirection`,
 `SourcePolicy`, `IngestOptions`, canonical search/settings types) is
-re-exported from `context69_sdk` alone.
+re-exported from `context69_sdk` alone. Ingest callers send
+`IngestOptions` (`source_policy: retain | release_after_processing`);
+search settings updates send `SecretPatch` (`{op: keep|set|clear}`).
 
 ## Raw transport (all 116 operations)
 

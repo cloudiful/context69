@@ -84,8 +84,20 @@ impl SearchCache {
         let mut hasher = Sha256::new();
         hasher.update(b"filter_hash:v1\n");
         hasher.update(format!("locale={}\n", request.locale.as_deref().unwrap_or("")).as_bytes());
-        hasher.update(format!("source_key={}\n", request.source_key.as_deref().unwrap_or("")).as_bytes());
-        hasher.update(format!("group_path={}\n", request.group_path.as_deref().unwrap_or("")).as_bytes());
+        hasher.update(
+            format!(
+                "source_key={}\n",
+                request.source_key.as_deref().unwrap_or("")
+            )
+            .as_bytes(),
+        );
+        hasher.update(
+            format!(
+                "group_path={}\n",
+                request.group_path.as_deref().unwrap_or("")
+            )
+            .as_bytes(),
+        );
         let after = request
             .published_after
             .map(|value| value.to_rfc3339())

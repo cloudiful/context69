@@ -55,7 +55,9 @@ Metadata and full body text are intentionally absent from search results.
 Every `has_more: true` response carries a continuation token (`next_cursor`
 or `next_chunk_cursor`). Resource listing honors the incoming
 `PaginatedRequestParams.cursor` offset instead of restarting the enumeration.
-A bounded inline response is used in v0.8; `file_first` is deliberately not
+Tool inputs never reuse HTTP request DTOs; v0.16 tool shapes are
+`McpSearchRequest`/`McpDocumentQuery` plus the bounded projections in
+`context69-contracts::projections`. `file_first` is deliberately not
 part of the contract yet.
 
 ## Examples

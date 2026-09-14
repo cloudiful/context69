@@ -60,7 +60,10 @@ fn parse_http_rows() -> Vec<InventoryRow> {
         if raw.len() < 11 {
             continue;
         }
-        let inner: Vec<String> = raw[1..raw.len() - 1].iter().map(|s| s.trim().to_string()).collect();
+        let inner: Vec<String> = raw[1..raw.len() - 1]
+            .iter()
+            .map(|s| s.trim().to_string())
+            .collect();
         if inner.len() != 9 {
             panic!(
                 "inventory HTTP row must have 9 columns, got {}: {trimmed}",
@@ -119,10 +122,7 @@ fn unwrap_array(token: &str) -> &str {
 #[test]
 fn inventory_covers_openapi_operations_exactly_once() {
     let rows = parse_http_rows();
-    assert!(
-        !rows.is_empty(),
-        "inventory HTTP table must not be empty"
-    );
+    assert!(!rows.is_empty(), "inventory HTTP table must not be empty");
 
     // No duplicate operation ids in inventory.
     let mut seen = std::collections::HashSet::new();
@@ -193,18 +193,15 @@ fn inventory_covers_openapi_operations_exactly_once() {
             }
         }
     }
-    assert!(
-        !openapi_ops.is_empty(),
-        "OpenAPI must expose operations"
-    );
+    assert!(!openapi_ops.is_empty(), "OpenAPI must expose operations");
 
     // Every OpenAPI operation must be classified.
     let inventory_map: std::collections::HashMap<_, _> =
         rows.iter().map(|r| (r.operation_id.clone(), r)).collect();
     for (oid, method, path) in &openapi_ops {
-        let row = inventory_map.get(oid).unwrap_or_else(|| {
-            panic!("unclassified OpenAPI operation: {oid} {method} {path}")
-        });
+        let row = inventory_map
+            .get(oid)
+            .unwrap_or_else(|| panic!("unclassified OpenAPI operation: {oid} {method} {path}"));
         assert_eq!(
             &row.method, method,
             "method mismatch for {oid}: inventory {} vs openapi {method}",
@@ -251,10 +248,7 @@ fn inventory_covers_openapi_operations_exactly_once() {
 #[test]
 fn inventory_shared_schemas_exist_in_openapi() {
     let shared = parse_shared_schemas();
-    assert!(
-        !shared.is_empty(),
-        "Shared schemas section must list names"
-    );
+    assert!(!shared.is_empty(), "Shared schemas section must list names");
     // No duplicates in shared list.
     let mut seen = std::collections::HashSet::new();
     for name in &shared {

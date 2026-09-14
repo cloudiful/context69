@@ -277,6 +277,7 @@ async fn prepare_upload_reuses_storage_and_creates_new_file_row() {
                 media_type: "text/plain".to_string(),
                 size_bytes: size,
                 sha256: sha.clone(),
+                options: None,
                 metadata: Some(LibraryFileUploadMetadata {
                     external_id: Some("disclosure-B".to_string()),
                     source_uri: Some("https://example.com/b".to_string()),
