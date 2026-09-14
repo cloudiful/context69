@@ -22,8 +22,23 @@
 - `POST /v1/tasks/{task_id}/retry`
 - `POST /v1/tasks/{task_id}/rerun` (admin-owned terminal task; creates a fresh task from the unfinished items, bypassing the idempotency binding)
 - `POST /v1/tasks/{task_id}/cancel`
+- `POST /v1/tasks/{task_id}/trash`
+- `POST /v1/tasks/{task_id}/restore`
+- `DELETE /v1/tasks/{task_id}` (permanently deletes a trashed task)
+- `POST /v1/tasks/clear` (`{view: completed|trash}`; user-scoped bulk clear, returns `deleted_count`)
 - `POST /v1/admin/tasks/cancel-active` (admin; cancels every active task)
+- `POST /v1/admin/tasks/{task_id}/recover` (admin; Docling recovery)
+- `POST /v1/admin/tasks/{task_id}/recover/queue` (admin; queue Docling recovery)
+- `POST /v1/admin/tasks/quarantine-submitting` (admin; quarantine stale submitting tasks)
 - source and settings management endpoints under `/v1/*`
+
+Task history is never auto-deleted: `completed` tasks persist until the user
+clears completed history and `trash` tasks persist until the user restores,
+deletes, or clears them. Task deletion never removes files, PostgreSQL text,
+Qdrant vectors, or S3 objects. The retention/purge admin APIs
+(`GET/PUT /v1/admin/tasks/maintenance`, `POST /v1/admin/tasks/purge`) are
+removed; lease recovery, source cleanup, and Docling recovery/quarantine are
+retained (see `docs/contracts/v0.17-migration.md`).
 
 ## Advanced SDK workflow
 
@@ -91,6 +106,9 @@ polling, and metadata-index workers remain server-side.
   `code`, not on message text.
 - Full v0.15.19 to v0.16.0 breaking notes, including SDK renames and the
   deploy-together cutover, live in `docs/contracts/v0.16-migration.md`.
+- Full v0.16.0 to v0.17.0 breaking notes (no auto-deletion, user clear
+  endpoint, removed retention/purge admin APIs, retained lease/source
+  cleanup/Docling recovery) live in `docs/contracts/v0.17-migration.md`.
 
 ## Authentication
 
