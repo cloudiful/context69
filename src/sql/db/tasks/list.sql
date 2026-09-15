@@ -61,13 +61,9 @@ WHERE (
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
   AND (
-      ($13::text IS NULL AND (
-          ($12::boolean = TRUE AND task.deleted_at IS NOT NULL)
-          OR ($12::boolean = FALSE AND task.deleted_at IS NULL)
-      ))
-      OR ($13::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
-      OR ($13::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
-      OR ($13::text = 'trash' AND task.deleted_at IS NOT NULL)
+      ($12::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
+      OR ($12::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
+      OR ($12::text = 'trash' AND task.deleted_at IS NOT NULL)
   )
 ORDER BY
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,

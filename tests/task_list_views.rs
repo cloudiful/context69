@@ -1,10 +1,11 @@
-//! Regression tests for typed task list views (issue 353).
+//! Regression tests for typed task list views (issue 353, breaking B1 in
+//! issue 399).
 //!
 //! Processing must exclude succeeded and trashed rows, completed must be
 //! succeeded and non-trashed, trash must be trashed. List items and count
 //! totals must agree within each view, and a user status filter may narrow
-//! but never widen a view. Legacy `trashed`/`status` queries without a view
-//! keep working for external callers.
+//! but never widen a view. The legacy `trashed` filter is gone: `view` is
+//! required and unknown `trashed` shapes are rejected at the contract layer.
 //!
 //! These tests run only when CONTEXT69_TEST_DATABASE_URL points to a scratch
 //! database (migrations are applied automatically). They are skipped otherwise.
@@ -68,12 +69,11 @@ async fn finish_task(db: &Database, task_id: Uuid, status: &str) {
 async fn list_ids(
     db: &Database,
     user_id: i64,
-    view: Option<&str>,
+    view: &str,
     status: Option<&str>,
-    trashed: bool,
 ) -> Vec<Uuid> {
     db.list_tasks(
-        user_id, None, None, status, None, None, None, trashed, None, None, 50, 0, view,
+        user_id, None, None, status, None, None, None, None, None, 50, 0, view,
     )
     .await
     .expect("list tasks")
@@ -82,14 +82,8 @@ async fn list_ids(
     .collect()
 }
 
-async fn count(
-    db: &Database,
-    user_id: i64,
-    view: Option<&str>,
-    status: Option<&str>,
-    trashed: bool,
-) -> i64 {
-    db.count_tasks(user_id, None, None, status, None, None, None, trashed, view)
+async fn count(db: &Database, user_id: i64, view: &str, status: Option<&str>) -> i64 {
+    db.count_tasks(user_id, None, None, status, None, None, None, view)
         .await
         .expect("count tasks")
 }
@@ -128,7 +122,7 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
     );
 
     // Processing excludes succeeded and trashed.
-    let processing = list_ids(&db, user_id, Some("processing"), None, false).await;
+    let processing = list_ids(&db, user_id, "processing", None).await;
     assert!(
         processing.contains(&queued),
         "processing must contain queued"
@@ -150,13 +144,13 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
         "processing must exclude trashed"
     );
     assert_eq!(
-        count(&db, user_id, Some("processing"), None, false).await,
+        count(&db, user_id, "processing", None).await,
         processing.len() as i64,
         "processing count must match list length"
     );
 
     // Completed is succeeded and non-trashed only.
-    let completed = list_ids(&db, user_id, Some("completed"), None, false).await;
+    let completed = list_ids(&db, user_id, "completed", None).await;
     assert!(
         completed.contains(&succeeded),
         "completed must contain succeeded"
@@ -174,13 +168,13 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
         "completed must exclude trashed"
     );
     assert_eq!(
-        count(&db, user_id, Some("completed"), None, false).await,
+        count(&db, user_id, "completed", None).await,
         completed.len() as i64,
         "completed count must match list length"
     );
 
     // Trash is trashed only.
-    let trash = list_ids(&db, user_id, Some("trash"), None, false).await;
+    let trash = list_ids(&db, user_id, "trash", None).await;
     assert!(
         trash.contains(&trashed_succeeded),
         "trash must contain trashed succeeded"
@@ -196,7 +190,7 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
     );
     assert!(!trash.contains(&failed), "trash must exclude active failed");
     assert_eq!(
-        count(&db, user_id, Some("trash"), None, false).await,
+        count(&db, user_id, "trash", None).await,
         trash.len() as i64,
         "trash count must match list length"
     );
@@ -236,42 +230,33 @@ async fn status_filter_narrows_but_never_widens_a_view() {
     finish_task(&db, failed, "failed").await;
 
     // Processing plus succeeded widens nothing: it matches nothing.
-    let processing_succeeded =
-        list_ids(&db, user_id, Some("processing"), Some("succeeded"), false).await;
+    let processing_succeeded = list_ids(&db, user_id, "processing", Some("succeeded")).await;
     assert!(
         !processing_succeeded.contains(&succeeded),
         "processing plus status=succeeded must not widen to succeeded"
     );
     assert_eq!(
-        count(&db, user_id, Some("processing"), Some("succeeded"), false).await,
+        count(&db, user_id, "processing", Some("succeeded")).await,
         processing_succeeded.len() as i64,
     );
 
     // Processing plus failed narrows to failed only.
-    let processing_failed = list_ids(&db, user_id, Some("processing"), Some("failed"), false).await;
+    let processing_failed = list_ids(&db, user_id, "processing", Some("failed")).await;
     assert!(processing_failed.contains(&failed));
     assert!(!processing_failed.contains(&succeeded));
     assert_eq!(
-        count(&db, user_id, Some("processing"), Some("failed"), false).await,
+        count(&db, user_id, "processing", Some("failed")).await,
         processing_failed.len() as i64,
     );
 
     // Completed plus failed matches nothing.
-    let completed_failed = list_ids(&db, user_id, Some("completed"), Some("failed"), false).await;
+    let completed_failed = list_ids(&db, user_id, "completed", Some("failed")).await;
     assert!(
         !completed_failed.contains(&failed),
         "completed plus status=failed must not widen to failed"
     );
     assert_eq!(
-        count(&db, user_id, Some("completed"), Some("failed"), false).await,
+        count(&db, user_id, "completed", Some("failed")).await,
         completed_failed.len() as i64,
     );
-
-    // Legacy callers without a view keep trashed/status compatibility.
-    let legacy_active = list_ids(&db, user_id, None, None, false).await;
-    assert!(legacy_active.contains(&succeeded));
-    assert!(legacy_active.contains(&failed));
-    let legacy_succeeded = list_ids(&db, user_id, None, Some("succeeded"), false).await;
-    assert!(legacy_succeeded.contains(&succeeded));
-    assert!(!legacy_succeeded.contains(&failed));
 }

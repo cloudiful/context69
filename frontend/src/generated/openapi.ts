@@ -1556,7 +1556,8 @@ export interface components {
         };
         /**
          * @description v0.16 canonical task list query: typed `view` is required and the legacy
-         *     `trashed` flag is gone. Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].
+         *     `trashed` flag is gone. Unknown fields (including `trashed`) are rejected.
+         *     Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].
          */
         CanonicalTaskListQuery: {
             dependency_key?: string | null;
@@ -2922,11 +2923,11 @@ export interface components {
         /** @enum {string} */
         TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild";
         /**
-         * @description v0.15 task list query kept for wire compatibility.
-         *
-         *     Deprecated `trashed` stays so legacy callers keep compiling; new code
-         *     should use [`CanonicalTaskListQuery`], which requires a typed `view` and
-         *     carries no `trashed` flag.
+         * @description v0.18 task list query: typed `view` owns the trash predicate and the
+         *     legacy `trashed` flag is gone. Unknown fields (including `trashed`) are
+         *     rejected so old `?trashed=` requests fail instead of silently changing
+         *     meaning. The service layer requires `view`; callers without one get
+         *     `invalid_argument`.
          */
         TaskListQuery: {
             dependency_key?: string | null;
@@ -2940,13 +2941,6 @@ export interface components {
             sort_direction?: null | components["schemas"]["SortDirection"];
             stage?: string | null;
             status?: null | components["schemas"]["TaskStatus"];
-            /**
-             * @description When true, list only trashed tasks; when false or omitted, list only
-             *     active (non-trashed) tasks. Trashed rows stay reachable by id for their
-             *     owner (for example to restore them) but never appear in active lists.
-             *     Ignored when `view` is set: the view owns the trash predicate.
-             */
-            trashed?: boolean | null;
             view?: null | components["schemas"]["TaskListView"];
             waiting_reason?: string | null;
         };

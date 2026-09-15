@@ -742,13 +742,36 @@ fn canonical_task_list_query_requires_view() {
 
     let legacy: TaskListQuery = canonical.into();
     assert_eq!(legacy.view, Some(TaskListView::Processing));
-    assert_eq!(legacy.trashed, None);
+
+    // Breaking B1: legacy `trashed` shapes are rejected on both structs.
+    for trashed in [
+        json!({
+            "page": 1,
+            "page_size": 25,
+            "view": "processing",
+            "trashed": true
+        }),
+        json!({
+            "page": 1,
+            "page_size": 25,
+            "trashed": false
+        }),
+    ] {
+        assert!(
+            serde_json::from_value::<CanonicalTaskListQuery>(trashed.clone()).is_err(),
+            "canonical query must reject trashed"
+        );
+        assert!(
+            serde_json::from_value::<TaskListQuery>(trashed).is_err(),
+            "task query must reject trashed"
+        );
+    }
 
     let legacy_default: TaskListQuery = serde_json::from_value(json!({
         "page": 1,
         "page_size": 25
     }))
-    .expect("legacy without view");
+    .expect("query without view still parses at the struct level");
     assert_eq!(legacy_default.view, None);
 }
 

@@ -21,14 +21,14 @@ async fn trash_and_restore_round_trip_is_idempotent() {
 
     let active = db
         .list_tasks(
-            user_id, None, None, None, None, None, None, false, None, None, 50, 0, None,
+            user_id, None, None, None, None, None, None, None, None, 50, 0, "completed",
         )
         .await
         .expect("list active tasks");
     assert!(active.iter().any(|task| task.id == task_id));
     let trashed = db
         .list_tasks(
-            user_id, None, None, None, None, None, None, true, None, None, 50, 0, None,
+            user_id, None, None, None, None, None, None, None, None, 50, 0, "trash",
         )
         .await
         .expect("list trashed tasks");
@@ -48,14 +48,14 @@ async fn trash_and_restore_round_trip_is_idempotent() {
 
     let active = db
         .list_tasks(
-            user_id, None, None, None, None, None, None, false, None, None, 50, 0, None,
+            user_id, None, None, None, None, None, None, None, None, 50, 0, "completed",
         )
         .await
         .expect("list active tasks");
     assert!(!active.iter().any(|task| task.id == task_id));
     let trashed = db
         .list_tasks(
-            user_id, None, None, None, None, None, None, true, None, None, 50, 0, None,
+            user_id, None, None, None, None, None, None, None, None, 50, 0, "trash",
         )
         .await
         .expect("list trashed tasks");
@@ -73,7 +73,7 @@ async fn trash_and_restore_round_trip_is_idempotent() {
 
     let active = db
         .list_tasks(
-            user_id, None, None, None, None, None, None, false, None, None, 50, 0, None,
+            user_id, None, None, None, None, None, None, None, None, 50, 0, "completed",
         )
         .await
         .expect("list active tasks");

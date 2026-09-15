@@ -509,8 +509,30 @@ mod tests {
         );
         assert!(canonical.validate().is_ok());
         let legacy: TaskListQuery = canonical.into();
-        assert_eq!(legacy.trashed, None);
         assert!(legacy.view.is_some());
+
+        for trashed in [
+            serde_json::json!({
+                "page": 1,
+                "page_size": 25,
+                "view": "processing",
+                "trashed": true
+            }),
+            serde_json::json!({
+                "page": 1,
+                "page_size": 25,
+                "trashed": true
+            }),
+        ] {
+            assert!(
+                serde_json::from_value::<CanonicalTaskListQuery>(trashed.clone()).is_err(),
+                "old ?trashed= requests must be rejected after removal"
+            );
+            assert!(
+                serde_json::from_value::<TaskListQuery>(trashed).is_err(),
+                "old trashed shapes must be rejected after removal"
+            );
+        }
 
         let missing_view = serde_json::from_value::<CanonicalTaskListQuery>(serde_json::json!({
             "page": 1,
@@ -518,7 +540,7 @@ mod tests {
         }));
         assert!(
             missing_view.is_err(),
-            "v0.16 path must require view; legacy trashed-only queries belong to TaskListQuery"
+            "v0.18 path must require view; trashed-only queries are rejected"
         );
 
         let zero_page = CanonicalTaskListQuery {

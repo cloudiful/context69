@@ -6007,7 +6007,7 @@
       },
       "CanonicalTaskListQuery": {
         "type": "object",
-        "description": "v0.16 canonical task list query: typed `view` is required and the legacy\n`trashed` flag is gone. Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].",
+        "description": "v0.16 canonical task list query: typed `view` is required and the legacy\n`trashed` flag is gone. Unknown fields (including `trashed`) are rejected.\nOffset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].",
         "required": [
           "view"
         ],
@@ -6091,7 +6091,8 @@
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CanonicalUpdateSearchSettingsRequest": {
         "type": "object",
@@ -10583,7 +10584,7 @@
       },
       "TaskListQuery": {
         "type": "object",
-        "description": "v0.15 task list query kept for wire compatibility.\n\nDeprecated `trashed` stays so legacy callers keep compiling; new code\nshould use [`CanonicalTaskListQuery`], which requires a typed `view` and\ncarries no `trashed` flag.",
+        "description": "v0.18 task list query: typed `view` owns the trash predicate and the\nlegacy `trashed` flag is gone. Unknown fields (including `trashed`) are\nrejected so old `?trashed=` requests fail instead of silently changing\nmeaning. The service layer requires `view`; callers without one get\n`invalid_argument`.",
         "properties": {
           "dependency_key": {
             "type": [
@@ -10653,13 +10654,6 @@
               }
             ]
           },
-          "trashed": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "When true, list only trashed tasks; when false or omitted, list only\nactive (non-trashed) tasks. Trashed rows stay reachable by id for their\nowner (for example to restore them) but never appear in active lists.\nIgnored when `view` is set: the view owns the trash predicate."
-          },
           "view": {
             "oneOf": [
               {
@@ -10667,7 +10661,7 @@
               },
               {
                 "$ref": "#/components/schemas/TaskListView",
-                "description": "Typed list view. `processing` lists non-trashed tasks whose status is\nnot `succeeded`; `completed` lists non-trashed `succeeded` tasks;\n`trash` lists trashed tasks. A user-supplied `status` further narrows\nthe view and never widens it (for example `processing` plus\n`status=succeeded` matches nothing). When omitted, the legacy\n`trashed`/`status` filters apply for external callers."
+                "description": "Typed list view. `processing` lists non-trashed tasks whose status is\nnot `succeeded`; `completed` lists non-trashed `succeeded` tasks;\n`trash` lists trashed tasks. A user-supplied `status` further narrows\nthe view and never widens it (for example `processing` plus\n`status=succeeded` matches nothing). Required at the service layer."
               }
             ]
           },
@@ -10677,7 +10671,8 @@
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "TaskListView": {
         "type": "string",

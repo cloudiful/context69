@@ -250,13 +250,14 @@ pub struct ClearTaskHistoryResponse {
     pub deleted_count: u64,
 }
 
-/// v0.15 task list query kept for wire compatibility.
-///
-/// Deprecated `trashed` stays so legacy callers keep compiling; new code
-/// should use [`CanonicalTaskListQuery`], which requires a typed `view` and
-/// carries no `trashed` flag.
+/// v0.18 task list query: typed `view` owns the trash predicate and the
+/// legacy `trashed` flag is gone. Unknown fields (including `trashed`) are
+/// rejected so old `?trashed=` requests fail instead of silently changing
+/// meaning. The service layer requires `view`; callers without one get
+/// `invalid_argument`.
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct TaskListQuery {
     #[serde(default = "default_page")]
     pub page: u32,
@@ -268,18 +269,11 @@ pub struct TaskListQuery {
     pub kind: Option<TaskKind>,
     #[serde(default)]
     pub status: Option<TaskStatus>,
-    /// When true, list only trashed tasks; when false or omitted, list only
-    /// active (non-trashed) tasks. Trashed rows stay reachable by id for their
-    /// owner (for example to restore them) but never appear in active lists.
-    /// Ignored when `view` is set: the view owns the trash predicate.
-    #[serde(default)]
-    pub trashed: Option<bool>,
     /// Typed list view. `processing` lists non-trashed tasks whose status is
     /// not `succeeded`; `completed` lists non-trashed `succeeded` tasks;
     /// `trash` lists trashed tasks. A user-supplied `status` further narrows
     /// the view and never widens it (for example `processing` plus
-    /// `status=succeeded` matches nothing). When omitted, the legacy
-    /// `trashed`/`status` filters apply for external callers.
+    /// `status=succeeded` matches nothing). Required at the service layer.
     #[serde(default)]
     pub view: Option<TaskListView>,
     #[serde(default)]
@@ -295,9 +289,11 @@ pub struct TaskListQuery {
 }
 
 /// v0.16 canonical task list query: typed `view` is required and the legacy
-/// `trashed` flag is gone. Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].
+/// `trashed` flag is gone. Unknown fields (including `trashed`) are rejected.
+/// Offset bounds match [`context69_contracts_core::pagination::OffsetPageQuery`].
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct CanonicalTaskListQuery {
     #[serde(default = "default_page")]
     #[param(minimum = 1, maximum = 10_000)]
@@ -348,7 +344,6 @@ impl From<CanonicalTaskListQuery> for TaskListQuery {
             query: canonical.query,
             kind: canonical.kind,
             status: canonical.status,
-            trashed: None,
             view: Some(canonical.view),
             stage: canonical.stage,
             waiting_reason: canonical.waiting_reason,

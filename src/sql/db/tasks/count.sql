@@ -35,11 +35,7 @@ WHERE (
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
   AND (
-      ($9::text IS NULL AND (
-          ($8::boolean = TRUE AND task.deleted_at IS NOT NULL)
-          OR ($8::boolean = FALSE AND task.deleted_at IS NULL)
-      ))
-      OR ($9::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
-      OR ($9::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
-      OR ($9::text = 'trash' AND task.deleted_at IS NOT NULL)
+      ($8::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
+      OR ($8::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
+      OR ($8::text = 'trash' AND task.deleted_at IS NOT NULL)
   )

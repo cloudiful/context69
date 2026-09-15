@@ -265,8 +265,10 @@ impl TaskService {
             .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
         let kind = query.kind.map(TaskKind::as_str);
         let status = query.status.map(TaskStatus::as_str);
-        let view = query.view.map(TaskListView::as_str);
-        let trashed = query.trashed.unwrap_or(false);
+        let view = query
+            .view
+            .map(TaskListView::as_str)
+            .ok_or_else(|| DomainError::invalid_argument("view is required"))?;
         let total = self
             .db
             .count_tasks(
@@ -277,7 +279,6 @@ impl TaskService {
                 query.stage.as_deref(),
                 query.waiting_reason.as_deref(),
                 query.dependency_key.as_deref(),
-                trashed,
                 view,
             )
             .await?;
@@ -291,7 +292,6 @@ impl TaskService {
                 query.stage.as_deref(),
                 query.waiting_reason.as_deref(),
                 query.dependency_key.as_deref(),
-                trashed,
                 query.sort_by.map(TaskSortBy::as_str),
                 query.sort_direction.map(SortDirection::as_str),
                 i64::from(bounds.page_size),
@@ -964,14 +964,13 @@ mod tests {
     }
 
     #[test]
-    fn task_list_query_view_defaults_to_none_for_legacy_callers() {
-        let legacy: TaskListQuery = serde_json::from_value(serde_json::json!({
+    fn task_list_query_rejects_trashed_and_view_is_required_at_service() {
+        let without_view: TaskListQuery = serde_json::from_value(serde_json::json!({
             "page": 1,
             "page_size": 25
         }))
-        .expect("legacy query without view");
-        assert_eq!(legacy.view, None);
-        assert_eq!(legacy.trashed, None);
+        .expect("query without view still parses at the struct level");
+        assert_eq!(without_view.view, None);
         let with_view: TaskListQuery = serde_json::from_value(serde_json::json!({
             "page": 1,
             "page_size": 25,
@@ -979,6 +978,24 @@ mod tests {
         }))
         .expect("query with view");
         assert_eq!(with_view.view, Some(TaskListView::Processing));
+        for trashed in [
+            serde_json::json!({
+                "page": 1,
+                "page_size": 25,
+                "view": "processing",
+                "trashed": true
+            }),
+            serde_json::json!({
+                "page": 1,
+                "page_size": 25,
+                "trashed": false
+            }),
+        ] {
+            assert!(
+                serde_json::from_value::<TaskListQuery>(trashed).is_err(),
+                "legacy trashed shape must be rejected"
+            );
+        }
     }
 
     #[test]
@@ -1007,6 +1024,16 @@ mod tests {
             assert!(
                 count.contains(view),
                 "count.sql must contain view literal {view}"
+            );
+        }
+        for sql in [list, count] {
+            assert!(
+                !sql.contains("::boolean"),
+                "legacy trashed boolean branch must be gone"
+            );
+            assert!(
+                !sql.contains("IS NULL AND ("),
+                "legacy null-view fallback must be gone"
             );
         }
     }
