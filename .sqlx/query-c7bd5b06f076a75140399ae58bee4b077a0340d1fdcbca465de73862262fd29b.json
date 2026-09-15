@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE context69.library_files\nSET folder_id = $3,\n    external_id = $4,\n    filename = $5,\n    media_type = $6,\n    size_bytes = $7,\n    sha256 = $8,\n    storage_rel_path = $9,\n    storage_object_id = $10,\n    source_released_at = NULL,\n    ingest_status = 'pending',\n    error_message = NULL,\n    ingested_at = NULL,\n    updated_at = now()\nWHERE group_id = $1\n  AND id = $2\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
+  "query": "UPDATE context69.library_files\nSET ingest_status = $2, error_message = $3, ingested_at = $4, updated_at = now()\nWHERE id = $1\n  AND ingest_status = 'failed'\nRETURNING\n    group_id,\n    (SELECT group_key FROM context69.groups WHERE id = group_id) AS \"group_key!\",\n    (SELECT full_path FROM context69.groups WHERE id = group_id) AS \"group_path!\",\n    visibility,\n    id,\n    folder_id,\n    external_id,\n    source_uri,\n    published_at,\n    metadata_json,\n    filename,\n    media_type,\n    size_bytes,\n    sha256,\n    storage_rel_path,\n    ingest_status,\n    error_message,\n    created_at,\n    updated_at,\n    ingested_at\n",
   "describe": {
     "columns": [
       {
@@ -216,16 +216,10 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Uuid",
         "Uuid",
         "Text",
         "Text",
-        "Text",
-        "Int8",
-        "Text",
-        "Text",
-        "Uuid"
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -251,5 +245,5 @@
       true
     ]
   },
-  "hash": "ce98e88b12b43b565f5b3c1baaa1d86eb36179341a82d913daaf7ed36546af5b"
+  "hash": "c7bd5b06f076a75140399ae58bee4b077a0340d1fdcbca465de73862262fd29b"
 }

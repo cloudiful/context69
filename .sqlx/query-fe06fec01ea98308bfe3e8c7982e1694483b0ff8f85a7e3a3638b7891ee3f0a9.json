@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- User-scoped bulk clear for task history (issue 391 Task 2).\n--\n-- A single DELETE statement per view, strictly scoped to the calling user:\n--   completed: current user, untrashed, succeeded only.\n--   trash: current user, trashed, terminal only (succeeded/failed/cancelled).\n--\n-- Active tasks, other users' rows, and non-matching views delete nothing.\n-- Only context69.tasks rows are deleted; task_items/task_attempts/\n-- task_external_jobs cascade via ON DELETE CASCADE while library files,\n-- documents, vectors, and S3 objects are owned elsewhere and untouched.\nDELETE FROM context69.tasks\nWHERE user_id = $1\n  AND (\n    ($2::text = 'completed'\n      AND deleted_at IS NULL\n      AND status = 'succeeded')\n    OR ($2::text = 'trash'\n      AND deleted_at IS NOT NULL\n      AND status IN ('succeeded', 'failed', 'cancelled'))\n  )\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe06fec01ea98308bfe3e8c7982e1694483b0ff8f85a7e3a3638b7891ee3f0a9"
+}

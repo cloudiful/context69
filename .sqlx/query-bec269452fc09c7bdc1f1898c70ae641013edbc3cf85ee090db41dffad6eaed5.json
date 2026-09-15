@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT file.folder_id AS \"folder_id\", COUNT(*)::BIGINT AS \"count!\"\nFROM context69.library_files file\nWHERE ($1::BIGINT IS NULL OR file.group_id = $1)\n  AND EXISTS (\n      SELECT 1\n      FROM context69.task_items active\n      WHERE active.file_id = file.id\n        AND active.status IN ('queued', 'running', 'waiting')\n  )\nGROUP BY file.folder_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "folder_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "folder_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "bec269452fc09c7bdc1f1898c70ae641013edbc3cf85ee090db41dffad6eaed5"
+}
