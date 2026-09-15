@@ -47,8 +47,8 @@ use super::{
     require_library_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, rerun_task, reset_admin_user_password, restore_task,
-    retry_metadata_index, retry_task, revoke_personal_access_token, submit_delete_batch,
-    submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
+    retry_metadata_index, retry_task, revoke_personal_access_token, stream_tasks,
+    submit_delete_batch, submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
     submit_vector_index_rebuild, sync_group_source_folder, sync_source,
     touch_personal_access_token_middleware, trash_task, update_admin_user,
     update_group_source_folder_config, update_group_translation_settings, update_metadata_index,
@@ -154,6 +154,7 @@ fn task_routes(api_state: ApiState) -> Router<ApiState> {
     Router::new()
         .route("/v1/scopes/ensure", post(ensure_scope))
         .route("/v1/tasks/clear", post(clear_task_history))
+        .route("/v1/tasks/stream", get(stream_tasks))
         .route("/v1/tasks", get(list_tasks).post(submit_task))
         .route("/v1/tasks/{task_id}", get(get_task).delete(delete_task))
         .route("/v1/tasks/{task_id}/items", get(list_task_items))

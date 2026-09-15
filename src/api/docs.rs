@@ -58,7 +58,7 @@ use crate::api::{
     tasks::{
         __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_ensure_scope,
         __path_get_task, __path_list_task_items, __path_list_tasks, __path_rerun_task,
-        __path_restore_task, __path_retry_task, __path_submit_delete_batch,
+        __path_restore_task, __path_retry_task, __path_stream_tasks, __path_submit_delete_batch,
         __path_submit_file_batch, __path_submit_task, __path_submit_text_batch,
         __path_submit_url_batch, __path_submit_vector_index_rebuild, __path_trash_task,
     },
@@ -98,9 +98,10 @@ use crate::contracts::{
     RecoveredDoclingTask, RerunTaskResponse, ResetAdminUserPasswordRequest, ScopeMetadataIndex,
     ScopeSpec, SearchMode, SecretPatch, SortDirection, SortOrder, SourceConfigInput,
     SourceConnectionResponse, SourceFolderResponse, SourcePageQuery, SourcePageResponse,
-    SourcePolicy, SourceStatus, SyncOutcome, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    SourcePolicy, SourceStatus, SyncOutcome,     TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
-    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
+    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone,
+    TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest,
     TextBatchRequest, TranslationDirective, TranslationGlossaryEntry, TranslationJobResponse,
     TranslationJobsResponse, TranslationLlmApiKind, TranslationProviderInput,
     TranslationProviderKind, TranslationProviderPageQuery, TranslationProviderPageResponse,
@@ -192,6 +193,7 @@ use crate::contracts::{
         submit_vector_index_rebuild,
         get_task,
         list_tasks,
+        stream_tasks,
         list_task_items,
         retry_task,
         rerun_task,
@@ -333,6 +335,11 @@ use crate::contracts::{
         TaskRetryResponse,
         RerunTaskResponse,
         TaskStatus,
+        TaskStreamDone,
+        TaskStreamEvent,
+        TaskStreamQuery,
+        TaskStreamSnapshot,
+        TaskStreamUpdate,
         TaskSortBy,
         CancelActiveTasksResponse,
         QuarantineStaleSubmittingRequest,
@@ -460,6 +467,7 @@ mod tests {
             "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions",
             "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild",
             "/v1/tasks",
+            "/v1/tasks/stream",
             "/v1/tasks/{task_id}",
             "/v1/tasks/{task_id}/items",
             "/v1/tasks/{task_id}/retry",
@@ -535,11 +543,31 @@ mod tests {
             "TaskRef",
             "TaskResponse",
             "TaskItemResponse",
+            "TaskStreamDone",
+            "TaskStreamEvent",
+            "TaskStreamSnapshot",
+            "TaskStreamUpdate",
             "ClearTaskHistoryRequest",
             "ClearTaskHistoryResponse",
         ] {
             assert!(schemas.contains_key(schema), "missing schema {schema}");
         }
+        // Issue 405 Task E2: the task SSE stream exposes snapshot-then-deltas
+        // with client-side resync (no server replay), mirroring search-stream.
+        let stream = paths
+            .get("/v1/tasks/stream")
+            .and_then(Value::as_object)
+            .expect("task stream path to exist");
+        let stream_get = stream.get("get").expect("stream must expose GET");
+        assert_eq!(
+            stream_get.get("operationId").and_then(Value::as_str),
+            Some("stream_tasks"),
+            "stream operationId must be stream_tasks"
+        );
+        assert!(
+            !stream.contains_key("post"),
+            "task stream must not expose POST"
+        );
         for removed in [
             "TaskMaintenanceOverview",
             "TaskMaintenanceSettings",

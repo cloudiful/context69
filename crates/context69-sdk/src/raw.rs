@@ -11,12 +11,12 @@
 //!
 //! Honest limitation: with the current dependencies (`reqwest` without the
 //! `multipart` feature) the two `multipart/form-data` uploads
-//! (`upload_library_files`, `upload_group_library_files`) and the SSE stream
-//! (`search_stream`) have no typed builder/parser. They are covered in the
-//! registry with `BodyKind::Multipart`/empty response, and callers pass
-//! pre-encoded bytes via [`RawRequest::raw_body`] or read SSE bytes from
-//! [`RawResponse`]. Per-operation typed request/response structs are
-//! intentionally not generated; bodies use shared contract types through
+//! (`upload_library_files`, `upload_group_library_files`) and the SSE streams
+//! (`search_stream`, `stream_tasks`) have no typed builder/parser. They are
+//! covered in the registry with `BodyKind::Multipart`/empty response, and
+//! callers pass pre-encoded bytes via [`RawRequest::raw_body`] or read SSE
+//! bytes from [`RawResponse`]. Per-operation typed request/response structs
+//! are intentionally not generated; bodies use shared contract types through
 //! [`RawRequest::json_body`] and [`RawResponse::decode`].
 
 pub use crate::raw_operations::{BodyKind, OPERATIONS, Operation};

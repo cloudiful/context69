@@ -105,9 +105,10 @@ pub use context69_contracts_tasks::tasks::{
     QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse, QuarantinedExternalJob,
     QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
     RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
-    ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin, TaskPageResponse,
-    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
-    TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
+    ScopeMetadataIndex, ScopeSpec, TASK_STREAM_IDS_MAX, TaskItemResponse, TaskItemStatus,
+    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
+    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
+    TaskStatus, TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot,
+    TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
 };
 pub use context69_contracts_translation::translation::*;

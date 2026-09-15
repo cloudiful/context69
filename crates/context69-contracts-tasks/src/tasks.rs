@@ -607,6 +607,61 @@ pub struct QuarantineStaleSubmittingResponse {
     pub quarantinable_count: i64,
 }
 
+/// Query for `GET /v1/tasks/stream` (issue 405 Task E2).
+///
+/// `task_ids` is a comma-separated list of task UUIDs to watch. Absent or
+/// blank watches all of the caller's own tasks (the snapshot covers the
+/// `processing` view, first 100; deltas cover every own task). Explicit IDs
+/// are filtered to the caller's own tasks; foreign or missing IDs are
+/// silently skipped so existence never leaks across users.
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
+#[into_params(parameter_in = Query)]
+pub struct TaskStreamQuery {
+    #[serde(default)]
+    pub task_ids: Option<String>,
+}
+
+/// First SSE frame on every `GET /v1/tasks/stream` connection: the full
+/// states at subscribe time. Clients render this snapshot, then apply
+/// `update` deltas. Reconnects get a fresh snapshot; there is no server
+/// replay via `Last-Event-ID` (the client re-syncs with `GET /v1/tasks`).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskStreamSnapshot {
+    pub tasks: Vec<TaskResponse>,
+}
+
+/// Incremental SSE frame: one watched task's current full state. The task
+/// is always owned by the subscriber (`CurrentUser` filter); foreign tasks
+/// never appear.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskStreamUpdate {
+    pub task: TaskResponse,
+}
+
+/// Terminal SSE frame: every explicitly watched `task_ids` entry has reached
+/// a terminal status (`succeeded`/`failed`/`cancelled`). The stream closes
+/// after this frame. Unfiltered subscriptions (watch-all) never emit `done`
+/// and stay open until the client disconnects.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskStreamDone {
+    pub tasks: Vec<TaskResponse>,
+}
+
+/// Union of `GET /v1/tasks/stream` SSE frames. The transport maps each
+/// variant to an SSE `event:` frame (`snapshot`, `update`, `done`, `error`);
+/// `error` carries `{ "message": ... }` like the search stream.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TaskStreamEvent {
+    Snapshot(TaskStreamSnapshot),
+    Update(TaskStreamUpdate),
+    Done(TaskStreamDone),
+    Error { message: String },
+}
+
+/// Maximum task IDs accepted on `GET /v1/tasks/stream?task_ids=`.
+pub const TASK_STREAM_IDS_MAX: usize = 100;
+
 fn default_page() -> u32 {
     context69_contracts_core::pagination::default_page()
 }

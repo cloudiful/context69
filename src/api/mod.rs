@@ -139,8 +139,8 @@ pub(crate) use task_maintenance::{
 };
 pub(crate) use tasks::{
     cancel_task, clear_task_history, delete_task, ensure_scope, get_task, list_task_items,
-    list_tasks, rerun_task, restore_task, retry_task, submit_delete_batch, submit_file_batch,
-    submit_task, submit_task_request, submit_text_batch, submit_url_batch,
+    list_tasks, rerun_task, restore_task, retry_task, stream_tasks, submit_delete_batch,
+    submit_file_batch, submit_task, submit_task_request, submit_text_batch, submit_url_batch,
     submit_vector_index_rebuild, trash_task,
 };
 pub(crate) use translations::*;

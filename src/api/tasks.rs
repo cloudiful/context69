@@ -1,15 +1,26 @@
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+};
+
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
 };
 use context69_contracts::{
     ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, DeleteBatchRequest,
-    FileBatchRequest, ScopeSpec, TaskItemsQuery, TaskListQuery, TaskRef, TaskSubmitRequest,
-    TextBatchRequest, UrlBatchRequest,
+    FileBatchRequest, ScopeSpec, TASK_STREAM_IDS_MAX, TaskItemsQuery, TaskListQuery,
+    TaskListView, TaskRef, TaskResponse, TaskStatus, TaskStreamDone, TaskStreamEvent,
+    TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest,
+    UrlBatchRequest,
 };
 use serde_json::json;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::{
@@ -469,6 +480,297 @@ pub(crate) async fn delete_task(
     }
 }
 
+/// Subscribe to the caller's own task states over Server-Sent Events.
+///
+/// Best-effort PG NOTIFY fan-out (issue 405 Task E1): the handler sends one
+/// `snapshot` frame with full states, then one `update` frame per watched
+/// task change, then `done` when every explicitly watched `task_ids` entry
+/// is terminal. `Last-Event-ID` is not replayed; clients re-sync with
+/// `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`) on reconnect (E3).
+/// Disconnects drop the `AbortOnDrop` in the unfold state, which aborts the
+/// producer and unsubscribes the broadcast receiver.
+#[utoipa::path(
+    get,
+    path = "/v1/tasks/stream",
+    params(TaskStreamQuery),
+    responses(
+        (status = 200, description = "Server-Sent Events stream (text/event-stream). Frames: `snapshot` (full states at subscribe time), `update` (one watched task's current full state), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect)."),
+        (status = 400, body = ApiErrorResponse, description = "Invalid task_ids query (malformed UUID or more than 100 IDs). The SSE body never starts; the 400 is returned directly.")
+    )
+)]
+pub(crate) async fn stream_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Query(query): Query<TaskStreamQuery>,
+) -> Response {
+    let watched = match parse_task_stream_ids(query.task_ids.as_deref()) {
+        Ok(ids) => ids,
+        Err(error) => return task_error(error),
+    };
+    let (tx, rx) = mpsc::channel::<TaskStreamEvent>(32);
+    let tasks = state.app.tasks.clone();
+    let user_id = session.user.id;
+    // Mirror the search-stream pattern: the producer selects on `abort`
+    // next to its DB/broadcast awaits, and the `AbortOnDrop` lives in the
+    // unfold state so a client disconnect aborts the work and drops the
+    // broadcast subscription instead of running to completion.
+    let (signal, on_drop) = context69_search::abort_pair();
+    tokio::spawn(async move {
+        let _ = run_task_stream(tasks, user_id, watched, tx, signal).await;
+    });
+    let stream = futures::stream::unfold((rx, on_drop), |(mut rx, abort)| async move {
+        rx.recv()
+            .await
+            .map(|event| (Ok::<_, Infallible>(sse_task_event(event)), (rx, abort)))
+    });
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// Parse `GET /v1/tasks/stream?task_ids=` (comma-separated UUIDs).
+/// `None`/blank means watch-all (own tasks only). Rejects malformed UUIDs
+/// and more than [`TASK_STREAM_IDS_MAX`] IDs as typed invalid-argument so
+/// the handler returns 400 before the SSE body starts.
+fn parse_task_stream_ids(raw: Option<&str>) -> anyhow::Result<Vec<Uuid>> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for part in raw.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let id: Uuid = part.parse().map_err(|_| {
+            crate::domain_errors::DomainError::invalid_argument(format!(
+                "invalid task_ids entry (must be UUID): {part}"
+            ))
+        })?;
+        if seen.insert(id) {
+            out.push(id);
+        }
+    }
+    if out.len() > TASK_STREAM_IDS_MAX {
+        return Err(crate::domain_errors::DomainError::invalid_argument(format!(
+            "task_ids must contain at most {TASK_STREAM_IDS_MAX} IDs"
+        ))
+        .into());
+    }
+    Ok(out)
+}
+
+fn is_terminal_task_status(status: &TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Succeeded | TaskStatus::Failed | TaskStatus::Cancelled
+    )
+}
+
+/// Snapshot-then-deltas producer for one SSE connection. Snapshot errors and
+/// lag notifications are delivered as in-band `error` frames; foreign or
+/// missing tasks are silently skipped (own-tasks-only filter).
+async fn run_task_stream(
+    tasks: crate::services::tasks::TaskService,
+    user_id: i64,
+    watched_order: Vec<Uuid>,
+    tx: mpsc::Sender<TaskStreamEvent>,
+    mut abort: context69_search::AbortSignal,
+) -> anyhow::Result<()> {
+    let watched_set: HashSet<Uuid> = watched_order.iter().copied().collect();
+    let filtering = !watched_set.is_empty();
+
+    let snapshot_tasks: Vec<TaskResponse> = if filtering {
+        let mut out = Vec::with_capacity(watched_order.len());
+        for task_id in &watched_order {
+            let fetched = tokio::select! {
+                biased;
+                _ = abort.wait() => return Ok(()),
+                result = tasks.get(*task_id, user_id) => result,
+            };
+            match fetched {
+                Ok(task) => out.push(task),
+                Err(error) => {
+                    if crate::domain_errors::is_not_found_error(&error) {
+                        continue;
+                    }
+                    if matches!(
+                        crate::domain_errors::find_domain_error(&error),
+                        Some(crate::domain_errors::DomainError::Forbidden(_))
+                    ) {
+                        continue;
+                    }
+                    let _ = tx
+                        .send(TaskStreamEvent::Error {
+                            message: error.to_string(),
+                        })
+                        .await;
+                    return Ok(());
+                }
+            }
+        }
+        out
+    } else {
+        let query = TaskListQuery {
+            page: 1,
+            page_size: 100,
+            query: None,
+            kind: None,
+            status: None,
+            view: Some(TaskListView::Processing),
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+        };
+        let listed = tokio::select! {
+            biased;
+            _ = abort.wait() => return Ok(()),
+            result = tasks.list(user_id, &query) => result,
+        };
+        match listed {
+            Ok(page) => page.items,
+            Err(error) => {
+                let _ = tx
+                    .send(TaskStreamEvent::Error {
+                        message: error.to_string(),
+                    })
+                    .await;
+                return Ok(());
+            }
+        }
+    };
+
+    if !send_task_frame(
+        &tx,
+        TaskStreamEvent::Snapshot(TaskStreamSnapshot {
+            tasks: snapshot_tasks.clone(),
+        }),
+    )
+    .await
+    {
+        return Ok(());
+    }
+
+    let mut known: HashMap<Uuid, TaskResponse> = snapshot_tasks
+        .iter()
+        .map(|task| (task.task_id, task.clone()))
+        .collect();
+    if filtering
+        && known.len() == watched_set.len()
+        && !known.is_empty()
+        && known
+            .values()
+            .all(|task| is_terminal_task_status(&task.status))
+    {
+        let done_tasks = watched_order
+            .iter()
+            .filter_map(|id| known.get(id).cloned())
+            .collect();
+        let _ = send_task_frame(&tx, TaskStreamEvent::Done(TaskStreamDone { tasks: done_tasks })).await;
+        return Ok(());
+    }
+
+    let mut subscription = tasks.subscribe_task_events();
+    loop {
+        tokio::select! {
+            biased;
+            _ = abort.wait() => return Ok(()),
+            received = subscription.recv() => match received {
+                Ok(bus_event) => {
+                    if filtering && !watched_set.contains(&bus_event.task_id) {
+                        continue;
+                    }
+                    let fetched = tokio::select! {
+                        biased;
+                        _ = abort.wait() => return Ok(()),
+                        result = tasks.get(bus_event.task_id, user_id) => result,
+                    };
+                    match fetched {
+                        Ok(full) => {
+                            let terminal = is_terminal_task_status(&full.status);
+                            known.insert(full.task_id, full.clone());
+                            if !send_task_frame(
+                                &tx,
+                                TaskStreamEvent::Update(TaskStreamUpdate { task: full }),
+                            )
+                            .await
+                            {
+                                return Ok(());
+                            }
+                            if filtering
+                                && known.len() == watched_set.len()
+                                && known.values().all(|task| is_terminal_task_status(&task.status))
+                                && terminal
+                            {
+                                let done_tasks = watched_order
+                                    .iter()
+                                    .filter_map(|id| known.get(id).cloned())
+                                    .collect();
+                                let _ = send_task_frame(
+                                    &tx,
+                                    TaskStreamEvent::Done(TaskStreamDone { tasks: done_tasks }),
+                                )
+                                .await;
+                                return Ok(());
+                            }
+                        }
+                        Err(error) => {
+                            if crate::domain_errors::is_not_found_error(&error) {
+                                continue;
+                            }
+                            if matches!(
+                                crate::domain_errors::find_domain_error(&error),
+                                Some(crate::domain_errors::DomainError::Forbidden(_))
+                            ) {
+                                continue;
+                            }
+                            let _ = tx
+                                .send(TaskStreamEvent::Error {
+                                    message: error.to_string(),
+                                })
+                                .await;
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    let _ = tx
+                        .send(TaskStreamEvent::Error {
+                            message: "task events lagged; resync via GET /v1/tasks and reconnect"
+                                .to_string(),
+                        })
+                        .await;
+                    return Ok(());
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+            },
+        }
+    }
+}
+
+async fn send_task_frame(tx: &mpsc::Sender<TaskStreamEvent>, event: TaskStreamEvent) -> bool {
+    tx.send(event).await.is_ok()
+}
+
+fn sse_task_event(event: TaskStreamEvent) -> Event {
+    match event {
+        TaskStreamEvent::Snapshot(snapshot) => named_task_json("snapshot", &snapshot),
+        TaskStreamEvent::Update(update) => named_task_json("update", &update),
+        TaskStreamEvent::Done(done) => named_task_json("done", &done),
+        TaskStreamEvent::Error { message } => {
+            named_task_json("error", &serde_json::json!({ "message": message }))
+        }
+    }
+}
+
+fn named_task_json<T: serde::Serialize>(name: &str, value: &T) -> Event {
+    let payload = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+    Event::default().event(name).data(payload)
+}
+
 async fn managed_group(
     state: &ApiState,
     user_id: i64,
@@ -579,5 +881,159 @@ mod tests {
             narrowed.is_some(),
             "status narrows the view; processing + succeeded matches nothing by SQL predicate"
         );
+    }
+
+    #[test]
+    fn task_stream_query_decodes_comma_ids_and_empty_means_watch_all() {
+        // Mirror the search-stream canonical query tests: decoding plus
+        // validation happen before the SSE body starts.
+        let uri = axum::http::Uri::from_static("/v1/tasks/stream");
+        let axum::extract::Query(decoded) =
+            axum::extract::Query::<TaskStreamQuery>::try_from_uri(&uri)
+                .expect("empty query decodes");
+        assert!(decoded.task_ids.is_none());
+        assert!(parse_task_stream_ids(decoded.task_ids.as_deref())
+            .expect("watch-all")
+            .is_empty());
+
+        let one = "11111111-1111-4111-8111-111111111111";
+        let two = "22222222-2222-4222-8222-222222222222";
+        let ids = parse_task_stream_ids(Some(&format!("{one},{two},{one} , ")))
+            .expect("comma ids parse");
+        assert_eq!(ids.len(), 2, "duplicate IDs must dedupe");
+        assert_eq!(ids[0].to_string(), one);
+        assert_eq!(ids[1].to_string(), two);
+        assert!(parse_task_stream_ids(Some("  ")).expect("blank").is_empty());
+    }
+
+    #[test]
+    fn task_stream_rejects_malformed_and_oversized_id_lists() {
+        // Invalid IDs surface as 400 before the 200 stream starts, mirroring
+        // the search-stream limit/cursor validation.
+        assert!(parse_task_stream_ids(Some("not-a-uuid")).is_err());
+        assert!(parse_task_stream_ids(Some("11111111-1111-4111-8111-111111111111, nope")).is_err());
+        let many = (0..(TASK_STREAM_IDS_MAX + 1))
+            .map(|_| "11111111-1111-4111-8111-111111111111".to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        // Deduped to one, so this stays valid; build distinct IDs to overflow.
+        assert_eq!(parse_task_stream_ids(Some(&many)).expect("dedupe").len(), 1);
+        let distinct = (0..(TASK_STREAM_IDS_MAX + 1))
+            .map(|i| format!("{:08x}-1111-4111-8111-111111111111", i))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(
+            parse_task_stream_ids(Some(&distinct)).is_err(),
+            "more than {TASK_STREAM_IDS_MAX} distinct IDs must be rejected"
+        );
+    }
+
+    #[test]
+    fn task_stream_terminal_detection_covers_only_terminal_states() {
+        use context69_contracts::TaskStatus;
+        for terminal in [TaskStatus::Succeeded, TaskStatus::Failed, TaskStatus::Cancelled] {
+            assert!(
+                is_terminal_task_status(&terminal),
+                "terminal status must close a filtered stream: {terminal:?}"
+            );
+        }
+        for active in [TaskStatus::Queued, TaskStatus::Running, TaskStatus::Waiting] {
+            assert!(
+                !is_terminal_task_status(&active),
+                "active status must keep the stream open: {active:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn task_stream_event_frames_carry_snapshot_update_done_error_shapes() {
+        // Contract shapes for the four SSE event names. The transport sends
+        // each payload under its own `event:` frame; error mirrors the search
+        // stream `{ "message": ... }` envelope.
+        let task_id = uuid::Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("uuid");
+        let task = TaskResponse {
+            task_id,
+            kind: context69_contracts::TaskKind::TextBatch,
+            status: context69_contracts::TaskStatus::Running,
+            origin: context69_contracts::TaskOrigin::Manual,
+            group_path: None,
+            source_key: None,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            progress: context69_contracts::TaskProgress {
+                total: 1,
+                queued: 0,
+                running: 1,
+                waiting: 0,
+                succeeded: 0,
+                failed: 0,
+                cancelled: 0,
+            },
+            failure_stage: None,
+            error_summary: None,
+            eta_seconds: None,
+            created_at: chrono::DateTime::parse_from_rfc3339("2026-09-16T00:00:00Z")
+                .expect("time")
+                .with_timezone(&chrono::Utc),
+            started_at: None,
+            finished_at: None,
+            updated_at: chrono::DateTime::parse_from_rfc3339("2026-09-16T00:00:00Z")
+                .expect("time")
+                .with_timezone(&chrono::Utc),
+            deleted_at: None,
+        };
+        let snapshot = TaskStreamSnapshot {
+            tasks: vec![task.clone()],
+        };
+        let snapshot_value = serde_json::to_value(&snapshot).expect("snapshot serializes");
+        assert_eq!(
+            snapshot_value.get("tasks").and_then(|v| v.as_array()).map(Vec::len),
+            Some(1)
+        );
+        let update = TaskStreamUpdate { task: task.clone() };
+        let update_value = serde_json::to_value(&update).expect("update serializes");
+        assert_eq!(
+            update_value
+                .get("task")
+                .and_then(|t| t.get("task_id"))
+                .and_then(|v| v.as_str()),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
+        let done = TaskStreamDone {
+            tasks: vec![task.clone()],
+        };
+        assert_eq!(serde_json::to_value(&done).expect("done").get("tasks").and_then(|v| v.as_array()).map(Vec::len), Some(1));
+        // The tagged union documents the update/done/error contract; the
+        // snapshot variant is the first frame on every connection.
+        let event_value = serde_json::to_value(&TaskStreamEvent::Update(update)).expect("event");
+        assert_eq!(
+            event_value.get("type").and_then(|v| v.as_str()),
+            Some("update")
+        );
+        let error_value = serde_json::to_value(&TaskStreamEvent::Error {
+            message: "boom".to_string(),
+        })
+        .expect("error");
+        assert_eq!(
+            error_value.get("type").and_then(|v| v.as_str()),
+            Some("error")
+        );
+        assert_eq!(
+            error_value.get("message").and_then(|v| v.as_str()),
+            Some("boom")
+        );
+        // SSE mapping must not panic for any frame and must keep the stream
+        // shape (mirrors the search-stream generator test structure).
+        for event in [
+            TaskStreamEvent::Snapshot(snapshot),
+            TaskStreamEvent::Update(TaskStreamUpdate { task: task.clone() }),
+            TaskStreamEvent::Done(done),
+            TaskStreamEvent::Error {
+                message: "lagged".to_string(),
+            },
+        ] {
+            let _ = sse_task_event(event);
+        }
     }
 }

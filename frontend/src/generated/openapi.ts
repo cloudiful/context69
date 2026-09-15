@@ -1379,6 +1379,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Subscribe to the caller's own task states over Server-Sent Events.
+         * @description Best-effort PG NOTIFY fan-out (issue 405 Task E1): the handler sends one
+         *     `snapshot` frame with full states, then one `update` frame per watched
+         *     task change, then `done` when every explicitly watched `task_ids` entry
+         *     is terminal. `Last-Event-ID` is not replayed; clients re-sync with
+         *     `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`) on reconnect (E3).
+         *     Disconnects drop the `AbortOnDrop` in the unfold state, which aborts the
+         *     producer and unsubscribes the broadcast receiver.
+         */
+        get: operations["stream_tasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -3042,6 +3068,63 @@ export interface components {
         TaskSortBy: "created_at" | "updated_at" | "status" | "kind" | "stage" | "group_path";
         /** @enum {string} */
         TaskStatus: "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
+        /**
+         * @description Terminal SSE frame: every explicitly watched `task_ids` entry has reached
+         *     a terminal status (`succeeded`/`failed`/`cancelled`). The stream closes
+         *     after this frame. Unfiltered subscriptions (watch-all) never emit `done`
+         *     and stay open until the client disconnects.
+         */
+        TaskStreamDone: {
+            tasks: components["schemas"]["TaskResponse"][];
+        };
+        /**
+         * @description Union of `GET /v1/tasks/stream` SSE frames. The transport maps each
+         *     variant to an SSE `event:` frame (`snapshot`, `update`, `done`, `error`);
+         *     `error` carries `{ "message": ... }` like the search stream.
+         */
+        TaskStreamEvent: (components["schemas"]["TaskStreamSnapshot"] & {
+            /** @enum {string} */
+            type: "snapshot";
+        }) | (components["schemas"]["TaskStreamUpdate"] & {
+            /** @enum {string} */
+            type: "update";
+        }) | (components["schemas"]["TaskStreamDone"] & {
+            /** @enum {string} */
+            type: "done";
+        }) | {
+            message: string;
+            /** @enum {string} */
+            type: "error";
+        };
+        /**
+         * @description Query for `GET /v1/tasks/stream` (issue 405 Task E2).
+         *
+         *     `task_ids` is a comma-separated list of task UUIDs to watch. Absent or
+         *     blank watches all of the caller's own tasks (the snapshot covers the
+         *     `processing` view, first 100; deltas cover every own task). Explicit IDs
+         *     are filtered to the caller's own tasks; foreign or missing IDs are
+         *     silently skipped so existence never leaks across users.
+         */
+        TaskStreamQuery: {
+            task_ids?: string | null;
+        };
+        /**
+         * @description First SSE frame on every `GET /v1/tasks/stream` connection: the full
+         *     states at subscribe time. Clients render this snapshot, then apply
+         *     `update` deltas. Reconnects get a fresh snapshot; there is no server
+         *     replay via `Last-Event-ID` (the client re-syncs with `GET /v1/tasks`).
+         */
+        TaskStreamSnapshot: {
+            tasks: components["schemas"]["TaskResponse"][];
+        };
+        /**
+         * @description Incremental SSE frame: one watched task's current full state. The task
+         *     is always owned by the subscriber (`CurrentUser` filter); foreign tasks
+         *     never appear.
+         */
+        TaskStreamUpdate: {
+            task: components["schemas"]["TaskResponse"];
+        };
         TaskSubmitRequest: {
             group_path?: string | null;
             items: components["schemas"]["FileRetryItem"][];
@@ -7150,6 +7233,35 @@ export interface operations {
                     "application/json": components["schemas"]["ClearTaskHistoryResponse"];
                 };
             };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    stream_tasks: {
+        parameters: {
+            query?: {
+                task_ids?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-Sent Events stream (text/event-stream). Frames: `snapshot` (full states at subscribe time), `update` (one watched task's current full state), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid task_ids query (malformed UUID or more than 100 IDs). The SSE body never starts; the 400 is returned directly. */
             400: {
                 headers: {
                     [name: string]: unknown;
