@@ -1,4 +1,17 @@
-WITH resources AS (
+WITH RECURSIVE subtree(id) AS (
+    SELECT folder.id
+    FROM context69.library_folders folder
+    WHERE $9::BOOL IS TRUE
+      AND $2::UUID IS NOT NULL
+      AND folder.id = $2::UUID
+      AND ($1::BIGINT IS NULL OR folder.group_id = $1)
+    UNION ALL
+    SELECT child.id
+    FROM context69.library_folders child
+    JOIN subtree ON child.parent_id = subtree.id
+    WHERE ($1::BIGINT IS NULL OR child.group_id = $1)
+),
+resources AS (
     SELECT
         'folder'::TEXT AS resource_kind,
         folder.id,
@@ -21,7 +34,11 @@ WITH resources AS (
     FROM context69.library_folders folder
     JOIN context69.groups groups ON groups.id = folder.group_id
     WHERE ($1::BIGINT IS NULL OR folder.group_id = $1)
-      AND folder.parent_id IS NOT DISTINCT FROM $2::UUID
+      AND (
+        ($9::BOOL IS FALSE AND folder.parent_id IS NOT DISTINCT FROM $2::UUID)
+        OR ($9::BOOL IS TRUE AND $2::UUID IS NULL)
+        OR ($9::BOOL IS TRUE AND $2::UUID IS NOT NULL AND folder.id IN (SELECT id FROM subtree WHERE id IS DISTINCT FROM $2::UUID))
+      )
 
     UNION ALL
 
@@ -47,7 +64,11 @@ WITH resources AS (
     FROM context69.library_files file
     JOIN context69.groups groups ON groups.id = file.group_id
     WHERE ($1::BIGINT IS NULL OR file.group_id = $1)
-      AND file.folder_id IS NOT DISTINCT FROM $2::UUID
+      AND (
+        ($9::BOOL IS FALSE AND file.folder_id IS NOT DISTINCT FROM $2::UUID)
+        OR ($9::BOOL IS TRUE AND $2::UUID IS NULL)
+        OR ($9::BOOL IS TRUE AND $2::UUID IS NOT NULL AND file.folder_id IN (SELECT id FROM subtree))
+      )
 )
 SELECT
     resource_kind AS "resource_kind!",

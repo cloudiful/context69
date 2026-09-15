@@ -47,13 +47,20 @@ impl LibraryService {
             .filter(|value| !value.is_empty());
         let total = self
             .store
-            .count_resources_in_folder(project_id, query.folder_id, search, query.status)
+            .count_resources_in_folder(
+                project_id,
+                query.folder_id,
+                search,
+                query.status,
+                query.recursive,
+            )
             .await?;
         let items = self
             .store
             .list_resources_in_project_folder(&crate::library_store::ResourceListQuery {
                 project_id,
                 folder_id: query.folder_id,
+                recursive: query.recursive,
                 query: search,
                 status: query.status,
                 sort_by: query.sort_by,

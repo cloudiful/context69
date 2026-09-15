@@ -15,6 +15,7 @@ import MarkdownChunk from "./MarkdownChunk.vue";
 import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
 import { groupContextItems, resourceContextItems, surfaceContextItems } from "./project-files-context-menu";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
+import { useLibraryRetryAllFailed } from "../composables/project-library/use-library-retry-all-failed";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
 import { useProjectLibraryPage } from "../composables/project-library/use-project-library-page";
 import { useScopedContentSearch } from "../composables/project-library/use-scoped-content-search";
@@ -112,6 +113,15 @@ const actions = useProjectLibraryActions({
   previewDialogVisible: preview.previewDialogVisible,
 });
 const actionsState = proxyRefs(actions);
+const retryAll = useLibraryRetryAllFailed({
+  groupPath: () => props.groupPath,
+  folderId: () => tree.selectedFolder.value?.folder_id ?? null,
+  refresh: refreshLibraryData,
+  isSourceUnavailable: (fileId: string) => actionsState.unavailableFileIds.includes(fileId),
+  observeSourceAvailability: (detailEntry) => actionsState.observeSourceAvailability(detailEntry),
+  t,
+});
+const retryAllState = proxyRefs(retryAll);
 const { filteredGroupEntries } = useGroupBrowserEntries({
   childGroups: () => props.childGroups,
   libraryEntryCount: () => pageState.entries.length,
@@ -253,6 +263,7 @@ watch(tree.selectedFolderId, (folderId) => {
   treeState.updateExpandedForFolder(folderId);
   page.reset();
   void page.loadPage();
+  void retryAllState.loadFailedCount();
 });
 
 watch(detail.detail, (nextDetail) => {
@@ -273,6 +284,7 @@ watch(() => props.groupPath, async () => {
   page.reset();
   await tree.loadTree();
   await page.loadPage();
+  await retryAllState.loadFailedCount();
 }, { immediate: true });
 
 watch(() => route.query.file, async (fileId) => {
@@ -314,6 +326,7 @@ watch(page.query, () => {
 onBeforeUnmount(() => {
   clearTimeout(searchTimer);
   actionsState.dispose();
+  retryAllState.dispose();
   sourceFolderState.dispose();
   detail.dispose();
 });
@@ -350,6 +363,25 @@ onBeforeUnmount(() => {
           :label="t('search.scoped.run')"
           :loading="scopedSearch.loading"
           @click="runScopedSearch"
+        />
+        <UButton
+          icon="i-lucide-rotate-ccw"
+          :label="t('library.retryAllFailed')"
+          class="hidden shrink-0 sm:inline-flex"
+          data-testid="retry-all-failed"
+          :loading="retryAllState.retryAllBusy"
+          :disabled="retryAllState.retryAllBusy || retryAllState.retryAllFailedCount === 0"
+          :title="t('library.retryAllFailed')"
+          @click="retryAllState.retryAllFailed()"
+        />
+        <UButton
+          icon="i-lucide-rotate-ccw"
+          aria-label="Retry all failed"
+          class="shrink-0 sm:hidden"
+          data-testid="retry-all-failed-compact"
+          :loading="retryAllState.retryAllBusy"
+          :disabled="retryAllState.retryAllBusy || retryAllState.retryAllFailedCount === 0"
+          @click="retryAllState.retryAllFailed()"
         />
         <UDropdownMenu :items="createMenuItems" :content="{ align: 'end' }">
           <UButton icon="i-lucide-plus" :label="t('common.new')" class="hidden sm:inline-flex" />

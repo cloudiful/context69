@@ -275,6 +275,8 @@ fn default_sort_direction() -> SortDirection {
 pub struct LibraryResourcePageQuery {
     #[serde(default)]
     pub folder_id: Option<Uuid>,
+    #[serde(default)]
+    pub recursive: bool,
     #[serde(default = "default_page")]
     pub page: u32,
     #[serde(default = "default_page_size")]

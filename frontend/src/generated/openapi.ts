@@ -5096,6 +5096,7 @@ export interface operations {
         parameters: {
             query?: {
                 folder_id?: string;
+                recursive?: boolean;
                 page?: number;
                 page_size?: number;
                 query?: string;
@@ -6019,6 +6020,7 @@ export interface operations {
         parameters: {
             query?: {
                 folder_id?: string;
+                recursive?: boolean;
                 page?: number;
                 page_size?: number;
                 query?: string;

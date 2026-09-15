@@ -107,6 +107,7 @@ export function createGroupWorkspaceApi({
     },
     getGroupLibraryResources(groupPath: string, params: {
       folderId: string | null;
+      recursive?: boolean;
       page: number;
       pageSize: number;
       query: string;
@@ -119,6 +120,7 @@ export function createGroupWorkspaceApi({
           path: { group_path: groupPath },
           query: {
             folder_id: params.folderId ?? undefined,
+            recursive: params.recursive ?? undefined,
             page: params.page,
             page_size: params.pageSize,
             query: params.query || undefined,

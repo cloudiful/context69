@@ -12,6 +12,7 @@ use crate::contracts::{
 pub struct ResourceListQuery<'a> {
     pub project_id: Option<i64>,
     pub folder_id: Option<Uuid>,
+    pub recursive: bool,
     pub query: Option<&'a str>,
     pub status: Option<LibraryIngestStatus>,
     pub sort_by: LibraryResourceSortBy,
@@ -27,13 +28,15 @@ impl LibraryStore {
         folder_id: Option<Uuid>,
         query: Option<&str>,
         status: Option<LibraryIngestStatus>,
+        recursive: bool,
     ) -> Result<i64> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/library_store/resources/count_resources_in_project_folder.sql",
             project_id,
             folder_id,
             query,
-            status.map(LibraryIngestStatus::as_str)
+            status.map(LibraryIngestStatus::as_str),
+            recursive
         )
         .fetch_one(self.db.pool())
         .await?)
@@ -45,8 +48,9 @@ impl LibraryStore {
         folder_id: Option<Uuid>,
         query: Option<&str>,
         status: Option<LibraryIngestStatus>,
+        recursive: bool,
     ) -> Result<i64> {
-        self.count_resources_in_folder(Some(project_id), folder_id, query, status)
+        self.count_resources_in_folder(Some(project_id), folder_id, query, status, recursive)
             .await
     }
 
@@ -64,7 +68,8 @@ impl LibraryStore {
             query.sort_by.as_str(),
             query.sort_direction.as_str(),
             query.limit,
-            query.offset
+            query.offset,
+            query.recursive
         )
         .fetch_all(self.db.pool())
         .await?;
