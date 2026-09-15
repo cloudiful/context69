@@ -38,6 +38,7 @@ use crate::{
 };
 
 mod dispatcher;
+pub mod events;
 mod item_file_processors;
 mod item_lifecycle_processors;
 mod item_processors;
@@ -47,6 +48,7 @@ mod maintenance;
 mod runtime;
 
 pub(crate) use maintenance::TaskMaintenanceError;
+pub use events::{TASK_EVENTS_CHANNEL, TASK_EVENT_BUS_CAPACITY, TaskEvent};
 
 #[derive(Clone)]
 pub struct TaskService {
@@ -61,6 +63,7 @@ pub struct TaskService {
     worker_capacity: usize,
     dispatch_notify: Arc<Notify>,
     dispatcher_started: Arc<AtomicBool>,
+    task_event_bus: tokio::sync::broadcast::Sender<TaskEvent>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +96,8 @@ impl TaskService {
         concurrency: usize,
     ) -> Self {
         let worker_capacity = normalize_task_worker_concurrency(concurrency);
+        let (task_event_bus, _) =
+            tokio::sync::broadcast::channel(crate::services::tasks::events::TASK_EVENT_BUS_CAPACITY);
         Self {
             db,
             namespace,
@@ -105,7 +110,37 @@ impl TaskService {
             worker_capacity,
             dispatch_notify: Arc::new(Notify::new()),
             dispatcher_started: Arc::new(AtomicBool::new(false)),
+            task_event_bus,
         }
+    }
+
+    /// Subscribe to the process-local task event broadcast. Callers must
+    /// full-sync once on subscribe, then apply incremental events
+    /// (best-effort at-least-once fan-out from PG NOTIFY).
+    pub fn subscribe_task_events(&self) -> tokio::sync::broadcast::Receiver<TaskEvent> {
+        self.task_event_bus.subscribe()
+    }
+
+    /// Start the resident PG LISTEN -> broadcast hub. Every replica calls
+    /// this at startup so cross-replica commits are visible locally.
+    /// The hub reconnects transparently; failures only log and retry.
+    pub fn start_event_bus(&self) {
+        crate::services::tasks::events::spawn_task_event_listener_into(
+            self.db.pool().clone(),
+            self.task_event_bus.clone(),
+        );
+    }
+
+    /// Test/shutdown-aware variant of [`Self::start_event_bus`].
+    pub fn start_event_bus_with_shutdown(
+        &self,
+        shutdown: tokio_util::sync::CancellationToken,
+    ) {
+        crate::services::tasks::events::spawn_task_event_listener_into_with_shutdown(
+            self.db.pool().clone(),
+            self.task_event_bus.clone(),
+            shutdown,
+        );
     }
 
     pub fn resume_pending(&self) {

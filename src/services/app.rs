@@ -398,6 +398,7 @@ impl Context69App {
         );
         tasks.resume_pending();
         tasks.start_maintenance();
+        tasks.start_event_bus();
         translation.resume().await?;
         extraction.resume().await?;
         if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
