@@ -4,6 +4,7 @@ import { apiClient, type ClearTaskHistoryView, type SortDirection, type TaskKind
 import { ApiError } from "../services/api/api-core";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
+import { useTaskStream } from "./use-task-stream";
 import { useToast } from "@nuxt/ui/composables";
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -57,6 +58,73 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const clearAction = ref<ClearTaskHistoryView | null>(null);
   let requestController: AbortController | null = null;
   let requestId = 0;
+
+  // Live updates (issue 405 Task E3): a watch-all task SSE stream drives
+  // refreshes instead of the fixed 20s poll. The 20s poll is retained as the
+  // automatic fallback when the stream errors, is unavailable, or the client
+  // cannot use cookie-based SSE (e.g. PAT clients): zero behavior loss.
+  const LIVE_FALLBACK_INTERVAL_MS = 20_000;
+  let liveActive = false;
+  let liveSynced = false;
+  let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+
+  function stopFallbackPolling() {
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer);
+      fallbackTimer = null;
+    }
+  }
+
+  function startFallbackPolling() {
+    stopFallbackPolling();
+    fallbackTimer = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void load();
+      }
+    }, LIVE_FALLBACK_INTERVAL_MS);
+  }
+
+  const taskStream = useTaskStream({
+    // Every (re)connect delivers a snapshot first: that snapshot-triggered
+    // load() is the one full sync before deltas.
+    onSnapshot: () => {
+      liveSynced = true;
+      stopFallbackPolling();
+      void load();
+    },
+    onUpdate: () => {
+      void load();
+    },
+    onDone: () => {
+      // Watch-all subscriptions never emit `done`; ignore defensively.
+    },
+    onErrorFrame: () => {
+      if (liveActive) startFallbackPolling();
+      if (liveSynced) void load();
+    },
+    onTransportError: () => {
+      if (liveActive) startFallbackPolling();
+      // Resync only when the broken stream had delivered its snapshot: before
+      // the first snapshot no delta could have been missed, and the mount
+      // load plus the fallback poll already cover freshness.
+      if (liveSynced) void load();
+    },
+  });
+
+  // Open the watch-all stream. Safe to call when SSE is unavailable: the
+  // stream reports through the fallback path and the 20s poll takes over.
+  function startLiveUpdates() {
+    if (liveActive) return;
+    liveActive = true;
+    taskStream.connect();
+  }
+
+  function stopLiveUpdates() {
+    liveActive = false;
+    liveSynced = false;
+    stopFallbackPolling();
+    taskStream.disconnect();
+  }
 
   // Docling polling items wait on an active external job (stage=docling_poll,
   // waiting_reason=external_job) and are not manual-recovery candidates while
@@ -474,6 +542,9 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
 
   onMounted(() => void load());
   onBeforeUnmount(() => {
+    liveActive = false;
+    stopFallbackPolling();
+    taskStream.disconnect();
     requestController?.abort();
     requestId += 1;
   });
@@ -507,6 +578,11 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     isDoclingRecoveryTask,
     load,
     refresh: () => load(),
+    liveStreaming: taskStream.streaming,
+    liveConnected: taskStream.connected,
+    liveFallback: taskStream.usingFallback,
+    startLiveUpdates,
+    stopLiveUpdates,
     submitSearch,
     setListView,
     setStatusFilter: (value: TaskStatus | null) => setFilter(statusFilter, value),

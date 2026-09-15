@@ -16,47 +16,38 @@ const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
 const isAdmin = computed(() => authSessionState.user?.is_admin === true);
 
-const AUTO_REFRESH_INTERVAL = 20_000;
-
 // Processing is the live working set (failed tasks stay retryable there);
 // Completed and Trash are mutually exclusive typed views. Each tab passes a
 // single `view` query and a user-selected status only narrows that view.
+// The processing tab stays live through the task SSE stream (issue 405 Task
+// E3); the 20s poll survives inside the queue composable as the automatic
+// fallback when the stream errors or is unavailable.
 const activeTab = ref<QueueTab>("processing");
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
-
-function startAutoRefresh() {
-  stopAutoRefresh();
-  refreshTimer = setInterval(() => {
-    if (activeTab.value !== "processing") return;
-    if (document.visibilityState === "visible") {
-      void queue.refresh();
-    }
-  }, AUTO_REFRESH_INTERVAL);
+function startLive() {
+  if (activeTab.value !== "processing") return;
+  queue.startLiveUpdates();
 }
 
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
+function stopLive() {
+  queue.stopLiveUpdates();
 }
 
 watch(activeTab, (tab) => {
-  if (tab === "trash") {
-    stopAutoRefresh();
-    queue.setListView({ view: "trash" });
+  if (tab !== "processing") {
+    stopLive();
+    queue.setListView({ view: tab === "completed" ? "completed" : "trash" });
     return;
   }
-  startAutoRefresh();
-  queue.setListView({ view: tab === "completed" ? "completed" : "processing" });
+  queue.setListView({ view: "processing" });
+  startLive();
 });
 
 onMounted(() => {
-  startAutoRefresh();
+  startLive();
 });
 
-onBeforeUnmount(stopAutoRefresh);
+onBeforeUnmount(stopLive);
 
 const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
 const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
