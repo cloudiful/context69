@@ -110,6 +110,33 @@ polling, and metadata-index workers remain server-side.
   endpoint, removed retention/purge admin APIs, retained lease/source
   cleanup/Docling recovery) live in `docs/contracts/v0.17-migration.md`.
 
+## Deprecated personal-scope library endpoints (v0.18, removal in v0.19)
+
+The 10 personal-scope `/v1/library/*` endpoints are deprecated in v0.18
+(OpenAPI `deprecated: true`) and remain served until v0.19, when they are
+removed. New clients must use the group-scoped replacements; the frontend
+and SDK facade already do.
+
+| Deprecated (v0.18) | Replacement |
+| --- | --- |
+| `GET /v1/library/tree` | `GET /v1/groups/by-path/{group_path}/library/tree` |
+| `GET /v1/library/resources` | `GET /v1/groups/by-path/{group_path}/library/resources` |
+| `POST /v1/library/folders` | `POST /v1/groups/by-path/{group_path}/library/folders` |
+| `POST /v1/library/texts` | `POST /v1/groups/by-path/{group_path}/library/texts` |
+| `POST /v1/library/folders/{folder_id}/move` | `POST /v1/groups/by-path/{group_path}/library/folders/{folder_id}/move` |
+| `DELETE /v1/library/folders/{folder_id}` | `DELETE /v1/groups/by-path/{group_path}/library/folders/{folder_id}` |
+| `POST /v1/library/files/upload` | `POST /v1/groups/by-path/{group_path}/library/files/upload` (+ `prepare-upload` for dedup) |
+| `GET /v1/library/files/{file_id}` | `GET /v1/groups/by-path/{group_path}/library/files/{file_id}` |
+| `POST /v1/library/files/{file_id}/move` | `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/move` |
+| `DELETE /v1/library/files/{file_id}` | `DELETE /v1/groups/by-path/{group_path}/library/files/{file_id}` |
+
+Audit (issue 399 Task B3): no in-tree typed callers remain. The frontend
+(`api-group-workspace.ts`) and SDK facade use only group-scoped routes; MCP
+tools (`search`, `documents`, `sources`) never touch library paths. The
+generic SDK `client.raw()` registry still lists the 10 operations, so pinned
+external callers could invoke them by `operation_id` — deletion is therefore
+deferred to v0.19 instead of happening silently in v0.18.
+
 ## Authentication
 
 - Browser sign-in uses `POST /v1/auth/login` and an HttpOnly signed session cookie backed by Valkey.

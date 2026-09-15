@@ -359,7 +359,46 @@ pub fn openapi_document() -> utoipa::openapi::OpenApi {
     document.merge(context69_namespace_http::openapi_document());
     document.merge(context69_search_http::openapi_document());
     document.merge(context69_settings_http::openapi_document());
+    mark_personal_library_operations_deprecated(&mut document);
     document
+}
+
+/// Mark the 10 personal-scope `/v1/library/*` operations as deprecated.
+///
+/// Issue 399 Task B3: v0.18 deprecates (OpenAPI `deprecated:true` + docs),
+/// v0.19 removes. The handlers stay mounted so pinned SDK/raw callers keep
+/// working until the removal. The flag is applied here instead of Rust
+/// `#[deprecated]` so the in-tree router can keep serving the legacy paths
+/// during the migration window without deprecated-use warnings.
+fn mark_personal_library_operations_deprecated(document: &mut utoipa::openapi::OpenApi) {
+    const TARGETS: &[(&str, &str)] = &[
+        ("/v1/library/tree", "get"),
+        ("/v1/library/resources", "get"),
+        ("/v1/library/folders", "post"),
+        ("/v1/library/texts", "post"),
+        ("/v1/library/folders/{folder_id}/move", "post"),
+        ("/v1/library/folders/{folder_id}", "delete"),
+        ("/v1/library/files/upload", "post"),
+        ("/v1/library/files/{file_id}", "get"),
+        ("/v1/library/files/{file_id}", "delete"),
+        ("/v1/library/files/{file_id}/move", "post"),
+    ];
+    for (path, method) in TARGETS {
+        let Some(item) = document.paths.paths.get_mut(*path) else {
+            continue;
+        };
+        let operation = match *method {
+            "get" => item.get.as_mut(),
+            "post" => item.post.as_mut(),
+            "delete" => item.delete.as_mut(),
+            "put" => item.put.as_mut(),
+            "patch" => item.patch.as_mut(),
+            _ => None,
+        };
+        if let Some(operation) = operation {
+            operation.deprecated = Some(utoipa::openapi::Deprecated::True);
+        }
+    }
 }
 
 pub(crate) async fn openapi_json() -> impl IntoResponse {

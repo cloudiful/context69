@@ -3334,6 +3334,8 @@
     "/v1/library/files/upload": {
       "post": {
         "tags": [],
+        "summary": "Deprecated personal-scope file upload.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`POST /v1/groups/by-path/{group_path}/library/files/upload` (with\n`POST /v1/groups/by-path/{group_path}/library/files/prepare-upload` for dedup) instead.",
         "operationId": "upload_library_files",
         "requestBody": {
           "content": {
@@ -3396,12 +3398,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/files/{file_id}": {
       "get": {
         "tags": [],
+        "summary": "Deprecated personal-scope file details.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`GET /v1/groups/by-path/{group_path}/library/files/{file_id}` instead.",
         "operationId": "get_library_file",
         "parameters": [
           {
@@ -3446,10 +3451,13 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       },
       "delete": {
         "tags": [],
+        "summary": "Deprecated personal-scope file delete.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`DELETE /v1/groups/by-path/{group_path}/library/files/{file_id}` instead.",
         "operationId": "delete_library_file",
         "parameters": [
           {
@@ -3494,12 +3502,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/files/{file_id}/move": {
       "post": {
         "tags": [],
+        "summary": "Deprecated personal-scope file move.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`POST /v1/groups/by-path/{group_path}/library/files/{file_id}/move` instead.",
         "operationId": "move_library_file",
         "parameters": [
           {
@@ -3564,12 +3575,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/folders": {
       "post": {
         "tags": [],
+        "summary": "Deprecated personal-scope folder creation.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`POST /v1/groups/by-path/{group_path}/library/folders` instead.",
         "operationId": "create_library_folder",
         "requestBody": {
           "content": {
@@ -3612,12 +3626,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/folders/{folder_id}": {
       "delete": {
         "tags": [],
+        "summary": "Deprecated personal-scope folder delete.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`DELETE /v1/groups/by-path/{group_path}/library/folders/{folder_id}` instead.",
         "operationId": "delete_library_folder",
         "parameters": [
           {
@@ -3662,12 +3679,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/folders/{folder_id}/move": {
       "post": {
         "tags": [],
+        "summary": "Deprecated personal-scope folder move.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`POST /v1/groups/by-path/{group_path}/library/folders/{folder_id}/move` instead.",
         "operationId": "move_library_folder",
         "parameters": [
           {
@@ -3732,12 +3752,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/resources": {
       "get": {
         "tags": [],
+        "summary": "Deprecated personal-scope library resources.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`GET /v1/groups/by-path/{group_path}/library/resources` instead.",
         "operationId": "get_library_resources",
         "parameters": [
           {
@@ -3827,12 +3850,15 @@
           "404": {
             "description": "Folder not found"
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/texts": {
       "post": {
         "tags": [],
+        "summary": "Deprecated personal-scope text ingest.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`POST /v1/groups/by-path/{group_path}/library/texts` instead.",
         "operationId": "create_library_text",
         "requestBody": {
           "content": {
@@ -3885,12 +3911,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/library/tree": {
       "get": {
         "tags": [],
+        "summary": "Deprecated personal-scope library tree.",
+        "description": "Deprecated in v0.18, removal planned for v0.19. Use\n`GET /v1/groups/by-path/{group_path}/library/tree` instead.",
         "operationId": "get_library_tree",
         "responses": {
           "200": {
@@ -3913,7 +3942,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/v1/scopes/ensure": {

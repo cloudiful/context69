@@ -893,6 +893,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Deprecated personal-scope file upload.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `POST /v1/groups/by-path/{group_path}/library/files/upload` (with
+         *     `POST /v1/groups/by-path/{group_path}/library/files/prepare-upload` for dedup) instead.
+         */
         post: operations["upload_library_files"];
         delete?: never;
         options?: never;
@@ -907,9 +914,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Deprecated personal-scope file details.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `GET /v1/groups/by-path/{group_path}/library/files/{file_id}` instead.
+         */
         get: operations["get_library_file"];
         put?: never;
         post?: never;
+        /**
+         * Deprecated personal-scope file delete.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `DELETE /v1/groups/by-path/{group_path}/library/files/{file_id}` instead.
+         */
         delete: operations["delete_library_file"];
         options?: never;
         head?: never;
@@ -925,6 +944,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Deprecated personal-scope file move.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/move` instead.
+         */
         post: operations["move_library_file"];
         delete?: never;
         options?: never;
@@ -941,6 +966,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Deprecated personal-scope folder creation.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `POST /v1/groups/by-path/{group_path}/library/folders` instead.
+         */
         post: operations["create_library_folder"];
         delete?: never;
         options?: never;
@@ -958,6 +989,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * Deprecated personal-scope folder delete.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `DELETE /v1/groups/by-path/{group_path}/library/folders/{folder_id}` instead.
+         */
         delete: operations["delete_library_folder"];
         options?: never;
         head?: never;
@@ -973,6 +1010,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Deprecated personal-scope folder move.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `POST /v1/groups/by-path/{group_path}/library/folders/{folder_id}/move` instead.
+         */
         post: operations["move_library_folder"];
         delete?: never;
         options?: never;
@@ -987,6 +1030,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Deprecated personal-scope library resources.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `GET /v1/groups/by-path/{group_path}/library/resources` instead.
+         */
         get: operations["get_library_resources"];
         put?: never;
         post?: never;
@@ -1005,6 +1054,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Deprecated personal-scope text ingest.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `POST /v1/groups/by-path/{group_path}/library/texts` instead.
+         */
         post: operations["create_library_text"];
         delete?: never;
         options?: never;
@@ -1019,6 +1074,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Deprecated personal-scope library tree.
+         * @deprecated
+         * @description Deprecated in v0.18, removal planned for v0.19. Use
+         *     `GET /v1/groups/by-path/{group_path}/library/tree` instead.
+         */
         get: operations["get_library_tree"];
         put?: never;
         post?: never;

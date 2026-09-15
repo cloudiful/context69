@@ -34,6 +34,10 @@ use crate::services::tasks::TaskSubmission;
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope library tree.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `GET /v1/groups/by-path/{group_path}/library/tree` instead.
 pub(crate) async fn get_library_tree(State(state): State<ApiState>) -> impl IntoResponse {
     match state.app.library.list_tree().await {
         Ok(tree) => (StatusCode::OK, Json(tree)).into_response(),
@@ -51,6 +55,10 @@ pub(crate) async fn get_library_tree(State(state): State<ApiState>) -> impl Into
         (status = 404, description = "Folder not found")
     )
 )]
+/// Deprecated personal-scope library resources.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `GET /v1/groups/by-path/{group_path}/library/resources` instead.
 pub(crate) async fn get_library_resources(
     State(state): State<ApiState>,
     Query(query): Query<LibraryResourcePageQuery>,
@@ -71,6 +79,10 @@ pub(crate) async fn get_library_resources(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope folder creation.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `POST /v1/groups/by-path/{group_path}/library/folders` instead.
 pub(crate) async fn create_library_folder(
     State(state): State<ApiState>,
     Json(request): Json<CreateFolderRequest>,
@@ -92,6 +104,10 @@ pub(crate) async fn create_library_folder(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope text ingest.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `POST /v1/groups/by-path/{group_path}/library/texts` instead.
 pub(crate) async fn create_library_text(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -133,6 +149,10 @@ pub(crate) async fn create_library_text(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope folder move.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `POST /v1/groups/by-path/{group_path}/library/folders/{folder_id}/move` instead.
 pub(crate) async fn move_library_folder(
     State(state): State<ApiState>,
     Path(folder_id): Path<Uuid>,
@@ -154,6 +174,10 @@ pub(crate) async fn move_library_folder(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope folder delete.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `DELETE /v1/groups/by-path/{group_path}/library/folders/{folder_id}` instead.
 pub(crate) async fn delete_library_folder(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -203,6 +227,11 @@ pub(crate) async fn delete_library_folder(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope file upload.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `POST /v1/groups/by-path/{group_path}/library/files/upload` (with
+/// `POST /v1/groups/by-path/{group_path}/library/files/prepare-upload` for dedup) instead.
 pub(crate) async fn upload_library_files(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -246,6 +275,10 @@ pub(crate) async fn upload_library_files(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope file details.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `GET /v1/groups/by-path/{group_path}/library/files/{file_id}` instead.
 pub(crate) async fn get_library_file(
     State(state): State<ApiState>,
     Path(file_id): Path<Uuid>,
@@ -268,6 +301,10 @@ pub(crate) async fn get_library_file(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope file move.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `POST /v1/groups/by-path/{group_path}/library/files/{file_id}/move` instead.
 pub(crate) async fn move_library_file(
     State(state): State<ApiState>,
     Path(file_id): Path<Uuid>,
@@ -289,6 +326,10 @@ pub(crate) async fn move_library_file(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
+/// Deprecated personal-scope file delete.
+///
+/// Deprecated in v0.18, removal planned for v0.19. Use
+/// `DELETE /v1/groups/by-path/{group_path}/library/files/{file_id}` instead.
 pub(crate) async fn delete_library_file(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
