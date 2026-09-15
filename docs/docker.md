@@ -75,4 +75,42 @@ docker build -f frontend/Dockerfile -t context69-frontend:latest .
 - `/`, `/search`, `/sources`, `/documents/*`: frontend SPA
 - `/assets/*`: frontend static assets
 - `/v1/*`, `/healthz`, `/openapi.json`: proxied to backend
+- `/v1/tasks/stream`: same upstream with SSE hardening in
+  `docker/nginx-context69.conf` (`proxy_buffering off`, `proxy_cache off`,
+  `X-Accel-Buffering: no`, `proxy_read_timeout/send_timeout 24h`); must stay
+  before the generic `/v1/` block so the exact match wins
 - `/mcp`: MCP HTTP endpoint
+
+## Multi-replica task streaming (issue 405)
+
+`GET /v1/tasks/stream` is safe behind any number of replicas with no sticky
+sessions:
+
+- Every replica runs a resident `LISTEN task_events` hub that fans out into a
+  process-local `tokio::broadcast` channel (capacity 1024). PostgreSQL
+  `NOTIFY` commits on any replica — Rust writers and pure-SQL paths
+  (`cancel`/`trash`/`restore`/`clear`, `maintain_claim_state`,
+  `update_external_job` via `tasks`/`task_items` triggers) — are visible to
+  every replica. Payload is exactly `task_id`/`item_id`/`status`/`updated_at`.
+- Best-effort semantics: each SSE connection first receives a `snapshot`
+  frame (full states at subscribe time), then `update` deltas, then `done`
+  when every explicitly watched `task_ids` entry is terminal (watch-all
+  streams never send `done`). `Last-Event-ID` is not replayed; clients
+  re-sync with `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`) on reconnect,
+  and lagged broadcast receivers resync the same way. In-band `error`
+  frames also mean "resync via `GET /v1/tasks` and reconnect".
+- Frontend (`use-task-stream.ts`, cookie `EventSource` with
+  `withCredentials`) keeps polling as the fallback: stream errors,
+  unavailable `EventSource`, or PAT clients that cannot use cookie SSE fall
+  back to the existing 20s queue refresh / settle polling with no behavior
+  loss.
+- Operator requirements: all replicas must share one PostgreSQL database
+  (the `NOTIFY` bus) and one Valkey (sessions/scheduler), and must use the
+  same session secret (see `docs/development.md`). The bundled nginx config
+  already disables buffering for `/v1/tasks/stream`; when terminating TLS
+  or proxying elsewhere, preserve `proxy_buffering off`, `proxy_cache off`,
+  `X-Accel-Buffering: no`, and a long `proxy_read_timeout` (24h in the
+  bundled config), and forward the session cookie unchanged.
+- Smoke test behind nginx: see the `curl -N` checklist in the issue 405
+  Task E4 audit note (snapshot first, `update` on task mutation, no
+  buffering delay, reconnect resyncs via `GET /v1/tasks`).

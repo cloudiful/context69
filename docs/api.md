@@ -26,6 +26,7 @@
 - `POST /v1/tasks/{task_id}/restore`
 - `DELETE /v1/tasks/{task_id}` (permanently deletes a trashed task)
 - `POST /v1/tasks/clear` (`{view: completed|trash}`; user-scoped bulk clear, returns `deleted_count`)
+- `GET /v1/tasks/stream?task_ids=` (SSE `text/event-stream`; cookie sessions only — PAT clients keep polling)
 - `POST /v1/admin/tasks/cancel-active` (admin; cancels every active task)
 - `POST /v1/admin/tasks/{task_id}/recover` (admin; Docling recovery)
 - `POST /v1/admin/tasks/{task_id}/recover/queue` (admin; queue Docling recovery)
@@ -43,7 +44,7 @@ retained (see `docs/contracts/v0.17-migration.md`).
 ## Advanced SDK workflow
 
 `context69-sdk` exposes the ergonomic facade plus the complete low-level
-`client.raw()` transport (all 114 OpenAPI operations via the `OPERATIONS`
+`client.raw()` transport (all 115 OpenAPI operations via the `OPERATIONS`
 registry and `RawRequest`). Use `ensure_scope` once for group provisioning
 and declared metadata indexes, then submit text, URL, file, or delete arrays
 through `submit_text_batch`, `submit_url_batch`, `submit_file_batch`, or
@@ -108,6 +109,9 @@ polling, and metadata-index workers remain server-side.
   `trash`); `trashed` is removed and rejected (`deny_unknown_fields`, so
   old `?trashed=` fails instead of silently changing meaning). `GET
   /v1/search/stream` takes the canonical cursor shape (no `page`).
+  `GET /v1/tasks/stream?task_ids=` accepts at most 100 comma-separated
+  UUIDs (blank means watch-all own tasks); malformed UUIDs or more than
+  100 IDs return 400 before the SSE body starts.
   `page` is 1..=10_000 and `page_size`/`limit` are 1..=100 in both Rust
   validation and OpenAPI (`minimum: 1`). `Pagination` and
   `OffsetPagination` are both kept: exact totals without window signals
@@ -125,13 +129,38 @@ polling, and metadata-index workers remain server-side.
   `trashed` removal, options-only uploads with required
   `FileBatchItem.options`, pagination audit, personal-scope deprecations)
   live in `docs/contracts/v0.18-migration.md`.
+- v0.18.0 to v0.19.0 is additive: `GET /v1/tasks/stream` (SSE,
+  snapshot-then-deltas, polling retained as fallback) plus nginx SSE
+  hardening and multi-replica notes in `docs/docker.md`. No breaking wire
+  changes.
 
-## Deprecated personal-scope library endpoints (v0.18, removal in v0.19)
+## Task streaming (SSE, v0.19)
+
+- `GET /v1/tasks/stream` requires a cookie session (inherits task-route
+  auth + workspace scope, `CurrentUser` filters to own tasks only);
+  `EventSource` sends cookies via `withCredentials`, PAT clients cannot
+  attach `Authorization` and stay on polling. Foreign or missing task IDs
+  are silently skipped.
+- Frames (`event:` names): `snapshot` (full states at subscribe time —
+  explicit IDs in request order, watch-all covers the `processing` view
+  first 100), then one `update` per watched task change (current full
+  state), then `done` when every explicitly watched ID is terminal
+  (`succeeded`/`failed`/`cancelled`; watch-all never sends `done`), or
+  `error` (`{ "message" }` — resync via `GET /v1/tasks` and reconnect).
+  Transport is PG NOTIFY (`task_events`: `task_id`/`item_id`/`status`/
+  `updated_at`) fanning out per replica; best-effort, so every subscribe
+  and every reconnect starts with a full sync (`GET /v1/tasks`) before
+  applying deltas. `Last-Event-ID` is not replayed server-side.
+- Nginx (`docker/nginx-context69.conf`) disables buffering/caching for
+  `/v1/tasks/stream` with a 24h read/send timeout; multi-replica needs no
+  stickiness (every replica LISTENs the same PG channel).
+
+## Deprecated personal-scope library endpoints (v0.18, removal deferred past v0.19)
 
 The 10 personal-scope `/v1/library/*` endpoints are deprecated in v0.18
-(OpenAPI `deprecated: true`) and remain served until v0.19, when they are
-removed. New clients must use the group-scoped replacements; the frontend
-and SDK facade already do.
+(OpenAPI `deprecated: true`) and remain served in v0.19.0; removal is
+deferred past v0.19 (no wire removal in this release). New clients must
+use the group-scoped replacements; the frontend and SDK facade already do.
 
 | Deprecated (v0.18) | Replacement |
 | --- | --- |
@@ -150,8 +179,9 @@ Audit (issue 399 Task B3): no in-tree typed callers remain. The frontend
 (`api-group-workspace.ts`) and SDK facade use only group-scoped routes; MCP
 tools (`search`, `documents`, `sources`) never touch library paths. The
 generic SDK `client.raw()` registry still lists the 10 operations, so pinned
-external callers could invoke them by `operation_id` — deletion is therefore
-deferred to v0.19 instead of happening silently in v0.18.
+external callers could invoke them by `operation_id` — deletion was deferred
+past v0.18 and is still deferred in v0.19.0 (versions plus nginx plus docs
+only, no wire removal in issue 405 Task E4).
 
 ## Authentication
 
