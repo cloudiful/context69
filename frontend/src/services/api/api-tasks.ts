@@ -11,6 +11,7 @@ import type {
   RequestOptions,
   RerunTaskResponse,
   TaskItemsResponse,
+  TaskItemStatus,
   TaskKind,
   TaskListQuery,
   TaskListView,
@@ -75,11 +76,11 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         signal: options?.signal,
       }));
     },
-    getTaskItems(taskId: string, params: { limit: number; cursor?: string }, options?: RequestOptions) {
+    getTaskItems(taskId: string, params: { limit: number; cursor?: string; status?: TaskItemStatus | null }, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/tasks/{task_id}/items", {
         params: {
           path: { task_id: taskId },
-          query: { limit: params.limit, cursor: params.cursor },
+          query: { limit: params.limit, cursor: params.cursor, status: params.status ?? undefined },
         },
         signal: options?.signal,
       })) as Promise<TaskItemsResponse>;

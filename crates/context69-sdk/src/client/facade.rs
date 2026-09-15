@@ -147,11 +147,15 @@ impl TaskListOptions {
 /// v0.16 canonical task item window. `limit` is `1..=100` (aligned to the
 /// shared cursor kernel and the `TaskItemsQuery` wire default of 100);
 /// `cursor` is the opaque offset token from `TaskItemsResponse::next_cursor`
-/// and is omitted when `None` (no hidden `cursor=0` default).
+/// and is omitted when `None` (no hidden `cursor=0` default). `status`
+/// narrows to one `TaskItemStatus`; `None` lists every status. `cursor` is
+/// scoped to `status`: reset to no cursor when `status` changes (issue 413).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TaskItemsOptions {
     pub limit: u32,
     pub cursor: Option<String>,
+    #[serde(default)]
+    pub status: Option<TaskItemStatus>,
 }
 
 impl Default for TaskItemsOptions {
@@ -159,6 +163,7 @@ impl Default for TaskItemsOptions {
         Self {
             limit: 100,
             cursor: None,
+            status: None,
         }
     }
 }
@@ -179,6 +184,7 @@ impl TaskItemsOptions {
         Ok(TaskItemsQuery {
             limit: self.limit,
             cursor: self.cursor.clone(),
+            status: self.status,
         })
     }
 }
@@ -286,6 +292,8 @@ impl Context69Client {
     /// Canonical `list_task_items` (`GET /v1/tasks/{task_id}/items`).
     /// `limit` is validated (`1..=100`); `cursor` is omitted when `None`
     /// so the server applies its own default instead of a hidden `0`.
+    /// `status` is omitted when `None` (lists every status); `cursor` is
+    /// scoped to `status` (issue 413).
     pub async fn list_task_items(
         &self,
         task_id: Uuid,
@@ -296,6 +304,9 @@ impl Context69Client {
         let mut pairs = vec![("limit".to_string(), query.limit.to_string())];
         if let Some(cursor) = query.cursor {
             pairs.push(("cursor".to_string(), cursor));
+        }
+        if let Some(status) = query.status {
+            pairs.push(("status".to_string(), status.as_str().to_string()));
         }
         self.execute_json(
             self.authorized_request(Method::GET, &path)

@@ -4,8 +4,7 @@ import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
 import TaskItemsExpanded from "../TaskItemsExpanded.vue";
-import { apiClient, type TaskItemResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../../services/api";
-import { summarizeApiError, type ApiErrorSummary } from "../../composables/use-error-toast";
+import type { TaskResponse, TaskSortBy, TaskStatus } from "../../services/api";
 import { formatTimestamp } from "../../utils/format";
 import { libraryDependencyLabel } from "../../utils/library-status";
 
@@ -37,10 +36,11 @@ const { t } = useI18n();
 const ITEM_ERROR_TOOLTIP_MAX = 240;
 const SORTABLE_FIELDS: TaskSortBy[] = ["kind", "group_path", "status", "stage", "updated_at"];
 
+// Expanded-row item paging/filtering lives inside TaskItemsExpanded (issue 413
+// Phase 3): the table only tracks which rows are open. Item fetching follows
+// `next_cursor` per task with the Phase 1 `status` filter, so a 2781-item task
+// pages without bloating this table.
 const expandedRows = ref<Record<string, boolean>>({});
-const expandedItems = ref<Record<string, TaskItemResponse[] | undefined>>({});
-const expandedError = ref<Record<string, ApiErrorSummary | null>>({});
-const expandingTaskId = ref<string | null>(null);
 const sorting = ref<{ id: string; desc: boolean }[]>([]);
 
 watch(sorting, (value) => {
@@ -53,33 +53,9 @@ watch(sorting, (value) => {
   emit("sort", { field: next.id as TaskSortBy, direction: next.desc ? "desc" : "asc" });
 });
 
-async function loadTaskItems(taskId: string) {
-  expandingTaskId.value = taskId;
-  try {
-    const response = await apiClient.getTaskItems(taskId, { limit: 100 });
-    expandedItems.value = { ...expandedItems.value, [taskId]: response.items };
-    expandedError.value = { ...expandedError.value, [taskId]: null };
-  } catch (error) {
-    expandedError.value = {
-      ...expandedError.value,
-      [taskId]: summarizeApiError(error, ITEM_ERROR_TOOLTIP_MAX),
-    };
-  } finally {
-    expandingTaskId.value = null;
-  }
-}
-
-async function toggleExpand(row: { original: TaskResponse; id: string }) {
-  const taskId = row.original.task_id;
+function toggleExpand(row: { original: TaskResponse; id: string }) {
   const next = !expandedRows.value[row.id];
   expandedRows.value = { ...expandedRows.value, [row.id]: next };
-  if (!next || expandedItems.value[taskId] !== undefined) return;
-  await loadTaskItems(taskId);
-}
-
-async function retryLoadItems(taskId: string) {
-  if (expandingTaskId.value === taskId) return;
-  await loadTaskItems(taskId);
 }
 
 function clampText(value: string | null | undefined, max: number): string | null {
@@ -90,28 +66,6 @@ function clampText(value: string | null | undefined, max: number): string | null
 function itemErrorTooltip(message: string | null | undefined): string | null {
   return clampText(message, ITEM_ERROR_TOOLTIP_MAX);
 }
-
-// Refresh expanded item lists for tasks that are still active whenever the
-// visible task rows change.
-watch(
-  () => props.items.map((task) => task.updated_at).join(","),
-  () => {
-    const visibleExpanded = Object.keys(expandedRows.value).filter(
-      (rowId) => expandedRows.value[rowId],
-    );
-    const taskIds = visibleExpanded.map((rowId) => props.items[Number(rowId)]?.task_id).filter(Boolean);
-    for (const taskId of taskIds) {
-      const task = props.items.find((candidate) => candidate.task_id === taskId);
-      if (!task || !["queued", "running", "waiting"].includes(task.status)) continue;
-      void apiClient
-        .getTaskItems(taskId, { limit: 100 })
-        .then((response) => {
-          expandedItems.value = { ...expandedItems.value, [taskId]: response.items };
-        })
-        .catch(() => undefined);
-    }
-  },
-);
 
 const columns = computed<TableColumn<TaskResponse>[]>(() => [
   { id: "expand", enableHiding: false },
@@ -151,9 +105,9 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
     :ui="{ root: 'overflow-visible', base: 'min-w-[88rem]' }"
     data-testid="processing-queue-table"
     v-model:expanded="expandedRows"
-    :data="items"
+    :data="props.items"
     :columns="columns"
-    :loading="loading"
+    :loading="props.loading"
     :sorting-options="{ manualSorting: true }"
   >
     <template #expand-cell="{ row }">
@@ -165,7 +119,6 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
         :class="{ 'rotate-90': row.getIsExpanded() }"
         :aria-label="row.getIsExpanded() ? t('processingQueue.collapse') : t('processingQueue.expand')"
         :aria-expanded="row.getIsExpanded()"
-        :disabled="expandingTaskId === row.original.task_id"
         @click="toggleExpand(row)"
       />
     </template>
@@ -179,27 +132,23 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
     <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="itemErrorTooltip(row.original.error_summary) || undefined">{{ row.original.error_summary || "--" }}</span></template>
     <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
     <template #actions-cell="{ row }">
-      <div v-if="trashView" class="flex items-center gap-1">
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-undo-2" :loading="isActing(row.original)" :aria-label="t('processingQueue.restore')" :title="t('processingQueue.restore')" @click="emit('restore', row.original)" />
-        <UButton color="error" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="isActing(row.original)" :aria-label="t('processingQueue.deletePermanently')" :title="t('processingQueue.deletePermanently')" @click="emit('delete', row.original)" />
+      <div v-if="props.trashView" class="flex items-center gap-1">
+        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-undo-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.restore')" :title="t('processingQueue.restore')" @click="emit('restore', row.original)" />
+        <UButton color="error" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.deletePermanently')" :title="t('processingQueue.deletePermanently')" @click="emit('delete', row.original)" />
       </div>
       <div v-else class="flex items-center gap-1">
-        <UButton v-if="isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="isActing(row.original)" :label="t(isDoclingRecoveryTask(row.original) ? 'processingQueue.doclingRecovery' : row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="emit('recover', row.original)" />
-        <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
-        <UButton v-if="['succeeded', 'failed', 'cancelled'].includes(row.original.status)" color="neutral" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="isActing(row.original)" :aria-label="t('processingQueue.trash')" :title="t('processingQueue.trash')" @click="emit('trash', row.original)" />
+        <UButton v-if="props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="props.isActing(row.original)" :label="t(props.isDoclingRecoveryTask(row.original) ? 'processingQueue.doclingRecovery' : row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="emit('recover', row.original)" />
+        <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
+        <UButton v-if="['succeeded', 'failed', 'cancelled'].includes(row.original.status)" color="neutral" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.trash')" :title="t('processingQueue.trash')" @click="emit('trash', row.original)" />
       </div>
     </template>
     <template #expanded="{ row }">
       <TaskItemsExpanded
         :task="row.original"
-        :items="expandedItems[row.original.task_id]"
-        :error="expandedError[row.original.task_id]"
-        :is-loading="expandingTaskId === row.original.task_id"
-        :is-admin="isAdmin"
-        :is-acting="isActing(row.original)"
+        :is-admin="props.isAdmin"
+        :is-acting="props.isActing(row.original)"
         @retry="emit('recover', $event)"
         @recover="emit('recoverItem', $event)"
-        @retry-load="retryLoadItems"
       />
     </template>
   </UTable>

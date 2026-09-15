@@ -151,9 +151,12 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
 
   // Open the watch-all stream. Safe to call when SSE is unavailable: the
   // stream reports through the fallback path and the 20s poll takes over.
+  // Issue 413 Phase 3: a hidden tab pauses SSE (zero background traffic);
+  // the `visibilitychange` resume reconnects for a fresh snapshot resync.
   function startLiveUpdates() {
     if (liveActive) return;
     liveActive = true;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     taskStream.connect();
   }
 
@@ -163,6 +166,22 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     stopFallbackPolling();
     cancelStructuralSync();
     taskStream.disconnect();
+  }
+
+  // Issue 413 Phase 3: pause the SSE stream while the tab is hidden so a
+  // background tab costs zero event traffic. The 20s fallback poll already
+  // skips hidden tabs; cancel any pending structural sync so no load fires
+  // while hidden. On visible, reconnect: the fresh snapshot resyncs updates
+  // missed while paused (the server keeps no replay) and its
+  // snapshot-triggered load() is the catch-up.
+  function handleVisibilityChange() {
+    if (!liveActive || typeof document === "undefined") return;
+    if (document.visibilityState === "hidden") {
+      cancelStructuralSync();
+      taskStream.disconnect();
+    } else {
+      taskStream.reconnect();
+    }
   }
 
   // Docling polling items wait on an active external job (stage=docling_poll,
@@ -579,7 +598,12 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     });
   }
 
-  onMounted(() => void load());
+  onMounted(() => {
+    void load();
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+  });
   onBeforeUnmount(() => {
     liveActive = false;
     stopFallbackPolling();
@@ -587,6 +611,9 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     taskStream.disconnect();
     requestController?.abort();
     requestId += 1;
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }
   });
 
   return {

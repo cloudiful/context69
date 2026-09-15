@@ -364,6 +364,14 @@ pub struct TaskItemsResponse {
     pub next_cursor: Option<String>,
 }
 
+/// Query for `GET /v1/tasks/{task_id}/items` (issue 413 Phase 1).
+///
+/// Results use fixed active-first ordering (failed, running, queued,
+/// waiting, cancelled, succeeded, then `ordinal`) so in-flight and failed
+/// items surface first and succeeded items sink. `cursor` is the opaque
+/// offset token from `TaskItemsResponse::next_cursor` scoped to the current
+/// `status` filter: reset to no cursor when `status` changes, then follow
+/// `next_cursor` until null to page through the full filtered set.
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
 #[into_params(parameter_in = Query)]
 pub struct TaskItemsQuery {
@@ -371,6 +379,10 @@ pub struct TaskItemsQuery {
     pub limit: u32,
     #[serde(default)]
     pub cursor: Option<String>,
+    /// Narrow items to one status; absent lists every status. `cursor` is
+    /// scoped to this filter: reset to no cursor when it changes.
+    #[serde(default)]
+    pub status: Option<TaskItemStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

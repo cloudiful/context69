@@ -5245,7 +5245,7 @@
       "get": {
         "tags": [],
         "summary": "Subscribe to the caller's own task states over Server-Sent Events.",
-        "description": "Best-effort PG NOTIFY fan-out (issue 405 Task E1): the handler sends one\n`snapshot` frame with full states, then one `update` frame per watched\ntask change, then `done` when every explicitly watched `task_ids` entry\nis terminal. `Last-Event-ID` is not replayed; clients re-sync with\n`GET /v1/tasks` (or `GET /v1/tasks/{task_id}`) on reconnect (E3).\nDisconnects drop the `AbortOnDrop` in the unfold state, which aborts the\nproducer and unsubscribes the broadcast receiver.",
+        "description": "Best-effort PG NOTIFY fan-out (issue 405 Task E1): the handler sends one\nimmediate `snapshot` frame with full states, then `update` frames coalesced\nper task every 3s (issue 413 Phase 2, latest-wins), then `done` when every\nexplicitly watched `task_ids` entry is terminal. `Last-Event-ID` is not\nreplayed; clients re-sync with `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`)\non reconnect (E3). Disconnects drop the `AbortOnDrop` in the unfold state,\nwhich aborts the producer and unsubscribes the broadcast receiver.",
         "operationId": "stream_tasks",
         "parameters": [
           {
@@ -5259,7 +5259,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Server-Sent Events stream (text/event-stream). Frames: `snapshot` (full states at subscribe time), `update` (one watched task's current full state), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect)."
+            "description": "Server-Sent Events stream (text/event-stream). Frames: `snapshot` (immediate full states at subscribe time), `update` (one watched task's current full state, coalesced per task every 3s, latest-wins), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect)."
           },
           "400": {
             "description": "Invalid task_ids query (malformed UUID or more than 100 IDs). The SSE body never starts; the 400 is returned directly.",
@@ -5425,6 +5425,15 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Narrow items to one status; absent lists every status. `cursor` is\nscoped to this filter: reset to no cursor when it changes.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskItemStatus"
             }
           }
         ],
@@ -10421,6 +10430,7 @@
       },
       "TaskItemsQuery": {
         "type": "object",
+        "description": "Query for `GET /v1/tasks/{task_id}/items` (issue 413 Phase 1).\n\nResults use fixed active-first ordering (failed, running, queued,\nwaiting, cancelled, succeeded, then `ordinal`) so in-flight and failed\nitems surface first and succeeded items sink. `cursor` is the opaque\noffset token from `TaskItemsResponse::next_cursor` scoped to the current\n`status` filter: reset to no cursor when `status` changes, then follow\n`next_cursor` until null to page through the full filtered set.",
         "properties": {
           "cursor": {
             "type": [
@@ -10432,6 +10442,17 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskItemStatus",
+                "description": "Narrow items to one status; absent lists every status. `cursor` is\nscoped to this filter: reset to no cursor when it changes."
+              }
+            ]
           }
         }
       },

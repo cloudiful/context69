@@ -345,6 +345,7 @@ impl TaskService {
         user_id: i64,
         limit: i64,
         offset: i64,
+        status: Option<TaskItemStatus>,
     ) -> Result<TaskItemsResponse> {
         self.db
             .get_task(task_id, user_id)
@@ -352,7 +353,10 @@ impl TaskService {
             .ok_or_else(|| DomainError::not_found("task not found"))?;
         let limit = limit.clamp(1, 200);
         let offset = offset.max(0);
-        let items = self.db.list_task_items(task_id, limit, offset).await?;
+        let items = self
+            .db
+            .list_task_items_filtered(task_id, limit, offset, status.map(TaskItemStatus::as_str))
+            .await?;
         let next_cursor =
             (items.len() as i64 == limit).then(|| (offset + items.len() as i64).to_string());
         Ok(TaskItemsResponse {
@@ -1138,5 +1142,44 @@ mod tests {
                 "clear SQL must not directly touch {forbidden}; history cascades, files stay"
             );
         }
+    }
+
+    #[test]
+    fn task_items_sql_filters_status_and_pins_active_first() {
+        let sql = include_str!("../../sql/db/tasks/items.sql");
+        let code: String = sql
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            code.contains("($4::text IS NULL OR item.status = $4::text)"),
+            "items.sql must filter by status with a NULL-means-all guard"
+        );
+        assert!(
+            code.contains("WHERE item.task_id = $1"),
+            "items.sql must stay scoped to one task"
+        );
+        for arm in [
+            "WHEN 'failed' THEN 0",
+            "WHEN 'running' THEN 1",
+            "WHEN 'queued' THEN 2",
+            "WHEN 'waiting' THEN 3",
+            "WHEN 'cancelled' THEN 4",
+            "WHEN 'succeeded' THEN 5",
+        ] {
+            assert!(
+                code.contains(arm),
+                "items.sql must pin active-first with {arm} and sink succeeded"
+            );
+        }
+        assert!(
+            code.contains("item.ordinal"),
+            "active-first must tie-break by ordinal for stable cursor paging"
+        );
+        assert!(
+            code.contains("LIMIT $2 OFFSET $3"),
+            "cursor paging must stay offset-based (limit $2, offset $3)"
+        );
     }
 }

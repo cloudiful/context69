@@ -378,7 +378,13 @@ pub(crate) async fn list_task_items(
     match state
         .app
         .tasks
-        .items(task_id, session.user.id, i64::from(query.limit), offset)
+        .items(
+            task_id,
+            session.user.id,
+            i64::from(query.limit),
+            offset,
+            query.status,
+        )
         .await
     {
         Ok(items) => (StatusCode::OK, Json(items)).into_response(),
@@ -483,18 +489,18 @@ pub(crate) async fn delete_task(
 /// Subscribe to the caller's own task states over Server-Sent Events.
 ///
 /// Best-effort PG NOTIFY fan-out (issue 405 Task E1): the handler sends one
-/// `snapshot` frame with full states, then one `update` frame per watched
-/// task change, then `done` when every explicitly watched `task_ids` entry
-/// is terminal. `Last-Event-ID` is not replayed; clients re-sync with
-/// `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`) on reconnect (E3).
-/// Disconnects drop the `AbortOnDrop` in the unfold state, which aborts the
-/// producer and unsubscribes the broadcast receiver.
+/// immediate `snapshot` frame with full states, then `update` frames coalesced
+/// per task every 3s (issue 413 Phase 2, latest-wins), then `done` when every
+/// explicitly watched `task_ids` entry is terminal. `Last-Event-ID` is not
+/// replayed; clients re-sync with `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`)
+/// on reconnect (E3). Disconnects drop the `AbortOnDrop` in the unfold state,
+/// which aborts the producer and unsubscribes the broadcast receiver.
 #[utoipa::path(
     get,
     path = "/v1/tasks/stream",
     params(TaskStreamQuery),
     responses(
-        (status = 200, description = "Server-Sent Events stream (text/event-stream). Frames: `snapshot` (full states at subscribe time), `update` (one watched task's current full state), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect)."),
+        (status = 200, description = "Server-Sent Events stream (text/event-stream). Frames: `snapshot` (immediate full states at subscribe time), `update` (one watched task's current full state, coalesced per task every 3s, latest-wins), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect)."),
         (status = 400, body = ApiErrorResponse, description = "Invalid task_ids query (malformed UUID or more than 100 IDs). The SSE body never starts; the 400 is returned directly.")
     )
 )]
@@ -568,9 +574,42 @@ fn is_terminal_task_status(status: &TaskStatus) -> bool {
     )
 }
 
-/// Snapshot-then-deltas producer for one SSE connection. Snapshot errors and
-/// lag notifications are delivered as in-band `error` frames; foreign or
-/// missing tasks are silently skipped (own-tasks-only filter).
+/// Issue 413 Phase 2: per-task SSE `update` coalesce window (3s, user-confirmed).
+/// The `snapshot` frame stays immediate; `update` frames buffer the latest full
+/// state per `task_id` and flush on this interval. Keep-alive is unchanged.
+const TASK_STREAM_UPDATE_COALESCE_WINDOW: std::time::Duration =
+    std::time::Duration::from_secs(3);
+
+/// Per-task latest-wins buffer for SSE `update` frames. Bursty bus events for
+/// the same `task_id` collapse to one frame per
+/// [`TASK_STREAM_UPDATE_COALESCE_WINDOW`]; distinct tasks each keep their
+/// latest state. `drain` sorts by `task_id` so flush order is deterministic.
+#[derive(Debug, Default)]
+struct TaskUpdateCoalescer {
+    pending: HashMap<Uuid, TaskResponse>,
+}
+
+impl TaskUpdateCoalescer {
+    fn push(&mut self, task: TaskResponse) {
+        self.pending.insert(task.task_id, task);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    fn drain(&mut self) -> Vec<TaskResponse> {
+        let mut out: Vec<TaskResponse> = self.pending.drain().map(|(_, task)| task).collect();
+        out.sort_by_key(|task| task.task_id);
+        out
+    }
+}
+
+/// Snapshot-then-deltas producer for one SSE connection. The snapshot is sent
+/// immediately; deltas coalesce per task on [`TASK_STREAM_UPDATE_COALESCE_WINDOW`]
+/// (latest-wins) before `update` frames flush. Snapshot errors and lag
+/// notifications are delivered as in-band `error` frames; foreign or missing
+/// tasks are silently skipped (own-tasks-only filter).
 async fn run_task_stream(
     tasks: crate::services::tasks::TaskService,
     user_id: i64,
@@ -674,10 +713,51 @@ async fn run_task_stream(
     }
 
     let mut subscription = tasks.subscribe_task_events();
+    // Issue 413 Phase 2: snapshot above is immediate; updates below coalesce
+    // per task_id on a 3s window. Bus events only refresh `known` plus the
+    // latest pending state; the tick drains one `update` per dirty task, so a
+    // burst for one task costs one frame per window. `done` follows the flush
+    // that makes every watched task terminal, keeping update-then-done order.
+    let mut pending = TaskUpdateCoalescer::default();
+    let flush_start =
+        tokio::time::Instant::now() + TASK_STREAM_UPDATE_COALESCE_WINDOW;
+    let mut flush_tick =
+        tokio::time::interval_at(flush_start, TASK_STREAM_UPDATE_COALESCE_WINDOW);
+    flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tokio::select! {
             biased;
             _ = abort.wait() => return Ok(()),
+            _ = flush_tick.tick() => {
+                if pending.is_empty() {
+                    continue;
+                }
+                for full in pending.drain() {
+                    if !send_task_frame(
+                        &tx,
+                        TaskStreamEvent::Update(TaskStreamUpdate { task: full }),
+                    )
+                    .await
+                    {
+                        return Ok(());
+                    }
+                }
+                if filtering
+                    && known.len() == watched_set.len()
+                    && known.values().all(|task| is_terminal_task_status(&task.status))
+                {
+                    let done_tasks = watched_order
+                        .iter()
+                        .filter_map(|id| known.get(id).cloned())
+                        .collect();
+                    let _ = send_task_frame(
+                        &tx,
+                        TaskStreamEvent::Done(TaskStreamDone { tasks: done_tasks }),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            }
             received = subscription.recv() => match received {
                 Ok(bus_event) => {
                     if filtering && !watched_set.contains(&bus_event.task_id) {
@@ -690,32 +770,8 @@ async fn run_task_stream(
                     };
                     match fetched {
                         Ok(full) => {
-                            let terminal = is_terminal_task_status(&full.status);
                             known.insert(full.task_id, full.clone());
-                            if !send_task_frame(
-                                &tx,
-                                TaskStreamEvent::Update(TaskStreamUpdate { task: full }),
-                            )
-                            .await
-                            {
-                                return Ok(());
-                            }
-                            if filtering
-                                && known.len() == watched_set.len()
-                                && known.values().all(|task| is_terminal_task_status(&task.status))
-                                && terminal
-                            {
-                                let done_tasks = watched_order
-                                    .iter()
-                                    .filter_map(|id| known.get(id).cloned())
-                                    .collect();
-                                let _ = send_task_frame(
-                                    &tx,
-                                    TaskStreamEvent::Done(TaskStreamDone { tasks: done_tasks }),
-                                )
-                                .await;
-                                return Ok(());
-                            }
+                            pending.push(full);
                         }
                         Err(error) => {
                             if crate::domain_errors::is_not_found_error(&error) {
@@ -1035,5 +1091,147 @@ mod tests {
         ] {
             let _ = sse_task_event(event);
         }
+    }
+
+    #[test]
+    fn task_stream_update_coalesce_window_is_three_seconds() {
+        // Issue 413 Phase 2: aggregation window is user-confirmed 3s. Snapshot
+        // stays immediate; only `update` frames wait for this interval.
+        assert_eq!(
+            TASK_STREAM_UPDATE_COALESCE_WINDOW,
+            std::time::Duration::from_secs(3)
+        );
+    }
+
+    fn coalescer_test_task(
+        task_id: Uuid,
+        stage: Option<&str>,
+        status: context69_contracts::TaskStatus,
+    ) -> TaskResponse {
+        TaskResponse {
+            task_id,
+            kind: context69_contracts::TaskKind::TextBatch,
+            status,
+            origin: context69_contracts::TaskOrigin::Manual,
+            group_path: None,
+            source_key: None,
+            stage: stage.map(ToOwned::to_owned),
+            waiting_reason: None,
+            dependency_key: None,
+            progress: context69_contracts::TaskProgress {
+                total: 1,
+                queued: 0,
+                running: 1,
+                waiting: 0,
+                succeeded: 0,
+                failed: 0,
+                cancelled: 0,
+            },
+            failure_stage: None,
+            error_summary: None,
+            eta_seconds: None,
+            created_at: chrono::DateTime::parse_from_rfc3339("2026-09-16T00:00:00Z")
+                .expect("time")
+                .with_timezone(&chrono::Utc),
+            started_at: None,
+            finished_at: None,
+            updated_at: chrono::DateTime::parse_from_rfc3339("2026-09-16T00:00:00Z")
+                .expect("time")
+                .with_timezone(&chrono::Utc),
+            deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn task_update_coalescer_keeps_latest_per_task() {
+        // Bursty bus events for one task collapse to one `update` per window:
+        // latest full state wins, so a 2781-event storm costs one frame.
+        let task_id =
+            Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("uuid");
+        let mut buffer = TaskUpdateCoalescer::default();
+        assert!(buffer.is_empty());
+        for stage in ["stage-0", "stage-1", "stage-49"] {
+            buffer.push(coalescer_test_task(
+                task_id,
+                Some(stage),
+                context69_contracts::TaskStatus::Running,
+            ));
+        }
+        assert_eq!(buffer.pending.len(), 1, "same task_id must overwrite, not queue");
+        let flushed = buffer.drain();
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(flushed[0].task_id, task_id);
+        assert_eq!(flushed[0].stage.as_deref(), Some("stage-49"));
+        assert!(buffer.is_empty(), "drain must clear the window");
+        assert!(buffer.drain().is_empty());
+    }
+
+    #[test]
+    fn task_update_coalescer_flushes_each_task_once_in_stable_order() {
+        // Distinct tasks each keep their latest state; flush order is sorted
+        // by task_id so the SSE frame order is deterministic.
+        let first = Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("uuid");
+        let second = Uuid::parse_str("22222222-2222-4222-8222-222222222222").expect("uuid");
+        let mut buffer = TaskUpdateCoalescer::default();
+        buffer.push(coalescer_test_task(
+            second,
+            Some("second-v1"),
+            context69_contracts::TaskStatus::Running,
+        ));
+        buffer.push(coalescer_test_task(
+            first,
+            Some("first-v1"),
+            context69_contracts::TaskStatus::Running,
+        ));
+        buffer.push(coalescer_test_task(
+            second,
+            Some("second-v2"),
+            context69_contracts::TaskStatus::Running,
+        ));
+        assert_eq!(buffer.pending.len(), 2);
+        let flushed = buffer.drain();
+        assert_eq!(flushed.len(), 2);
+        assert_eq!(
+            flushed.iter().map(|task| task.task_id).collect::<Vec<_>>(),
+            vec![first, second],
+            "flush must be deterministic across HashMap iteration"
+        );
+        assert_eq!(flushed[1].stage.as_deref(), Some("second-v2"));
+    }
+
+    #[test]
+    fn task_items_query_status_defaults_to_none_and_round_trips() {
+        // Issue 413 Phase 1: `status` is optional (absent lists every status)
+        // and cursor pagination stays offset-based. Old callers sending only
+        // limit/cursor keep working; the fixed active-first ordering lives in
+        // SQL, not in a new sort param.
+        let bare: TaskItemsQuery = serde_json::from_value(serde_json::json!({
+            "limit": 100
+        }))
+        .expect("status defaults to none");
+        assert_eq!(bare.limit, 100);
+        assert!(bare.cursor.is_none());
+        assert!(bare.status.is_none());
+
+        let filtered: TaskItemsQuery = serde_json::from_value(serde_json::json!({
+            "limit": 25,
+            "cursor": "25",
+            "status": "failed"
+        }))
+        .expect("status failed parses");
+        assert_eq!(
+            filtered.status,
+            Some(context69_contracts::TaskItemStatus::Failed)
+        );
+        assert_eq!(filtered.cursor.as_deref(), Some("25"));
+
+        assert!(
+            serde_json::from_value::<TaskItemsQuery>(serde_json::json!({
+                "limit": 25,
+                "status": "bogus"
+            }))
+            .is_err(),
+            "unknown item status must be rejected before the handler runs"
+        );
     }
 }

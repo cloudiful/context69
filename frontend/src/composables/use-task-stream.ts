@@ -59,6 +59,11 @@ export interface UseTaskStream {
   connect: (taskIds?: string[]) => void;
   /** Close the active subscription (new subscription or unmount). */
   disconnect: () => void;
+  /** Reopen the last subscription (same task ids). Used for hidden-tab
+   * pause/resume so a background tab costs zero SSE traffic and resyncs via
+   * a fresh snapshot on return.
+   */
+  reconnect: () => void;
 }
 
 /** Long-lived SSE subscription for GET /v1/tasks/stream.
@@ -68,6 +73,12 @@ export interface UseTaskStream {
  * `onerror` fallback, detached handlers before `close()`, and FakeEventSource
  * test doubles. Unlike the search one-shot, this stays open: watch-all
  * subscriptions never emit `done` and close only on client disconnect.
+ *
+ * Issue 413 Phase 2: the server coalesces `update` frames per task every 3s
+ * (latest-wins, snapshot stays immediate). The client therefore merges each
+ * `update` in place with no extra throttle or debounce: at most one frame per
+ * task per 3s window keeps traffic an order of magnitude below the
+ * unthrottled storm.
  */
 export function useTaskStream(hooks: TaskStreamHooks): UseTaskStream {
   const streaming = ref(false);
@@ -75,6 +86,7 @@ export function useTaskStream(hooks: TaskStreamHooks): UseTaskStream {
   const usingFallback = ref(false);
 
   let stream: EventSource | null = null;
+  let lastTaskIds: string[] | undefined;
 
   function teardownStream() {
     if (stream) {
@@ -124,6 +136,7 @@ export function useTaskStream(hooks: TaskStreamHooks): UseTaskStream {
   function connect(taskIds?: string[]) {
     disconnect();
     usingFallback.value = false;
+    lastTaskIds = taskIds ? [...taskIds] : undefined;
 
     if (typeof EventSource !== "function") {
       // EventSource unavailable (or PAT-style clients that cannot use
@@ -191,5 +204,6 @@ export function useTaskStream(hooks: TaskStreamHooks): UseTaskStream {
     usingFallback,
     connect,
     disconnect,
+    reconnect: () => connect(lastTaskIds),
   };
 }

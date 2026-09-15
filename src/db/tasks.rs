@@ -528,12 +528,27 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<StoredTaskItemWithExternalJob>> {
+        self.list_task_items_filtered(task_id, limit, offset, None)
+            .await
+    }
+
+    /// Filtered task items for issue 413 Phase 1. `status` narrows to one
+    /// item status; `None` lists every status. Ordering is fixed active-first
+    /// (see `items.sql`); `offset` is scoped to the filter.
+    pub async fn list_task_items_filtered(
+        &self,
+        task_id: Uuid,
+        limit: i64,
+        offset: i64,
+        status: Option<&str>,
+    ) -> Result<Vec<StoredTaskItemWithExternalJob>> {
         Ok(sqlx::query_file_as!(
             StoredTaskItemWithExternalJob,
             "src/sql/db/tasks/items.sql",
             task_id,
             limit,
-            offset
+            offset,
+            status
         )
         .fetch_all(self.pool())
         .await?)

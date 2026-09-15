@@ -1389,12 +1389,12 @@ export interface paths {
         /**
          * Subscribe to the caller's own task states over Server-Sent Events.
          * @description Best-effort PG NOTIFY fan-out (issue 405 Task E1): the handler sends one
-         *     `snapshot` frame with full states, then one `update` frame per watched
-         *     task change, then `done` when every explicitly watched `task_ids` entry
-         *     is terminal. `Last-Event-ID` is not replayed; clients re-sync with
-         *     `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`) on reconnect (E3).
-         *     Disconnects drop the `AbortOnDrop` in the unfold state, which aborts the
-         *     producer and unsubscribes the broadcast receiver.
+         *     immediate `snapshot` frame with full states, then `update` frames coalesced
+         *     per task every 3s (issue 413 Phase 2, latest-wins), then `done` when every
+         *     explicitly watched `task_ids` entry is terminal. `Last-Event-ID` is not
+         *     replayed; clients re-sync with `GET /v1/tasks` (or `GET /v1/tasks/{task_id}`)
+         *     on reconnect (E3). Disconnects drop the `AbortOnDrop` in the unfold state,
+         *     which aborts the producer and unsubscribes the broadcast receiver.
          */
         get: operations["stream_tasks"];
         put?: never;
@@ -2965,10 +2965,21 @@ export interface components {
         };
         /** @enum {string} */
         TaskItemStatus: "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
+        /**
+         * @description Query for `GET /v1/tasks/{task_id}/items` (issue 413 Phase 1).
+         *
+         *     Results use fixed active-first ordering (failed, running, queued,
+         *     waiting, cancelled, succeeded, then `ordinal`) so in-flight and failed
+         *     items surface first and succeeded items sink. `cursor` is the opaque
+         *     offset token from `TaskItemsResponse::next_cursor` scoped to the current
+         *     `status` filter: reset to no cursor when `status` changes, then follow
+         *     `next_cursor` until null to page through the full filtered set.
+         */
         TaskItemsQuery: {
             cursor?: string | null;
             /** Format: int32 */
             limit?: number;
+            status?: null | components["schemas"]["TaskItemStatus"];
         };
         TaskItemsResponse: {
             items: components["schemas"]["TaskItemResponse"][];
@@ -7254,7 +7265,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Server-Sent Events stream (text/event-stream). Frames: `snapshot` (full states at subscribe time), `update` (one watched task's current full state), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect). */
+            /** @description Server-Sent Events stream (text/event-stream). Frames: `snapshot` (immediate full states at subscribe time), `update` (one watched task's current full state, coalesced per task every 3s, latest-wins), `done` (all explicitly watched tasks terminal; watch-all streams never send `done`), or `error` (message; client must resync via GET /v1/tasks and reconnect). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7376,6 +7387,11 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string;
+                /**
+                 * @description Narrow items to one status; absent lists every status. `cursor` is
+                 *     scoped to this filter: reset to no cursor when it changes.
+                 */
+                status?: components["schemas"]["TaskItemStatus"];
             };
             header?: never;
             path: {

@@ -16,8 +16,8 @@ use context69_sdk::{
     AuthMeResponse, BatchGetDocumentsRequest, CanonicalSearchRequest, CanonicalTaskListQuery,
     CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, Context69Client, DocumentKey,
     IngestOptions, RebuildDocumentExtractionsRequest, SearchPagination, SearchRequest,
-    SearchResponse, SecretPatch, SortDirection, SourcePolicy, TaskItemsOptions, TaskItemsQuery,
-    TaskListOptions, TaskListView, TaskSortBy,
+    SearchResponse, SecretPatch, SortDirection, SourcePolicy, TaskItemStatus, TaskItemsOptions,
+    TaskItemsQuery, TaskListOptions, TaskListView, TaskSortBy,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -682,16 +682,19 @@ fn task_items_options_default_has_no_hidden_limit_or_cursor() {
     let defaults = TaskItemsOptions::default();
     assert_eq!(defaults.limit, 100);
     assert!(defaults.cursor.is_none());
+    assert!(defaults.status.is_none());
     assert!(defaults.as_wire_query().is_ok());
 
     let wire: TaskItemsQuery = defaults.as_wire_query().expect("valid");
     assert_eq!(wire.limit, 100);
     assert!(wire.cursor.is_none());
+    assert!(wire.status.is_none());
 
     for limit in [0, 101, 200] {
         let bad = TaskItemsOptions {
             limit,
             cursor: None,
+            status: None,
         };
         assert!(
             bad.as_wire_query().is_err(),
@@ -702,9 +705,22 @@ fn task_items_options_default_has_no_hidden_limit_or_cursor() {
     let with_cursor = TaskItemsOptions {
         limit: 25,
         cursor: Some("25".to_string()),
+        status: None,
     };
     let wire = with_cursor.as_wire_query().expect("cursor");
     assert_eq!(wire.limit, 25);
+    assert_eq!(wire.cursor.as_deref(), Some("25"));
+    assert!(wire.status.is_none());
+
+    // Issue 413 Phase 1: SDK parity for the `status` filter; cursor stays
+    // scoped to the filter (reset on filter change, client-side contract).
+    let filtered = TaskItemsOptions {
+        limit: 25,
+        cursor: Some("25".to_string()),
+        status: Some(TaskItemStatus::Failed),
+    };
+    let wire = filtered.as_wire_query().expect("status filter");
+    assert_eq!(wire.status, Some(TaskItemStatus::Failed));
     assert_eq!(wire.cursor.as_deref(), Some("25"));
 }
 
@@ -717,6 +733,7 @@ fn sdk_only_construction_covers_facade_inputs() {
     let _items_query = TaskItemsQuery {
         limit: 10,
         cursor: None,
+        status: None,
     };
     let _policy = SourcePolicy::Retain;
     let _ingest = IngestOptions::retain();
@@ -912,6 +929,10 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
         !query.contains_key("cursor"),
         "default must omit cursor, not send 0"
     );
+    assert!(
+        !query.contains_key("status"),
+        "default must omit status (lists every status)"
+    );
     assert!(!last(&log).query.as_deref().unwrap_or("").contains("200"));
 
     client
@@ -920,6 +941,7 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
             &TaskItemsOptions {
                 limit: 25,
                 cursor: Some("25".to_string()),
+                status: None,
             },
         )
         .await
@@ -927,6 +949,28 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     let query = query_map(&last(&log).query);
     assert_eq!(query.get("limit").map(String::as_str), Some("25"));
     assert_eq!(query.get("cursor").map(String::as_str), Some("25"));
+    assert!(
+        !query.contains_key("status"),
+        "unset filter must omit status"
+    );
+
+    // Issue 413 Phase 1: filtered window sends `status`; cursor stays scoped
+    // to the filter (client resets cursor when the filter changes).
+    client
+        .list_task_items(
+            task_uuid,
+            &TaskItemsOptions {
+                limit: 25,
+                cursor: Some("25".to_string()),
+                status: Some(TaskItemStatus::Failed),
+            },
+        )
+        .await
+        .expect("list_task_items status");
+    let query = query_map(&last(&log).query);
+    assert_eq!(query.get("limit").map(String::as_str), Some("25"));
+    assert_eq!(query.get("cursor").map(String::as_str), Some("25"));
+    assert_eq!(query.get("status").map(String::as_str), Some("failed"));
 
     client.retry_task(task_uuid).await.expect("retry");
     assert_eq!(last(&log).method, "POST");
