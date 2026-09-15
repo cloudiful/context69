@@ -62,13 +62,20 @@ polling, and metadata-index workers remain server-side.
 
 - Sources are retained by default. The canonical wire is `IngestOptions`
   (`source_policy: retain | release_after_processing`, default `retain`)
-  carried in `options` on every upload path (`multipart`, `FileBatch`
-  base64, `prepare-upload`, URL import). The flattened v0.15 fields
-  (`metadata`/`translation`/`extraction` plus boolean
-  `delete_source_after_processing`, default `false`) are still accepted for
-  compatibility and take effect only when `options` is absent; new clients
-  send only `options`. The policy is chosen once at upload and is never
-  changed by a later dedup/reuse request.
+  carried in required `options` on every upload path (`multipart`,
+  `FileBatch` base64, `prepare-upload`, URL import). The flattened v0.17
+  fields (`metadata`/`translation`/`extraction` plus boolean
+  `delete_source_after_processing`) are removed in v0.18: unknown fields
+  (including those legacy keys) are rejected, and `metadata_json` must be
+  an object map (`MetadataObject`). The policy is chosen once at upload
+  and is never changed by a later dedup/reuse request. Stored worker
+  payloads require canonical `options`; `rerun`/`retry` copy stored JSON
+  verbatim and the worker rejects legacy rows on next claim (see
+  `docs/contracts/v0.18-migration.md`).
+- File rows hold only terminal states (`succeeded` / `failed`);
+  `processing` is derived from active task items. The `pending` / `running`
+  / `cancelled` file states are gone; stale rows were reclaimed to `failed`
+  by `migrations/20260915000000_backfill_stale_file_status_400.sql`.
 - With the opt-in set, the source object is released only after the ingest
   result is committed successfully. A crash or transient storage error leaves
   the release pending; the server retries it in the background.
@@ -97,10 +104,15 @@ polling, and metadata-index workers remain server-side.
 
 ## Contract bounds and errors
 
-- `GET /v1/tasks` requires typed `view` (no `trashed`); `GET
+- `GET /v1/tasks` requires typed `view` (`processing` | `completed` |
+  `trash`); `trashed` is removed and rejected (`deny_unknown_fields`, so
+  old `?trashed=` fails instead of silently changing meaning). `GET
   /v1/search/stream` takes the canonical cursor shape (no `page`).
   `page` is 1..=10_000 and `page_size`/`limit` are 1..=100 in both Rust
-  validation and OpenAPI (`minimum: 1`).
+  validation and OpenAPI (`minimum: 1`). `Pagination` and
+  `OffsetPagination` are both kept: exact totals without window signals
+  serialize identically, windowed (`has_more`/`total_is_exact`) or
+  `page > 10_000` responses require `Pagination`.
 - Error responses carry a stable `code` (`ApiErrorCode`: `invalid_argument`,
   `not_found`, `conflict`, `unavailable`, `upstream_timeout`, ...). Match on
   `code`, not on message text.
@@ -109,6 +121,10 @@ polling, and metadata-index workers remain server-side.
 - Full v0.16.0 to v0.17.0 breaking notes (no auto-deletion, user clear
   endpoint, removed retention/purge admin APIs, retained lease/source
   cleanup/Docling recovery) live in `docs/contracts/v0.17-migration.md`.
+- Full v0.17.1 to v0.18.0 breaking notes (terminal-only file states,
+  `trashed` removal, options-only uploads with required
+  `FileBatchItem.options`, pagination audit, personal-scope deprecations)
+  live in `docs/contracts/v0.18-migration.md`.
 
 ## Deprecated personal-scope library endpoints (v0.18, removal in v0.19)
 
