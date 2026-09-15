@@ -41,11 +41,6 @@ impl LibraryService {
         if content.is_empty() {
             return Err(DomainError::invalid_argument("text content must not be empty").into());
         }
-        if !request.metadata_json.is_object() {
-            return Err(
-                DomainError::unprocessable_entity("metadata_json must be an object").into(),
-            );
-        }
         let summary = request
             .summary
             .as_deref()
@@ -220,7 +215,7 @@ impl LibraryService {
         if let Err(error) = self
             .apply_file_business_metadata(
                 file_id,
-                &crate::contracts::LibraryFileUploadMetadata {
+                &crate::contracts::CanonicalUploadMetadata {
                     external_id: Some(external_id.to_string()),
                     source_uri: source_uri.clone(),
                     published_at: request.published_at,

@@ -140,8 +140,9 @@ impl LibraryStore {
         &self,
         group_id: i64,
         file_id: Uuid,
-        metadata: &crate::contracts::LibraryFileUploadMetadata,
+        metadata: &crate::contracts::CanonicalUploadMetadata,
     ) -> Result<Option<LibraryFileRecord>> {
+        let metadata_json = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
         let row = sqlx::query_file_as!(
             FileRow,
             "src/sql/library_store/files/update_business_metadata.sql",
@@ -150,7 +151,7 @@ impl LibraryStore {
             metadata.external_id,
             metadata.source_uri,
             metadata.published_at,
-            metadata.metadata_json
+            metadata_json
         )
         .fetch_optional(self.db.pool())
         .await?;

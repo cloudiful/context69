@@ -1593,14 +1593,11 @@ export interface components {
             vector_weight?: number;
         };
         /**
-         * @description v0.16 canonical upload metadata: same wire keys as the v0.15
-         *     [`crate::LibraryFileUploadMetadata`], but `metadata_json` is an explicit
-         *     object map ([`crate::MetadataObject`]) instead of `serde_json::Value`.
+         * @description v0.18 canonical upload metadata: `metadata_json` is an explicit object
+         *     map ([`crate::MetadataObject`]).
          *
          *     Object-ness is enforced at the type boundary: deserializing a scalar or
-         *     array `metadata_json` fails, and JSON Schema advertises an object (the
-         *     legacy `Value` shape renders as `true`/any). The v0.15 struct is unchanged
-         *     for wire compatibility; convert with `From`/`TryFrom` below.
+         *     array `metadata_json` fails, and JSON Schema advertises an object.
          */
         CanonicalUploadMetadata: {
             external_id?: string | null;
@@ -1896,23 +1893,20 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        /**
+         * @description v0.18 canonical file batch item: ingest behavior is owned entirely by
+         *     the required `options`. Flattened legacy fields are gone; unknown fields
+         *     (including those legacy keys) are rejected so old payloads fail instead
+         *     of silently changing meaning.
+         */
         FileBatchItem: {
             content_base64: string;
             declared_sha256?: string | null;
-            /**
-             * @description Release the source object once processing succeeds. Chosen once at
-             *     upload; defaults to `false` (retain the source).
-             *     Deprecated: use `options.source_policy` instead.
-             */
-            delete_source_after_processing?: boolean;
-            extraction?: null | components["schemas"]["ExtractionDirective"];
             filename: string;
             /** Format: uuid */
             folder_id?: string | null;
             media_type: string;
-            metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
-            options?: null | components["schemas"]["IngestOptions"];
-            translation?: null | components["schemas"]["TranslationDirective"];
+            options: components["schemas"]["IngestOptions"];
         };
         FileBatchRequest: {
             items: components["schemas"]["FileBatchItem"][];
@@ -1986,21 +1980,17 @@ export interface components {
         };
         /** @enum {string} */
         HealthStatus: "ok" | "degraded";
+        /**
+         * @description v0.18 canonical URL import: ingest behavior is owned entirely by
+         *     `options`. Flattened legacy fields are gone; unknown fields (including
+         *     those legacy keys) are rejected.
+         */
         ImportLibraryFileFromUrlRequest: {
-            /**
-             * @description Release the source object once processing succeeds. Chosen once at
-             *     upload; defaults to `false` (retain the source).
-             *     Deprecated: use `options.source_policy` instead.
-             */
-            delete_source_after_processing?: boolean;
-            extraction?: null | components["schemas"]["ExtractionDirective"];
             filename?: string | null;
             /** Format: uuid */
             folder_id?: string | null;
             media_type?: string | null;
-            metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
-            options?: null | components["schemas"]["IngestOptions"];
-            translation?: null | components["schemas"]["TranslationDirective"];
+            options: components["schemas"]["IngestOptions"];
             url: string;
         };
         IngestOptions: {
@@ -2058,19 +2048,6 @@ export interface components {
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
         };
-        LibraryFileIngestOptions: components["schemas"]["LibraryFileUploadMetadata"] & {
-            /**
-             * @description Release the source object once processing succeeds. Chosen once at
-             *     upload; defaults to `false` (retain the source).
-             *     Deprecated: use [`crate::SourcePolicy`] via [`crate::IngestOptions`]
-             *     instead. The multipart `metadata` field also accepts a bare
-             *     [`crate::IngestOptions`] document (`metadata` object plus
-             *     `source_policy`) for the v0.16 wire.
-             */
-            delete_source_after_processing?: boolean;
-            extraction?: null | components["schemas"]["ExtractionDirective"];
-            translation?: null | components["schemas"]["TranslationDirective"];
-        };
         LibraryFileSummary: {
             /** Format: date-time */
             created_at: string;
@@ -2096,13 +2073,6 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
-        };
-        LibraryFileUploadMetadata: {
-            external_id?: string | null;
-            metadata_json?: Record<string, never>;
-            /** Format: date-time */
-            published_at?: string | null;
-            source_uri?: string | null;
         };
         LibraryFolderNode: {
             children: components["schemas"]["LibraryFolderNode"][];
@@ -2379,24 +2349,21 @@ export interface components {
         };
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
+        /**
+         * @description v0.18 canonical prepare-upload: ingest behavior is owned entirely by
+         *     `options`. Flattened legacy fields (`metadata`/`translation`/
+         *     `extraction`/`delete_source_after_processing`) are gone; unknown fields
+         *     (including those legacy keys) are rejected.
+         */
         PrepareLibraryUploadRequest: {
-            /**
-             * @description Release the source object once processing succeeds. Chosen once at
-             *     upload; defaults to `false` (retain the source).
-             *     Deprecated: use `options.source_policy` instead.
-             */
-            delete_source_after_processing?: boolean;
-            extraction?: null | components["schemas"]["ExtractionDirective"];
             filename: string;
             /** Format: uuid */
             folder_id?: string | null;
             media_type: string;
-            metadata?: null | components["schemas"]["LibraryFileUploadMetadata"];
-            options?: null | components["schemas"]["IngestOptions"];
+            options: components["schemas"]["IngestOptions"];
             sha256: string;
             /** Format: int64 */
             size_bytes: number;
-            translation?: null | components["schemas"]["TranslationDirective"];
         };
         PrepareLibraryUploadResponse: {
             file?: null | components["schemas"]["LibraryFileSummary"];
@@ -3224,6 +3191,10 @@ export interface components {
         UpdateTranslationSettingsRequest: {
             providers: components["schemas"]["TranslationProviderInput"][];
         };
+        /**
+         * @description v0.18 canonical text upsert: `metadata_json` is an explicit object map.
+         *     Non-object `metadata_json` is rejected at deserialization.
+         */
         UpsertLibraryTextRequest: {
             content: string;
             content_format?: components["schemas"]["LibraryTextContentFormat"];

@@ -30,10 +30,7 @@ impl LibraryService {
 
         let (_kind, sha256) = self.prepare_uploaded_file(&upload).await?;
         let file_id = Uuid::new_v4();
-        if let Some(external_id) = upload
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.external_id.as_deref())
+        if let Some(external_id) = upload.options.metadata.external_id.as_deref()
             && let Some(existing) = self
                 .store
                 .get_file_by_external_id_in_project(group_id, external_id)
@@ -51,9 +48,9 @@ impl LibraryService {
                 let file = self
                     .update_reused_file(
                         existing,
-                        upload.metadata.as_ref(),
-                        upload.translation.as_ref(),
-                        upload.extraction.as_ref(),
+                        (!upload.options.metadata.is_empty()).then_some(&upload.options.metadata),
+                        upload.options.translation.as_ref(),
+                        upload.options.extraction.as_ref(),
                     )
                     .await?;
                 return Ok(UploadedLibraryFileResult {
@@ -71,10 +68,7 @@ impl LibraryService {
             .get_file_by_sha_in_project(group_id, &sha256)
             .await?
         {
-            let requested_external_id = upload
-                .metadata
-                .as_ref()
-                .and_then(|metadata| metadata.external_id.as_deref());
+            let requested_external_id = upload.options.metadata.external_id.as_deref();
             if requested_external_id.is_some()
                 && existing.external_id.as_deref() != requested_external_id
             {
@@ -100,9 +94,9 @@ impl LibraryService {
             let file = self
                 .update_reused_file(
                     existing,
-                    upload.metadata.as_ref(),
-                    upload.translation.as_ref(),
-                    upload.extraction.as_ref(),
+                    (!upload.options.metadata.is_empty()).then_some(&upload.options.metadata),
+                    upload.options.translation.as_ref(),
+                    upload.options.extraction.as_ref(),
                 )
                 .await?;
             return Ok(UploadedLibraryFileResult {
@@ -128,7 +122,7 @@ impl LibraryService {
                     sha256,
                     storage_rel_path: object.object_key.clone(),
                     storage_object_id: Some(object.id),
-                    delete_source_after_processing: upload.delete_source_after_processing,
+                    delete_source_after_processing: upload.options.as_delete_flag(),
                 },
             )
             .await
@@ -146,8 +140,11 @@ impl LibraryService {
                 return Err(error);
             }
         };
-        if let Some(metadata) = upload.metadata.as_ref() {
-            created = match self.apply_file_business_metadata(file_id, metadata).await {
+        if !upload.options.metadata.is_empty() {
+            created = match self
+                .apply_file_business_metadata(file_id, &upload.options.metadata)
+                .await
+            {
                 Ok(file) => file,
                 Err(error) => {
                     self.rollback_new_file_record_for_task(
@@ -162,7 +159,7 @@ impl LibraryService {
                 }
             };
         }
-        if let Some(directive) = upload.translation.as_ref()
+        if let Some(directive) = upload.options.translation.as_ref()
             && let Err(error) = self
                 .apply_file_translation_directive(file_id, directive)
                 .await
@@ -177,7 +174,7 @@ impl LibraryService {
             .await;
             return Err(error);
         }
-        if let Some(directive) = upload.extraction.as_ref()
+        if let Some(directive) = upload.options.extraction.as_ref()
             && let Err(error) = self
                 .apply_file_extraction_directive(file_id, directive)
                 .await
@@ -202,7 +199,7 @@ impl LibraryService {
     async fn update_reused_file(
         &self,
         file: crate::domain::LibraryFileRecord,
-        metadata: Option<&LibraryFileUploadMetadata>,
+        metadata: Option<&crate::contracts::CanonicalUploadMetadata>,
         translation: Option<&crate::contracts::TranslationDirective>,
         extraction: Option<&crate::contracts::ExtractionDirective>,
     ) -> Result<crate::domain::LibraryFileRecord> {
@@ -303,9 +300,9 @@ impl LibraryService {
                 return Err(error);
             }
         };
-        if let Some(metadata) = upload.metadata.as_ref()
+        if !upload.options.metadata.is_empty()
             && let Err(error) = self
-                .apply_file_business_metadata(existing.id, metadata)
+                .apply_file_business_metadata(existing.id, &upload.options.metadata)
                 .await
         {
             self.restore_project_file_snapshot(
@@ -319,7 +316,7 @@ impl LibraryService {
                 .await;
             return Err(error);
         }
-        if let Some(directive) = upload.translation.as_ref()
+        if let Some(directive) = upload.options.translation.as_ref()
             && let Err(error) = self
                 .apply_file_translation_directive(existing.id, directive)
                 .await
@@ -339,7 +336,7 @@ impl LibraryService {
                 .await;
             return Err(error);
         }
-        if let Some(directive) = upload.extraction.as_ref()
+        if let Some(directive) = upload.options.extraction.as_ref()
             && let Err(error) = self
                 .apply_file_extraction_directive(existing.id, directive)
                 .await

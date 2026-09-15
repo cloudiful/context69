@@ -264,7 +264,18 @@ fn inventory_shared_schemas_exist_in_openapi() {
         .pointer("/components/schemas")
         .and_then(|v| v.as_object())
         .expect("schemas exist");
+    // v0.18 breaking Task B2: the flattened legacy upload schemas are
+    // intentionally gone from OpenAPI while the frozen v0.16 inventory
+    // still lists them.
+    const B2_REMOVED_SCHEMAS: &[&str] = &["LibraryFileUploadMetadata", "LibraryFileIngestOptions"];
     for name in &shared {
+        if B2_REMOVED_SCHEMAS.contains(&name.as_str()) {
+            assert!(
+                !schemas.contains_key(name),
+                "B2-removed schema must stay gone from OpenAPI: {name}"
+            );
+            continue;
+        }
         assert!(
             schemas.contains_key(name),
             "inventory shared schema missing in OpenAPI: {name}"

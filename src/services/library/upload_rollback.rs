@@ -142,15 +142,24 @@ impl LibraryService {
             .restore_file_snapshot_in_project(file, storage_object_id, source_released_at)
             .await?
             .with_context(|| format!("unknown file {} while restoring upload", file.id))?;
+        let restore_metadata_json = file
+            .metadata_json
+            .as_object()
+            .map(|map| {
+                map.iter()
+                    .map(|(key, val)| (key.clone(), val.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         self.store
             .update_business_metadata(
                 file.group_id,
                 file.id,
-                &LibraryFileUploadMetadata {
+                &crate::contracts::CanonicalUploadMetadata {
                     external_id: file.external_id.clone(),
                     source_uri: file.source_uri.clone(),
                     published_at: file.published_at,
-                    metadata_json: file.metadata_json.clone(),
+                    metadata_json: restore_metadata_json,
                 },
             )
             .await?

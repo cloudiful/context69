@@ -1,10 +1,11 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
+
+use context69_contracts_core::common::MetadataObject;
 
 use context69_contracts_core::common::Pagination;
 use context69_contracts_core::{TaskRef, Visibility};
@@ -127,7 +128,10 @@ pub struct CreateTextRequest {
     pub translation: Option<context69_contracts_translation::TranslationDirective>,
 }
 
+/// v0.18 canonical text upsert: `metadata_json` is an explicit object map.
+/// Non-object `metadata_json` is rejected at deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpsertLibraryTextRequest {
     pub external_id: String,
     #[serde(default)]
@@ -142,9 +146,9 @@ pub struct UpsertLibraryTextRequest {
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published_at: Option<DateTime<Utc>>,
-    #[serde(default = "default_metadata_json")]
+    #[serde(default)]
     #[schema(value_type = Object)]
-    pub metadata_json: Value,
+    pub metadata_json: MetadataObject,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<context69_contracts_translation::TranslationDirective>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -366,38 +370,12 @@ pub struct LibraryFileDetailResponse {
     pub sections: Vec<LibraryDocumentSectionPreview>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct LibraryFileUploadMetadata {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_uri: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub published_at: Option<DateTime<Utc>>,
-    #[serde(default = "default_metadata_json")]
-    #[schema(value_type = Object)]
-    pub metadata_json: Value,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
-pub struct LibraryFileIngestOptions {
-    #[serde(flatten)]
-    pub metadata: LibraryFileUploadMetadata,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub translation: Option<context69_contracts_translation::TranslationDirective>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extraction: Option<context69_contracts_extraction::ExtractionDirective>,
-    /// Release the source object once processing succeeds. Chosen once at
-    /// upload; defaults to `false` (retain the source).
-    /// Deprecated: use [`crate::SourcePolicy`] via [`crate::IngestOptions`]
-    /// instead. The multipart `metadata` field also accepts a bare
-    /// [`crate::IngestOptions`] document (`metadata` object plus
-    /// `source_policy`) for the v0.16 wire.
-    #[serde(default)]
-    pub delete_source_after_processing: bool,
-}
-
+/// v0.18 canonical prepare-upload: ingest behavior is owned entirely by
+/// `options`. Flattened legacy fields (`metadata`/`translation`/
+/// `extraction`/`delete_source_after_processing`) are gone; unknown fields
+/// (including those legacy keys) are rejected.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PrepareLibraryUploadRequest {
     #[serde(default)]
     pub folder_id: Option<Uuid>,
@@ -405,22 +383,7 @@ pub struct PrepareLibraryUploadRequest {
     pub media_type: String,
     pub size_bytes: i64,
     pub sha256: String,
-    /// Canonical ingest options. When present, takes precedence over the
-    /// deprecated flattened fields below. New clients should send only this;
-    /// v0.15 clients send only the flattened fields and stay readable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub options: Option<crate::ingest::IngestOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<LibraryFileUploadMetadata>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub translation: Option<context69_contracts_translation::TranslationDirective>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extraction: Option<context69_contracts_extraction::ExtractionDirective>,
-    /// Release the source object once processing succeeds. Chosen once at
-    /// upload; defaults to `false` (retain the source).
-    /// Deprecated: use `options.source_policy` instead.
-    #[serde(default)]
-    pub delete_source_after_processing: bool,
+    pub options: crate::ingest::IngestOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -432,7 +395,11 @@ pub struct PrepareLibraryUploadResponse {
     pub task: Option<TaskRef>,
 }
 
+/// v0.18 canonical URL import: ingest behavior is owned entirely by
+/// `options`. Flattened legacy fields are gone; unknown fields (including
+/// those legacy keys) are rejected.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ImportLibraryFileFromUrlRequest {
     pub url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -441,22 +408,7 @@ pub struct ImportLibraryFileFromUrlRequest {
     pub filename: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
-    /// Canonical ingest options. When present, takes precedence over the
-    /// deprecated flattened fields below. New clients should send only this;
-    /// v0.15 clients send only the flattened fields and stay readable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub options: Option<crate::ingest::IngestOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<LibraryFileUploadMetadata>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub translation: Option<context69_contracts_translation::TranslationDirective>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extraction: Option<context69_contracts_extraction::ExtractionDirective>,
-    /// Release the source object once processing succeeds. Chosen once at
-    /// upload; defaults to `false` (retain the source).
-    /// Deprecated: use `options.source_policy` instead.
-    #[serde(default)]
-    pub delete_source_after_processing: bool,
+    pub options: crate::ingest::IngestOptions,
 }
 
 fn default_preview_content_format() -> LibraryPreviewContentFormat {
@@ -469,80 +421,4 @@ fn default_text_content_format() -> LibraryTextContentFormat {
 
 fn default_metadata_json() -> Value {
     context69_contracts_core::common::default_metadata_json()
-}
-
-/// Canonical upload shapes share [`crate::IngestOptions`]; the flattened
-/// `metadata`/`translation`/`extraction` plus
-/// `delete_source_after_processing` fields below stay for v0.15 wire
-/// compatibility.
-///
-/// Deprecated: `delete_source_after_processing=false` means
-/// [`crate::SourcePolicy::Retain`]; `true` means
-/// [`crate::SourcePolicy::ReleaseAfterProcessing`]. New code should build an
-/// [`crate::IngestOptions`] and convert with the `ingest_options()` helpers.
-impl LibraryFileIngestOptions {
-    pub fn ingest_options(&self) -> crate::ingest::IngestOptions {
-        crate::ingest::IngestOptions::from_legacy(
-            Some(self.metadata.clone()),
-            self.translation.clone(),
-            self.extraction.clone(),
-            self.delete_source_after_processing,
-        )
-    }
-}
-
-impl PrepareLibraryUploadRequest {
-    /// Canonical [`crate::IngestOptions`] view. Prefers `options` when
-    /// present (v0.16 wire); falls back to the flattened v0.15 fields for
-    /// in-flight tasks and old clients.
-    pub fn ingest_options(&self) -> crate::ingest::IngestOptions {
-        if let Some(options) = self.options.clone() {
-            return options;
-        }
-        crate::ingest::IngestOptions::from_legacy(
-            self.metadata.clone(),
-            self.translation.clone(),
-            self.extraction.clone(),
-            self.delete_source_after_processing,
-        )
-    }
-
-    /// Build a request that carries both shapes: canonical `options` for new
-    /// readers plus flattened duplicates for v0.15 readers.
-    pub fn with_ingest_options(mut self, options: crate::ingest::IngestOptions) -> Self {
-        self.delete_source_after_processing = options.as_delete_flag();
-        self.translation = options.translation.clone();
-        self.extraction = options.extraction.clone();
-        self.metadata = options.legacy_metadata_opt();
-        self.options = Some(options);
-        self
-    }
-}
-
-impl ImportLibraryFileFromUrlRequest {
-    /// Canonical [`crate::IngestOptions`] view. Prefers `options` when
-    /// present (v0.16 wire); falls back to the flattened v0.15 fields for
-    /// in-flight tasks and old clients.
-    pub fn ingest_options(&self) -> crate::ingest::IngestOptions {
-        if let Some(options) = self.options.clone() {
-            return options;
-        }
-        crate::ingest::IngestOptions::from_legacy(
-            self.metadata.clone(),
-            self.translation.clone(),
-            self.extraction.clone(),
-            self.delete_source_after_processing,
-        )
-    }
-
-    /// Build a request that carries both shapes: canonical `options` for new
-    /// readers plus flattened duplicates for v0.15 readers.
-    pub fn with_ingest_options(mut self, options: crate::ingest::IngestOptions) -> Self {
-        self.delete_source_after_processing = options.as_delete_flag();
-        self.translation = options.translation.clone();
-        self.extraction = options.extraction.clone();
-        self.metadata = options.legacy_metadata_opt();
-        self.options = Some(options);
-        self
-    }
 }

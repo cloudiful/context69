@@ -1,6 +1,5 @@
 use super::*;
 use crate::contracts::ImportLibraryFileFromUrlRequest;
-use crate::domain_errors::DomainError;
 use anyhow::Result;
 
 impl LibraryService {
@@ -17,18 +16,7 @@ impl LibraryService {
                 .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))
                 .map_err(anyhow::Error::from)?;
         }
-        // Canonical wire: `options` already guarantees an object map; legacy
-        // flattened `metadata` still needs the preserved 422 check.
-        if request.options.is_none()
-            && request
-                .metadata
-                .as_ref()
-                .is_some_and(|value| !value.metadata_json.is_object())
-        {
-            return Err(
-                DomainError::unprocessable_entity("metadata_json must be an object").into(),
-            );
-        }
+
         let trusted_proxy_enabled = self.settings.trusted_proxy_enabled().await?;
         let limiter = self
             .url_import_runtime

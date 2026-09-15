@@ -819,7 +819,7 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert_eq!(last(&log).idempotency.as_deref(), Some(text_key.as_str()));
 
     let url_batch: context69_sdk::UrlBatchRequest = serde_json::from_value(json!({
-        "items": [{"url": "https://example.test/a"}]
+        "items": [{"url": "https://example.test/a", "options": {"metadata": {}, "source_policy": "retain"}}]
     }))
     .expect("url batch");
     client
@@ -831,7 +831,7 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert!(last(&log).idempotency.is_some());
 
     let file_batch: context69_sdk::FileBatchRequest = serde_json::from_value(json!({
-        "items": [{"filename": "a.txt", "media_type": "text/plain", "content_base64": "aGk="}]
+        "items": [{"filename": "a.txt", "media_type": "text/plain", "content_base64": "aGk=", "options": {"metadata": {}, "source_policy": "retain"}}]
     }))
     .expect("file batch");
     client

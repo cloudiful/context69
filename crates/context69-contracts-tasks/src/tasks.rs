@@ -8,9 +8,7 @@ use context69_contracts_core::Visibility;
 use context69_contracts_core::common::Pagination;
 use context69_contracts_core::pagination::SortDirection;
 
-use context69_contracts_library::{
-    ImportLibraryFileFromUrlRequest, LibraryFileUploadMetadata, UpsertLibraryTextRequest,
-};
+use context69_contracts_library::{ImportLibraryFileFromUrlRequest, UpsertLibraryTextRequest};
 use context69_contracts_namespace::GroupResponse;
 
 pub use context69_contracts_core::TaskRef;
@@ -414,7 +412,12 @@ pub struct DeleteBatchRequest {
     pub items: Vec<context69_contracts_search::DocumentKey>,
 }
 
+/// v0.18 canonical file batch item: ingest behavior is owned entirely by
+/// the required `options`. Flattened legacy fields are gone; unknown fields
+/// (including those legacy keys) are rejected so old payloads fail instead
+/// of silently changing meaning.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FileBatchItem {
     pub filename: String,
     pub media_type: String,
@@ -423,22 +426,7 @@ pub struct FileBatchItem {
     pub declared_sha256: Option<String>,
     #[serde(default)]
     pub folder_id: Option<Uuid>,
-    /// Canonical ingest options. When present, takes precedence over the
-    /// deprecated flattened fields below. New code should send only this;
-    /// v0.15 payloads send only the flattened fields and stay readable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub options: Option<context69_contracts_library::IngestOptions>,
-    #[serde(default)]
-    pub metadata: Option<LibraryFileUploadMetadata>,
-    #[serde(default)]
-    pub translation: Option<context69_contracts_translation::TranslationDirective>,
-    #[serde(default)]
-    pub extraction: Option<context69_contracts_extraction::ExtractionDirective>,
-    /// Release the source object once processing succeeds. Chosen once at
-    /// upload; defaults to `false` (retain the source).
-    /// Deprecated: use `options.source_policy` instead.
-    #[serde(default)]
-    pub delete_source_after_processing: bool,
+    pub options: context69_contracts_library::IngestOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -632,32 +620,8 @@ fn default_item_limit() -> u32 {
 }
 
 impl FileBatchItem {
-    /// Canonical [`context69_contracts_library::IngestOptions`] view. Prefers `options` when
-    /// present (v0.16 wire); falls back to the flattened v0.15 fields for
-    /// in-flight tasks and old clients.
+    /// Canonical [`context69_contracts_library::IngestOptions`] view.
     pub fn ingest_options(&self) -> context69_contracts_library::IngestOptions {
-        if let Some(options) = self.options.clone() {
-            return options;
-        }
-        context69_contracts_library::IngestOptions::from_legacy(
-            self.metadata.clone(),
-            self.translation.clone(),
-            self.extraction.clone(),
-            self.delete_source_after_processing,
-        )
-    }
-
-    /// Build an item that carries both shapes: canonical `options` for new
-    /// readers plus flattened duplicates for v0.15 readers.
-    pub fn with_ingest_options(
-        mut self,
-        options: context69_contracts_library::IngestOptions,
-    ) -> Self {
-        self.delete_source_after_processing = options.as_delete_flag();
-        self.translation = options.translation.clone();
-        self.extraction = options.extraction.clone();
-        self.metadata = options.legacy_metadata_opt();
-        self.options = Some(options);
-        self
+        self.options.clone()
     }
 }

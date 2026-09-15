@@ -101,7 +101,7 @@ pub(super) async fn process_file(
                     Err(error) => return Ok(process_error(stage, anyhow!(error))),
                 }
             };
-            let ingest = request.ingest_options();
+            let ingest = &request.options;
             match service
                 .library()
                 .prepare_file_for_task(
@@ -112,11 +112,8 @@ pub(super) async fn process_file(
                         media_type: request.media_type,
                         bytes,
                         declared_sha256: request.declared_sha256,
-                        metadata: ingest.legacy_metadata_opt(),
-                        translation: ingest.translation.clone(),
-                        extraction: ingest.extraction.clone(),
+                        options: ingest.clone(),
                         staged_storage_object_id: item.input_storage_object_id,
-                        delete_source_after_processing: ingest.as_delete_flag(),
                     },
                     item.lease_token,
                 )
@@ -146,7 +143,20 @@ pub(super) async fn process_file(
     process_file_stage(service, group.id, task, item, stage).await
 }
 
+/// v0.18 stored worker payload: canonical `options` is required. Legacy
+/// flattened payloads (no `options`, or `metadata`/`translation`/
+/// `extraction`/`delete_source_after_processing` keys) are rejected at
+/// deserialization so in-flight v0.15 rows fail closed instead of silently
+/// changing ingest semantics. `rerun`/`retry` copy the stored JSON verbatim
+/// and never convert; the worker is the rejection boundary.
+///
+/// Rerun/unfinished audit: `rerun_task` (`rerun_items.sql`) and the
+/// unfinished-slot lock (`unfinished_item_file_ids.sql`) select only
+/// `payload`/`file_id` and never deserialize into this struct, so they copy
+/// legacy bytes without interpreting them. Rejection happens here on the
+/// next worker claim.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredFileBatchItem {
     filename: String,
     #[serde(default)]
@@ -157,31 +167,7 @@ struct StoredFileBatchItem {
     declared_sha256: Option<String>,
     #[serde(default)]
     folder_id: Option<Uuid>,
-    #[serde(default)]
-    options: Option<context69_contracts::IngestOptions>,
-    #[serde(default)]
-    metadata: Option<context69_contracts::LibraryFileUploadMetadata>,
-    #[serde(default)]
-    translation: Option<context69_contracts::TranslationDirective>,
-    #[serde(default)]
-    extraction: Option<context69_contracts::ExtractionDirective>,
-    #[serde(default)]
-    delete_source_after_processing: bool,
-}
-
-impl StoredFileBatchItem {
-    /// Canonical view: prefer `options` (v0.16) else flattened v0.15 fields.
-    fn ingest_options(&self) -> context69_contracts::IngestOptions {
-        if let Some(options) = self.options.clone() {
-            return options;
-        }
-        context69_contracts::IngestOptions::from_legacy(
-            self.metadata.clone(),
-            self.translation.clone(),
-            self.extraction.clone(),
-            self.delete_source_after_processing,
-        )
-    }
+    options: context69_contracts::IngestOptions,
 }
 
 pub(super) async fn process_file_stage(
@@ -420,33 +406,68 @@ mod tests {
     use super::StoredFileBatchItem;
 
     #[test]
-    fn stored_file_payload_keeps_v015_readable_and_prefers_canonical() {
-        // v0.15 in-flight payload without `options` stays readable.
-        let legacy: StoredFileBatchItem = serde_json::from_value(serde_json::json!({
-            "filename": "a.pdf",
-            "media_type": "application/pdf",
-            "content_base64": "aGk=",
-            "metadata": { "external_id": "doc-1", "metadata_json": { "k": "v" } },
-            "delete_source_after_processing": true
-        }))
-        .expect("legacy stored payload");
-        assert!(legacy.options.is_none());
-        let ingest = legacy.ingest_options();
-        assert!(ingest.is_release());
-        assert_eq!(ingest.metadata.external_id.as_deref(), Some("doc-1"));
-
-        // Canonical payload takes precedence even when flattened duplicates disagree.
+    fn stored_file_payload_requires_canonical_options_and_rejects_legacy() {
+        // Canonical stored payload parses and carries the ingest policy.
         let canonical: StoredFileBatchItem = serde_json::from_value(serde_json::json!({
             "filename": "a.pdf",
             "media_type": "application/pdf",
             "content_base64": "aGk=",
-            "options": { "metadata": { "external_id": "doc-2" }, "source_policy": "retain" },
-            "metadata": { "external_id": "doc-1", "metadata_json": {} },
-            "delete_source_after_processing": true
+            "options": { "metadata": { "external_id": "doc-2" }, "source_policy": "retain" }
         }))
         .expect("canonical stored payload");
-        let ingest = canonical.ingest_options();
-        assert!(!ingest.is_release());
-        assert_eq!(ingest.metadata.external_id.as_deref(), Some("doc-2"));
+        assert!(!canonical.options.is_release());
+        assert_eq!(
+            canonical.options.metadata.external_id.as_deref(),
+            Some("doc-2")
+        );
+
+        // Staged payloads without inline bytes (content lives in the staged
+        // storage object) also parse: content_base64 stays optional.
+        let staged: StoredFileBatchItem = serde_json::from_value(serde_json::json!({
+            "filename": "a.pdf",
+            "media_type": "application/pdf",
+            "options": { "metadata": {}, "source_policy": "release_after_processing" }
+        }))
+        .expect("staged stored payload");
+        assert!(staged.options.is_release());
+        assert!(staged.content_base64.is_none());
+
+        // v0.15 in-flight payloads without `options` are rejected (fail
+        // closed): rerun copies bytes verbatim, the worker rejects here.
+        assert!(
+            serde_json::from_value::<StoredFileBatchItem>(serde_json::json!({
+                "filename": "a.pdf",
+                "media_type": "application/pdf",
+                "content_base64": "aGk=",
+                "metadata": { "external_id": "doc-1", "metadata_json": { "k": "v" } },
+                "delete_source_after_processing": true
+            }))
+            .is_err(),
+            "legacy stored payload without options must be rejected"
+        );
+        // Flattened duplicates alongside canonical are also rejected.
+        assert!(
+            serde_json::from_value::<StoredFileBatchItem>(serde_json::json!({
+                "filename": "a.pdf",
+                "media_type": "application/pdf",
+                "content_base64": "aGk=",
+                "options": { "metadata": { "external_id": "doc-2" }, "source_policy": "retain" },
+                "metadata": { "external_id": "doc-1", "metadata_json": {} },
+                "delete_source_after_processing": true
+            }))
+            .is_err(),
+            "flattened duplicates must be rejected"
+        );
+        // Non-object canonical metadata is rejected at the type boundary.
+        assert!(
+            serde_json::from_value::<StoredFileBatchItem>(serde_json::json!({
+                "filename": "a.pdf",
+                "media_type": "application/pdf",
+                "content_base64": "aGk=",
+                "options": { "metadata": { "metadata_json": [1, 2] }, "source_policy": "retain" }
+            }))
+            .is_err(),
+            "non-object metadata_json must be rejected"
+        );
     }
 }

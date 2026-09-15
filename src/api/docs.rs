@@ -85,8 +85,7 @@ use crate::contracts::{
     ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
     GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
     ImportLibraryFileFromUrlRequest, IngestOptions, LibraryFileDetailResponse,
-    LibraryFileIngestOptions, LibraryFileUploadMetadata, LibraryFolderResponse,
-    LibraryIngestFailureStage, LibraryResourceItem, LibraryResourceKind,
+    LibraryFolderResponse, LibraryIngestFailureStage, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, MemberPageQuery,
     MemberSortBy, MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataIndexPageQuery,
     MetadataIndexPageResponse, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
@@ -100,14 +99,13 @@ use crate::contracts::{
     ScopeSpec, SearchMode, SecretPatch, SortDirection, SortOrder, SourceConfigInput,
     SourceConnectionResponse, SourceFolderResponse, SourcePageQuery, SourcePageResponse,
     SourcePolicy, SourceStatus, SyncOutcome, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
-    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
-    TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationDirective,
-    TranslationGlossaryEntry, TranslationJobResponse, TranslationJobsResponse,
-    TranslationLlmApiKind, TranslationProviderInput, TranslationProviderKind,
-    TranslationProviderPageQuery, TranslationProviderPageResponse, TranslationProviderResponse,
-    TranslationSettingsResponse, TranslationStatus, UpdateAdminUserRequest,
-    UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
+    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
+    TextBatchRequest, TranslationDirective, TranslationGlossaryEntry, TranslationJobResponse,
+    TranslationJobsResponse, TranslationLlmApiKind, TranslationProviderInput,
+    TranslationProviderKind, TranslationProviderPageQuery, TranslationProviderPageResponse,
+    TranslationProviderResponse, TranslationSettingsResponse, TranslationStatus,
+    UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
     UpdateTranslationSettingsRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
     UrlBatchRequest,
 };
@@ -251,7 +249,6 @@ use crate::contracts::{
         LibraryResourcePageResponse,
         LibraryIngestFailureStage,
         LibraryFileDetailResponse,
-        LibraryFileUploadMetadata,
         ImportLibraryFileFromUrlRequest,
         PrepareLibraryUploadRequest,
         PrepareLibraryUploadResponse,
@@ -302,7 +299,6 @@ use crate::contracts::{
         ExtractionResultResponse,
         ExtractionHealthResponse,
         RebuildDocumentExtractionsRequest,
-        LibraryFileIngestOptions,
         IngestOptions,
         CanonicalUploadMetadata,
         SourcePolicy,
@@ -660,7 +656,19 @@ mod tests {
             .pointer("/components/schemas")
             .and_then(Value::as_object)
             .expect("schemas to exist");
+        // v0.18 breaking Task B2: the flattened legacy upload schemas are
+        // intentionally gone from OpenAPI while the frozen v0.16 inventory
+        // still lists them.
+        const B2_REMOVED_SCHEMAS: &[&str] =
+            &["LibraryFileUploadMetadata", "LibraryFileIngestOptions"];
         for name in inventory_shared_schemas() {
+            if B2_REMOVED_SCHEMAS.contains(&name.as_str()) {
+                assert!(
+                    !schemas.contains_key(&name),
+                    "B2-removed schema must stay gone from OpenAPI: {name}"
+                );
+                continue;
+            }
             assert!(
                 schemas.contains_key(&name),
                 "inventory shared schema missing in OpenAPI: {name}"

@@ -164,9 +164,6 @@ impl TaskService {
                                 "invalid file batch content_base64: {error}"
                             ))
                         })?;
-                    // Canonical wire: prefer `options` when present, fall back
-                    // to v0.15 flattened fields for in-flight payloads.
-                    let ingest = file.ingest_options();
                     let object_id = self
                         .library
                         .stage_file_for_task_input(
@@ -177,11 +174,8 @@ impl TaskService {
                                 media_type: file.media_type,
                                 bytes: bytes.into(),
                                 declared_sha256: file.declared_sha256,
-                                metadata: ingest.legacy_metadata_opt(),
-                                translation: ingest.translation.clone(),
-                                extraction: ingest.extraction.clone(),
+                                options: file.options.clone(),
                                 staged_storage_object_id: None,
-                                delete_source_after_processing: ingest.as_delete_flag(),
                             },
                         )
                         .await?;

@@ -16,10 +16,7 @@ impl LibraryService {
                 .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
         }
         storage::detect_file_kind(&request.filename, &request.media_type)?;
-        // Canonical wire: prefer `options` when present, fall back to v0.15
-        // flattened fields for old clients. Messages/status preserved.
-        let ingest = request.ingest_options();
-        let resolved_metadata = ingest.legacy_metadata_opt();
+        let ingest = &request.options;
         if let Some(external_id) = ingest.metadata.external_id.as_deref()
             && let Some(existing) = self
                 .store
@@ -35,7 +32,7 @@ impl LibraryService {
                 return self
                     .reuse_prepared_file(
                         existing,
-                        resolved_metadata.as_ref(),
+                        (!ingest.metadata.is_empty()).then_some(&ingest.metadata),
                         ingest.translation.as_ref(),
                         ingest.extraction.as_ref(),
                     )
@@ -66,7 +63,7 @@ impl LibraryService {
             return self
                 .reuse_prepared_file(
                     existing,
-                    resolved_metadata.as_ref(),
+                    (!ingest.metadata.is_empty()).then_some(&ingest.metadata),
                     ingest.translation.as_ref(),
                     ingest.extraction.as_ref(),
                 )
@@ -79,7 +76,7 @@ impl LibraryService {
     async fn reuse_prepared_file(
         &self,
         file: crate::domain::LibraryFileRecord,
-        metadata: Option<&crate::contracts::LibraryFileUploadMetadata>,
+        metadata: Option<&crate::contracts::CanonicalUploadMetadata>,
         translation: Option<&crate::contracts::TranslationDirective>,
         extraction: Option<&crate::contracts::ExtractionDirective>,
     ) -> Result<PrepareLibraryUploadResponse> {
@@ -148,8 +145,7 @@ impl LibraryService {
         .await?;
 
         let file_id = Uuid::new_v4();
-        let ingest = request.ingest_options();
-        let resolved_metadata = ingest.legacy_metadata_opt();
+        let ingest = &request.options;
         let mut created = match self
             .store
             .create_file_in_project(
@@ -178,8 +174,11 @@ impl LibraryService {
                 return Err(error);
             }
         };
-        if let Some(metadata) = resolved_metadata.as_ref() {
-            created = match self.apply_file_business_metadata(file_id, metadata).await {
+        if !ingest.metadata.is_empty() {
+            created = match self
+                .apply_file_business_metadata(file_id, &ingest.metadata)
+                .await
+            {
                 Ok(file) => file,
                 Err(error) => {
                     self.rollback_prepared_duplicate_file(project.id, file_id, storage_object.id)

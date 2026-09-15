@@ -34,17 +34,6 @@ pub(crate) async fn import_group_library_file_url(
     Path(group_path): Path<String>,
     Json(request): Json<ImportLibraryFileFromUrlRequest>,
 ) -> impl IntoResponse {
-    // Canonical `options` already guarantees an object map; only the legacy
-    // flattened `metadata` needs the preserved 422 check.
-    if request.options.is_none()
-        && let Some(metadata) = request.metadata.as_ref()
-        && crate::contracts::strict_metadata_object(&metadata.metadata_json).is_err()
-    {
-        return context69_http_support::json_error_for_code(
-            context69_contracts::ApiErrorCode::UnprocessableEntity,
-            "metadata_json must be an object",
-        );
-    }
     let group = match group_for_user(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
@@ -103,17 +92,6 @@ pub(crate) async fn prepare_group_library_upload(
     Path(group_path): Path<String>,
     Json(request): Json<PrepareLibraryUploadRequest>,
 ) -> impl IntoResponse {
-    // Canonical `options` already guarantees an object map; only the legacy
-    // flattened `metadata` needs the preserved 422 check.
-    if request.options.is_none()
-        && let Some(metadata) = request.metadata.as_ref()
-        && crate::contracts::strict_metadata_object(&metadata.metadata_json).is_err()
-    {
-        return context69_http_support::json_error_for_code(
-            context69_contracts::ApiErrorCode::UnprocessableEntity,
-            "metadata_json must be an object",
-        );
-    }
     let group = match group_for_user(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),

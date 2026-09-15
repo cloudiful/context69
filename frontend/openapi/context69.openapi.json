@@ -6142,7 +6142,7 @@
       },
       "CanonicalUploadMetadata": {
         "type": "object",
-        "description": "v0.16 canonical upload metadata: same wire keys as the v0.15\n[`crate::LibraryFileUploadMetadata`], but `metadata_json` is an explicit\nobject map ([`crate::MetadataObject`]) instead of `serde_json::Value`.\n\nObject-ness is enforced at the type boundary: deserializing a scalar or\narray `metadata_json` fails, and JSON Schema advertises an object (the\nlegacy `Value` shape renders as `true`/any). The v0.15 struct is unchanged\nfor wire compatibility; convert with `From`/`TryFrom` below.",
+        "description": "v0.18 canonical upload metadata: `metadata_json` is an explicit object\nmap ([`crate::MetadataObject`]).\n\nObject-ness is enforced at the type boundary: deserializing a scalar or\narray `metadata_json` fails, and JSON Schema advertises an object.",
         "properties": {
           "external_id": {
             "type": [
@@ -6166,7 +6166,8 @@
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ClearTaskHistoryRequest": {
         "type": "object",
@@ -7258,10 +7259,12 @@
       },
       "FileBatchItem": {
         "type": "object",
+        "description": "v0.18 canonical file batch item: ingest behavior is owned entirely by\nthe required `options`. Flattened legacy fields are gone; unknown fields\n(including those legacy keys) are rejected so old payloads fail instead\nof silently changing meaning.",
         "required": [
           "filename",
           "media_type",
-          "content_base64"
+          "content_base64",
+          "options"
         ],
         "properties": {
           "content_base64": {
@@ -7271,20 +7274,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "delete_source_after_processing": {
-            "type": "boolean",
-            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use `options.source_policy` instead."
-          },
-          "extraction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionDirective"
-              }
             ]
           },
           "filename": {
@@ -7300,38 +7289,11 @@
           "media_type": {
             "type": "string"
           },
-          "metadata": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryFileUploadMetadata"
-              }
-            ]
-          },
           "options": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/IngestOptions",
-                "description": "Canonical ingest options. When present, takes precedence over the\ndeprecated flattened fields below. New code should send only this;\nv0.15 payloads send only the flattened fields and stay readable."
-              }
-            ]
-          },
-          "translation": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TranslationDirective"
-              }
-            ]
+            "$ref": "#/components/schemas/IngestOptions"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "FileBatchRequest": {
         "type": "object",
@@ -7625,24 +7587,12 @@
       },
       "ImportLibraryFileFromUrlRequest": {
         "type": "object",
+        "description": "v0.18 canonical URL import: ingest behavior is owned entirely by\n`options`. Flattened legacy fields are gone; unknown fields (including\nthose legacy keys) are rejected.",
         "required": [
-          "url"
+          "url",
+          "options"
         ],
         "properties": {
-          "delete_source_after_processing": {
-            "type": "boolean",
-            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use `options.source_policy` instead."
-          },
-          "extraction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionDirective"
-              }
-            ]
-          },
           "filename": {
             "type": [
               "string",
@@ -7662,41 +7612,14 @@
               "null"
             ]
           },
-          "metadata": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryFileUploadMetadata"
-              }
-            ]
-          },
           "options": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/IngestOptions",
-                "description": "Canonical ingest options. When present, takes precedence over the\ndeprecated flattened fields below. New clients should send only this;\nv0.15 clients send only the flattened fields and stay readable."
-              }
-            ]
-          },
-          "translation": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TranslationDirective"
-              }
-            ]
+            "$ref": "#/components/schemas/IngestOptions"
           },
           "url": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "IngestOptions": {
         "type": "object",
@@ -7727,7 +7650,8 @@
               }
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "LibraryDependencyGateResponse": {
         "type": "object",
@@ -7900,42 +7824,6 @@
           }
         }
       },
-      "LibraryFileIngestOptions": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/LibraryFileUploadMetadata"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "delete_source_after_processing": {
-                "type": "boolean",
-                "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use [`crate::SourcePolicy`] via [`crate::IngestOptions`]\ninstead. The multipart `metadata` field also accepts a bare\n[`crate::IngestOptions`] document (`metadata` object plus\n`source_policy`) for the v0.16 wire."
-              },
-              "extraction": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ExtractionDirective"
-                  }
-                ]
-              },
-              "translation": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/TranslationDirective"
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      },
       "LibraryFileSummary": {
         "type": "object",
         "required": [
@@ -8026,33 +7914,6 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
-          }
-        }
-      },
-      "LibraryFileUploadMetadata": {
-        "type": "object",
-        "properties": {
-          "external_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "metadata_json": {
-            "type": "object"
-          },
-          "published_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "source_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -8983,27 +8844,15 @@
       },
       "PrepareLibraryUploadRequest": {
         "type": "object",
+        "description": "v0.18 canonical prepare-upload: ingest behavior is owned entirely by\n`options`. Flattened legacy fields (`metadata`/`translation`/\n`extraction`/`delete_source_after_processing`) are gone; unknown fields\n(including those legacy keys) are rejected.",
         "required": [
           "filename",
           "media_type",
           "size_bytes",
-          "sha256"
+          "sha256",
+          "options"
         ],
         "properties": {
-          "delete_source_after_processing": {
-            "type": "boolean",
-            "description": "Release the source object once processing succeeds. Chosen once at\nupload; defaults to `false` (retain the source).\nDeprecated: use `options.source_policy` instead."
-          },
-          "extraction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionDirective"
-              }
-            ]
-          },
           "filename": {
             "type": "string"
           },
@@ -9017,26 +8866,8 @@
           "media_type": {
             "type": "string"
           },
-          "metadata": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryFileUploadMetadata"
-              }
-            ]
-          },
           "options": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/IngestOptions",
-                "description": "Canonical ingest options. When present, takes precedence over the\ndeprecated flattened fields below. New clients should send only this;\nv0.15 clients send only the flattened fields and stay readable."
-              }
-            ]
+            "$ref": "#/components/schemas/IngestOptions"
           },
           "sha256": {
             "type": "string"
@@ -9044,18 +8875,9 @@
           "size_bytes": {
             "type": "integer",
             "format": "int64"
-          },
-          "translation": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TranslationDirective"
-              }
-            ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "PrepareLibraryUploadResponse": {
         "type": "object",
@@ -11831,6 +11653,7 @@
       },
       "UpsertLibraryTextRequest": {
         "type": "object",
+        "description": "v0.18 canonical text upsert: `metadata_json` is an explicit object map.\nNon-object `metadata_json` is rejected at deserialization.",
         "required": [
           "external_id",
           "title",
@@ -11898,7 +11721,8 @@
               }
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "UpsertMembershipRequest": {
         "type": "object",

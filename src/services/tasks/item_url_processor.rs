@@ -84,23 +84,9 @@ pub(super) async fn process_url(
                 Ok(bytes) => bytes,
                 Err(error) => return Ok(process_error(stage, anyhow!(error))),
             };
-            // Canonical wire: prefer `options` when present, else v0.15
-            // flattened fields. In-flight URL payloads without `options`
-            // stay readable.
-            let ingest = request.ingest_options();
-            let mut metadata = ingest.legacy_metadata_opt();
-            if metadata.is_none() {
-                metadata = Some(context69_contracts::LibraryFileUploadMetadata {
-                    source_uri: Some(artifact.source_url.clone()),
-                    ..Default::default()
-                });
-            } else if metadata
-                .as_ref()
-                .and_then(|value| value.source_uri.clone())
-                .is_none()
-                && let Some(value) = metadata.as_mut()
-            {
-                value.source_uri = Some(artifact.source_url.clone());
+            let mut ingest = request.options.clone();
+            if ingest.metadata.source_uri.is_none() {
+                ingest.metadata.source_uri = Some(artifact.source_url.clone());
             }
             match service
                 .library()
@@ -112,11 +98,8 @@ pub(super) async fn process_url(
                         media_type: artifact.media_type,
                         bytes: bytes.into(),
                         declared_sha256: Some(artifact.sha256),
-                        metadata,
-                        translation: ingest.translation.clone(),
-                        extraction: ingest.extraction.clone(),
+                        options: ingest,
                         staged_storage_object_id: None,
-                        delete_source_after_processing: ingest.as_delete_flag(),
                     },
                     item.lease_token,
                 )
@@ -182,5 +165,37 @@ mod tests {
 
         assert_eq!(artifact.filename, "file.pdf");
         assert_eq!(artifact.content_base64, "Zm9v");
+    }
+
+    #[test]
+    fn stored_url_payload_requires_canonical_options_and_rejects_legacy() {
+        // Canonical URL payload parses.
+        let canonical: context69_contracts::ImportLibraryFileFromUrlRequest =
+            serde_json::from_value(json!({
+                "url": "https://example.com/file.pdf",
+                "options": { "metadata": {}, "source_policy": "retain" }
+            }))
+            .expect("canonical url payload");
+        assert!(!canonical.options.is_release());
+
+        // Legacy flattened payload without `options` is rejected: rerun
+        // copies bytes verbatim, the worker rejects here.
+        assert!(
+            serde_json::from_value::<context69_contracts::ImportLibraryFileFromUrlRequest>(json!({
+                "url": "https://example.com/file.pdf",
+                "metadata": { "external_id": "doc-1", "metadata_json": {} },
+                "delete_source_after_processing": true
+            }))
+            .is_err(),
+            "legacy url payload without options must be rejected"
+        );
+        // Missing `options` entirely is rejected.
+        assert!(
+            serde_json::from_value::<context69_contracts::ImportLibraryFileFromUrlRequest>(
+                json!({ "url": "https://example.com/file.pdf" })
+            )
+            .is_err(),
+            "url payload without options must be rejected"
+        );
     }
 }

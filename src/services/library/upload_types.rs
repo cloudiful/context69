@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use uuid::Uuid;
 
-use super::{LibraryFileSummary, LibraryFileUploadMetadata};
+use super::LibraryFileSummary;
 
 #[derive(Debug, Clone)]
 pub struct UploadedLibraryFile {
@@ -10,11 +10,8 @@ pub struct UploadedLibraryFile {
     pub media_type: String,
     pub bytes: Bytes,
     pub declared_sha256: Option<String>,
-    pub metadata: Option<LibraryFileUploadMetadata>,
-    pub translation: Option<crate::contracts::TranslationDirective>,
-    pub extraction: Option<crate::contracts::ExtractionDirective>,
+    pub options: crate::contracts::IngestOptions,
     pub staged_storage_object_id: Option<Uuid>,
-    pub delete_source_after_processing: bool,
 }
 
 #[derive(Debug, Clone)]

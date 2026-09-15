@@ -78,13 +78,9 @@ impl LibraryService {
     pub(super) async fn apply_file_business_metadata(
         &self,
         file_id: Uuid,
-        metadata: &crate::contracts::LibraryFileUploadMetadata,
+        metadata: &crate::contracts::CanonicalUploadMetadata,
     ) -> Result<crate::domain::LibraryFileRecord> {
-        if !metadata.metadata_json.is_object() {
-            return Err(
-                DomainError::unprocessable_entity("metadata_json must be an object").into(),
-            );
-        }
+        let metadata_value = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
         let current = self
             .store
             .get_file(file_id)
@@ -103,7 +99,7 @@ impl LibraryService {
             for mapping in &mappings {
                 let composed = compose_library_metadata(
                     &mapping.section_metadata_json,
-                    &metadata.metadata_json,
+                    &metadata_value,
                     library_system_metadata(
                         &current,
                         &folder_path,

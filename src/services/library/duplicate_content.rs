@@ -21,10 +21,7 @@ impl LibraryService {
         let object = self
             .storage_object_for_upload(group_id, upload, sha256, lease_token)
             .await?;
-        let requested_external_id = upload
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.external_id.clone());
+        let requested_external_id = upload.options.metadata.external_id.clone();
         // Always place the new duplicate-content row in the requested folder
         // (or the project root when the caller didn't pick one). Falling back
         // to the existing file's folder would silently move the duplicate
@@ -52,7 +49,7 @@ impl LibraryService {
                     sha256: sha256.to_string(),
                     storage_rel_path: object.object_key.clone(),
                     storage_object_id: Some(object.id),
-                    delete_source_after_processing: upload.delete_source_after_processing,
+                    delete_source_after_processing: upload.options.as_delete_flag(),
                 },
             )
             .await
@@ -74,8 +71,11 @@ impl LibraryService {
                 return Err(error);
             }
         };
-        if let Some(metadata) = upload.metadata.as_ref() {
-            created = match self.apply_file_business_metadata(file_id, metadata).await {
+        if !upload.options.metadata.is_empty() {
+            created = match self
+                .apply_file_business_metadata(file_id, &upload.options.metadata)
+                .await
+            {
                 Ok(file) => file,
                 Err(error) => {
                     self.rollback_new_file_record_for_task(
@@ -90,7 +90,7 @@ impl LibraryService {
                 }
             };
         }
-        if let Some(directive) = upload.translation.as_ref()
+        if let Some(directive) = upload.options.translation.as_ref()
             && let Err(error) = self
                 .apply_file_translation_directive(file_id, directive)
                 .await
@@ -105,7 +105,7 @@ impl LibraryService {
             .await;
             return Err(error);
         }
-        if let Some(directive) = upload.extraction.as_ref()
+        if let Some(directive) = upload.options.extraction.as_ref()
             && let Err(error) = self
                 .apply_file_extraction_directive(file_id, directive)
                 .await

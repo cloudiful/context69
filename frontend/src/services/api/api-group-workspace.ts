@@ -160,7 +160,9 @@ export function createGroupWorkspaceApi({
       }));
     },
     async uploadGroupLibraryFiles(groupPath: string, folderId: string | null, files: File[], options: UploadLibraryFilesOptions = {}) {
-      const deleteSourceAfterProcessing = options.deleteSourceAfterProcessing ?? false;
+      const sourcePolicy = (options.deleteSourceAfterProcessing ?? false)
+        ? "release_after_processing"
+        : "retain";
       const prepared = await Promise.all(files.map(async (file) => {
         const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
         const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -172,7 +174,10 @@ export function createGroupWorkspaceApi({
             media_type: file.type || "application/octet-stream",
             size_bytes: file.size,
             sha256,
-            delete_source_after_processing: deleteSourceAfterProcessing,
+            options: {
+              metadata: { metadata_json: {} },
+              source_policy: sourcePolicy,
+            },
           },
           signal: options.signal,
         }));
@@ -191,8 +196,8 @@ export function createGroupWorkspaceApi({
         form.append("folder_id", folderId);
       }
       form.append("metadata", JSON.stringify({
-        delete_source_after_processing: deleteSourceAfterProcessing,
-        metadata_json: {},
+        metadata: { metadata_json: {} },
+        source_policy: sourcePolicy,
       }));
       for (const { file, sha256 } of prepared.filter(({ result }) => result.upload_required)) {
         form.append("sha256", sha256);

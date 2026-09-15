@@ -51,14 +51,18 @@ describe("group workspace source lifecycle upload", () => {
       "/v1/groups/by-path/{group_path}/library/files/prepare-upload",
       expect.objectContaining({
         params: { path: { group_path: "group-a" } },
-        body: expect.objectContaining({ delete_source_after_processing: true }),
+        body: expect.objectContaining({
+          options: expect.objectContaining({ source_policy: "release_after_processing" }),
+        }),
       }),
     );
     const form = capturedBody as FormData;
     expect(String(form.get("metadata"))).toBe(JSON.stringify({
-      delete_source_after_processing: true,
-      metadata_json: {},
+      metadata: { metadata_json: {} },
+      source_policy: "release_after_processing",
     }));
+    // No flattened legacy keys are sent.
+    expect(String(form.get("metadata"))).not.toContain("delete_source_after_processing");
   });
 
   it("defaults to retaining the source", async () => {
@@ -68,9 +72,9 @@ describe("group workspace source lifecycle upload", () => {
     await api.uploadGroupLibraryFiles("group-a", null, [new File(["hello"], "doc.txt")]);
 
     const prepareCall = POST.mock.calls[0][1] as { body: Record<string, unknown> };
-    expect(prepareCall.body.delete_source_after_processing).toBe(false);
+    expect((prepareCall.body.options as Record<string, unknown>).source_policy).toBe("retain");
     const form = capturedBody as FormData;
-    expect(JSON.parse(String(form.get("metadata"))).delete_source_after_processing).toBe(false);
+    expect(JSON.parse(String(form.get("metadata"))).source_policy).toBe("retain");
   });
 
   it("releases the source through the file-id endpoint", async () => {

@@ -9,9 +9,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use context69::chunking::ChunkingConfig;
 use context69::config::FileLibraryConfig;
-use context69::contracts::{
-    LibraryFileSummary, LibraryFileUploadMetadata, PrepareLibraryUploadRequest,
-};
+use context69::contracts::{LibraryFileSummary, PrepareLibraryUploadRequest};
 use context69::db::Database;
 use context69::services::library::{LibraryService, LibraryServiceConfig, UploadedLibraryFile};
 use context69::services::settings::SettingsService;
@@ -232,16 +230,20 @@ async fn land_original_file(
                 media_type: "text/plain".to_string(),
                 bytes: bytes.clone(),
                 declared_sha256: Some(sha256.to_string()),
-                metadata: Some(LibraryFileUploadMetadata {
-                    external_id: Some("disclosure-A".to_string()),
-                    source_uri: Some("https://example.com/a".to_string()),
-                    published_at: None,
-                    metadata_json: serde_json::json!({"origin": "first"}),
-                }),
-                translation: None,
-                extraction: None,
+                options: context69::contracts::IngestOptions {
+                    metadata: context69::contracts::CanonicalUploadMetadata {
+                        external_id: Some("disclosure-A".to_string()),
+                        source_uri: Some("https://example.com/a".to_string()),
+                        published_at: None,
+                        metadata_json: [("origin".to_string(), serde_json::json!("first"))]
+                            .into_iter()
+                            .collect(),
+                    },
+                    translation: None,
+                    extraction: None,
+                    source_policy: context69::contracts::SourcePolicy::Retain,
+                },
                 staged_storage_object_id: None,
-                delete_source_after_processing: false,
             },
             Uuid::new_v4(),
         )
@@ -277,16 +279,19 @@ async fn prepare_upload_reuses_storage_and_creates_new_file_row() {
                 media_type: "text/plain".to_string(),
                 size_bytes: size,
                 sha256: sha.clone(),
-                options: None,
-                metadata: Some(LibraryFileUploadMetadata {
-                    external_id: Some("disclosure-B".to_string()),
-                    source_uri: Some("https://example.com/b".to_string()),
-                    published_at: Some(published_at),
-                    metadata_json: serde_json::json!({"origin": "second"}),
-                }),
-                translation: None,
-                extraction: None,
-                delete_source_after_processing: false,
+                options: context69::contracts::IngestOptions {
+                    metadata: context69::contracts::CanonicalUploadMetadata {
+                        external_id: Some("disclosure-B".to_string()),
+                        source_uri: Some("https://example.com/b".to_string()),
+                        published_at: Some(published_at),
+                        metadata_json: [("origin".to_string(), serde_json::json!("second"))]
+                            .into_iter()
+                            .collect(),
+                    },
+                    translation: None,
+                    extraction: None,
+                    source_policy: context69::contracts::SourcePolicy::Retain,
+                },
             },
         )
         .await
@@ -351,16 +356,20 @@ async fn task_upload_helper_creates_new_file_row_sharing_storage() {
                 media_type: "text/plain".to_string(),
                 bytes: bytes.clone(),
                 declared_sha256: Some(sha.clone()),
-                metadata: Some(LibraryFileUploadMetadata {
-                    external_id: Some("disclosure-B".to_string()),
-                    source_uri: Some("https://example.com/b".to_string()),
-                    published_at: Some(published_at),
-                    metadata_json: serde_json::json!({"origin": "second"}),
-                }),
-                translation: None,
-                extraction: None,
+                options: context69::contracts::IngestOptions {
+                    metadata: context69::contracts::CanonicalUploadMetadata {
+                        external_id: Some("disclosure-B".to_string()),
+                        source_uri: Some("https://example.com/b".to_string()),
+                        published_at: Some(published_at),
+                        metadata_json: [("origin".to_string(), serde_json::json!("second"))]
+                            .into_iter()
+                            .collect(),
+                    },
+                    translation: None,
+                    extraction: None,
+                    source_policy: context69::contracts::SourcePolicy::Retain,
+                },
                 staged_storage_object_id: None,
-                delete_source_after_processing: false,
             },
             Uuid::new_v4(),
         )

@@ -39,13 +39,12 @@ pub use context69_contracts_library::ingest::{
 pub use context69_contracts_library::library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
     LibraryDependencyGateResponse, LibraryDocumentSectionPreview, LibraryFileDetailResponse,
-    LibraryFileIngestOptions, LibraryFileSummary, LibraryFileUploadMetadata, LibraryFolderNode,
-    LibraryFolderResponse, LibraryIngestFailureStage, LibraryIngestStatus,
-    LibraryPreviewContentFormat, LibraryProcessingMetric, LibraryProcessingQueueHealth,
-    LibraryResourceItem, LibraryResourceKind, LibraryResourcePageQuery,
-    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTextContentFormat,
-    LibraryTreeResponse, MoveFileRequest, MoveFolderRequest, PrepareLibraryUploadRequest,
-    PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
+    LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse, LibraryIngestFailureStage,
+    LibraryIngestStatus, LibraryPreviewContentFormat, LibraryProcessingMetric,
+    LibraryProcessingQueueHealth, LibraryResourceItem, LibraryResourceKind,
+    LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryResourceSortBy,
+    LibraryTextContentFormat, LibraryTreeResponse, MoveFileRequest, MoveFolderRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
 pub use context69_contracts_mcp::mcp::{
     MCP_QUERY_LIMIT_DEFAULT, MCP_TOOL_NAMES, McpBatchDocumentArgs, McpBatchDocumentItem,
@@ -107,8 +106,8 @@ pub use context69_contracts_tasks::tasks::{
     QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
     RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
-    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
-    TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin, TaskPageResponse,
+    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
+    TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
 };
 pub use context69_contracts_translation::translation::*;

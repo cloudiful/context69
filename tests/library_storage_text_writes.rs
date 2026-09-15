@@ -32,7 +32,6 @@ use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
     TranslationPublisher, TranslationReadiness, TranslationService,
 };
-use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use uuid::Uuid;
@@ -218,7 +217,7 @@ fn text_request(external_id: &str, title: &str, content: &str) -> UpsertLibraryT
         source_uri: None,
         summary: None,
         published_at: None,
-        metadata_json: json!({}),
+        metadata_json: Default::default(),
         translation: None,
         extraction: None,
     }
