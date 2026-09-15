@@ -64,9 +64,30 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   // automatic fallback when the stream errors, is unavailable, or the client
   // cannot use cookie-based SSE (e.g. PAT clients): zero behavior loss.
   const LIVE_FALLBACK_INTERVAL_MS = 20_000;
+  // Issue 408 Task F1: off-page updates (task_id not in the current page)
+  // imply a structural change (new/vanished task, shifted totals) that only
+  // a full load can reflect. Collapse a burst of such frames into one
+  // trailing load so a 2781-item storm costs one request, not one per frame.
+  const STRUCTURAL_DEBOUNCE_MS = 1_000;
   let liveActive = false;
   let liveSynced = false;
   let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+  let structuralTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelStructuralSync() {
+    if (structuralTimer) {
+      clearTimeout(structuralTimer);
+      structuralTimer = null;
+    }
+  }
+
+  function scheduleStructuralSync() {
+    if (structuralTimer) return;
+    structuralTimer = setTimeout(() => {
+      structuralTimer = null;
+      void load();
+    }, STRUCTURAL_DEBOUNCE_MS);
+  }
 
   function stopFallbackPolling() {
     if (fallbackTimer) {
@@ -90,24 +111,41 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     onSnapshot: () => {
       liveSynced = true;
       stopFallbackPolling();
+      cancelStructuralSync();
       void load();
     },
-    onUpdate: () => {
-      void load();
+    // Issue 408 Task F1: an update frame carries the task's current full
+    // state. When its task_id is already on the current page, merge it in
+    // place (status/stage/progress/counts/error stay realtime) with zero
+    // requests. Otherwise it signals a structural change: collapse the burst
+    // into one trailing debounced load (~1s).
+    onUpdate: (task) => {
+      const index = items.value.findIndex((entry) => entry.task_id === task.task_id);
+      if (index >= 0) {
+        items.value[index] = { ...items.value[index], ...task };
+        return;
+      }
+      scheduleStructuralSync();
     },
     onDone: () => {
       // Watch-all subscriptions never emit `done`; ignore defensively.
     },
     onErrorFrame: () => {
       if (liveActive) startFallbackPolling();
-      if (liveSynced) void load();
+      if (liveSynced) {
+        cancelStructuralSync();
+        void load();
+      }
     },
     onTransportError: () => {
       if (liveActive) startFallbackPolling();
       // Resync only when the broken stream had delivered its snapshot: before
       // the first snapshot no delta could have been missed, and the mount
       // load plus the fallback poll already cover freshness.
-      if (liveSynced) void load();
+      if (liveSynced) {
+        cancelStructuralSync();
+        void load();
+      }
     },
   });
 
@@ -123,6 +161,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     liveActive = false;
     liveSynced = false;
     stopFallbackPolling();
+    cancelStructuralSync();
     taskStream.disconnect();
   }
 
@@ -544,6 +583,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   onBeforeUnmount(() => {
     liveActive = false;
     stopFallbackPolling();
+    cancelStructuralSync();
     taskStream.disconnect();
     requestController?.abort();
     requestId += 1;

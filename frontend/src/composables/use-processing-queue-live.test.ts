@@ -62,7 +62,7 @@ describe("useProcessingQueue live updates", () => {
     vi.useRealTimers();
   });
 
-  it("drives refreshes from the watch-all stream snapshot and updates", async () => {
+  it("drives refreshes from the watch-all stream snapshot and merges updates", async () => {
     installFakeEventSource();
     const { state, wrapper } = mountState();
     await flushPromises();
@@ -78,9 +78,12 @@ describe("useProcessingQueue live updates", () => {
     await flushPromises();
     expect(listTasks).toHaveBeenCalledTimes(2);
 
+    // Issue 408 Task F1: an in-page update merges locally with zero requests.
     es.emit("update", { task: { ...runningTask, status: "succeeded" } });
     await flushPromises();
-    expect(listTasks).toHaveBeenCalledTimes(3);
+    expect(listTasks).toHaveBeenCalledTimes(2);
+    expect(state.items.value).toHaveLength(1);
+    expect(state.items.value[0]?.status).toBe("succeeded");
     expect(state.liveFallback.value).toBe(false);
 
     state.stopLiveUpdates();
@@ -143,6 +146,102 @@ describe("useProcessingQueue live updates", () => {
     expect(() => state.startLiveUpdates()).not.toThrow();
     expect(state.liveFallback.value).toBe(true);
     expect(FakeEventSource.instances).toHaveLength(0);
+
+    state.stopLiveUpdates();
+    wrapper.unmount();
+  });
+
+  it("merges an in-page storm with zero requests and keeps counts realtime", async () => {
+    installFakeEventSource();
+    const { state, wrapper } = mountState();
+    await flushPromises();
+    state.startLiveUpdates();
+    const es = takeEventSource();
+    es.emit("snapshot", { tasks: [runningTask] });
+    await flushPromises();
+    const baseline = listTasks.mock.calls.length;
+
+    vi.useFakeTimers();
+    for (let i = 0; i < 50; i += 1) {
+      es.emit("update", {
+        task: {
+          ...runningTask,
+          status: i === 49 ? "failed" : "running",
+          stage: `stage-${i}`,
+          progress: { total: 50, queued: 0, running: 50 - i - 1, waiting: 0, succeeded: i, failed: 0, cancelled: 0 },
+          error_summary: i === 49 ? "boom" : null,
+          failure_stage: i === 49 ? "indexing" : null,
+        },
+      });
+    }
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
+
+    expect(listTasks.mock.calls.length).toBe(baseline);
+    expect(state.items.value).toHaveLength(1);
+    expect(state.items.value[0]?.status).toBe("failed");
+    expect(state.items.value[0]?.stage).toBe("stage-49");
+    expect(state.items.value[0]?.progress.succeeded).toBe(49);
+    expect(state.items.value[0]?.error_summary).toBe("boom");
+    expect(state.failedCount.value).toBe(1);
+
+    state.stopLiveUpdates();
+    wrapper.unmount();
+  });
+
+  it("collapses an off-page storm into one trailing debounced load", async () => {
+    installFakeEventSource();
+    const { state, wrapper } = mountState();
+    await flushPromises();
+    state.startLiveUpdates();
+    const es = takeEventSource();
+    es.emit("snapshot", { tasks: [runningTask] });
+    await flushPromises();
+    const baseline = listTasks.mock.calls.length;
+
+    vi.useFakeTimers();
+    for (let i = 0; i < 50; i += 1) {
+      es.emit("update", { task: { ...runningTask, task_id: `off-page-${i}` } });
+    }
+    // No synchronous reload: the burst is still inside the debounce window.
+    expect(listTasks.mock.calls.length).toBe(baseline);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+    expect(listTasks.mock.calls.length).toBe(baseline + 1);
+
+    // The window drained: idling fires no further loads.
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushPromises();
+    expect(listTasks.mock.calls.length).toBe(baseline + 1);
+
+    state.stopLiveUpdates();
+    wrapper.unmount();
+  });
+
+  it("merges staggered off-page frames inside one window into a single load", async () => {
+    installFakeEventSource();
+    const { state, wrapper } = mountState();
+    await flushPromises();
+    state.startLiveUpdates();
+    const es = takeEventSource();
+    es.emit("snapshot", { tasks: [runningTask] });
+    await flushPromises();
+    const baseline = listTasks.mock.calls.length;
+
+    vi.useFakeTimers();
+    es.emit("update", { task: { ...runningTask, task_id: "off-page-a" } });
+    await vi.advanceTimersByTimeAsync(400);
+    es.emit("update", { task: { ...runningTask, task_id: "off-page-b" } });
+    await vi.advanceTimersByTimeAsync(400);
+    es.emit("update", { task: { ...runningTask, task_id: "off-page-c" } });
+    await vi.advanceTimersByTimeAsync(400);
+    await flushPromises();
+    expect(listTasks.mock.calls.length).toBe(baseline + 1);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
+    expect(listTasks.mock.calls.length).toBe(baseline + 1);
 
     state.stopLiveUpdates();
     wrapper.unmount();
