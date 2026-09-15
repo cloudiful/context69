@@ -64,7 +64,7 @@ impl SettingsApi for SettingsApiAdapter {
 
     async fn update_search_settings(
         &self,
-        request: &crate::contracts::UpdateSearchSettingsRequest,
+        request: &crate::contracts::CanonicalUpdateSearchSettingsRequest,
     ) -> anyhow::Result<crate::contracts::SearchSettingsResponse> {
         self.service.update_search_settings(request).await
     }

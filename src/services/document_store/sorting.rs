@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use chrono::{DateTime, Utc};
 #[cfg(test)]
-use context69_contracts::{DocumentSort, DocumentSortField, SortOrder};
+use context69_contracts::{CanonicalDocumentSort, DocumentSortField, SortDirection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -23,10 +23,10 @@ pub(super) fn compare_rows(
     left_id: i64,
     right_values: &[SortValue],
     right_id: i64,
-    sort: &[DocumentSort],
+    sort: &[CanonicalDocumentSort],
 ) -> Ordering {
     for ((left, right), item) in left_values.iter().zip(right_values).zip(sort) {
-        let order = compare_value(left, right, item.order);
+        let order = compare_value(left, right, item.direction);
         if !order.is_eq() {
             return order;
         }
@@ -35,7 +35,7 @@ pub(super) fn compare_rows(
 }
 
 #[cfg(test)]
-fn compare_value(left: &SortValue, right: &SortValue, direction: SortOrder) -> Ordering {
+fn compare_value(left: &SortValue, right: &SortValue, direction: SortDirection) -> Ordering {
     match (left, right) {
         (SortValue::Null, SortValue::Null) => Ordering::Equal,
         (SortValue::Null, _) => Ordering::Greater,
@@ -49,7 +49,7 @@ fn compare_value(left: &SortValue, right: &SortValue, direction: SortOrder) -> O
                 (SortValue::Datetime(left), SortValue::Datetime(right)) => left.cmp(right),
                 _ => unreachable!("sort values are built from one declared type"),
             };
-            if direction == SortOrder::Desc {
+            if direction == SortDirection::Desc {
                 order.reverse()
             } else {
                 order
@@ -68,19 +68,23 @@ mod tests {
             compare_value(
                 &SortValue::Integer(2),
                 &SortValue::Integer(10),
-                SortOrder::Asc
+                SortDirection::Asc
             ),
             Ordering::Less
         );
         assert_eq!(
-            compare_value(&SortValue::Null, &SortValue::Integer(10), SortOrder::Desc),
+            compare_value(
+                &SortValue::Null,
+                &SortValue::Integer(10),
+                SortDirection::Desc
+            ),
             Ordering::Greater
         );
         assert_eq!(
             compare_value(
                 &SortValue::Integer(2),
                 &SortValue::Integer(10),
-                SortOrder::Desc
+                SortDirection::Desc
             ),
             Ordering::Greater
         );
@@ -88,7 +92,7 @@ mod tests {
             compare_value(
                 &SortValue::Float(2.5),
                 &SortValue::Float(10.0),
-                SortOrder::Asc
+                SortDirection::Asc
             ),
             Ordering::Less
         );
@@ -96,7 +100,7 @@ mod tests {
             compare_value(
                 &SortValue::Boolean(false),
                 &SortValue::Boolean(true),
-                SortOrder::Asc
+                SortDirection::Asc
             ),
             Ordering::Less
         );
@@ -104,7 +108,7 @@ mod tests {
             compare_value(
                 &SortValue::Keyword("10".into()),
                 &SortValue::Keyword("2".into()),
-                SortOrder::Asc
+                SortDirection::Asc
             ),
             Ordering::Less
         );
@@ -114,7 +118,7 @@ mod tests {
             compare_value(
                 &SortValue::Datetime(earlier),
                 &SortValue::Datetime(later),
-                SortOrder::Asc
+                SortDirection::Asc
             ),
             Ordering::Less
         );
@@ -123,17 +127,17 @@ mod tests {
     #[test]
     fn mixed_directions_then_document_id_produce_stable_order() {
         let sort = [
-            DocumentSort {
+            CanonicalDocumentSort {
                 field: DocumentSortField::Metadata {
                     path: "score".to_string(),
                 },
-                order: SortOrder::Desc,
+                direction: SortDirection::Desc,
             },
-            DocumentSort {
+            CanonicalDocumentSort {
                 field: DocumentSortField::Metadata {
                     path: "name".to_string(),
                 },
-                order: SortOrder::Asc,
+                direction: SortDirection::Asc,
             },
         ];
         let left = [SortValue::Integer(10), SortValue::Keyword("alpha".into())];

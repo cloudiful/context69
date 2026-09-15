@@ -13,7 +13,7 @@ use context69_contracts_core::common::ApiErrorResponse;
 use context69_contracts_settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
     SearchSettingsResponse, TestRuntimeValkeyRequest, UpdateDoclingSettingsRequest,
-    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
 use context69_http_support::{internal_error_response, map_settings_error};
 use utoipa::OpenApi;
@@ -35,7 +35,7 @@ pub trait SettingsApi: Send + Sync {
     async fn get_search_settings(&self) -> Result<SearchSettingsResponse>;
     async fn update_search_settings(
         &self,
-        request: &UpdateSearchSettingsRequest,
+        request: &CanonicalUpdateSearchSettingsRequest,
     ) -> Result<SearchSettingsResponse>;
 }
 
@@ -178,7 +178,6 @@ async fn update_search_settings(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<CanonicalUpdateSearchSettingsRequest>,
 ) -> impl IntoResponse {
-    let request = request.into();
     match state.settings.update_search_settings(&request).await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
         Err(error) => settings_management_error_response(error),

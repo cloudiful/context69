@@ -4,7 +4,8 @@ use crate::domain_errors::DomainError;
 
 use crate::{
     contracts::{
-        UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+        CanonicalUpdateSearchSettingsRequest, UpdateDoclingSettingsRequest,
+        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::StoredSearchSettings,
 };
@@ -167,6 +168,13 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
 }
 
 pub(super) fn search_request(request: &UpdateSearchSettingsRequest) -> Result<()> {
+    let canonical = CanonicalUpdateSearchSettingsRequest::from(request.clone());
+    canonical_search_request(&canonical)
+}
+
+pub(super) fn canonical_search_request(
+    request: &CanonicalUpdateSearchSettingsRequest,
+) -> Result<()> {
     if request.rerank_base_url.trim().is_empty() {
         return Err(
             DomainError::invalid_argument("search.rerank_base_url must not be empty").into(),

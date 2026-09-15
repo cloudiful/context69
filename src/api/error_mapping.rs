@@ -7,7 +7,8 @@ use crate::services::tasks::TaskMaintenanceError;
 
 pub(crate) fn error_response(status: StatusCode, message: String) -> ApiErrorResponse {
     let code = ApiErrorCode::code_for_status(status.as_u16());
-    ApiErrorResponse::new(code.as_str(), message)
+    let canonical = context69_contracts::CanonicalApiErrorResponse::new(code, message);
+    canonical.into()
 }
 
 fn json_response(status: StatusCode, message: String) -> axum::response::Response {

@@ -84,14 +84,16 @@ pub fn code_for_error(error: &Error) -> ApiErrorCode {
 }
 
 pub fn json_error_response(status: StatusCode, error: impl Into<String>) -> Response {
-    let code = ApiErrorResponse::code_for_status(status.as_u16());
-    (status, Json(ApiErrorResponse::new(code, error.into()))).into_response()
+    let code = ApiErrorCode::code_for_status(status.as_u16());
+    let body = context69_contracts_core::errors::CanonicalApiErrorResponse::new(code, error.into());
+    let legacy: ApiErrorResponse = body.into();
+    (status, Json(legacy)).into_response()
 }
 
 fn typed_response(error: Error) -> Response {
     let message = error.to_string();
-    let status = status_for_error(&error);
-    json_error_response(status, message)
+    let code = code_for_error(&error);
+    json_error_for_code(code, message)
 }
 
 pub fn internal_error_response(error: Error) -> Response {

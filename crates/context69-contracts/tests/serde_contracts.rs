@@ -882,3 +882,176 @@ fn secret_patch_tri_state_is_explicit() {
     assert_eq!(legacy.api_key, None);
     assert!(!legacy.clear_api_key);
 }
+
+#[test]
+fn b0_canonical_settings_wire_and_legacy_round_trip() {
+    // Canonical wire snapshot: api_key is a tri-state object, weights default.
+    let keep: CanonicalUpdateSearchSettingsRequest = serde_json::from_value(json!({
+        "mode": "hybrid",
+        "rerank_enabled": false,
+        "rerank_base_url": "http://x",
+        "rerank_model": "m",
+        "candidate_limit": 10,
+        "timeout_secs": 5,
+        "api_key": {"op": "keep"}
+    }))
+    .expect("keep wire");
+    assert_eq!(keep.api_key, SecretPatch::Keep);
+    assert_eq!(
+        to_value(&keep).expect("serialize keep").get("api_key"),
+        Some(&json!({"op": "keep"}))
+    );
+
+    let set: CanonicalUpdateSearchSettingsRequest = serde_json::from_value(json!({
+        "mode": "hybrid",
+        "rerank_enabled": false,
+        "rerank_base_url": "http://x",
+        "rerank_model": "m",
+        "candidate_limit": 10,
+        "timeout_secs": 5,
+        "api_key": {"op": "set", "value": "s3cr3t"}
+    }))
+    .expect("set wire");
+    assert_eq!(set.api_key, SecretPatch::Set("s3cr3t".to_string()));
+
+    let clear: CanonicalUpdateSearchSettingsRequest = serde_json::from_value(json!({
+        "mode": "hybrid",
+        "rerank_enabled": false,
+        "rerank_base_url": "http://x",
+        "rerank_model": "m",
+        "candidate_limit": 10,
+        "timeout_secs": 5,
+        "api_key": {"op": "clear"}
+    }))
+    .expect("clear wire");
+    assert_eq!(clear.api_key, SecretPatch::Clear);
+
+    // Canonical -> legacy preserves tri-state.
+    let legacy_set: context69_contracts::UpdateSearchSettingsRequest = set.clone().into();
+    assert_eq!(legacy_set.api_key.as_deref(), Some("s3cr3t"));
+    assert!(!legacy_set.clear_api_key);
+    let legacy_clear: context69_contracts::UpdateSearchSettingsRequest = clear.clone().into();
+    assert_eq!(legacy_clear.api_key, None);
+    assert!(legacy_clear.clear_api_key);
+
+    // Legacy -> canonical preserves tri-state (blank/whitespace keeps).
+    for (legacy_json, expected) in [
+        (
+            json!({
+                "mode": "hybrid", "rerank_enabled": false,
+                "rerank_base_url": "http://x", "rerank_model": "m",
+                "candidate_limit": 10, "timeout_secs": 5,
+                "api_key": "new-secret"
+            }),
+            SecretPatch::Set("new-secret".to_string()),
+        ),
+        (
+            json!({
+                "mode": "hybrid", "rerank_enabled": false,
+                "rerank_base_url": "http://x", "rerank_model": "m",
+                "candidate_limit": 10, "timeout_secs": 5,
+                "api_key": "  ", "clear_api_key": false
+            }),
+            SecretPatch::Keep,
+        ),
+        (
+            json!({
+                "mode": "hybrid", "rerank_enabled": false,
+                "rerank_base_url": "http://x", "rerank_model": "m",
+                "candidate_limit": 10, "timeout_secs": 5,
+                "clear_api_key": true, "api_key": "ignored"
+            }),
+            SecretPatch::Clear,
+        ),
+    ] {
+        let legacy: context69_contracts::UpdateSearchSettingsRequest =
+            serde_json::from_value(legacy_json).expect("legacy wire");
+        let canonical = context69_contracts::CanonicalUpdateSearchSettingsRequest::from(legacy);
+        assert_eq!(canonical.api_key, expected);
+    }
+}
+
+#[test]
+fn b0_canonical_document_sort_wire_and_round_trip() {
+    // Direction values are wire-identical to legacy order values.
+    assert_eq!(to_value(SortDirection::Asc).expect("asc"), json!("asc"));
+    let legacy = context69_contracts::DocumentSort {
+        field: context69_contracts::DocumentSortField::PublishedAt,
+        order: SortOrder::Desc,
+    };
+    let canonical = context69_contracts::CanonicalDocumentSort::from(legacy.clone());
+    assert_eq!(canonical.direction, SortDirection::Desc);
+    let legacy_value = to_value(&legacy).expect("legacy sort");
+    let canonical_value = to_value(&canonical).expect("canonical sort");
+    assert_eq!(legacy_value.get("field"), canonical_value.get("field"));
+    assert_eq!(legacy_value.get("order"), Some(&json!("desc")));
+    assert_eq!(canonical_value.get("direction"), Some(&json!("desc")));
+    let round_trip = context69_contracts::DocumentSort::from(canonical);
+    assert_eq!(round_trip.order, legacy.order);
+    assert_eq!(round_trip.field, legacy.field);
+}
+
+#[test]
+fn b0_error_envelope_wire_equals_legacy() {
+    for code in [
+        ApiErrorCode::InvalidArgument,
+        ApiErrorCode::Unauthorized,
+        ApiErrorCode::Forbidden,
+        ApiErrorCode::NotFound,
+        ApiErrorCode::Conflict,
+        ApiErrorCode::PayloadTooLarge,
+        ApiErrorCode::UnprocessableEntity,
+        ApiErrorCode::RateLimited,
+        ApiErrorCode::UpstreamError,
+        ApiErrorCode::Unavailable,
+        ApiErrorCode::UpstreamTimeout,
+        ApiErrorCode::Internal,
+    ] {
+        let canonical = CanonicalApiErrorResponse::new(code, "boom".to_string())
+            .with_details(json!({"field": "q"}))
+            .with_request_id("req-1".to_string());
+        let canonical_value = to_value(&canonical).expect("canonical");
+        let legacy: context69_contracts::ApiErrorResponse = canonical.into();
+        let legacy_value = to_value(&legacy).expect("legacy");
+        assert_eq!(
+            canonical_value, legacy_value,
+            "typed envelope must be zero-wire-change for {code:?}"
+        );
+    }
+    let minimal = CanonicalApiErrorResponse::new(ApiErrorCode::NotFound, "missing".to_string());
+    let legacy: context69_contracts::ApiErrorResponse = minimal.into();
+    assert_eq!(legacy.code, "not_found");
+}
+
+#[test]
+fn b0_pagination_audit_exact_equals_but_window_and_bounds_differ() {
+    // Exact totals without window signals serialize identically.
+    let exact = Pagination::try_new(2, 8, 20).expect("exact");
+    let offset = OffsetPagination::try_new(2, 8, 20).expect("offset");
+    assert_eq!(
+        to_value(&exact).expect("exact"),
+        to_value(&offset).expect("offset"),
+        "exact totals must be wire-identical"
+    );
+    // Window signals exist only on Pagination.
+    let window = Pagination::try_new_search_window(1, 8, 9, Some(true)).expect("window");
+    let window_value = to_value(&window).expect("window");
+    assert_eq!(window_value.get("has_more"), Some(&json!(true)));
+    assert_eq!(window_value.get("total_is_exact"), Some(&json!(false)));
+    let offset_from_same =
+        to_value(&OffsetPagination::try_new(1, 8, 9).expect("offset same numbers"))
+            .expect("offset");
+    assert_ne!(
+        window_value, offset_from_same,
+        "window signals make Pagination incompatible with OffsetPagination"
+    );
+    // Validation differs: OffsetPagination rejects page > 10_000, Pagination allows it.
+    assert!(OffsetPagination::try_new(10_001, 8, 20).is_err());
+    assert!(Pagination::try_new(10_001, 8, 20).is_ok());
+    // TaskPageResponse stays on Pagination (both kept); exact case matches OffsetPagination.
+    let task_pagination = Pagination::try_new(1, 25, 50).expect("task pagination");
+    let task_value = to_value(&task_pagination).expect("task pagination");
+    let offset_value =
+        to_value(&OffsetPagination::try_new(1, 25, 50).expect("offset task")).expect("offset task");
+    assert_eq!(task_value, offset_value);
+}

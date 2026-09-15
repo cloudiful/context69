@@ -1,9 +1,15 @@
 use super::LibraryDependency;
+use crate::domain_errors::{DomainError, find_domain_error};
 
 pub(super) fn dependency_is_transient(
     dependency: LibraryDependency,
     error: &anyhow::Error,
 ) -> bool {
+    if let Some(typed) = find_domain_error(error) {
+        if let Some(decision) = typed_transient_for_dependency(dependency, typed, error) {
+            return decision;
+        }
+    }
     let message = error_chain_message(error);
     if message.contains("dimension mismatch")
         || message.contains("embedding count does not match")
@@ -43,6 +49,65 @@ pub(super) fn dependency_is_transient(
         LibraryDependency::Embedding => is_embedding_transient(&message),
         LibraryDependency::Qdrant => is_qdrant_transient(&message),
         LibraryDependency::EmbeddingVector => is_embedding_transient(&message),
+    }
+}
+
+/// Typed fast-path for `dependency_is_transient`.
+///
+/// Permanent [`DomainError`] variants are never transient, regardless of
+/// message text. Transient variants (`RateLimited`, `Unavailable`,
+/// `UpstreamError`, `UpstreamTimeout`) still require gate attribution via the
+/// dependency substring so qdrant failures do not trip the embedding gate
+/// and vice versa; the SQL `ILIKE` classifiers on persisted `last_error`
+/// strings are intentionally untouched. Returns `None` when the error
+/// carries no typed variant or when attribution needs the legacy substring
+/// fallback.
+fn typed_transient_for_dependency(
+    dependency: LibraryDependency,
+    typed: &DomainError,
+    error: &anyhow::Error,
+) -> Option<bool> {
+    match typed {
+        DomainError::InvalidArgument(_)
+        | DomainError::Unauthorized(_)
+        | DomainError::Forbidden(_)
+        | DomainError::NotFound(_)
+        | DomainError::Conflict(_)
+        | DomainError::PayloadTooLarge(_)
+        | DomainError::UnprocessableEntity(_)
+        | DomainError::Internal(_) => Some(false),
+        DomainError::RateLimited(_)
+        | DomainError::Unavailable(_)
+        | DomainError::UpstreamError(_)
+        | DomainError::UpstreamTimeout(_) => {
+            let message = error_chain_message(error);
+            let attributed = match dependency.canonical() {
+                LibraryDependency::S3 => {
+                    message.contains("s3")
+                        || message.contains("runtime is unavailable")
+                        || message.contains("runtime unavailable")
+                }
+                LibraryDependency::Docling => {
+                    message.contains("docling")
+                        || message.contains("dns")
+                        || message.contains("resolve")
+                        || message.contains("timeout")
+                        || message.contains("transport")
+                        || message.contains("connect")
+                }
+                LibraryDependency::Embedding | LibraryDependency::EmbeddingVector => {
+                    message.contains("embedding")
+                        || message.contains("runtime is unavailable")
+                        || message.contains("runtime unavailable")
+                }
+                LibraryDependency::Qdrant => {
+                    message.contains("qdrant")
+                        || message.contains("runtime is unavailable")
+                        || message.contains("runtime unavailable")
+                }
+            };
+            if attributed { Some(true) } else { None }
+        }
     }
 }
 
@@ -265,7 +330,63 @@ mod tests {
         dependency_is_transient, is_configuration_error, is_s3_attempt_retryable,
         is_s3_transient_error, s3_error_is_permanent,
     };
+    use crate::domain_errors::DomainError;
     use crate::services::library::LibraryDependency;
+
+    #[test]
+    fn typed_qdrant_and_embedding_agree_with_substring_fallback() {
+        // Typed timeout / transport / rate errors stay transient for their
+        // own gate and not the other gate, matching the substring fallback.
+        let qdrant_timeout = anyhow::Error::new(DomainError::upstream_timeout(
+            "qdrant search request failed: operation=search_points collection=c1 category=timeout timed out after 30s",
+        ));
+        assert!(dependency_is_transient(
+            LibraryDependency::Qdrant,
+            &qdrant_timeout
+        ));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Embedding,
+            &qdrant_timeout
+        ));
+
+        let embedding_timeout = anyhow::Error::new(DomainError::upstream_timeout(
+            "embedding upstream transport error: operation=embedding request kind=timeout endpoint=http://x model=m attempt=1",
+        ));
+        assert!(dependency_is_transient(
+            LibraryDependency::Embedding,
+            &embedding_timeout
+        ));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Qdrant,
+            &embedding_timeout
+        ));
+
+        let qdrant_transport = anyhow::Error::new(DomainError::upstream_error(
+            "qdrant points upsert request failed: operation=upsert_points collection=c1 category=transport transport error: connection refused",
+        ));
+        assert!(dependency_is_transient(
+            LibraryDependency::Qdrant,
+            &qdrant_transport
+        ));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Embedding,
+            &qdrant_transport
+        ));
+
+        // Typed permanent errors are never transient, even with a transient
+        // substring elsewhere in the chain.
+        let permanent = anyhow::Error::new(DomainError::invalid_argument(
+            "qdrant search request failed: validation error: filter format is invalid",
+        ));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Qdrant,
+            &permanent
+        ));
+        assert!(!dependency_is_transient(
+            LibraryDependency::Embedding,
+            &permanent
+        ));
+    }
 
     #[test]
     fn classifies_transport_failures_as_transient() {

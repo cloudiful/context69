@@ -10,8 +10,9 @@ mod validate;
 
 use self::{
     mappers::{
-        config_from_stored, docling_settings_from_request, response_from_stored,
-        search_response_from_stored, search_settings_from_request, unconfigured_docling_response,
+        canonical_search_settings_from_request, config_from_stored, docling_settings_from_request,
+        response_from_stored, search_response_from_stored, search_settings_from_request,
+        unconfigured_docling_response,
     },
     runtime_mappers::{
         default_runtime_settings_response, runtime_settings_from_request, runtime_settings_response,
@@ -21,9 +22,9 @@ use self::{
 
 use crate::{
     contracts::{
-        DoclingSettingsResponse, DoclingSettingsSource, RuntimeSettingsResponse,
-        SearchSettingsResponse, UpdateDoclingSettingsRequest, UpdateRuntimeSettingsRequest,
-        UpdateSearchSettingsRequest,
+        CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, DoclingSettingsSource,
+        RuntimeSettingsResponse, SearchSettingsResponse, SecretPatch, UpdateDoclingSettingsRequest,
+        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::{Database, StoredDoclingSettings, StoredSearchSettings, default_search_settings},
     docling::DoclingConfig,
@@ -226,20 +227,40 @@ impl SettingsService {
 
     pub async fn update_search_settings(
         &self,
+        request: &CanonicalUpdateSearchSettingsRequest,
+    ) -> Result<SearchSettingsResponse> {
+        settings_validate::canonical_search_request(request)?;
+
+        let existing = self.db.get_search_settings().await?;
+        let merged_api_key = merge_search_api_key(
+            &request.api_key,
+            existing
+                .as_ref()
+                .and_then(|settings| settings.api_key.clone()),
+        );
+
+        let candidate = canonical_search_settings_from_request(request, merged_api_key);
+        settings_validate::stored_search_settings(&candidate)?;
+
+        let settings = self.db.save_search_settings(&candidate).await?;
+        Ok(search_response_from_stored(settings))
+    }
+
+    /// Legacy wire-compat entry: validates and maps through the legacy
+    /// wrappers (which delegate to the canonical kernel) without behavior
+    /// change.
+    pub async fn update_search_settings_legacy(
+        &self,
         request: &UpdateSearchSettingsRequest,
     ) -> Result<SearchSettingsResponse> {
         settings_validate::search_request(request)?;
 
         let existing = self.db.get_search_settings().await?;
-        let merged_api_key = if request.clear_api_key {
-            None
-        } else if let Some(api_key) = normalize_optional_string(request.api_key.clone()) {
-            Some(api_key)
-        } else {
-            existing
-                .as_ref()
-                .and_then(|settings| settings.api_key.clone())
-        };
+        let canonical = CanonicalUpdateSearchSettingsRequest::from(request.clone());
+        let merged_api_key = merge_search_api_key(
+            &canonical.api_key,
+            existing.as_ref().and_then(|settings| settings.api_key.clone()),
+        );
 
         let candidate = search_settings_from_request(request, merged_api_key);
         settings_validate::stored_search_settings(&candidate)?;
@@ -254,6 +275,17 @@ impl SettingsService {
             .get_search_settings()
             .await?
             .unwrap_or_else(default_search_settings))
+    }
+}
+
+pub(crate) fn merge_search_api_key(
+    patch: &SecretPatch,
+    existing: Option<String>,
+) -> Option<String> {
+    match patch {
+        SecretPatch::Clear => None,
+        SecretPatch::Set(value) => normalize_optional_string(Some(value.clone())).or(existing),
+        SecretPatch::Keep => existing,
     }
 }
 
@@ -686,6 +718,82 @@ mod tests {
         let error =
             validate_stored_search_settings(&invalid).expect_err("stored weights should fail");
         assert!(error.to_string().contains("sum above 1"));
+    }
+
+    #[test]
+    fn canonical_search_tri_state_keep_set_clear() {
+        use crate::contracts::{CanonicalUpdateSearchSettingsRequest, SecretPatch};
+
+        fn canonical(patch: SecretPatch) -> CanonicalUpdateSearchSettingsRequest {
+            CanonicalUpdateSearchSettingsRequest {
+                mode: crate::contracts::SearchMode::Hybrid,
+                rerank_enabled: true,
+                rerank_base_url: "https://openrouter.ai/api/v1".to_string(),
+                rerank_model: "cohere/rerank-4-fast".to_string(),
+                candidate_limit: 40,
+                timeout_secs: 10,
+                api_key: patch,
+                vector_weight: context69_contracts::settings::SEARCH_VECTOR_WEIGHT_DEFAULT,
+                keyword_weight: context69_contracts::settings::SEARCH_KEYWORD_WEIGHT_DEFAULT,
+            }
+        }
+
+        // Validation accepts all three tri-states.
+        for patch in [
+            SecretPatch::Keep,
+            SecretPatch::Set("new-secret".to_string()),
+            SecretPatch::Clear,
+        ] {
+            super::validate::canonical_search_request(&canonical(patch))
+                .expect("canonical tri-state validates");
+        }
+
+        // Merge preserves keep/set/clear without behavior change.
+        assert_eq!(
+            super::merge_search_api_key(&SecretPatch::Keep, Some("old".to_string())),
+            Some("old".to_string())
+        );
+        assert_eq!(
+            super::merge_search_api_key(
+                &SecretPatch::Set("new".to_string()),
+                Some("old".to_string())
+            ),
+            Some("new".to_string())
+        );
+        assert_eq!(
+            super::merge_search_api_key(&SecretPatch::Clear, Some("old".to_string())),
+            None
+        );
+        // Blank Set normalizes to Keep (legacy whitespace parity).
+        assert_eq!(
+            super::merge_search_api_key(
+                &SecretPatch::Set("  ".to_string()),
+                Some("old".to_string())
+            ),
+            Some("old".to_string())
+        );
+
+        // Legacy dual flags convert to the same tri-state.
+        let mut legacy_keep = sample_search_request();
+        legacy_keep.api_key = None;
+        legacy_keep.clear_api_key = false;
+        assert_eq!(
+            CanonicalUpdateSearchSettingsRequest::from(legacy_keep).api_key,
+            SecretPatch::Keep
+        );
+        let mut legacy_set = sample_search_request();
+        legacy_set.api_key = Some("new-secret".to_string());
+        assert_eq!(
+            CanonicalUpdateSearchSettingsRequest::from(legacy_set).api_key,
+            SecretPatch::Set("new-secret".to_string())
+        );
+        let mut legacy_clear = sample_search_request();
+        legacy_clear.clear_api_key = true;
+        legacy_clear.api_key = Some("ignored".to_string());
+        assert_eq!(
+            CanonicalUpdateSearchSettingsRequest::from(legacy_clear).api_key,
+            SecretPatch::Clear
+        );
     }
 
     #[test]

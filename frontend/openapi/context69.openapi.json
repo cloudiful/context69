@@ -8837,7 +8837,7 @@
       },
       "Pagination": {
         "type": "object",
-        "description": "v0.15 offset window kept for wire compatibility.\n\nDeprecated: new code should use [`crate::pagination::OffsetPagination`] for exact\ntotals. Search windows should prefer cursor continuation via\n[`crate::pagination::CursorPagination`].",
+        "description": "Offset window with optional search-window signals.\n\nBoth [`Pagination`] and [`crate::pagination::OffsetPagination`] are kept\n(B0 audit): they are not wire-compatible. `Pagination` carries optional\n`has_more`/`total_is_exact` window signals and accepts `page > 10_000`\nfor legacy callers, while `OffsetPagination` enforces `1 <= page <= 10_000`\nand exact totals only. Exact-total responses without window signals\nserialize identically under both shapes; responses carrying window signals\nor legacy large pages require `Pagination`. Search windows with cursors\nshould prefer [`crate::pagination::CursorPagination`].",
         "required": [
           "page",
           "page_size",

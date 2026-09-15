@@ -131,6 +131,30 @@ impl From<CanonicalUpdateSearchSettingsRequest> for UpdateSearchSettingsRequest 
     }
 }
 
+impl From<UpdateSearchSettingsRequest> for CanonicalUpdateSearchSettingsRequest {
+    fn from(legacy: UpdateSearchSettingsRequest) -> Self {
+        let api_key = if legacy.clear_api_key {
+            SecretPatch::Clear
+        } else {
+            match legacy.api_key.as_deref().map(str::trim) {
+                Some(value) if !value.is_empty() => SecretPatch::Set(value.to_string()),
+                _ => SecretPatch::Keep,
+            }
+        };
+        Self {
+            mode: legacy.mode,
+            rerank_enabled: legacy.rerank_enabled,
+            rerank_base_url: legacy.rerank_base_url,
+            rerank_model: legacy.rerank_model,
+            candidate_limit: legacy.candidate_limit,
+            timeout_secs: legacy.timeout_secs,
+            api_key,
+            vector_weight: legacy.vector_weight,
+            keyword_weight: legacy.keyword_weight,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeSettingsResponse {
     pub qdrant: RuntimeQdrantSettings,

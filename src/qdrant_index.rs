@@ -44,6 +44,30 @@ fn bounded_qdrant_chain(error: &anyhow::Error) -> String {
         .join(" | ")
 }
 
+/// Typed-first Qdrant category: when the underlying error already carries
+/// an unambiguous [`DomainError`] variant, map it directly; transport vs
+/// server (`UpstreamError`/`Unavailable`) stays on the substring fallback
+/// so `category=transport` vs `category=server` labels do not change.
+/// The timeout substring (`timed out` / `timeout`) stays as the fallback
+/// for untyped transport errors.
+fn qdrant_category_for_error(error: &anyhow::Error) -> Option<&'static str> {
+    let typed = crate::domain_errors::find_domain_error(error)?;
+    match typed {
+        crate::domain_errors::DomainError::UpstreamTimeout(_) => Some("timeout"),
+        crate::domain_errors::DomainError::RateLimited(_) => Some("rate_limited"),
+        crate::domain_errors::DomainError::Forbidden(_)
+        | crate::domain_errors::DomainError::InvalidArgument(_)
+        | crate::domain_errors::DomainError::Unauthorized(_)
+        | crate::domain_errors::DomainError::NotFound(_)
+        | crate::domain_errors::DomainError::Conflict(_)
+        | crate::domain_errors::DomainError::PayloadTooLarge(_)
+        | crate::domain_errors::DomainError::UnprocessableEntity(_)
+        | crate::domain_errors::DomainError::Internal(_) => Some("client_error"),
+        crate::domain_errors::DomainError::UpstreamError(_)
+        | crate::domain_errors::DomainError::Unavailable(_) => None,
+    }
+}
+
 fn qdrant_category_for_message(lower: &str) -> &'static str {
     if lower.contains("timed out") || lower.contains("timeout") {
         "timeout"
@@ -107,7 +131,8 @@ pub fn format_qdrant_error(
 ) -> anyhow::Error {
     let full_chain = bounded_qdrant_chain(&underlying);
     let lower = full_chain.to_ascii_lowercase();
-    let category = qdrant_category_for_message(&lower);
+    let category = qdrant_category_for_error(&underlying)
+        .unwrap_or_else(|| qdrant_category_for_message(&lower));
     let preview = truncate_for_qdrant_error(&full_chain, QDRANT_ERROR_PREVIEW_LIMIT);
     let legacy = legacy_qdrant_prefix(operation);
     let outer = format!(
@@ -170,6 +195,22 @@ pub fn qdrant_timeout_error(operation: &str, collection: &str, extra: &str) -> a
 /// because Qdrant returns success; this helper documents the boundary and
 /// is tested separately so we never swallow permission errors.
 pub fn is_qdrant_idempotent_not_found(error: &anyhow::Error) -> bool {
+    if let Some(typed) = crate::domain_errors::find_domain_error(error) {
+        // Typed permission/validation errors are never idempotent. Transient
+        // and internal variants fall through to the substring hint check so
+        // existing point-not-found behavior is preserved.
+        if matches!(
+            typed,
+            crate::domain_errors::DomainError::Forbidden(_)
+                | crate::domain_errors::DomainError::Unauthorized(_)
+                | crate::domain_errors::DomainError::InvalidArgument(_)
+                | crate::domain_errors::DomainError::UnprocessableEntity(_)
+                | crate::domain_errors::DomainError::Conflict(_)
+                | crate::domain_errors::DomainError::PayloadTooLarge(_)
+        ) {
+            return false;
+        }
+    }
     let msg = bounded_qdrant_chain(error).to_ascii_lowercase();
     let is_not_found = msg.contains("not found") || msg.contains("notfound");
     if !is_not_found {

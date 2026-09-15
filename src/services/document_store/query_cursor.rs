@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::domain_errors::DomainError;
-use context69_contracts::{DocumentSort, DocumentSortField, SortOrder};
+use context69_contracts::{CanonicalDocumentSort, DocumentSortField, SortDirection};
 use sqlx::{Postgres, QueryBuilder};
 
 use crate::db::StoredMetadataIndex;
@@ -13,7 +13,7 @@ use super::{
 };
 
 pub(super) fn sort_expression(
-    sort: &DocumentSort,
+    sort: &CanonicalDocumentSort,
     index: usize,
     definitions: &[StoredMetadataIndex],
 ) -> Result<String> {
@@ -29,7 +29,7 @@ pub(super) fn sort_expression(
 
 pub(super) fn push_keyset_condition(
     query: &mut QueryBuilder<Postgres>,
-    sorts: &[DocumentSort],
+    sorts: &[CanonicalDocumentSort],
     definitions: &[StoredMetadataIndex],
     cursor: &Cursor,
 ) -> Result<()> {
@@ -74,7 +74,7 @@ pub(super) fn push_keyset_condition(
 
 fn push_sort_equal(
     query: &mut QueryBuilder<Postgres>,
-    sort: &DocumentSort,
+    sort: &CanonicalDocumentSort,
     index: usize,
     definitions: &[StoredMetadataIndex],
     value: &SortValue,
@@ -93,7 +93,7 @@ fn push_sort_equal(
 
 fn push_sort_after(
     query: &mut QueryBuilder<Postgres>,
-    sort: &DocumentSort,
+    sort: &CanonicalDocumentSort,
     index: usize,
     definitions: &[StoredMetadataIndex],
     value: &SortValue,
@@ -105,9 +105,9 @@ fn push_sort_after(
     }
     query.push("(").push(&expression).push(" IS NULL OR (");
     query.push(&expression).push(" IS NOT NULL AND ");
-    query.push(&expression).push(match sort.order {
-        SortOrder::Asc => " > ",
-        SortOrder::Desc => " < ",
+    query.push(&expression).push(match sort.direction {
+        SortDirection::Asc => " > ",
+        SortDirection::Desc => " < ",
     });
     push_sort_bind(query, sort, definitions, value)?;
     query.push("))");
@@ -116,7 +116,7 @@ fn push_sort_after(
 
 fn push_sort_bind(
     query: &mut QueryBuilder<Postgres>,
-    sort: &DocumentSort,
+    sort: &CanonicalDocumentSort,
     definitions: &[StoredMetadataIndex],
     value: &SortValue,
 ) -> Result<()> {

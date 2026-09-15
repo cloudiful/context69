@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use crate::{
     contracts::{
-        DoclingConnectionSettingsResponse, DoclingSettingsResponse, DoclingSettingsSource,
-        DoclingVlmSettingsResponse, SearchSettingsResponse, UpdateDoclingSettingsRequest,
-        UpdateSearchSettingsRequest,
+        CanonicalUpdateSearchSettingsRequest, DoclingConnectionSettingsResponse,
+        DoclingSettingsResponse, DoclingSettingsSource, DoclingVlmSettingsResponse,
+        SearchSettingsResponse, UpdateDoclingSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::{StoredDoclingSettings, StoredSearchSettings},
     docling::{
@@ -50,6 +50,14 @@ pub(super) fn docling_settings_from_request(
 
 pub(super) fn search_settings_from_request(
     request: &UpdateSearchSettingsRequest,
+    api_key: Option<String>,
+) -> StoredSearchSettings {
+    let canonical = CanonicalUpdateSearchSettingsRequest::from(request.clone());
+    canonical_search_settings_from_request(&canonical, api_key)
+}
+
+pub(super) fn canonical_search_settings_from_request(
+    request: &CanonicalUpdateSearchSettingsRequest,
     api_key: Option<String>,
 ) -> StoredSearchSettings {
     StoredSearchSettings {

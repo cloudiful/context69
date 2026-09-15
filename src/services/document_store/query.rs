@@ -2,7 +2,9 @@ use anyhow::Result;
 
 use crate::domain_errors::DomainError;
 use chrono::{DateTime, Utc};
-use context69_contracts::{DocumentQueryRequest, DocumentSortField, SortOrder};
+use context69_contracts::{
+    CanonicalDocumentSort, DocumentQueryRequest, DocumentSortField, SortDirection,
+};
 use sqlx::{Postgres, QueryBuilder, Row, postgres::PgRow};
 
 use crate::{
@@ -115,6 +117,15 @@ pub(super) async fn load_page(
 
 /// The query is dynamic because filters and sort columns are request-selected. User values are
 /// always bound; SQL identifiers are limited to validated, server-owned column names.
+fn canonical_sorts(request: &DocumentQueryRequest) -> Vec<CanonicalDocumentSort> {
+    request
+        .sort
+        .iter()
+        .cloned()
+        .map(CanonicalDocumentSort::from)
+        .collect()
+}
+
 async fn list_page_candidates(
     db: &Database,
     group_id: i64,
@@ -123,9 +134,10 @@ async fn list_page_candidates(
     scope: &AccessScope,
     cursor: Option<&Cursor>,
 ) -> Result<Vec<QueryCandidate>> {
+    let sorts = canonical_sorts(request);
     let mut query = QueryBuilder::<Postgres>::new("SELECT d.id AS document_id");
 
-    for (index, sort) in request.sort.iter().enumerate() {
+    for (index, sort) in sorts.iter().enumerate() {
         let expression = sort_expression(sort, index, definitions)?;
         query
             .push(", ")
@@ -135,7 +147,7 @@ async fn list_page_candidates(
     }
     query.push(" FROM context69.documents d INNER JOIN context69.groups g ON g.id = d.group_id");
 
-    for (index, sort) in request.sort.iter().enumerate() {
+    for (index, sort) in sorts.iter().enumerate() {
         if let DocumentSortField::Metadata { path } = &sort.field {
             let definition = definition_for_path(definitions, path)?;
             query
@@ -181,24 +193,24 @@ async fn list_page_candidates(
     }
 
     if let Some(cursor) = cursor {
-        if cursor.values.len() != request.sort.len() {
+        if cursor.values.len() != sorts.len() {
             return Err(DomainError::invalid_argument(
                 "cursor sort values do not match query sort",
             )
             .into());
         }
-        if request.sort.is_empty() {
+        if sorts.is_empty() {
             query.push(" AND d.id > ").push_bind(cursor.document_id);
         } else {
-            push_keyset_condition(&mut query, &request.sort, definitions, cursor)?;
+            push_keyset_condition(&mut query, &sorts, definitions, cursor)?;
         }
     }
 
     query.push(" ORDER BY ");
-    if request.sort.is_empty() {
+    if sorts.is_empty() {
         query.push("d.id ASC");
     } else {
-        for (index, sort) in request.sort.iter().enumerate() {
+        for (index, sort) in sorts.iter().enumerate() {
             if index > 0 {
                 query.push(", ");
             }
@@ -207,9 +219,9 @@ async fn list_page_candidates(
                 .push(&expression)
                 .push(" IS NULL ASC, ")
                 .push(&expression)
-                .push(match sort.order {
-                    SortOrder::Asc => " ASC",
-                    SortOrder::Desc => " DESC",
+                .push(match sort.direction {
+                    SortDirection::Asc => " ASC",
+                    SortDirection::Desc => " DESC",
                 });
         }
         query.push(", d.id ASC");
@@ -223,8 +235,7 @@ async fn list_page_candidates(
     rows.into_iter()
         .map(|row| {
             let document_id = row.try_get("document_id")?;
-            let sort_values = request
-                .sort
+            let sort_values = sorts
                 .iter()
                 .enumerate()
                 .map(|(index, sort)| sort_value_from_row(&row, sort, index, definitions))
@@ -239,7 +250,7 @@ async fn list_page_candidates(
 
 fn sort_value_from_row(
     row: &PgRow,
-    sort: &context69_contracts::DocumentSort,
+    sort: &CanonicalDocumentSort,
     index: usize,
     definitions: &[StoredMetadataIndex],
 ) -> Result<SortValue> {

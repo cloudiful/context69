@@ -31,11 +31,16 @@ impl std::str::FromStr for Visibility {
     }
 }
 
-/// v0.15 offset window kept for wire compatibility.
+/// Offset window with optional search-window signals.
 ///
-/// Deprecated: new code should use [`crate::pagination::OffsetPagination`] for exact
-/// totals. Search windows should prefer cursor continuation via
-/// [`crate::pagination::CursorPagination`].
+/// Both [`Pagination`] and [`crate::pagination::OffsetPagination`] are kept
+/// (B0 audit): they are not wire-compatible. `Pagination` carries optional
+/// `has_more`/`total_is_exact` window signals and accepts `page > 10_000`
+/// for legacy callers, while `OffsetPagination` enforces `1 <= page <= 10_000`
+/// and exact totals only. Exact-total responses without window signals
+/// serialize identically under both shapes; responses carrying window signals
+/// or legacy large pages require `Pagination`. Search windows with cursors
+/// should prefer [`crate::pagination::CursorPagination`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct Pagination {
     pub page: u32,
