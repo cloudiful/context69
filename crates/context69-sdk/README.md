@@ -5,6 +5,22 @@ submit batch writes, and observe one unified task lifecycle. HTTP transport,
 resource handles, metadata-index workers, queues, leases, and polling of file
 or URL jobs are intentionally internal to Context69.
 
+## Installation
+
+Add the SDK as a git dependency pinned to a product tag:
+
+```toml
+[dependencies]
+context69-sdk = { git = "https://github.com/cloudiful/context69.git", tag = "v0.16.0" }
+```
+
+Pin a tag (for example `v0.16.0`); path dependencies inside the checkout stay
+consistent automatically.
+
+Note: no new versions are published to crates.io after `0.15.19`, and docs.rs
+stays at `0.15.19`. Consume the SDK from git tags and read the docs in this
+repository.
+
 ## Initialization
 
 ```rust,no_run

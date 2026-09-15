@@ -1,53 +1,60 @@
 # Release Guide
 
-## crates.io
+## Distribution model: git tags only
 
-This repository includes workflows for publishing:
+- No new versions are published to crates.io after `0.15.19`. The registry and
+  docs.rs stay at `0.15.19` (not yanked); consume new releases from git tags
+  and read the docs in this repository.
+- `context69-contracts` and `context69-sdk` follow the workspace product
+  version (`version.workspace = true`) and set `publish = false` as a guardrail
+  against accidental registry publishes.
+- All internal sub-crates stay at `version = "0.1.0"` with `publish = false`.
+  They are never bumped, published, or tagged on their own.
+- Tags are product-level only (`v*`, the `v` prefix plus the workspace product
+  version). Sub-crate changes ride the next product tag.
 
-- `context69-contracts`
-- `context69-sdk`
+## GitHub releases via release.yml
 
-Tag convention:
+Workflow: `.github/workflows/release.yml`.
 
-- `v*`
+- Triggers: push of `v*` tags, plus `workflow_dispatch` with a required `tag`
+  input to backfill a Release for an existing tag (for example `v0.16.0`).
+- The resolve-tag step rejects non-`v*` values, then the workflow checks out
+  that tag ref.
+- The release job creates a GitHub Release for that tag with generated notes
+  (`softprops/action-gh-release@v3`, `generate_release_notes: true`).
+- Permissions are `contents: write`. Concurrency group is
+  `release-${{ github.ref }}` with `cancel-in-progress: false`.
+- Pushing `vX.Y.Z` only creates the GitHub Release; it never touches crates.io.
 
-Behavior:
+## SDK consumption
 
-- pushing `v1.2.3` publishes both crates
-- the workflow validates the `v*` tag format and publishes the versions declared in the workspace manifests
-- after both crates publish successfully, the workflow creates a GitHub Release with generated release notes
+Add the SDK as a git dependency pinned to a product tag (same snippet as
+`crates/context69-sdk/README.md`):
+
+```toml
+[dependencies]
+context69-sdk = { git = "https://github.com/cloudiful/context69.git", tag = "v0.16.0" }
+```
+
+Pin a tag; path dependencies inside the checkout stay consistent automatically.
 
 ## CI build cache
 
-The Docker and crates.io workflows use `sccache` with the Cloudflare R2 S3-compatible backend.
-Configure these repository secrets before running either workflow:
-
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-
-The workflows use the R2 endpoint from the reference deployment, bucket `sccache`, and the
-shared `rust/` key prefix. Create the R2 API token with Object Read and Object Write access
-limited to that bucket. The credentials are injected only into Rust build and cache-stat steps;
-they are not passed to Docker image assembly or published as artifacts.
+The remaining Docker workflow (`.github/workflows/publish-docker-ghcr.yml`)
+uses `sccache` with the GitHub Actions cache backend
+(`SCCACHE_GHA_ENABLED: "true"`); it needs no extra credentials. No remaining
+workflow uses the former R2-backed cache, so the old `R2_ACCESS_KEY_ID` /
+`R2_SECRET_ACCESS_KEY` setup no longer applies.
 
 ## GHCR
 
-This repository includes `.github/workflows/publish-docker-ghcr.yml`.
+Docker images are published by `.github/workflows/publish-docker-ghcr.yml`,
+which also triggers on `v*` tags (plus manual dispatch).
 
-It publishes Docker images to:
-
-```text
-ghcr.io/<owner>/<repo>
-```
-
-Behavior:
-
-- push to `main` publishes the `main` tag
-- push of `v*` publishes the matching release tag
-- push of `v*` also publishes both crates, so Docker and crates share one release tag
-- default branch also publishes `latest`
-- native `amd64` and `arm64` runners build the backend binary and frontend `dist` as per-arch artifacts
-- a runtime-only Docker assembly job builds from those artifacts using the root `Dockerfile`
-- the runtime image base is public `debian:trixie-slim`
-- Forgejo CI uses a separate `forgejo.Dockerfile` with Cloud1ful's Debian image and APT mirror
-- separate native `amd64` and `arm64` image publishes are merged into a multi-arch manifest
+- Image tags are derived from the git ref via `docker/metadata-action`.
+- Native `amd64` and `arm64` runners build the backend binary and the frontend
+  `dist`, then a runtime-only assembly step builds from those artifacts using
+  the root `Dockerfile` (base `debian:trixie-slim`; Forgejo CI uses
+  `forgejo.Dockerfile` with the internal mirror).
+- The per-arch pushes are merged into a multi-arch manifest.

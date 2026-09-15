@@ -1,7 +1,7 @@
 # context69
 
 [![Docker 镜像工作流](https://github.com/cloudiful/context69/actions/workflows/publish-docker-ghcr.yml/badge.svg)](https://github.com/cloudiful/context69/actions/workflows/publish-docker-ghcr.yml)
-[![Crates 发布工作流](https://github.com/cloudiful/context69/actions/workflows/publish-crates.yml/badge.svg)](https://github.com/cloudiful/context69/actions/workflows/publish-crates.yml)
+[![Release 工作流](https://github.com/cloudiful/context69/actions/workflows/release.yml/badge.svg)](https://github.com/cloudiful/context69/actions/workflows/release.yml)
 [![许可证：Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![最新版本](https://img.shields.io/github/v/release/cloudiful/context69?sort=semver)](https://github.com/cloudiful/context69/releases)
 

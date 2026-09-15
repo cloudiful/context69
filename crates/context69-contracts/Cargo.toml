@@ -10,7 +10,7 @@ homepage = "https://github.com/cloudiful/context69"
 documentation = "https://docs.rs/context69-contracts"
 keywords = ["context69", "api", "contracts", "search"]
 categories = ["api-bindings", "data-structures"]
-publish = ["crates-io"]
+publish = false
 
 [dependencies]
 anyhow.workspace = true
