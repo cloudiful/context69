@@ -194,32 +194,12 @@ impl Context69Client {
         .await
     }
 
-    #[deprecated(note = "use submit_text_batch instead")]
-    pub async fn text_batch(
-        &self,
-        group_path_value: &str,
-        request: &TextBatchRequest,
-    ) -> Result<TaskRef, Error> {
-        self.submit_batch(group_path(group_path_value, "/batch/text"), request)
-            .await
-    }
-
     pub async fn submit_text_batch(
         &self,
         group_path_value: &str,
         request: &TextBatchRequest,
     ) -> Result<TaskRef, Error> {
         self.submit_batch(group_path(group_path_value, "/batch/text"), request)
-            .await
-    }
-
-    #[deprecated(note = "use submit_url_batch instead")]
-    pub async fn url_batch(
-        &self,
-        group_path_value: &str,
-        request: &UrlBatchRequest,
-    ) -> Result<TaskRef, Error> {
-        self.submit_batch(group_path(group_path_value, "/batch/url"), request)
             .await
     }
 
@@ -232,32 +212,12 @@ impl Context69Client {
             .await
     }
 
-    #[deprecated(note = "use submit_file_batch instead")]
-    pub async fn file_batch(
-        &self,
-        group_path_value: &str,
-        request: &FileBatchRequest,
-    ) -> Result<TaskRef, Error> {
-        self.submit_batch(group_path(group_path_value, "/batch/file"), request)
-            .await
-    }
-
     pub async fn submit_file_batch(
         &self,
         group_path_value: &str,
         request: &FileBatchRequest,
     ) -> Result<TaskRef, Error> {
         self.submit_batch(group_path(group_path_value, "/batch/file"), request)
-            .await
-    }
-
-    #[deprecated(note = "use submit_delete_batch instead")]
-    pub async fn delete_batch(
-        &self,
-        group_path_value: &str,
-        request: &DeleteBatchRequest,
-    ) -> Result<TaskRef, Error> {
-        self.submit_batch(group_path(group_path_value, "/batch/delete"), request)
             .await
     }
 
@@ -311,12 +271,6 @@ impl Context69Client {
             .await
     }
 
-    /// Deprecated alias for [`Self::get_task`]; retained for v0.15 callers.
-    #[deprecated(note = "use get_task instead")]
-    pub async fn task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
-        self.get_task(task_id).await
-    }
-
     /// Canonical `list_tasks` (`GET /v1/tasks` with [`CanonicalTaskListQuery`]).
     /// The typed `view` is always sent; page/page_size are validated
     /// (`1..=10_000` / `1..=100`) before the request leaves the SDK.
@@ -326,19 +280,6 @@ impl Context69Client {
             self.authorized_request(Method::GET, "/v1/tasks")
                 .await?
                 .query(&query),
-        )
-        .await
-    }
-
-    /// Deprecated v0.15 list shape (`GET /v1/tasks` with [`TaskListQuery`]).
-    /// New code should use [`Self::list_tasks`] with [`TaskListOptions`],
-    /// which requires a typed `view` and validates bounds client-side.
-    #[deprecated(note = "use list_tasks with TaskListOptions instead")]
-    pub async fn tasks(&self, query: &TaskListQuery) -> Result<TaskPageResponse, Error> {
-        self.execute_json(
-            self.authorized_request(Method::GET, "/v1/tasks")
-                .await?
-                .query(query),
         )
         .await
     }
@@ -361,25 +302,6 @@ impl Context69Client {
             self.authorized_request(Method::GET, &path)
                 .await?
                 .query(&pairs),
-        )
-        .await
-    }
-
-    /// Deprecated v0.15 item window. It no longer hides `limit=200` or
-    /// `cursor=0`: it delegates to [`Self::list_task_items`] with the wire
-    /// default (`limit=100`) and omits the cursor when `None`.
-    #[deprecated(note = "use list_task_items with TaskItemsOptions instead")]
-    pub async fn task_items(
-        &self,
-        task_id: Uuid,
-        cursor: Option<&str>,
-    ) -> Result<TaskItemsResponse, Error> {
-        self.list_task_items(
-            task_id,
-            &TaskItemsOptions {
-                limit: 100,
-                cursor: cursor.map(str::to_string),
-            },
         )
         .await
     }
@@ -475,13 +397,6 @@ impl Context69Client {
         let path = format!("/v1/tasks/{task_id}");
         self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
             .await
-    }
-
-    /// Deprecated alias for [`Self::purge_trashed_task`]; the operation only
-    /// ever deleted trashed task history.
-    #[deprecated(note = "use purge_trashed_task instead")]
-    pub async fn delete_task(&self, task_id: Uuid) -> Result<(), Error> {
-        self.purge_trashed_task(task_id).await
     }
 
     pub async fn cancel_active_tasks(&self) -> Result<CancelActiveTasksResponse, Error> {

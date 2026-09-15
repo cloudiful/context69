@@ -49,16 +49,6 @@ impl SecretPatch {
         matches!(self, Self::Keep)
     }
 
-    pub fn from_legacy(api_key: Option<String>, clear_api_key: bool) -> Self {
-        if clear_api_key {
-            Self::Clear
-        } else if let Some(value) = api_key {
-            Self::Set(value)
-        } else {
-            Self::Keep
-        }
-    }
-
     pub fn apply_to(&self, current: Option<String>) -> Option<String> {
         match self {
             Self::Keep => current,

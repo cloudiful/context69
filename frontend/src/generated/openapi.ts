@@ -2947,68 +2947,6 @@ export interface components {
         };
         /** @enum {string} */
         TaskListView: "processing" | "completed" | "trash";
-        TaskMaintenanceStats: {
-            /** Format: int64 */
-            active: number;
-            /** Format: int64 */
-            cancelled: number;
-            /**
-             * Format: int64
-             * @description Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,
-             *     default 1 when unconfigured). Read-only capacity signal.
-             */
-            docling_max_inflight?: number;
-            /**
-             * Format: int64
-             * @description Due admission-deferred `waiting/backoff` items carrying the
-             *     `remote admission is full` marker whose deferral delay has elapsed.
-             *     Read-only backpressure signal paired with `docling_max_inflight`.
-             */
-            due_docling_waiting_count?: number;
-            /** Format: int64 */
-            failed: number;
-            /**
-             * Format: date-time
-             * @description Oldest `submitted_at` among quarantinable `submitting` rows (same
-             *     eligibility as `quarantinable_submitting`). `None` when empty.
-             *     Read-only age signal.
-             */
-            oldest_quarantinable_submitting_at?: string | null;
-            /**
-             * Format: date-time
-             * @description Oldest `submitted_at` among uncertain `submitting` Docling rows.
-             *     `None` when no such row exists. Read-only age signal.
-             */
-            oldest_uncertain_submitting_at?: string | null;
-            /**
-             * Format: int64
-             * @description Rows already isolated as `orphaned`: non-active, no longer blocking
-             *     Docling admission.
-             */
-            orphaned_external_jobs?: number;
-            /**
-             * Format: int64
-             * @description Stale placeholder `submitting` rows on terminal parents that the admin
-             *     quarantine API is allowed to isolate as `orphaned`.
-             */
-            quarantinable_submitting?: number;
-            /** Format: int64 */
-            queued: number;
-            /** Format: int64 */
-            running: number;
-            /** Format: int64 */
-            succeeded: number;
-            /** Format: int64 */
-            total: number;
-            /**
-             * Format: int64
-             * @description Uncertain `submitting` Docling rows (all ages, terminal parents or not).
-             *     These rows never count as remotely cancelled and need explicit review.
-             */
-            uncertain_submitting?: number;
-            /** Format: int64 */
-            waiting: number;
-        };
         /** @enum {string} */
         TaskOrigin: "manual" | "rerun";
         TaskPageResponse: {

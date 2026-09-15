@@ -143,8 +143,7 @@ never auto-deleted; user bulk clear (`POST /v1/tasks/clear` with
 operations are removed; admin `cancel_active_tasks`, Docling
 `recover`/`queue` recovery, and `quarantine-submitting` stay. The v0.15 aliases
 (`text_batch`, `url_batch`, `file_batch`, `delete_batch`, `task`, `tasks`,
-`task_items`, `delete_task`) remain as deprecated shims in this release and
-are removed after the v0.16 cutover; new code must use the canonical names.
+`task_items`, `delete_task`) were removed; new code must use the canonical names.
 Every type needed
 to construct a call (`TaskListView`, `TaskItemsQuery`, `SortDirection`,
 `SourcePolicy`, `IngestOptions`, canonical search/settings types) is

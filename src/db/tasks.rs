@@ -175,34 +175,6 @@ pub struct TaskProcessingHealth {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct StoredTaskMaintenanceStats {
-    pub total_count: i64,
-    pub queued_count: i64,
-    pub running_count: i64,
-    pub waiting_count: i64,
-    pub succeeded_count: i64,
-    pub failed_count: i64,
-    pub cancelled_count: i64,
-    pub active_count: i64,
-    pub expired_terminal_count: i64,
-    pub uncertain_submitting_count: i64,
-    pub quarantinable_submitting_count: i64,
-    pub orphaned_external_job_count: i64,
-    /// Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,
-    /// default 1 when unconfigured). Read-only capacity signal.
-    pub docling_max_inflight: i64,
-    /// Due admission-deferred `waiting/backoff` items carrying the
-    /// `remote admission is full` marker. Read-only backpressure signal.
-    pub due_docling_waiting_count: i64,
-    /// Oldest `submitted_at` among uncertain `submitting` Docling rows.
-    /// `None` when no such row exists.
-    pub oldest_uncertain_submitting_at: Option<DateTime<Utc>>,
-    /// Oldest `submitted_at` among quarantinable `submitting` rows (same
-    /// eligibility as `quarantinable_submitting_count`). `None` when empty.
-    pub oldest_quarantinable_submitting_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub struct StoredQueuedDoclingRecovery {
     pub task_id: Option<Uuid>,
     pub item_id: Option<Uuid>,
@@ -1124,19 +1096,6 @@ impl Database {
         }
         tx.commit().await?;
         Ok((new_task_id, item_ids))
-    }
-
-    pub async fn task_maintenance_stats(
-        &self,
-        cutoff: DateTime<Utc>,
-    ) -> Result<StoredTaskMaintenanceStats> {
-        Ok(sqlx::query_file_as!(
-            StoredTaskMaintenanceStats,
-            "src/sql/db/tasks/maintenance_stats.sql",
-            cutoff
-        )
-        .fetch_one(self.pool())
-        .await?)
     }
 
     pub async fn cancel_all_active_tasks(&self) -> Result<i64> {

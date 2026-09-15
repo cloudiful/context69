@@ -985,47 +985,6 @@ async fn quarantine_audit_preserves_original_status_with_and_without_remote_hist
     cleanup_user_files_groups(&db, user_id, &[file_a, file_b], &[group_id]).await;
 }
 
-#[tokio::test]
-async fn maintenance_stats_reports_quarantine_counters() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping maintenance stats test");
-        return;
-    };
-    let _guard = QUEUE_QUARANTINE_LOCK.lock().await;
-    let db = Database::connect(&url)
-        .await
-        .expect("connect test database");
-    let user_id = seed_test_user(&db).await;
-    let group_id = seed_group(&db).await;
-    let file_id = insert_file(&db, group_id).await;
-    let (task_id, _) = seed_terminal_item_with_job(
-        &db,
-        user_id,
-        file_id,
-        &format!("submitting-{}", Uuid::new_v4()),
-        "submitting",
-        Utc::now() - chrono::Duration::hours(2),
-        true,
-    )
-    .await;
-
-    let stats = db
-        .task_maintenance_stats(Utc::now() - chrono::Duration::days(30))
-        .await
-        .expect("maintenance stats");
-    assert!(
-        stats.uncertain_submitting_count >= 1,
-        "uncertain submitting rows must be visible in maintenance stats"
-    );
-    assert!(
-        stats.quarantinable_submitting_count >= 1,
-        "eligible rows must be counted as quarantinable"
-    );
-
-    cleanup_task(&db, task_id).await;
-    cleanup_user_files_groups(&db, user_id, &[file_id], &[group_id]).await;
-}
-
 #[test]
 fn quarantine_dry_run_request_is_backward_compatible() {
     use context69::contracts::{

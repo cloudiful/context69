@@ -175,18 +175,6 @@ export const zhCN = {
       other: "其他",
     },
   },
-  taskMaintenance: {
-    quarantine: "隔离过期提交",
-    quarantineConfirm: "将终端任务上的过期占位提交隔离为孤立状态？不会声称远端已取消。",
-    quarantineAction: "隔离",
-    quarantineReason: "原因",
-    quarantineReasonRequired: "隔离需要填写原因",
-    quarantineGrace: "早于（分钟）",
-    quarantineLimit: "最多行数",
-    quarantineCompleted: "过期提交已隔离",
-    quarantineFailed: "隔离过期提交失败",
-    quarantineResult: "已隔离 {quarantined} · 非终端跳过 {nonTerminal} · 新记录跳过 {fresh} · 真实远端跳过 {realRemote}",
-  },
   auth: {
     sessionUnavailable: "认证服务暂不可用",
     sessionUnavailableMessage: "暂时无法恢复登录状态，请稍后重试。",

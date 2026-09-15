@@ -518,48 +518,6 @@ pub struct RerunTaskResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct TaskMaintenanceStats {
-    pub total: i64,
-    pub queued: i64,
-    pub running: i64,
-    pub waiting: i64,
-    pub succeeded: i64,
-    pub failed: i64,
-    pub cancelled: i64,
-    pub active: i64,
-    /// Uncertain `submitting` Docling rows (all ages, terminal parents or not).
-    /// These rows never count as remotely cancelled and need explicit review.
-    #[serde(default)]
-    pub uncertain_submitting: i64,
-    /// Stale placeholder `submitting` rows on terminal parents that the admin
-    /// quarantine API is allowed to isolate as `orphaned`.
-    #[serde(default)]
-    pub quarantinable_submitting: i64,
-    /// Rows already isolated as `orphaned`: non-active, no longer blocking
-    /// Docling admission.
-    #[serde(default)]
-    pub orphaned_external_jobs: i64,
-    /// Persisted Docling remote-slot ceiling (`docling_settings.max_inflight`,
-    /// default 1 when unconfigured). Read-only capacity signal.
-    #[serde(default)]
-    pub docling_max_inflight: i64,
-    /// Due admission-deferred `waiting/backoff` items carrying the
-    /// `remote admission is full` marker whose deferral delay has elapsed.
-    /// Read-only backpressure signal paired with `docling_max_inflight`.
-    #[serde(default)]
-    pub due_docling_waiting_count: i64,
-    /// Oldest `submitted_at` among uncertain `submitting` Docling rows.
-    /// `None` when no such row exists. Read-only age signal.
-    #[serde(default)]
-    pub oldest_uncertain_submitting_at: Option<DateTime<Utc>>,
-    /// Oldest `submitted_at` among quarantinable `submitting` rows (same
-    /// eligibility as `quarantinable_submitting`). `None` when empty.
-    /// Read-only age signal.
-    #[serde(default)]
-    pub oldest_quarantinable_submitting_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct CancelActiveTasksResponse {
     pub cancelled_tasks: i64,
 }

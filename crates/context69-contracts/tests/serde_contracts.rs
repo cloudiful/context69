@@ -857,17 +857,6 @@ fn secret_patch_tri_state_is_explicit() {
     );
     assert_eq!(SecretPatch::default(), SecretPatch::Keep);
 
-    assert_eq!(SecretPatch::from_legacy(None, false), SecretPatch::Keep);
-    assert_eq!(
-        SecretPatch::from_legacy(Some("v".to_string()), false),
-        SecretPatch::Set("v".to_string())
-    );
-    assert_eq!(SecretPatch::from_legacy(None, true), SecretPatch::Clear);
-    assert_eq!(
-        SecretPatch::from_legacy(Some("v".to_string()), true),
-        SecretPatch::Clear
-    );
-
     assert_eq!(
         SecretPatch::Keep.apply_to(Some("old".to_string())),
         Some("old".to_string())

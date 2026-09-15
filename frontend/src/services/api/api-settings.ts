@@ -4,7 +4,7 @@ import type {
   UpdateDoclingSettingsRequest,
   UpdateRuntimeSettingsRequest,
   UpdateRuntimeS3Settings,
-  UpdateSearchSettingsRequest,
+  CanonicalUpdateSearchSettingsRequest,
   UpdateTranslationSettingsRequest,
   TranslationProviderPageResponse,
   TaskRef,
@@ -77,7 +77,7 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
         }),
       );
     },
-    updateSearchSettings(payload: UpdateSearchSettingsRequest, options?: RequestOptions) {
+    updateSearchSettings(payload: CanonicalUpdateSearchSettingsRequest, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.PUT("/v1/settings/search", {
           body: payload,

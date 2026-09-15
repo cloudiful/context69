@@ -7,7 +7,7 @@ import type {
 import type {
   UpdateDoclingSettingsRequest,
   UpdateRuntimeSettingsRequest,
-  UpdateSearchSettingsRequest,
+  CanonicalUpdateSearchSettingsRequest,
 } from "../../services/api";
 import { normalizeDoclingPayload, normalizeRuntimePayload } from "./settings-normalize";
 
@@ -79,8 +79,8 @@ export function buildSearchSettingsPayload(
   draft: DraftSearchSettings,
   rerankApiKeyDraft: string,
   clearStoredRerankApiKey: boolean,
-): UpdateSearchSettingsRequest {
-  const payload: UpdateSearchSettingsRequest = {
+): CanonicalUpdateSearchSettingsRequest {
+  const payload: CanonicalUpdateSearchSettingsRequest = {
     ...buildSearchSettingsComparablePayload(draft),
     api_key: clearStoredRerankApiKey ? { op: "clear" } : { op: "keep" },
   };

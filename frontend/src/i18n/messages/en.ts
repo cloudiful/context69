@@ -175,18 +175,6 @@ export const en = {
       other: "Other",
     },
   },
-  taskMaintenance: {
-    quarantine: "Quarantine stale submits",
-    quarantineConfirm: "Isolate stale placeholder submits on terminal tasks as quarantined? Remote jobs are not claimed cancelled.",
-    quarantineAction: "Quarantine",
-    quarantineReason: "Reason",
-    quarantineReasonRequired: "Quarantine needs a reason",
-    quarantineGrace: "Older than (minutes)",
-    quarantineLimit: "Max rows",
-    quarantineCompleted: "Stale submits quarantined",
-    quarantineFailed: "Failed to quarantine stale submits",
-    quarantineResult: "{quarantined} quarantined · {nonTerminal} non-terminal skipped · {fresh} fresh skipped · {realRemote} real-remote skipped",
-  },
   auth: {
     sessionUnavailable: "Authentication unavailable",
     sessionUnavailableMessage: "Unable to restore your session. Try again shortly.",

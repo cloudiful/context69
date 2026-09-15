@@ -107,7 +107,7 @@ pub use context69_contracts_tasks::tasks::{
     QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
     RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskMaintenanceStats, TaskOrigin,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
     TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
     TaskStatus, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
 };
