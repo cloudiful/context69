@@ -1,5 +1,5 @@
-//! Issue 332 file-status retry regressions: retrying failed items resets the
-//! file to pending, including exhausted (non-retryable) failures.
+//! Issue #400 file-state retry regressions: retrying failed items leaves the
+//! file `failed` (no `pending` rewrite); the new task drives processing.
 //!
 //! Runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch database.
 
@@ -12,14 +12,14 @@ use crate::support::{
 };
 
 #[tokio::test]
-async fn retry_failed_task_resets_file_to_pending() {
+async fn retry_failed_task_leaves_file_failed() {
     let Some(db) = connect_scratch().await else {
         return;
     };
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     sqlx::query(
-        "UPDATE context69.library_files SET error_message = 'boom', ingested_at = now() WHERE id = $1",
+        "UPDATE context69.library_files SET error_message = 'boom', ingested_at = NULL WHERE id = $1",
     )
     .bind(file_id)
     .execute(db.pool())
@@ -45,13 +45,17 @@ async fn retry_failed_task_resets_file_to_pending() {
 
     let (status, error_message, ingested_at) = file_status(&db, file_id).await;
     assert_eq!(
-        status, "pending",
-        "retry must reset the failed file to pending"
+        status, "failed",
+        "retry must leave the failed file failed (issue #400)"
     );
-    assert_eq!(error_message, None, "retry must clear the file error");
+    assert_eq!(
+        error_message.as_deref(),
+        Some("boom"),
+        "retry must preserve the file error for the new attempt to overwrite on success"
+    );
     assert_eq!(
         ingested_at, None,
-        "retry must clear the file completion time"
+        "retry must not record a completion time"
     );
 
     cleanup_task(&db, task_id).await;
@@ -61,14 +65,14 @@ async fn retry_failed_task_resets_file_to_pending() {
 }
 
 #[tokio::test]
-async fn retry_force_resets_exhausted_failed_item() {
+async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
     let Some(db) = connect_scratch().await else {
         return;
     };
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     sqlx::query(
-        "UPDATE context69.library_files SET error_message = 'boom', ingested_at = now() WHERE id = $1",
+        "UPDATE context69.library_files SET error_message = 'boom', ingested_at = NULL WHERE id = $1",
     )
     .bind(file_id)
     .execute(db.pool())
@@ -138,13 +142,17 @@ async fn retry_force_resets_exhausted_failed_item() {
 
     let (status, error_message, ingested_at) = file_status(&db, file_id).await;
     assert_eq!(
-        status, "pending",
-        "manual retry must reset the exhausted file to pending"
+        status, "failed",
+        "manual retry must leave the exhausted file failed"
     );
-    assert_eq!(error_message, None, "retry must clear the file error");
+    assert_eq!(
+        error_message.as_deref(),
+        Some("boom"),
+        "retry must preserve the file error"
+    );
     assert_eq!(
         ingested_at, None,
-        "retry must clear the file completion time"
+        "retry must not record a completion time"
     );
 
     cleanup_task(&db, task_id).await;

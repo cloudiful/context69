@@ -17,21 +17,15 @@ pub use context69_contracts_core::pagination::SortDirection;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryIngestStatus {
-    Pending,
-    Running,
     Succeeded,
     Failed,
-    Cancelled,
 }
 
 impl LibraryIngestStatus {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Pending => "pending",
-            Self::Running => "running",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
         }
     }
 }
@@ -41,11 +35,8 @@ impl std::str::FromStr for LibraryIngestStatus {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "pending" => Ok(Self::Pending),
-            "running" => Ok(Self::Running),
             "succeeded" => Ok(Self::Succeeded),
             "failed" => Ok(Self::Failed),
-            "cancelled" => Ok(Self::Cancelled),
             other => Err(anyhow::anyhow!(
                 "unsupported library ingest status: {other}"
             )),

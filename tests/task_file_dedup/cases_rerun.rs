@@ -18,8 +18,8 @@ async fn rerun_skips_files_with_active_processing_task() {
     };
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
-    let file_a = insert_file_in_group(&db, group_id, "cancelled").await;
-    let file_b = insert_file_in_group(&db, group_id, "cancelled").await;
+    let file_a = insert_file_in_group(&db, group_id, "failed").await;
+    let file_b = insert_file_in_group(&db, group_id, "failed").await;
 
     let source =
         insert_cancelled_source_task(&db, user_id, group_id, &[(file_a, 0), (file_b, 1)]).await;
@@ -43,9 +43,9 @@ async fn rerun_skips_files_with_active_processing_task() {
     assert_eq!(skipped, Some(file_b), "only the free file may be copied");
 
     let (status_a, _, _) = file_status(&db, file_a).await;
-    assert_eq!(status_a, "cancelled", "an owned file status is left alone");
+    assert_eq!(status_a, "failed", "an owned file status is left alone");
     let (status_b, _, _) = file_status(&db, file_b).await;
-    assert_eq!(status_b, "pending", "the rerun file is reset to pending");
+    assert_eq!(status_b, "failed", "the rerun file stays failed (issue #400)");
 
     // A source whose every file is already owned cannot be rerun at all.
     let covered = insert_cancelled_source_task(&db, user_id, group_id, &[(file_a, 0)]).await;

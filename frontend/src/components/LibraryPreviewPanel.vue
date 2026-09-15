@@ -125,18 +125,10 @@ const activeSection = computed(() => {
 
         <div v-if="isRetryableFileStatus(detail.ingest_status)" class="grid justify-items-start gap-3">
           <UAlert
-            v-if="detail.ingest_status === 'running' || detail.ingest_status === 'pending'"
-            color="warning"
+            color="error"
             variant="subtle"
-            :title="t('library.processingTitle')"
-            :description="t('library.processingMessage')"
-          />
-          <UAlert
-            v-else
-            :color="detail.ingest_status === 'cancelled' ? 'neutral' : 'error'"
-            variant="subtle"
-            :title="detail.ingest_status === 'cancelled' ? t('library.processingCancelledTitle') : t('library.processingFailedTitle')"
-            :description="detail.ingest_status === 'cancelled' ? t('library.processingCancelledMessage') : (detail.error_message || t('library.failedMessage'))"
+            :title="t('library.processingFailedTitle')"
+            :description="detail.error_message || t('library.failedMessage')"
           />
           <UAlert
             v-if="!detail.source_available"

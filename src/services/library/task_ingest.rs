@@ -106,21 +106,6 @@ impl LibraryService {
         Ok(())
     }
 
-    pub(crate) async fn mark_file_running_for_task(
-        &self,
-        file_id: Uuid,
-    ) -> Result<(), UnifiedIngestError> {
-        self.store
-            .update_file_status(file_id, LibraryIngestStatus::Running, None, false)
-            .await
-            .map_err(|error| task_failure("storage", error, true))?
-            .context(DomainError::not_found(
-                "file disappeared while starting task ingest",
-            ))
-            .map_err(|error| task_failure("storage", error, false))?;
-        Ok(())
-    }
-
     pub(crate) async fn handle_task_ingest_failure(
         &self,
         file_id: Uuid,
@@ -162,15 +147,9 @@ impl LibraryService {
                 )
                 .await;
             }
-            let _ = self
-                .store
-                .update_file_status(
-                    file_id,
-                    LibraryIngestStatus::Pending,
-                    Some(&failure.message),
-                    false,
-                )
-                .await;
+            // Retryable failures leave the file row untouched: the file stays
+            // `failed` (issue #400) and converges via the terminal item
+            // projection once the retried task finishes.
         } else {
             let _ = self
                 .store

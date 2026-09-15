@@ -70,12 +70,10 @@ describe("useLibrarySourceLifecycle", () => {
     getTask.mockResolvedValue({ task_id: "task-id", status: "succeeded" } as never);
   });
 
-  it("offers retry for failed and stale pending/running files only", () => {
+  it("offers retry for failed files only", () => {
     const { state } = setup();
 
-    for (const status of ["pending", "running", "failed", "cancelled"] as const) {
-      expect(state.canRetry(fileEntry({ ingestStatus: status })), status).toBe(true);
-    }
+    expect(state.canRetry(fileEntry({ ingestStatus: "failed" }))).toBe(true);
     expect(state.canRetry(fileEntry({ ingestStatus: "succeeded" }))).toBe(false);
   });
 

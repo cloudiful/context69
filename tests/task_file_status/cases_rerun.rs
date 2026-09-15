@@ -1,5 +1,5 @@
-//! Issue 332 file-status rerun regression: rerunning a cancelled task creates
-//! a fresh task that resets only its non-succeeded files to pending.
+//! Issue #400 file-state rerun regression: rerunning a cancelled task creates
+//! a fresh task and leaves files `failed`; history is preserved.
 //!
 //! Runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch database.
 
@@ -9,7 +9,7 @@ use crate::support::{
 };
 
 #[tokio::test]
-async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
+async fn rerun_cancelled_task_keeps_files_failed_and_keeps_history() {
     let Some(db) = connect_scratch().await else {
         return;
     };
@@ -17,13 +17,13 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
     let group_id = seed_group(&db).await;
     add_group_maintainer(&db, group_id, user_id).await;
     let succeeded_file = insert_file_in_group(&db, group_id, "succeeded").await;
-    let pending_file = insert_file_in_group(&db, group_id, "pending").await;
+    let failed_file = insert_file_in_group(&db, group_id, "failed").await;
 
     let (task_id, item_ids) = create_file_batch_task(
         &db,
         user_id,
         group_id,
-        &[succeeded_file, pending_file],
+        &[succeeded_file, failed_file],
         "file-status-rerun",
     )
     .await;
@@ -35,8 +35,8 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
     db.recompute_task(task_id).await.expect("recompute task");
 
     assert!(db.cancel_task(task_id, user_id).await.expect("cancel task"));
-    let (status, _, _) = file_status(&db, pending_file).await;
-    assert_eq!(status, "cancelled");
+    let (status, _, _) = file_status(&db, failed_file).await;
+    assert_eq!(status, "failed");
 
     let (new_task_id, new_item_ids) = db.rerun_task(task_id).await.expect("rerun cancelled task");
     assert_ne!(new_task_id, task_id, "rerun must create a new task id");
@@ -46,10 +46,10 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
         "rerun must copy only the non-succeeded item"
     );
 
-    let (status, _, _) = file_status(&db, pending_file).await;
+    let (status, _, _) = file_status(&db, failed_file).await;
     assert_eq!(
-        status, "pending",
-        "rerun must reset the cancelled file to pending"
+        status, "failed",
+        "rerun must leave the failed file failed (issue #400)"
     );
     let (status, _, _) = file_status(&db, succeeded_file).await;
     assert_eq!(
@@ -76,7 +76,7 @@ async fn rerun_cancelled_task_resets_files_to_pending_and_keeps_history() {
     cleanup_task(&db, task_id).await;
     cleanup_task(&db, new_task_id).await;
     cleanup_file(&db, succeeded_file).await;
-    cleanup_file(&db, pending_file).await;
+    cleanup_file(&db, failed_file).await;
     cleanup_group(&db, group_id).await;
     cleanup_user(&db, user_id).await;
 }

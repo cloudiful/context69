@@ -9,8 +9,6 @@ export function libraryStatusSeverity(status: LibraryIngestStatus): "success" | 
       return "success";
     case "failed":
       return "error";
-    case "running":
-      return "warning";
     default:
       return "neutral";
   }

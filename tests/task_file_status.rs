@@ -1,11 +1,10 @@
 //! Integration tests for library file ingest-status sync across task
-//! cancel / retry / rerun.
+//! cancel / retry / rerun (issue #400 terminal-only model).
 //!
-//! Cancelling a task must mark the referenced files `cancelled` (unless the
-//! file is covered by another active task or is already ingested), retrying
-//! failed items and rerunning cancelled tasks must reset files to `pending`,
-//! and a cancelled file must still be able to finish as `succeeded` when an
-//! in-flight external request completes after the cancel.
+//! Files only hold `succeeded`/`failed`; cancelling, retrying, or rerunning
+//! leaves files `failed` (or `succeeded` when already ingested). A failed
+//! file must still be able to finish as `succeeded` when an in-flight
+//! external request completes after the cancel.
 //!
 //! Cases live in `tests/task_file_status/cases_*.rs`; deduplication and
 //! cross-group/concurrency behavior lives in `tests/task_file_dedup.rs`. Both

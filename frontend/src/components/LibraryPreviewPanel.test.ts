@@ -67,20 +67,18 @@ describe("LibraryPreviewPanel", () => {
     expect(wrapper.text()).not.toContain("文档 #6655");
   });
 
-  it("offers retry for stale pending/running files and emits the file id", async () => {
-    for (const ingestStatus of ["pending", "running"] as const) {
-      const wrapper = mountPreview({ ingest_status: ingestStatus, source_available: true });
-      const retry = findRetryButton(wrapper);
+  it("offers retry for failed files and emits the file id", async () => {
+    const wrapper = mountPreview({ ingest_status: "failed", source_available: true });
+    const retry = findRetryButton(wrapper);
 
-      expect(retry, ingestStatus).toBeDefined();
-      await retry!.trigger("click");
-      expect(wrapper.emitted("retry")?.[0]).toEqual([detail.file_id]);
-      wrapper.unmount();
-    }
+    expect(retry).toBeDefined();
+    await retry!.trigger("click");
+    expect(wrapper.emitted("retry")?.[0]).toEqual([detail.file_id]);
+    wrapper.unmount();
   });
 
   it("hides retry and warns when the source is missing", () => {
-    const wrapper = mountPreview({ ingest_status: "pending", source_available: false });
+    const wrapper = mountPreview({ ingest_status: "failed", source_available: false });
 
     expect(wrapper.text()).toContain("Original file is missing");
     expect(findRetryButton(wrapper)).toBeUndefined();

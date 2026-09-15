@@ -136,13 +136,11 @@ describe("project files context menu", () => {
     expect(refresh).toHaveBeenCalledOnce();
   });
 
-  it("offers retry for failed and stale pending/running files", () => {
-    for (const status of ["pending", "running", "failed", "cancelled"] as const) {
-      const entry = fileEntry();
-      entry.ingestStatus = status;
-      const items = resourceContextItems(resourceOptions(entry));
-      expect(items.some((item) => item.label === "common.retry"), status).toBe(true);
-    }
+  it("offers retry for failed files", () => {
+    const entry = fileEntry();
+    entry.ingestStatus = "failed";
+    const items = resourceContextItems(resourceOptions(entry));
+    expect(items.some((item) => item.label === "common.retry")).toBe(true);
   });
 
   it("does not offer retry for succeeded files", () => {

@@ -26,7 +26,7 @@ resources AS (
         NULL::TEXT AS error_message,
         (SELECT COUNT(*) FROM context69.library_folders child WHERE child.parent_id = folder.id)::BIGINT AS child_folder_count,
         (SELECT COUNT(*) FROM context69.library_files file WHERE file.folder_id = folder.id)::BIGINT AS file_count,
-        (SELECT COUNT(*) FROM context69.library_files file WHERE file.folder_id = folder.id AND file.ingest_status IN ('pending', 'running'))::BIGINT AS processing_count,
+        (SELECT COUNT(*) FROM context69.library_files file WHERE file.folder_id = folder.id AND EXISTS (SELECT 1 FROM context69.task_items active WHERE active.file_id = file.id AND active.status IN ('queued', 'running', 'waiting')))::BIGINT AS processing_count,
         EXISTS (SELECT 1 FROM context69.library_files file WHERE file.folder_id = folder.id AND LOWER(file.filename) = 'source.json') AS is_source_folder,
         (folder.name = 'records' AND folder.parent_id IS NOT NULL) AS is_source_records_folder,
         folder.created_at,

@@ -17,7 +17,7 @@ async fn terminal_item_status_projects_to_file() {
     };
     let user_id = seed_test_user(&db).await;
     for (finish_status, expected) in [("succeeded", "succeeded"), ("failed", "failed")] {
-        let (file_id, group_id) = insert_file(&db, "running").await;
+        let (file_id, group_id) = insert_file(&db, "failed").await;
         let (task_id, item_ids) =
             create_file_task(&db, user_id, group_id, file_id, "project-status").await;
         let item_id = item_ids[0];

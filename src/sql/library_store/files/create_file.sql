@@ -27,7 +27,8 @@ INSERT INTO context69.library_files (
     storage_rel_path,
     storage_object_id,
     delete_source_after_processing,
-    ingest_status
+    ingest_status,
+    error_message
 )
 SELECT
     $1,
@@ -42,7 +43,8 @@ SELECT
     $8,
     $9,
     $10,
-    'pending'
+    'failed',
+    'awaiting first ingest'
 FROM resolved_scope rs
 RETURNING
     group_id,

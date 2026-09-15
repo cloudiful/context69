@@ -212,10 +212,6 @@ impl SyncService {
                         lease_token,
                     )
                     .await?;
-                library
-                    .mark_file_running_for_task(response.file_id)
-                    .await
-                    .map_err(anyhow::Error::new)?;
                 if let Err(failure) = library
                     .persist_file_sections_for_task(response.file_id, &section_payload, lease_token)
                     .await

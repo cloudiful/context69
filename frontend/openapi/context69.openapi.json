@@ -8180,11 +8180,8 @@
       "LibraryIngestStatus": {
         "type": "string",
         "enum": [
-          "pending",
-          "running",
           "succeeded",
-          "failed",
-          "cancelled"
+          "failed"
         ]
       },
       "LibraryPreviewContentFormat": {

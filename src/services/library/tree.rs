@@ -4,6 +4,7 @@ use crate::contracts::Visibility;
 impl LibraryService {
     pub async fn list_tree(&self) -> Result<LibraryTreeResponse> {
         let folders = self.store.list_folders().await?;
+        let processing = self.store.folder_processing_counts(None).await?;
         Ok(LibraryTreeResponse {
             root: build_tree(
                 "public".to_string(),
@@ -11,6 +12,7 @@ impl LibraryService {
                 Visibility::Public,
                 folders,
                 Vec::new(),
+                &processing,
             ),
         })
     }
@@ -20,6 +22,10 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
     ) -> Result<LibraryTreeResponse> {
         let folders = self.store.list_folders_in_project(project.id).await?;
+        let processing = self
+            .store
+            .folder_processing_counts(Some(project.id))
+            .await?;
         Ok(LibraryTreeResponse {
             root: build_tree(
                 project.group_key.clone(),
@@ -27,6 +33,7 @@ impl LibraryService {
                 project.visibility,
                 folders,
                 Vec::new(),
+                &processing,
             ),
         })
     }
@@ -58,6 +65,7 @@ fn build_tree(
     root_visibility: Visibility,
     folders: Vec<LibraryFolderRecord>,
     files: Vec<crate::domain::LibraryFileRecord>,
+    processing: &HashMap<Option<Uuid>, usize>,
 ) -> LibraryFolderNode {
     let mut seeds = HashMap::<Option<Uuid>, FolderNodeSeed>::new();
     seeds.insert(
@@ -105,6 +113,7 @@ fn build_tree(
         &root_group_path,
         root_visibility,
         &mut seeds,
+        processing,
     )
 }
 
@@ -115,6 +124,7 @@ fn build_folder_node(
     root_group_path: &str,
     root_visibility: Visibility,
     seeds: &mut HashMap<Option<Uuid>, FolderNodeSeed>,
+    processing: &HashMap<Option<Uuid>, usize>,
 ) -> LibraryFolderNode {
     let mut seed = seeds.remove(&folder_id).unwrap_or(FolderNodeSeed {
         folder: None,
@@ -137,6 +147,7 @@ fn build_folder_node(
                 root_group_path,
                 root_visibility,
                 seeds,
+                processing,
             ))
         })
         .collect::<Vec<_>>();
@@ -144,16 +155,11 @@ fn build_folder_node(
     seed.files
         .sort_by(|left, right| left.filename.cmp(&right.filename));
 
-    let own_processing = seed
-        .files
-        .iter()
-        .filter(|file| {
-            matches!(
-                file.ingest_status,
-                LibraryIngestStatus::Pending | LibraryIngestStatus::Running
-            )
-        })
-        .count();
+    // Processing is derived from active task items (issue #400): the stored
+    // file status only holds terminal states (`succeeded`/`failed`), so the
+    // tree never reads it here. Direct counts come from the EXISTS query;
+    // subtree totals accumulate through children.
+    let own_processing = processing.get(&folder_id).copied().unwrap_or(0);
     let processing_count = own_processing
         + children
             .iter()

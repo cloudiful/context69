@@ -211,11 +211,6 @@ pub(super) async fn process_file_stage(
                 set_stage(service, task, item, "translation").await?;
                 return Ok(ProcessResult::Progressed);
             }
-            service
-                .library()
-                .mark_file_running_for_task(file_id)
-                .await
-                .map_err(anyhow::Error::msg)?;
             let submitted = match service
                 .library()
                 .submit_docling_job_for_task(item.id, file_id, item.lease_token, item.task_id)
@@ -334,11 +329,6 @@ pub(super) async fn process_file_stage(
                 set_stage(service, task, item, "translation").await?;
                 return Ok(ProcessResult::Progressed);
             }
-            service
-                .library()
-                .mark_file_running_for_task(file_id)
-                .await
-                .map_err(anyhow::Error::msg)?;
             let sections = match persisted_section_payload(&item.payload) {
                 Some(sections) => sections,
                 None => match service

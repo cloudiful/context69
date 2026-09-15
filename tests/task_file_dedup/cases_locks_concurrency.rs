@@ -76,7 +76,7 @@ async fn concurrent_creates_for_one_file_converge_on_one_task() {
         .await
         .expect("connect test database");
     let user_id = seed_test_user(&db).await;
-    let (file_id, group_id) = insert_file(&db, "pending").await;
+    let (file_id, group_id) = insert_file(&db, "failed").await;
     let payloads = [json!({ "file_id": file_id })];
 
     let (first, second) = tokio::join!(
@@ -184,7 +184,7 @@ async fn retry_and_rerun_wait_for_the_shared_file_lock() {
     let group_id = seed_group(&db).await;
     add_group_maintainer(&db, group_id, user_id).await;
     let retry_file = insert_file_in_group(&db, group_id, "failed").await;
-    let rerun_file = insert_file_in_group(&db, group_id, "cancelled").await;
+    let rerun_file = insert_file_in_group(&db, group_id, "failed").await;
     let (retry_task, retry_items) =
         create_file_task(&db, user_id, group_id, retry_file, "lock-retry").await;
     mark_item_failed(&db, retry_items[0]).await;

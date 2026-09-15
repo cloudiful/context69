@@ -1,6 +1,6 @@
-//! Issue 332 file-status cancel regressions: cancelling a task marks its file
-//! cancelled unless another active task or an already-ingested file owns it,
-//! and a late in-flight success is still allowed.
+//! Issue #400 file-state cutover: cancelling a task leaves its file `failed`
+//! (terminal-only states) unless the file already succeeded, and a late
+//! in-flight success is still allowed.
 //!
 //! Runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch database.
 
@@ -13,12 +13,12 @@ use crate::support::{
 };
 
 #[tokio::test]
-async fn cancel_queued_file_task_marks_file_cancelled() {
+async fn cancel_queued_file_task_leaves_file_failed() {
     let Some(db) = connect_scratch().await else {
         return;
     };
     let user_id = seed_test_user(&db).await;
-    let (file_id, group_id) = insert_file(&db, "pending").await;
+    let (file_id, group_id) = insert_file(&db, "failed").await;
     add_group_maintainer(&db, group_id, user_id).await;
     let (task_id, _) =
         create_file_task(&db, user_id, group_id, file_id, "file-status-cancel").await;
@@ -28,15 +28,14 @@ async fn cancel_queued_file_task_marks_file_cancelled() {
         "queued task must be cancellable"
     );
 
-    let (status, error_message, ingested_at) = file_status(&db, file_id).await;
+    let (status, _, ingested_at) = file_status(&db, file_id).await;
     assert_eq!(
-        status, "cancelled",
-        "cancelled task must mark its file cancelled"
+        status, "failed",
+        "cancel must leave the file failed (issue #400 terminal-only)"
     );
-    assert_eq!(error_message, None, "cancel must clear the file error");
     assert_eq!(
         ingested_at, None,
-        "cancel must clear the file completion time"
+        "cancel must not record a completion time"
     );
 
     cleanup_task(&db, task_id).await;
@@ -52,7 +51,7 @@ async fn cancel_running_file_task_allows_late_success() {
     };
     let store = LibraryStore::new(db.clone());
     let user_id = seed_test_user(&db).await;
-    let (file_id, group_id) = insert_file(&db, "running").await;
+    let (file_id, group_id) = insert_file(&db, "failed").await;
     add_group_maintainer(&db, group_id, user_id).await;
     let (task_id, _) =
         create_file_task(&db, user_id, group_id, file_id, "file-status-running").await;
@@ -65,8 +64,8 @@ async fn cancel_running_file_task_allows_late_success() {
     assert!(db.cancel_task(task_id, user_id).await.expect("cancel task"));
     let (status, _, _) = file_status(&db, file_id).await;
     assert_eq!(
-        status, "cancelled",
-        "cancel must mark a running file cancelled"
+        status, "failed",
+        "cancel must leave a running file failed"
     );
 
     let updated = store
@@ -116,12 +115,12 @@ async fn cancel_does_not_overwrite_a_succeeded_file() {
 }
 
 #[tokio::test]
-async fn cancel_keeps_file_pending_when_another_task_is_still_active() {
+async fn cancel_keeps_file_failed_when_another_task_is_still_active() {
     let Some(db) = connect_scratch().await else {
         return;
     };
     let user_id = seed_test_user(&db).await;
-    let (file_id, group_id) = insert_file(&db, "pending").await;
+    let (file_id, group_id) = insert_file(&db, "failed").await;
     add_group_maintainer(&db, group_id, user_id).await;
     let (task_a, _) =
         create_file_task(&db, user_id, group_id, file_id, "file-status-multi-a").await;
@@ -135,8 +134,8 @@ async fn cancel_keeps_file_pending_when_another_task_is_still_active() {
     );
     let (status, _, _) = file_status(&db, file_id).await;
     assert_eq!(
-        status, "pending",
-        "cancelling one task must not regress a file still queued in another task"
+        status, "failed",
+        "cancelling one task must leave a file with another active task failed"
     );
 
     assert!(
@@ -146,8 +145,8 @@ async fn cancel_keeps_file_pending_when_another_task_is_still_active() {
     );
     let (status, _, _) = file_status(&db, file_id).await;
     assert_eq!(
-        status, "cancelled",
-        "cancelling the last active task must mark the file cancelled"
+        status, "failed",
+        "cancelling the last active task must leave the file failed"
     );
 
     cleanup_task(&db, task_a).await;

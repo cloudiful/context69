@@ -434,8 +434,6 @@ export const zhCN = {
     previewUnavailableTitle: "预览不可用",
     processingTitle: "处理中",
     processingFailedTitle: "处理失败",
-    processingCancelledTitle: "处理已取消",
-    processingCancelledMessage: "处理任务已被取消，可重试以继续处理。",
     idleStatus: "空闲",
     activeWorkMessage: "当前目录仍有后台入库任务在运行。",
     noActiveWorkMessage: "当前目录没有活动中的入库任务。",
@@ -522,11 +520,8 @@ export const zhCN = {
       targetFolder: "目标目录",
     },
     status: {
-      pending: "等待中",
-      running: "处理中",
       succeeded: "已完成",
       failed: "失败",
-      cancelled: "已取消",
     },
   },
   sources: {

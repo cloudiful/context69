@@ -77,7 +77,7 @@ async fn cross_group_item_does_not_project_status_onto_foreign_file() {
     let user_id = seed_test_user(&db).await;
     let owner_group = seed_group(&db).await;
     let attacker_group = seed_group(&db).await;
-    let file_id = insert_file_in_group(&db, owner_group, "running").await;
+    let file_id = insert_file_in_group(&db, owner_group, "failed").await;
     // Legacy/hostile row: a task in another group points at this file.
     let (task_id, _) =
         create_raw_active_file_task(&db, user_id, attacker_group, file_id, "queued").await;
@@ -125,7 +125,7 @@ async fn cross_group_item_does_not_project_status_onto_foreign_file() {
 
     let (status, _, _) = file_status(&db, file_id).await;
     assert_eq!(
-        status, "running",
+        status, "failed",
         "a foreign task must not project its status onto another group's file"
     );
 

@@ -97,7 +97,7 @@ WITH to_exhaust AS (
     FROM exhausted
     WHERE file.id = exhausted.file_id
       AND exhausted.file_id IS NOT NULL
-      AND file.ingest_status IN ('pending', 'running')
+      AND file.ingest_status = 'failed'
       AND NOT EXISTS (
           SELECT 1
           FROM context69.task_items other

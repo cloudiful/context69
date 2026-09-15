@@ -14,9 +14,6 @@ describe("libraryStatusSeverity", () => {
   it("maps ingest statuses to UI severities", () => {
     expect(libraryStatusSeverity("succeeded")).toBe("success");
     expect(libraryStatusSeverity("failed")).toBe("error");
-    expect(libraryStatusSeverity("running")).toBe("warning");
-    expect(libraryStatusSeverity("pending")).toBe("neutral");
-    expect(libraryStatusSeverity("cancelled")).toBe("neutral");
   });
 });
 

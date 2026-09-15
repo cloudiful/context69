@@ -187,7 +187,7 @@ impl LibraryService {
             file.ingest_status,
             LibraryIngestStatus::Succeeded | LibraryIngestStatus::Failed
         ) {
-            // Non-terminal: pending, running, or cancelled.
+            // Defense in depth: file states are terminal-only (issue #400).
             return Ok(MissingSourceRowOutcome::SkippedRecentNonterminal);
         }
 

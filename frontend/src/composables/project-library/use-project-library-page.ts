@@ -79,7 +79,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
       filename: item.name,
       media_type: item.media_type ?? "application/octet-stream",
       size_bytes: item.size_bytes ?? 0,
-      ingest_status: item.ingest_status ?? "pending",
+      ingest_status: item.ingest_status ?? "failed",
       error_message: item.error_message ?? null,
       created_at: item.created_at,
       updated_at: item.updated_at,

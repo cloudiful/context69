@@ -2,8 +2,8 @@ use context69_contracts::{
     ApiErrorCode, CanonicalApiErrorResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
     CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateTextRequest,
     CursorPageQuery, CursorPagination, FileBatchItem, ImportLibraryFileFromUrlRequest,
-    IngestOptions, LibraryFileIngestOptions, LibraryTextContentFormat, MetadataObject,
-    OffsetPageQuery, OffsetPagination, Pagination, PersonalAccessTokenScope,
+    IngestOptions, LibraryFileIngestOptions, LibraryIngestStatus, LibraryTextContentFormat,
+    MetadataObject, OffsetPageQuery, OffsetPagination, Pagination, PersonalAccessTokenScope,
     PrepareLibraryUploadRequest, SearchRequest, SecretPatch, SortDirection, SortOrder,
     SourcePolicy, TaskListQuery, TaskListView, UpsertLibraryTextRequest,
 };
@@ -1021,6 +1021,34 @@ fn b0_error_envelope_wire_equals_legacy() {
     let minimal = CanonicalApiErrorResponse::new(ApiErrorCode::NotFound, "missing".to_string());
     let legacy: context69_contracts::ApiErrorResponse = minimal.into();
     assert_eq!(legacy.code, "not_found");
+}
+
+#[test]
+fn file_ingest_status_is_terminal_only() {
+    // Issue #400: file states are terminal-only (`succeeded`/`failed`);
+    // `processing` is derived from active task_items and `cancelled` was
+    // removed (wire-breaking, see v0.18 migration notes).
+    assert_eq!(
+        to_value(LibraryIngestStatus::Succeeded).expect("serialize succeeded"),
+        json!("succeeded")
+    );
+    assert_eq!(
+        to_value(LibraryIngestStatus::Failed).expect("serialize failed"),
+        json!("failed")
+    );
+    let succeeded: LibraryIngestStatus =
+        serde_json::from_value(json!("succeeded")).expect("deserialize succeeded");
+    assert_eq!(succeeded, LibraryIngestStatus::Succeeded);
+    for legacy in ["pending", "running", "cancelled"] {
+        assert!(
+            serde_json::from_value::<LibraryIngestStatus>(json!(legacy)).is_err(),
+            "{legacy} must no longer deserialize as a file status"
+        );
+        assert!(
+            legacy.parse::<LibraryIngestStatus>().is_err(),
+            "{legacy} must no longer parse as a file status"
+        );
+    }
 }
 
 #[test]

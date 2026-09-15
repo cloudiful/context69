@@ -99,12 +99,12 @@ describe("useProjectLibraryPage", () => {
     }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
 
     await state.changePage(50, 25);
-    await state.changeStatusFilter("running");
+    await state.changeStatusFilter("failed");
 
     expect(state.page.value).toBe(1);
     expect(getGroupLibraryResources).toHaveBeenLastCalledWith("stock/alpha", expect.objectContaining({
       page: 1,
-      status: "running",
+      status: "failed",
     }));
     wrapper.unmount();
   });

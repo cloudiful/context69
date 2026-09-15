@@ -2,13 +2,10 @@ import type { LibraryIngestStatus } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
 
 // A file is offered for reprocessing while it is not a confirmed success.
-// `pending`/`running` are stale projections once no active task exists, so the
-// browser exposes retry for them as well; the backend rejects a live task.
+// File states are terminal-only (`succeeded`/`failed`, issue #400);
+// processing is derived from active tasks, so only `failed` is retryable.
 export const RETRYABLE_FILE_STATUSES: readonly LibraryIngestStatus[] = [
-  "pending",
-  "running",
   "failed",
-  "cancelled",
 ];
 
 export function isRetryableFileStatus(status: LibraryIngestStatus): boolean {

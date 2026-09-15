@@ -57,7 +57,7 @@ const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const { statusLabel } = createLibraryStatusHelpers();
-const mapStatusLabel = (status: string) => statusLabel(status as "pending" | "running" | "succeeded" | "failed" | "cancelled");
+const mapStatusLabel = (status: string) => statusLabel(status as "succeeded" | "failed");
 const tree = useProjectLibraryTree({
   groupPath: () => props.groupPath,
   statusLabel: mapStatusLabel,

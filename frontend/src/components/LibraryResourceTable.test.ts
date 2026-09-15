@@ -126,15 +126,13 @@ describe("LibraryResourceTable", () => {
     });
   }
 
-  it("offers retry for failed and stale pending/running files", async () => {
-    for (const status of ["pending", "running", "failed", "cancelled"] as const) {
-      const entry = fileEntry({ ingestStatus: status });
-      const wrapper = mountWith([entry]);
-      const retry = wrapper.get('button[aria-label="Retry"]');
-      await retry.trigger("click");
-      expect(wrapper.emitted("retry-entry")?.[0]).toEqual([entry]);
-      wrapper.unmount();
-    }
+  it("offers retry for failed files", async () => {
+    const entry = fileEntry({ ingestStatus: "failed" });
+    const wrapper = mountWith([entry]);
+    const retry = wrapper.get('button[aria-label="Retry"]');
+    await retry.trigger("click");
+    expect(wrapper.emitted("retry-entry")?.[0]).toEqual([entry]);
+    wrapper.unmount();
   });
 
   it("hides retry when the source is unavailable", () => {

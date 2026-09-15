@@ -1,5 +1,5 @@
-//! Issue 332 phase 1 overlap regressions: atomic partial-overlap rejection,
-//! idempotent reuse, and reprocessing of failed/pending/running files.
+//! Issue #400 overlap regressions: atomic partial-overlap rejection,
+//! idempotent reuse, and reprocessing of failed files.
 //!
 //! Runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch database.
 
@@ -20,8 +20,8 @@ async fn partially_overlapping_batch_is_rejected_atomically() {
     };
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
-    let active_file = insert_file_in_group(&db, group_id, "pending").await;
-    let free_file = insert_file_in_group(&db, group_id, "pending").await;
+    let active_file = insert_file_in_group(&db, group_id, "failed").await;
+    let free_file = insert_file_in_group(&db, group_id, "failed").await;
     let (active_task, _) =
         create_file_task(&db, user_id, group_id, active_file, "partial-active").await;
 
@@ -72,7 +72,7 @@ async fn resubmitting_active_file_reuses_existing_task() {
         return;
     };
     let user_id = seed_test_user(&db).await;
-    let (file_id, group_id) = insert_file(&db, "pending").await;
+    let (file_id, group_id) = insert_file(&db, "failed").await;
     let (task_a, _) = create_file_task(&db, user_id, group_id, file_id, "dedup-first").await;
 
     let (task_id, reused, item_ids) = db
@@ -106,12 +106,12 @@ async fn resubmitting_active_file_reuses_existing_task() {
 }
 
 #[tokio::test]
-async fn reprocess_creates_new_task_for_failed_pending_and_running_files() {
+async fn reprocess_creates_new_task_for_failed_files() {
     let Some(db) = connect_scratch().await else {
         return;
     };
     let user_id = seed_test_user(&db).await;
-    for status in ["failed", "pending", "running"] {
+    for status in ["failed"] {
         let (file_id, group_id) = insert_file(&db, status).await;
         let (task_id, reused, item_ids) = db
             .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {

@@ -434,8 +434,6 @@ export const en = {
     previewUnavailableTitle: "Preview unavailable",
     processingTitle: "Processing",
     processingFailedTitle: "Processing failed",
-    processingCancelledTitle: "Processing cancelled",
-    processingCancelledMessage: "The processing task was cancelled. Retry to resume processing.",
     idleStatus: "Idle",
     activeWorkMessage: "Background ingest jobs are still running.",
     noActiveWorkMessage: "No active ingest work in this directory.",
@@ -522,11 +520,8 @@ export const en = {
       targetFolder: "Target Folder",
     },
     status: {
-      pending: "Pending",
-      running: "Running",
       succeeded: "Ready",
       failed: "Failed",
-      cancelled: "Cancelled",
     },
   },
   sources: {

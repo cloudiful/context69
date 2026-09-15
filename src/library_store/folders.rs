@@ -144,6 +144,28 @@ impl LibraryStore {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn folder_processing_counts(
+        &self,
+        project_id: Option<i64>,
+    ) -> Result<std::collections::HashMap<Option<Uuid>, usize>> {
+        #[derive(sqlx::FromRow)]
+        struct ProcessingCountRow {
+            folder_id: Option<Uuid>,
+            count: i64,
+        }
+        let rows = sqlx::query_file_as!(
+            ProcessingCountRow,
+            "src/sql/library_store/folders/count_processing_by_folder.sql",
+            project_id,
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.folder_id, usize::try_from(row.count).unwrap_or(0)))
+            .collect())
+    }
+
     pub async fn descendant_folder_ids(&self, folder_id: Uuid) -> Result<Vec<Uuid>> {
         let rows = sqlx::query_file_scalar!(
             "src/sql/library_store/folders/descendant_folder_ids.sql",
