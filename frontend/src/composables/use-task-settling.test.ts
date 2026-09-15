@@ -88,9 +88,127 @@ describe("createTaskSettler", () => {
     await vi.advanceTimersByTimeAsync(1500);
     const [firstResults, secondResults] = await Promise.all([first, second]);
 
+    expect(firstResults.map((state) => state.task_id)).toEqual(["task-1"]);
+    expect(secondResults.map((state) => state.task_id)).toEqual(["task-2"]);
     expect(firstResults[0].status).toBe("succeeded");
     expect(secondResults[0].status).toBe("succeeded");
-    expect(onTick).toHaveBeenCalledTimes(4);
+    expect(getTask).toHaveBeenCalledTimes(4);
+    expect(onTick).toHaveBeenCalledTimes(2);
+    settler.dispose();
+  });
+
+  it("merges concurrent settles into one tick per round", async () => {
+    getTask.mockImplementation(async (taskId: string) => {
+      const count = getTask.mock.calls.filter((call) => call[0] === taskId).length;
+      if (taskId === "task-1") {
+        return taskState(taskId, count >= 2 ? "succeeded" : "running") as never;
+      }
+      return taskState(taskId, count >= 2 ? "succeeded" : "running") as never;
+    });
+    const onTick = vi.fn().mockResolvedValue(undefined);
+    const settler = createTaskSettler(onTick);
+
+    const first = settler.settle([{ task_id: "task-1", item_ids: [] }]);
+    const second = settler.settle([{ task_id: "task-2", item_ids: [] }]);
+    await vi.advanceTimersByTimeAsync(1500);
+    const [firstResults, secondResults] = await Promise.all([first, second]);
+
+    expect(firstResults).toHaveLength(1);
+    expect(secondResults).toHaveLength(1);
+    expect(firstResults[0].task_id).toBe("task-1");
+    expect(secondResults[0].task_id).toBe("task-2");
+    expect(onTick).toHaveBeenCalledTimes(2);
+    settler.dispose();
+  });
+
+  it("resolves each caller with only its own tasks as they finish", async () => {
+    const calls = new Map<string, number>();
+    getTask.mockImplementation(async (taskId: string) => {
+      const next = (calls.get(taskId) ?? 0) + 1;
+      calls.set(taskId, next);
+      if (taskId === "task-1") return taskState(taskId, "succeeded") as never;
+      return taskState(taskId, next >= 2 ? "succeeded" : "running") as never;
+    });
+    const onTick = vi.fn().mockResolvedValue(undefined);
+    const settler = createTaskSettler(onTick);
+
+    let firstDone = false;
+    let secondDone = false;
+    const first = settler.settle([{ task_id: "task-1", item_ids: [] }]).then((results) => {
+      firstDone = true;
+      return results;
+    });
+    const second = settler.settle([{ task_id: "task-2", item_ids: [] }]).then((results) => {
+      secondDone = true;
+      return results;
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onTick).toHaveBeenCalledTimes(1);
+    expect(firstDone).toBe(true);
+    expect(secondDone).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1500);
+    const [firstResults, secondResults] = await Promise.all([first, second]);
+    expect(firstResults.map((state) => state.task_id)).toEqual(["task-1"]);
+    expect(secondResults.map((state) => state.task_id)).toEqual(["task-2"]);
+    expect(onTick).toHaveBeenCalledTimes(2);
+    settler.dispose();
+  });
+
+  it("counts the poll cap per task from its first join", async () => {
+    getTask.mockResolvedValue(taskState("task-1", "running") as never);
+    getTask.mockImplementation(async (taskId: string) => taskState(taskId, "running") as never);
+    const onTick = vi.fn().mockResolvedValue(undefined);
+    const settler = createTaskSettler(onTick);
+
+    let firstDone = false;
+    let secondDone = false;
+    const first = settler.settle([{ task_id: "task-1", item_ids: [] }]).then((results) => {
+      firstDone = true;
+      return results;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onTick).toHaveBeenCalledTimes(1);
+
+    const second = settler.settle([{ task_id: "task-2", item_ids: [] }]).then((results) => {
+      secondDone = true;
+      return results;
+    });
+
+    await vi.advanceTimersByTimeAsync(119 * 1500);
+    expect(firstDone).toBe(true);
+    expect(secondDone).toBe(false);
+    expect(onTick).toHaveBeenCalledTimes(120);
+
+    await vi.advanceTimersByTimeAsync(1500);
+    await Promise.all([first, second]);
+    expect(firstDone).toBe(true);
+    expect(secondDone).toBe(true);
+    expect(onTick).toHaveBeenCalledTimes(121);
+    expect(getTask.mock.calls.filter((call) => call[0] === "task-1")).toHaveLength(120);
+    expect(getTask.mock.calls.filter((call) => call[0] === "task-2")).toHaveLength(120);
+    settler.dispose();
+  });
+
+  it("resolves every concurrent waiter when disposed", async () => {
+    getTask.mockResolvedValue(taskState("task-1", "running") as never);
+    getTask.mockImplementation(async (taskId: string) => taskState(taskId, "running") as never);
+    const onTick = vi.fn().mockResolvedValue(undefined);
+    const settler = createTaskSettler(onTick);
+
+    const first = settler.settle([{ task_id: "task-1", item_ids: [] }]);
+    const second = settler.settle([{ task_id: "task-2", item_ids: [] }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onTick).toHaveBeenCalledTimes(1);
+
+    settler.dispose();
+    const [firstResults, secondResults] = await Promise.all([first, second]);
+    expect(firstResults.map((state) => state.task_id)).toEqual(["task-1"]);
+    expect(secondResults.map((state) => state.task_id)).toEqual(["task-2"]);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(onTick).toHaveBeenCalledTimes(1);
     settler.dispose();
   });
 
