@@ -140,8 +140,9 @@ extraction templates, health, and authentication identity. Task history is
 never auto-deleted; user bulk clear (`POST /v1/tasks/clear` with
 `ClearTaskHistoryRequest`/`ClearTaskHistoryResponse`) is raw-only via
 `client.raw()` operation `clear_task_history`. The retention/purge admin
-operations are removed; admin `cancel_active_tasks`, Docling
-`recover`/`queue` recovery, and `quarantine-submitting` stay. The v0.15 aliases
+operations are removed; admin `cancel_active_tasks` and Docling
+`recover`/`queue` recovery stay (stale `submitting` `quarantine-submitting`
+was removed in issue 446 P3). The v0.15 aliases
 (`text_batch`, `url_batch`, `file_batch`, `delete_batch`, `task`, `tasks`,
 `task_items`, `delete_task`) were removed; new code must use the canonical names.
 Every type needed

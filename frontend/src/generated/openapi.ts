@@ -52,22 +52,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tasks/quarantine-submitting": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["quarantine_stale_submitting"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tasks/{task_id}/recover": {
         parameters: {
             query?: never;
@@ -2457,76 +2441,6 @@ export interface components {
             task?: null | components["schemas"]["TaskRef"];
             upload_required: boolean;
         };
-        QuarantineStaleSubmittingRequest: {
-            /**
-             * @description When true, only read eligibility counts and return a preview without
-             *     mutating any row or writing any audit row. Optional for backward
-             *     compatibility; omitted or false preserves the mutating behavior.
-             */
-            dry_run?: boolean | null;
-            /**
-             * Format: int64
-             * @description Only rows older than this many minutes are eligible. Defaults to 30,
-             *     must be between 10 and 10080 (one week).
-             */
-            grace_minutes?: number | null;
-            /**
-             * Format: int64
-             * @description Maximum rows to quarantine per call. Defaults to 100, clamped to
-             *     1..=1000.
-             */
-            limit?: number | null;
-            /** @description Free-form human justification stored on each row and its audit row. */
-            reason: string;
-        };
-        QuarantineStaleSubmittingResponse: {
-            /**
-             * @description True when this response is a dry-run preview: no row was mutated and
-             *     no audit row was written. Always present; false for mutating calls so
-             *     callers never conflate eligible rows with changed rows.
-             */
-            dry_run?: boolean;
-            /**
-             * Format: int64
-             * @description Total eligible (`quarantinable`) `submitting` rows at read time:
-             *     placeholder remote id, older than the grace cutoff, terminal parents.
-             *     Uncapped by `limit`. In dry-run mode this is the full preview total
-             *     with `quarantined` empty and `quarantined_count` zero. In mutating
-             *     mode this is the remainder still eligible after this call, while
-             *     `quarantined_count` is the actual number of rows changed.
-             */
-            quarantinable_count?: number;
-            quarantined: components["schemas"]["QuarantinedExternalJob"][];
-            /** Format: int64 */
-            quarantined_count: number;
-            /**
-             * Format: int64
-             * @description Still `submitting` because it is newer than the grace cutoff.
-             */
-            skipped_fresh: number;
-            /**
-             * Format: int64
-             * @description Still `submitting` because the parent task/item is not terminal.
-             */
-            skipped_non_terminal: number;
-            /**
-             * Format: int64
-             * @description Still `submitting` with a non-placeholder remote id; needs manual
-             *     review because a real remote job may exist.
-             */
-            skipped_real_remote: number;
-        };
-        QuarantinedExternalJob: {
-            /** Format: uuid */
-            external_job_id: string;
-            /** Format: uuid */
-            item_id: string;
-            old_remote_task_id?: string | null;
-            /** Format: date-time */
-            quarantined_at: string;
-            /** Format: uuid */
-            task_id: string;
-        };
         QueueDoclingRecoveryRequest: {
             /** @description Free-form human justification recorded in operator logs. */
             reason: string;
@@ -3457,48 +3371,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CancelActiveTasksResponse"];
-                };
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    quarantine_stale_submitting: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QuarantineStaleSubmittingRequest"];
-            };
-        };
-        responses: {
-            /** @description Quarantined stale submitting jobs as orphaned with skip counts; dry_run=true returns only eligibility counts with zero writes */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuarantineStaleSubmittingResponse"];
-                };
-            };
-            /** @description Missing or empty reason, or grace_minutes out of bounds */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
             /** @description Admin access required */

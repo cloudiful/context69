@@ -52,8 +52,7 @@ use crate::api::{
         __path_sync_source, __path_update_source, __path_update_source_connection,
     },
     task_maintenance::{
-        __path_cancel_active_tasks, __path_quarantine_stale_submitting,
-        __path_queue_docling_recovery, __path_recover_docling_task,
+        __path_cancel_active_tasks, __path_queue_docling_recovery, __path_recover_docling_task,
     },
     tasks::{
         __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_ensure_scope,
@@ -91,8 +90,7 @@ use crate::contracts::{
     MetadataIndexPageResponse, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
     MoveFileRequest, MoveFolderRequest, OffsetPageQuery, PersonalAccessTokenPageQuery,
     PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, QuarantineStaleSubmittingRequest,
-    QuarantineStaleSubmittingResponse, QuarantinedExternalJob, QueueDoclingRecoveryRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, QueueDoclingRecoveryRequest,
     QueueDoclingRecoveryResponse, QueuedDoclingTask, RebuildDocumentExtractionsRequest,
     RebuildDocumentTranslationsRequest, RecoverDoclingTaskRequest, RecoverDoclingTaskResponse,
     RecoveredDoclingTask, RerunTaskResponse, ResetAdminUserPasswordRequest, ScopeMetadataIndex,
@@ -204,8 +202,7 @@ use crate::contracts::{
         clear_task_history,
         cancel_active_tasks,
         recover_docling_task,
-        queue_docling_recovery,
-        quarantine_stale_submitting
+        queue_docling_recovery
     ),
     components(schemas(
         HealthStatus,
@@ -342,9 +339,6 @@ use crate::contracts::{
         TaskStreamUpdate,
         TaskSortBy,
         CancelActiveTasksResponse,
-        QuarantineStaleSubmittingRequest,
-        QuarantineStaleSubmittingResponse,
-        QuarantinedExternalJob,
         QueueDoclingRecoveryRequest,
         QueueDoclingRecoveryResponse,
         QueuedDoclingTask,
@@ -477,7 +471,6 @@ mod tests {
             "/v1/admin/tasks/cancel-active",
             "/v1/admin/tasks/{task_id}/recover",
             "/v1/admin/tasks/{task_id}/recover/queue",
-            "/v1/admin/tasks/quarantine-submitting",
         ] {
             assert!(paths.contains_key(path), "missing path {path}");
         }

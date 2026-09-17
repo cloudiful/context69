@@ -2,8 +2,6 @@ import type {
   CancelActiveTasksResponse,
   ClearTaskHistoryRequest,
   ClearTaskHistoryResponse,
-  QuarantineStaleSubmittingRequest,
-  QuarantineStaleSubmittingResponse,
   QueueDoclingRecoveryRequest,
   QueueDoclingRecoveryResponse,
   RecoverDoclingTaskRequest,
@@ -153,15 +151,6 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         body: payload,
         signal: options?.signal,
       })) as Promise<QueueDoclingRecoveryResponse>;
-    },
-    quarantineStaleSubmitting(
-      payload: QuarantineStaleSubmittingRequest,
-      options?: RequestOptions,
-    ) {
-      return unwrapResponse(openapiClient.POST("/v1/admin/tasks/quarantine-submitting", {
-        body: payload,
-        signal: options?.signal,
-      })) as Promise<QuarantineStaleSubmittingResponse>;
     },
   };
 }

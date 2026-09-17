@@ -5,9 +5,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use context69_contracts::{
-    ApiErrorResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
-    QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, RecoverDoclingTaskRequest,
-    RecoverDoclingTaskResponse,
+    ApiErrorResponse, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,
+    RecoverDoclingTaskRequest, RecoverDoclingTaskResponse,
 };
 use uuid::Uuid;
 
@@ -89,32 +88,6 @@ pub(crate) async fn queue_docling_recovery(
         .app
         .tasks
         .admin_queue_docling_recovery(&session.user, task_id, &request)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(error) => task_maintenance_error_response(error),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/admin/tasks/quarantine-submitting",
-    request_body = QuarantineStaleSubmittingRequest,
-    responses(
-        (status = 200, description = "Quarantined stale submitting jobs as orphaned with skip counts; dry_run=true returns only eligibility counts with zero writes", body = QuarantineStaleSubmittingResponse),
-        (status = 400, description = "Missing or empty reason, or grace_minutes out of bounds", body = ApiErrorResponse),
-        (status = 403, description = "Admin access required", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn quarantine_stale_submitting(
-    State(state): State<ApiState>,
-    CurrentUser(session): CurrentUser,
-    Json(request): Json<QuarantineStaleSubmittingRequest>,
-) -> Response {
-    match state
-        .app
-        .tasks
-        .admin_quarantine_stale_submitting(&session.user, &request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),

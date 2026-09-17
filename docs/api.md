@@ -30,7 +30,6 @@
 - `POST /v1/admin/tasks/cancel-active` (admin; cancels every active task)
 - `POST /v1/admin/tasks/{task_id}/recover` (admin; Docling recovery)
 - `POST /v1/admin/tasks/{task_id}/recover/queue` (admin; queue Docling recovery)
-- `POST /v1/admin/tasks/quarantine-submitting` (admin; quarantine stale submitting tasks)
 - source and settings management endpoints under `/v1/*`
 
 Task history is never auto-deleted: `completed` tasks persist until the user
@@ -38,13 +37,16 @@ clears completed history and `trash` tasks persist until the user restores,
 deletes, or clears them. Task deletion never removes files, PostgreSQL text,
 Qdrant vectors, or S3 objects. The retention/purge admin APIs
 (`GET/PUT /v1/admin/tasks/maintenance`, `POST /v1/admin/tasks/purge`) are
-removed; lease recovery, source cleanup, and Docling recovery/quarantine are
-retained (see `docs/contracts/v0.17-migration.md`).
+removed; lease recovery, source cleanup, and Docling recovery are
+retained (see `docs/contracts/v0.17-migration.md`). Stale `submitting`
+quarantine (`quarantine-submitting`) was removed in issue 446 P3: no
+frontend entry remained and uncertain `submitting` rows now surface as a
+409 conflict for manual handling.
 
 ## Advanced SDK workflow
 
 `context69-sdk` exposes the ergonomic facade plus the complete low-level
-`client.raw()` transport (all 115 OpenAPI operations via the `OPERATIONS`
+`client.raw()` transport (all 114 OpenAPI operations via the `OPERATIONS`
 registry and `RawRequest`). Use `ensure_scope` once for group provisioning
 and declared metadata indexes, then submit text, URL, file, or delete arrays
 through `submit_text_batch`, `submit_url_batch`, `submit_file_batch`, or

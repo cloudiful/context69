@@ -102,7 +102,6 @@ pub use context69_contracts_tasks::tasks::{
     CancelActiveTasksResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest,
     ClearTaskHistoryResponse, ClearTaskHistoryView, DeleteBatchRequest, EnsureScopeResponse,
     ExternalJobInfo, FileBatchItem, FileBatchRequest, FileRetryItem,
-    QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse, QuarantinedExternalJob,
     QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
     RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, TASK_STREAM_IDS_MAX, TaskItemResponse, TaskItemStatus,

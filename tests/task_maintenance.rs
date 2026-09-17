@@ -1,6 +1,7 @@
-//! Structural regression coverage for queue-only recovery / quarantine
-//! statements (issue 391 Task 1: automatic task-history cleanup removed, so
-//! no retention/purge SQL remains to guard).
+//! Structural regression coverage for queue-only recovery statements
+//! (issue 391 Task 1: automatic task-history cleanup removed, so no
+//! retention/purge SQL remains to guard; issue 446 P3: stale `submitting`
+//! quarantine chain removed, so no quarantine SQL remains to guard).
 
 fn normalized_sql(path: &str) -> String {
     // Strip `--` line comments so assertions only observe executable SQL.
@@ -77,44 +78,4 @@ fn immediate_recovery_and_supersede_never_cancel_uncertain_submissions() {
     );
 }
 
-#[test]
-fn quarantine_only_isolates_eligible_stale_submitting_rows() {
-    let sql = normalized_sql(include_str!(
-        "../src/sql/library_store/external_jobs/quarantine_stale_submitting.sql"
-    ));
-    assert!(sql.contains("SET status = 'orphaned'"));
-    assert!(sql.contains("AND job.status = 'submitting'"));
-    assert!(sql.contains("AND job.remote_task_id LIKE $4"));
-    assert!(sql.contains("AND job.submitted_at < $3"));
-    assert!(sql.contains("AND item.status IN ('succeeded', 'failed', 'cancelled')"));
-    assert!(sql.contains("AND task.status IN ('succeeded', 'failed', 'cancelled')"));
-    // Live remote jobs are never candidates.
-    assert!(
-        !sql.contains("'pending'") && !sql.contains("'running'"),
-        "quarantine must not reference live remote states"
-    );
-    // History is preserved and audited, never overwritten with a fake cancel.
-    assert!(sql.contains("|| ' | quarantined: ' || $1"));
-    assert!(sql.contains("INSERT INTO context69.task_external_job_quarantine_audit"));
-    assert!(sql.contains("FOR UPDATE OF job SKIP LOCKED"));
-}
 
-#[test]
-fn quarantine_stats_partition_every_submitting_row() {
-    let sql = normalized_sql(include_str!(
-        "../src/sql/library_store/external_jobs/quarantine_submitting_stats.sql"
-    ));
-    for column in [
-        "\"uncertain_submitting_count!\"",
-        "\"quarantinable_count!\"",
-        "\"skipped_non_terminal_count!\"",
-        "\"skipped_fresh_count!\"",
-        "\"skipped_real_remote_count!\"",
-        "\"orphaned_count!\"",
-    ] {
-        assert!(
-            sql.contains(column),
-            "quarantine stats must report {column}"
-        );
-    }
-}

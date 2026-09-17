@@ -565,60 +565,6 @@ pub struct QueueDoclingRecoveryResponse {
     pub queued: QueuedDoclingTask,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct QuarantineStaleSubmittingRequest {
-    /// Free-form human justification stored on each row and its audit row.
-    pub reason: String,
-    /// Only rows older than this many minutes are eligible. Defaults to 30,
-    /// must be between 10 and 10080 (one week).
-    #[serde(default)]
-    pub grace_minutes: Option<i64>,
-    /// Maximum rows to quarantine per call. Defaults to 100, clamped to
-    /// 1..=1000.
-    #[serde(default)]
-    pub limit: Option<i64>,
-    /// When true, only read eligibility counts and return a preview without
-    /// mutating any row or writing any audit row. Optional for backward
-    /// compatibility; omitted or false preserves the mutating behavior.
-    #[serde(default)]
-    pub dry_run: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct QuarantinedExternalJob {
-    pub external_job_id: Uuid,
-    pub task_id: Uuid,
-    pub item_id: Uuid,
-    pub old_remote_task_id: Option<String>,
-    pub quarantined_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct QuarantineStaleSubmittingResponse {
-    pub quarantined: Vec<QuarantinedExternalJob>,
-    pub quarantined_count: i64,
-    /// Still `submitting` because the parent task/item is not terminal.
-    pub skipped_non_terminal: i64,
-    /// Still `submitting` because it is newer than the grace cutoff.
-    pub skipped_fresh: i64,
-    /// Still `submitting` with a non-placeholder remote id; needs manual
-    /// review because a real remote job may exist.
-    pub skipped_real_remote: i64,
-    /// True when this response is a dry-run preview: no row was mutated and
-    /// no audit row was written. Always present; false for mutating calls so
-    /// callers never conflate eligible rows with changed rows.
-    #[serde(default)]
-    pub dry_run: bool,
-    /// Total eligible (`quarantinable`) `submitting` rows at read time:
-    /// placeholder remote id, older than the grace cutoff, terminal parents.
-    /// Uncapped by `limit`. In dry-run mode this is the full preview total
-    /// with `quarantined` empty and `quarantined_count` zero. In mutating
-    /// mode this is the remainder still eligible after this call, while
-    /// `quarantined_count` is the actual number of rows changed.
-    #[serde(default)]
-    pub quarantinable_count: i64,
-}
-
 /// Query for `GET /v1/tasks/stream` (issue 405 Task E2).
 ///
 /// `task_ids` is a comma-separated list of task UUIDs to watch. Absent or

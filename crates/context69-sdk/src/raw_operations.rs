@@ -803,17 +803,6 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
-        id: "quarantine_stale_submitting",
-        method: "POST",
-        path_template: "/v1/admin/tasks/quarantine-submitting",
-        requires_auth: true,
-        body_kind: BodyKind::Json,
-        request_schema: "QuarantineStaleSubmittingRequest",
-        response_schema: "QuarantineStaleSubmittingResponse",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
         id: "query_group_documents",
         method: "POST",
         path_template: "/v1/groups/by-path/{group_path}/documents/query",

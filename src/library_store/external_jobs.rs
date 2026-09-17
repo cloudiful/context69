@@ -85,37 +85,6 @@ pub(crate) struct DoclingPollDenied {
     pub reason: DoclingPollDenyReason,
 }
 
-/// One `submitting` row isolated as `orphaned` by the admin quarantine API.
-#[derive(Debug, Clone, FromRow)]
-pub(crate) struct StoredQuarantinedExternalJob {
-    pub external_job_id: Uuid,
-    pub item_id: Uuid,
-    pub task_id: Uuid,
-    pub old_remote_task_id: Option<String>,
-    /// Pre-transition status (always `submitting` under the current
-    /// eligibility guard; stored explicitly in the quarantine audit).
-    pub old_status: Option<String>,
-    pub quarantined_at: Option<DateTime<Utc>>,
-}
-
-/// Eligibility breakdown for uncertain `submitting` rows. The first five
-/// buckets partition every `submitting` row exactly once; `orphaned` counts
-/// rows already isolated by a previous quarantine call.
-#[derive(Debug, Clone, FromRow)]
-pub(crate) struct StoredSubmittingQuarantineStats {
-    pub uncertain_submitting_count: i64,
-    pub quarantinable_count: i64,
-    pub skipped_non_terminal_count: i64,
-    pub skipped_fresh_count: i64,
-    pub skipped_real_remote_count: i64,
-    pub orphaned_count: i64,
-}
-
-/// Local placeholder prefix for remote ids that never left this service.
-/// `try_begin_external_job_submission` inserts `submitting-<uuid>` before the
-/// POST; only ids with this prefix prove no real remote job can exist.
-pub(crate) const SUBMITTING_PLACEHOLDER_PATTERN: &str = "submitting-%";
-
 impl LibraryStore {
     #[cfg(test)]
     pub(crate) async fn count_docling_inflight(&self, provider: &str) -> anyhow::Result<i64> {
@@ -337,54 +306,6 @@ impl LibraryStore {
             old_status: row.old_status,
             prior_submission_count: row.prior_submission_count.unwrap_or(0),
         })
-    }
-
-    /// Batch-isolate stale uncertain `submitting` rows as `orphaned`.
-    ///
-    /// Only placeholder remote ids older than `grace_cutoff` on terminal
-    /// parents are touched (see `quarantine_stale_submitting.sql`); live
-    /// `pending`/`running` jobs, fresh rows, real remote ids, and
-    /// non-terminal parents are left alone. The transition never claims the
-    /// remote job was cancelled. One quarantine audit row per job is written
-    /// in the same statement.
-    pub(crate) async fn quarantine_stale_submitting(
-        &self,
-        reason: &str,
-        quarantined_by: &str,
-        actor_user_id: i64,
-        grace_cutoff: DateTime<Utc>,
-        placeholder_pattern: &str,
-        limit: i64,
-    ) -> anyhow::Result<Vec<StoredQuarantinedExternalJob>> {
-        Ok(sqlx::query_file_as!(
-            StoredQuarantinedExternalJob,
-            "src/sql/library_store/external_jobs/quarantine_stale_submitting.sql",
-            reason,
-            quarantined_by,
-            grace_cutoff,
-            placeholder_pattern,
-            limit,
-            actor_user_id,
-        )
-        .fetch_all(self.db.pool())
-        .await?)
-    }
-
-    /// Count uncertain `submitting` rows by quarantine eligibility so
-    /// operators can see what remains and why it was skipped.
-    pub(crate) async fn quarantine_submitting_stats(
-        &self,
-        grace_cutoff: DateTime<Utc>,
-        placeholder_pattern: &str,
-    ) -> anyhow::Result<StoredSubmittingQuarantineStats> {
-        Ok(sqlx::query_file_as!(
-            StoredSubmittingQuarantineStats,
-            "src/sql/library_store/external_jobs/quarantine_submitting_stats.sql",
-            grace_cutoff,
-            placeholder_pattern,
-        )
-        .fetch_one(self.db.pool())
-        .await?)
     }
 
     /// Record a recovery audit row once the new external job has been

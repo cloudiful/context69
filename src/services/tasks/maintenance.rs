@@ -5,8 +5,7 @@ use anyhow::{Context, Result};
 use crate::domain_errors::DomainError;
 use chrono::Utc;
 use context69_contracts::{
-    CancelActiveTasksResponse, QuarantineStaleSubmittingRequest, QuarantineStaleSubmittingResponse,
-    QuarantinedExternalJob, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,
+    CancelActiveTasksResponse, QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse,
     QueuedDoclingTask, RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask,
 };
 use tokio::time::{MissedTickBehavior, interval};
@@ -14,14 +13,6 @@ use uuid::Uuid;
 
 use super::TaskService;
 use crate::{domain::UserRecord, library_store::RecoveryAudit};
-/// Default quarantine grace: only `submitting` rows older than this are
-/// eligible. Well past the 10-minute admission reservation window so no
-/// in-flight POST can still be completing.
-pub const QUARANTINE_DEFAULT_GRACE_MINUTES: i64 = 30;
-pub const QUARANTINE_MIN_GRACE_MINUTES: i64 = 10;
-pub const QUARANTINE_MAX_GRACE_MINUTES: i64 = 10080;
-pub const QUARANTINE_DEFAULT_LIMIT: i64 = 100;
-pub const QUARANTINE_MAX_LIMIT: i64 = 1000;
 
 #[derive(Debug)]
 pub(crate) enum TaskMaintenanceError {
@@ -65,23 +56,6 @@ pub(super) fn start_with_shutdown(
             .run(release_service.library().clone(), shutdown)
             .await;
     });
-}
-
-pub(crate) fn quarantine_grace_minutes(requested: Option<i64>) -> Result<i64> {
-    let minutes = requested.unwrap_or(QUARANTINE_DEFAULT_GRACE_MINUTES);
-    if !(QUARANTINE_MIN_GRACE_MINUTES..=QUARANTINE_MAX_GRACE_MINUTES).contains(&minutes) {
-        return Err(TaskMaintenanceError::BadRequest(format!(
-            "grace_minutes must be between {QUARANTINE_MIN_GRACE_MINUTES} and {QUARANTINE_MAX_GRACE_MINUTES}"
-        ))
-        .into());
-    }
-    Ok(minutes)
-}
-
-pub(crate) fn quarantine_limit(requested: Option<i64>) -> i64 {
-    requested
-        .unwrap_or(QUARANTINE_DEFAULT_LIMIT)
-        .clamp(1, QUARANTINE_MAX_LIMIT)
 }
 
 pub(crate) fn require_non_empty_reason(reason: &str, what: &str) -> Result<String> {
@@ -506,116 +480,6 @@ impl TaskService {
         })
     }
 
-    /// Isolate stale uncertain `submitting` Docling rows as `orphaned`.
-    ///
-    /// Only placeholder remote ids older than the grace cutoff on terminal
-    /// parents are moved; live jobs, fresh rows, real remote ids, and
-    /// non-terminal parents are left untouched and reported as skipped
-    /// counts. The transition never claims the remote job was cancelled, and
-    /// quarantined rows stop blocking terminal-task cleanup/purge. No
-    /// background job calls this automatically.
-    ///
-    /// When `request.dry_run` is true, only eligibility stats are read and no
-    /// row or audit row is written: the response carries `dry_run=true`, an
-    /// empty `quarantined` list, `quarantined_count=0`, and the full
-    /// `quarantinable_count` preview plus skipped counts. Admin authorization
-    /// and `reason`/`grace_minutes`/`limit` validation still apply.
-    pub async fn admin_quarantine_stale_submitting(
-        &self,
-        actor: &UserRecord,
-        request: &QuarantineStaleSubmittingRequest,
-    ) -> Result<QuarantineStaleSubmittingResponse> {
-        crate::services::auth::require_admin(actor)?;
-        let reason = require_non_empty_reason(&request.reason, "quarantine")?;
-        let grace_minutes = quarantine_grace_minutes(request.grace_minutes)?;
-        let limit = quarantine_limit(request.limit);
-        let dry_run = request.dry_run.unwrap_or(false);
-        let cutoff = Utc::now() - chrono::Duration::minutes(grace_minutes);
-        let pattern = crate::library_store::SUBMITTING_PLACEHOLDER_PATTERN;
-        if dry_run {
-            let stats = self
-                .library()
-                .store()
-                .quarantine_submitting_stats(cutoff, pattern)
-                .await?;
-            tracing::info!(
-                dry_run = true,
-                quarantinable = stats.quarantinable_count,
-                uncertain_total = stats.uncertain_submitting_count,
-                orphaned_total = stats.orphaned_count,
-                skipped_non_terminal = stats.skipped_non_terminal_count,
-                skipped_fresh = stats.skipped_fresh_count,
-                skipped_real_remote = stats.skipped_real_remote_count,
-                grace_minutes = grace_minutes,
-                limit = limit,
-                actor = %actor.login_name,
-                reason = %reason,
-                "stale Docling submitting quarantine dry-run preview",
-            );
-            return Ok(QuarantineStaleSubmittingResponse {
-                quarantined: Vec::new(),
-                quarantined_count: 0,
-                skipped_non_terminal: stats.skipped_non_terminal_count,
-                skipped_fresh: stats.skipped_fresh_count,
-                skipped_real_remote: stats.skipped_real_remote_count,
-                dry_run: true,
-                quarantinable_count: stats.quarantinable_count,
-            });
-        }
-        let quarantined = self
-            .library()
-            .store()
-            .quarantine_stale_submitting(
-                &reason,
-                &actor.login_name,
-                actor.id,
-                cutoff,
-                pattern,
-                limit,
-            )
-            .await?;
-        let stats = self
-            .library()
-            .store()
-            .quarantine_submitting_stats(cutoff, pattern)
-            .await?;
-        tracing::info!(
-            dry_run = false,
-            quarantined = quarantined.len(),
-            old_status_sample = quarantined
-                .first()
-                .and_then(|row| row.old_status.as_deref())
-                .unwrap_or("none"),
-            uncertain_total = stats.uncertain_submitting_count,
-            quarantinable = stats.quarantinable_count,
-            orphaned_total = stats.orphaned_count,
-            skipped_non_terminal = stats.skipped_non_terminal_count,
-            skipped_fresh = stats.skipped_fresh_count,
-            skipped_real_remote = stats.skipped_real_remote_count,
-            grace_minutes = grace_minutes,
-            actor = %actor.login_name,
-            reason = %reason,
-            "stale Docling submitting quarantine completed",
-        );
-        Ok(QuarantineStaleSubmittingResponse {
-            quarantined: quarantined
-                .iter()
-                .map(|row| QuarantinedExternalJob {
-                    external_job_id: row.external_job_id,
-                    task_id: row.task_id,
-                    item_id: row.item_id,
-                    old_remote_task_id: row.old_remote_task_id.clone(),
-                    quarantined_at: row.quarantined_at.unwrap_or_else(Utc::now),
-                })
-                .collect::<Vec<_>>(),
-            quarantined_count: quarantined.len() as i64,
-            skipped_non_terminal: stats.skipped_non_terminal_count,
-            skipped_fresh: stats.skipped_fresh_count,
-            skipped_real_remote: stats.skipped_real_remote_count,
-            dry_run: false,
-            quarantinable_count: stats.quarantinable_count,
-        })
-    }
 }
 
 async fn release_recovery_lease(
@@ -672,41 +536,7 @@ impl Drop for RecoveryLeaseGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        QUARANTINE_DEFAULT_GRACE_MINUTES, QUARANTINE_DEFAULT_LIMIT, QUARANTINE_MAX_GRACE_MINUTES,
-        QUARANTINE_MAX_LIMIT, QUARANTINE_MIN_GRACE_MINUTES, quarantine_grace_minutes,
-        quarantine_limit, require_non_empty_reason,
-    };
-
-    #[test]
-    fn quarantine_grace_defaults_and_bounds() {
-        assert_eq!(
-            quarantine_grace_minutes(None).expect("default grace"),
-            QUARANTINE_DEFAULT_GRACE_MINUTES
-        );
-        assert_eq!(
-            quarantine_grace_minutes(Some(60)).expect("custom grace"),
-            60
-        );
-        for invalid in [
-            0,
-            QUARANTINE_MIN_GRACE_MINUTES - 1,
-            QUARANTINE_MAX_GRACE_MINUTES + 1,
-            i64::MAX,
-        ] {
-            let error = quarantine_grace_minutes(Some(invalid)).expect_err("invalid grace");
-            assert!(error.to_string().contains("grace_minutes"));
-        }
-    }
-
-    #[test]
-    fn quarantine_limit_defaults_and_clamps() {
-        assert_eq!(quarantine_limit(None), QUARANTINE_DEFAULT_LIMIT);
-        assert_eq!(quarantine_limit(Some(10)), 10);
-        assert_eq!(quarantine_limit(Some(0)), 1);
-        assert_eq!(quarantine_limit(Some(-5)), 1);
-        assert_eq!(quarantine_limit(Some(i64::MAX)), QUARANTINE_MAX_LIMIT);
-    }
+    use super::require_non_empty_reason;
 
     #[test]
     fn empty_reasons_are_rejected() {

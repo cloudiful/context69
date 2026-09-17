@@ -41,7 +41,7 @@ use super::{
     list_personal_access_tokens, list_source_connections, list_sources, list_task_items,
     list_tasks, list_translation_providers, login, logout, me, move_group_library_file,
     move_group_library_folder, move_library_file, move_library_folder, openapi_json,
-    prepare_group_library_upload, quarantine_stale_submitting, query_group_documents,
+    prepare_group_library_upload, query_group_documents,
     queue_docling_recovery, rebuild_document_extractions, rebuild_document_translations,
     recover_docling_task, release_group_library_file_source, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
@@ -296,10 +296,6 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/admin/tasks/{task_id}/recover/queue",
             post(queue_docling_recovery),
-        )
-        .route(
-            "/v1/admin/tasks/quarantine-submitting",
-            post(quarantine_stale_submitting),
         )
         .route("/v1/admin/extraction/health", get(get_extraction_health))
         .layer(from_fn_with_state(
