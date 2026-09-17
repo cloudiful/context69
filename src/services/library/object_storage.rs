@@ -29,7 +29,7 @@ impl LibraryObjectStorage {
                 builder = builder.enable_virtual_host_style();
             }
             return Ok(Self {
-                operator: Operator::new(builder)?.finish(),
+                operator: Operator::new(builder)?,
                 backend: "s3",
             });
         }
@@ -42,7 +42,7 @@ impl LibraryObjectStorage {
         })?;
         let builder = services::Fs::default().root(path_text(&config.storage_root)?);
         Ok(Self {
-            operator: Operator::new(builder)?.finish(),
+            operator: Operator::new(builder)?,
             backend: "local",
         })
     }

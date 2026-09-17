@@ -13,7 +13,8 @@ use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{
         ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
-        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ResourceTemplate,
+        ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, ResourceContents,
+        ResourceTemplate,
     },
     service::{RequestContext, RoleServer},
     tool, tool_handler, tool_router,
@@ -308,11 +309,9 @@ impl ServerHandler for Context69McpServer {
             .map_err(internal_error)?;
         let summaries = source_tools::summarize_all(&sources);
         let (resources, next_cursor) = source_tools::resource_page(&summaries, start);
-        Ok(ListResourcesResult {
-            meta: None,
-            resources,
-            next_cursor,
-        })
+        let mut result = ListResourcesResult::with_all_items(resources);
+        result.next_cursor = next_cursor;
+        Ok(result)
     }
 
     async fn list_resource_templates(
@@ -320,22 +319,18 @@ impl ServerHandler for Context69McpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
-        Ok(ListResourceTemplatesResult {
-            meta: None,
-            resource_templates: vec![
-                ResourceTemplate::new("context69://documents/{document_id}", "context69-document")
-                    .with_description("Fetch a single indexed document")
-                    .with_mime_type("application/json"),
-            ],
-            next_cursor: None,
-        })
+        Ok(ListResourceTemplatesResult::with_all_items(vec![
+            ResourceTemplate::new("context69://documents/{document_id}", "context69-document")
+                .with_description("Fetch a single indexed document")
+                .with_mime_type("application/json"),
+        ]))
     }
 
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, McpError> {
+    ) -> Result<ReadResourceResponse, McpError> {
         let uri = request.uri;
         if let Some(source_key) = uri.strip_prefix("context69://sources/") {
             let user_id = self.user_id_from_context(&context)?;
@@ -350,7 +345,7 @@ impl ServerHandler for Context69McpServer {
                 .context("source not found")
                 .map_err(|error| McpError::resource_not_found(error.to_string(), None))?;
             let content = source_tools::resource_content(&uri, &summary)?;
-            return Ok(ReadResourceResult::new(vec![content]));
+            return Ok(ReadResourceResult::new(vec![content]).into());
         }
 
         if let Some(document_id) = uri.strip_prefix("context69://documents/") {
@@ -373,9 +368,11 @@ impl ServerHandler for Context69McpServer {
             let detail = document_tools::first_page_detail(&document)?;
             let content = serde_json::to_string_pretty(&detail)
                 .map_err(|error| internal_error(anyhow::Error::new(error)))?;
-            return Ok(ReadResourceResult::new(vec![
-                ResourceContents::text(content, uri).with_mime_type("application/json"),
-            ]));
+            return Ok(
+                ReadResourceResult::new(vec![ResourceContents::text(content, uri)
+                    .with_mime_type("application/json")])
+                    .into(),
+            );
         }
 
         Err(McpError::resource_not_found(

@@ -69,15 +69,15 @@ futures = "0.3.34"
 getrandom = "0.4.3"
 qdrant-client = "1.19.0"
 rate-limiter = { package = "cloudiful-rate-limiter", version = "0.1.0", features = ["valkey"] }
-opendal = { version = "0.57.0", default-features = false, features = ["services-fs", "services-s3"] }
+opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3"] }
 reqwest = { version = "0.13.5", default-features = false }
 redis = "1.7.0"
-rmcp = "2.2.0"
+rmcp = "3.4.0"
 schemars = "1.2.2"
 scheduler = { package = "cloudiful-scheduler", version = "0.4.12" }
 serde = "1.0.229"
 serde_json = "1.0.151"
-server = { package = "cloudiful-server", version = "0.2.7" }
+server = { package = "cloudiful-server", version = "0.3.0" }
 sha2 = "0.11.0"
 sqlx = "0.9.0"
 time = "0.3.55"
@@ -85,7 +85,7 @@ tokio = "1.53.1"
 tokio-util = "0.7"
 toml = "1.1.6"
 tower-http = "0.7.1"
-tower-sessions = "0.14.0"
+tower-sessions = "0.15.0"
 tower-sessions-redis-store = "0.16.0"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
@@ -165,3 +165,9 @@ uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
 [dev-dependencies]
 sqlx = { workspace = true }
 toml.workspace = true
+
+# Unpublished upstream: axum-login main upgraded to tower-sessions 0.15 (PR #315)
+# but crates.io still ships 0.18.0 pinned to tower-sessions 0.14.
+[patch.crates-io]
+axum-login = { git = "https://github.com/maxcountryman/axum-login", rev = "151c72d7a1b4646830f86b4332e6bd6e34d719a7" }
+tower-sessions-redis-store = { git = "https://github.com/maxcountryman/tower-sessions-stores", rev = "d18c9bf76f1d4fb73130dbe5aa643197f14b5d2d" }

@@ -74,11 +74,10 @@ pub(crate) async fn auth_middleware(
     next: Next,
 ) -> Response {
     let bearer = extract_bearer_token(request.headers()).map(|token| token.map(str::to_owned));
-    let browser_session = request
-        .extensions()
-        .get::<BrowserAuthSession>()
-        .and_then(|auth| auth.user.as_ref())
-        .map(|principal| principal.0.clone());
+    let browser_session = match request.extensions().get::<BrowserAuthSession>() {
+        Some(auth) => auth.user().await.as_ref().map(|principal| principal.0.clone()),
+        None => None,
+    };
     match authenticate_request(&state, bearer, browser_session).await {
         Ok(Some(authenticated)) => {
             request
@@ -111,11 +110,10 @@ pub(crate) async fn optional_auth_middleware(
     next: Next,
 ) -> Response {
     let bearer = extract_bearer_token(request.headers()).map(|token| token.map(str::to_owned));
-    let browser_session = request
-        .extensions()
-        .get::<BrowserAuthSession>()
-        .and_then(|auth| auth.user.as_ref())
-        .map(|principal| principal.0.clone());
+    let browser_session = match request.extensions().get::<BrowserAuthSession>() {
+        Some(auth) => auth.user().await.as_ref().map(|principal| principal.0.clone()),
+        None => None,
+    };
     match authenticate_request(&state, bearer, browser_session).await {
         Ok(Some(authenticated)) => {
             request
@@ -249,7 +247,7 @@ pub(crate) async fn require_admin_scope_middleware(
     )
 )]
 pub(crate) async fn login(
-    mut auth_session: BrowserAuthSession,
+    auth_session: BrowserAuthSession,
     Json(request): Json<AuthLoginRequest>,
 ) -> impl IntoResponse {
     let credentials = Credentials {
@@ -281,7 +279,7 @@ pub(crate) async fn login(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
-pub(crate) async fn logout(mut auth_session: BrowserAuthSession) -> impl IntoResponse {
+pub(crate) async fn logout(auth_session: BrowserAuthSession) -> impl IntoResponse {
     match auth_session.logout().await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => internal_error_response(anyhow::anyhow!(error)),
