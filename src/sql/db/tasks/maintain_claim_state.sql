@@ -46,14 +46,20 @@
 -- Any local pending/running task_external_jobs rows attached to terminal
 -- task_items (succeeded, failed, cancelled) — including items newly
 -- exhausted by this statement — are locally moved to cancelled with an
--- explicit reason that remote cancellation was not requested. The check
--- uses the statement's snapshot terminal items plus the captured
--- to_exhaust ids so the transition does not require a second maintenance
--- call. `submitting` rows are never touched because the remote submission
--- outcome is uncertain and must remain manual-recovery-required; active
--- items (queued, running, waiting) are left alone. No external request
--- is made and the same external-job row is never updated from two CTEs
--- in this statement.
+-- explicit reason that remote cancellation was not requested. Additionally
+-- (issue #446 P1), pending/running rows past their `deadline_at` are
+-- recycled to `timed_out` even when the parent item is still active, so an
+-- expired remote job stops wedging `max_inflight` before the next poll
+-- observes it; the count filter in `count_inflight.sql` already excludes
+-- such rows immediately, and this CTE converges their stored state on the
+-- recovery tick. Expired takes precedence over terminal-cancelled when
+-- both apply. The check uses the statement's snapshot terminal items plus
+-- the captured to_exhaust ids so the transition does not require a second
+-- maintenance call. `submitting` rows are never touched because the remote
+-- submission outcome is uncertain and must remain manual-recovery-required;
+-- active items (queued, running, waiting) with unexpired deadlines are left
+-- alone. No external request is made and the same external-job row is
+-- never updated from two CTEs in this statement.
 WITH to_exhaust AS (
     SELECT item.id, item.task_id, item.file_id, item.status AS old_status, item.ordinal
     FROM context69.task_items AS item
@@ -227,17 +233,25 @@ WITH to_exhaust AS (
     RETURNING attempt.id
 ), reconciled_external_jobs AS (
     UPDATE context69.task_external_jobs AS job
-    SET status = 'cancelled',
+    SET status = CASE
+            WHEN job.deadline_at IS NOT NULL AND job.deadline_at < now() THEN 'timed_out'
+            ELSE 'cancelled'
+        END,
         remote_status = COALESCE(job.remote_status, job.status),
         error_message = COALESCE(
             job.error_message,
-            'task item is terminal; local external job cancelled without remote cancellation'
+            CASE
+                WHEN job.deadline_at IS NOT NULL AND job.deadline_at < now()
+                THEN 'docling remote job exceeded its deadline; local external job timed out without remote cancellation'
+                ELSE 'task item is terminal; local external job cancelled without remote cancellation'
+            END
         ),
         last_polled_at = now(),
         updated_at = now()
     WHERE job.status IN ('pending', 'running')
       AND (
-          EXISTS (
+          (job.deadline_at IS NOT NULL AND job.deadline_at < now())
+          OR EXISTS (
               SELECT 1
               FROM context69.task_items ti
               WHERE ti.id = job.item_id
@@ -247,10 +261,12 @@ WITH to_exhaust AS (
               SELECT 1 FROM to_exhaust te WHERE te.id = job.item_id
           )
       )
-    RETURNING job.id
+    RETURNING job.id, job.status
 )
 SELECT
     (SELECT count(*) FROM exhausted) AS "exhausted_items!",
     (SELECT count(*) FROM exhausted_files) AS "exhausted_files!",
     (SELECT count(*) FROM recomputed) AS "exhausted_tasks!",
-    (SELECT count(*) FROM expired) AS "expired_attempts!"
+    (SELECT count(*) FROM expired) AS "expired_attempts!",
+    (SELECT count(*) FILTER (WHERE status = 'timed_out') FROM reconciled_external_jobs) AS "expired_external_jobs!",
+    (SELECT count(*) FILTER (WHERE status = 'cancelled') FROM reconciled_external_jobs) AS "reconciled_external_jobs!"

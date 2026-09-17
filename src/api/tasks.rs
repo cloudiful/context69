@@ -375,20 +375,34 @@ pub(crate) async fn list_task_items(
         Ok(offset) if offset >= 0 => offset,
         _ => return task_error(anyhow::anyhow!("cursor must be a non-negative integer")),
     };
+    let limit = i64::from(query.limit);
     match state
         .app
         .tasks
         .items(
             task_id,
             session.user.id,
-            i64::from(query.limit),
+            limit,
             offset,
             query.status,
         )
         .await
     {
         Ok(items) => (StatusCode::OK, Json(items)).into_response(),
-        Err(error) => task_error(error),
+        Err(error) => {
+            // Issue #446 P1: list-items 500s previously had no log, leaving
+            // only the client-side error. Keep task_id/limit/offset plus
+            // the full anyhow chain so slow-SQL/pool failures are diagnosable.
+            tracing::error!(
+                task_id = %task_id,
+                limit,
+                offset,
+                error = %error,
+                chain = ?error.chain().map(ToString::to_string).collect::<Vec<_>>(),
+                "list task items failed"
+            );
+            task_error(error)
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use context69_contracts::{
@@ -353,10 +353,15 @@ impl TaskService {
             .ok_or_else(|| DomainError::not_found("task not found"))?;
         let limit = limit.clamp(1, 200);
         let offset = offset.max(0);
+        // Issue #446 P1: attach task scope to the error chain so the
+        // list-items handler log can report task_id/limit/offset with cause.
         let items = self
             .db
             .list_task_items_filtered(task_id, limit, offset, status.map(TaskItemStatus::as_str))
-            .await?;
+            .await
+            .with_context(|| {
+                format!("list task items failed for task {task_id} (limit {limit}, offset {offset})")
+            })?;
         let next_cursor =
             (items.len() as i64 == limit).then(|| (offset + items.len() as i64).to_string());
         Ok(TaskItemsResponse {

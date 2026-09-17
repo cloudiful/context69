@@ -131,11 +131,13 @@ impl LibraryStore {
     ///
     /// Holds the singleton `docling_settings` row `FOR UPDATE` so concurrent
     /// submitters across processes serialize their check-and-insert. Counts
-    /// remote non-terminal jobs (`pending`/`running`) plus fresh `submitting`
-    /// reservations; stale `submitting` leftovers are ignored so they cannot
-    /// wedge admission (phase 4 owns their cleanup). Returns `Ok(Err(denied))`
-    /// without inserting when the persistent `max_inflight` ceiling is reached;
-    /// the caller must wait and must not POST to Docling.
+    /// remote non-terminal jobs (`pending`/`running` with an unexpired
+    /// `deadline_at`; expired rows no longer wedge admission per issue #446
+    /// P1) plus fresh `submitting` reservations; stale `submitting`
+    /// leftovers are ignored so they cannot wedge admission (phase 4 owns
+    /// their cleanup). Returns `Ok(Err(denied))` without inserting when the
+    /// persistent `max_inflight` ceiling is reached; the caller must wait
+    /// and must not POST to Docling.
     pub(crate) async fn try_begin_external_job_submission(
         &self,
         item_id: Uuid,
@@ -513,17 +515,39 @@ mod admission_tests {
         status: &str,
         submitted_offset_secs: i64,
     ) {
+        insert_job_with_deadline(
+            db,
+            item_id,
+            provider,
+            remote,
+            status,
+            submitted_offset_secs,
+            Utc::now() + chrono::Duration::hours(1),
+        )
+        .await;
+    }
+
+    async fn insert_job_with_deadline(
+        db: &Database,
+        item_id: Uuid,
+        provider: &str,
+        remote: &str,
+        status: &str,
+        submitted_offset_secs: i64,
+        deadline_at: chrono::DateTime<Utc>,
+    ) {
         let submitted_at = Utc::now() + chrono::Duration::seconds(submitted_offset_secs);
         sqlx::query(
             "INSERT INTO context69.task_external_jobs \
              (item_id, provider, remote_task_id, status, submitted_at, next_poll_at, deadline_at, submission_count) \
-             VALUES ($1, $2, $3, $4, $5, now(), now() + interval '1 hour', 1)",
+             VALUES ($1, $2, $3, $4, $5, now(), $6, 1)",
         )
         .bind(item_id)
         .bind(provider)
         .bind(remote)
         .bind(status)
         .bind(submitted_at)
+        .bind(deadline_at)
         .execute(db.pool())
         .await
         .expect("insert job");
@@ -631,6 +655,147 @@ mod admission_tests {
         );
 
         cleanup_tasks_and_user(&db, &[fresh_task, task_id], user_id).await;
+    }
+
+    #[tokio::test]
+    async fn expired_pending_running_do_not_wedge_inflight() {
+        // Issue #446 P1: pending/running rows past `deadline_at` must not
+        // occupy a `max_inflight` slot.
+        let Some(url) = test_database_url() else {
+            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping expired deadline test");
+            return;
+        };
+        let _guard = ADMISSION_LOCK.lock().await;
+        let db = Database::connect(&url).await.expect("connect");
+        let store = LibraryStore::new(db.clone());
+        let user_id = seed_user(&db).await;
+        let task_id = Uuid::new_v4();
+        let (task_id, _reused, item_ids) = db
+            .create_task_submission(
+                task_id,
+                user_id,
+                None,
+                "text_batch",
+                Some("test/admission-expired"),
+                None,
+                &[
+                    json!({"external_id": "expired-pending"}),
+                    json!({"external_id": "expired-running"}),
+                    json!({"external_id": "live-pending"}),
+                ],
+                None,
+                "admission-expired-hash",
+            )
+            .await
+            .expect("create task");
+
+        let past = Utc::now() - chrono::Duration::hours(2);
+        let future = Utc::now() + chrono::Duration::hours(1);
+        insert_job_with_deadline(
+            &db,
+            item_ids[0],
+            TEST_PROVIDER,
+            "remote-expired-pending",
+            "pending",
+            0,
+            past,
+        )
+        .await;
+        insert_job_with_deadline(
+            &db,
+            item_ids[1],
+            TEST_PROVIDER,
+            "remote-expired-running",
+            "running",
+            0,
+            past,
+        )
+        .await;
+        insert_job_with_deadline(
+            &db,
+            item_ids[2],
+            TEST_PROVIDER,
+            "remote-live-pending",
+            "pending",
+            0,
+            future,
+        )
+        .await;
+
+        let count = store
+            .count_docling_inflight(TEST_PROVIDER)
+            .await
+            .expect("count inflight");
+        assert_eq!(
+            count, 1,
+            "only the unexpired pending row must hold a slot (expired pending/running ignored)"
+        );
+
+        cleanup_tasks_and_user(&db, &[task_id], user_id).await;
+    }
+
+    #[tokio::test]
+    async fn maintenance_recycles_expired_external_jobs_to_timed_out() {
+        // Issue #446 P1 running lease timeout recycle: maintenance must move
+        // past-deadline pending/running rows to `timed_out` even when the
+        // parent item is still active, freeing the slot on the next count.
+        let Some(url) = test_database_url() else {
+            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping recycle test");
+            return;
+        };
+        let _guard = ADMISSION_LOCK.lock().await;
+        let db = Database::connect(&url).await.expect("connect");
+        let store = LibraryStore::new(db.clone());
+        let user_id = seed_user(&db).await;
+        let task_id = Uuid::new_v4();
+        let (task_id, _reused, item_ids) = db
+            .create_task_submission(
+                task_id,
+                user_id,
+                None,
+                "text_batch",
+                Some("test/recycle-expired"),
+                None,
+                &[json!({"external_id": "recycle-expired"})],
+                None,
+                "recycle-expired-hash",
+            )
+            .await
+            .expect("create task");
+
+        insert_job_with_deadline(
+            &db,
+            item_ids[0],
+            TEST_PROVIDER,
+            "remote-recycle",
+            "running",
+            0,
+            Utc::now() - chrono::Duration::hours(3),
+        )
+        .await;
+
+        let outcome = db.maintain_claim_state().await.expect("maintenance");
+        assert!(
+            outcome.expired_external_jobs >= 1,
+            "maintenance must recycle at least one expired external job, got {outcome:?}"
+        );
+        let status: String = sqlx::query_scalar(
+            "SELECT status FROM context69.task_external_jobs WHERE item_id = $1 AND provider = $2",
+        )
+        .bind(item_ids[0])
+        .bind(TEST_PROVIDER)
+        .fetch_one(db.pool())
+        .await
+        .expect("read recycled status");
+        assert_eq!(status, "timed_out", "expired running job must recycle to timed_out");
+
+        let count = store
+            .count_docling_inflight(TEST_PROVIDER)
+            .await
+            .expect("count after recycle");
+        assert_eq!(count, 0, "recycled job must no longer hold a slot");
+
+        cleanup_tasks_and_user(&db, &[task_id], user_id).await;
     }
 
     #[tokio::test]

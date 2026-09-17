@@ -19,6 +19,12 @@ pub struct ClaimMaintenanceOutcome {
     pub exhausted_files: i64,
     pub exhausted_tasks: i64,
     pub expired_attempts: i64,
+    /// Pending/running external jobs recycled to `timed_out` because their
+    /// `deadline_at` passed (issue #446 P1 running lease timeout recycle).
+    pub expired_external_jobs: i64,
+    /// Pending/running external jobs moved to `cancelled` because the
+    /// parent item is terminal.
+    pub reconciled_external_jobs: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
