@@ -193,7 +193,6 @@ pub struct StoredQueuedDoclingRecovery {
 /// Grouped arguments for task submission.
 ///
 /// Bundles the shared task metadata and submission payload references used by
-/// [`Database::create_task_submission`] and
 /// [`Database::create_task_submission_with_input_objects`] so the DB layer
 /// takes a single request value instead of nine or more positional arguments.
 /// `input_storage_object_ids` is `None` when the caller has no staged input
@@ -212,34 +211,75 @@ pub struct CreateTaskSubmissionRequest<'a> {
     pub request_hash: &'a str,
 }
 
-impl Database {
-    pub async fn create_task_submission(
-        &self,
-        task_id: Uuid,
-        user_id: i64,
-        group_id: Option<i64>,
-        kind: &str,
-        group_path: Option<&str>,
-        source_key: Option<&str>,
-        payloads: &[Value],
-        idempotency_key: Option<&str>,
-        request_hash: &str,
-    ) -> Result<(Uuid, bool, Vec<Uuid>)> {
-        self.create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
-            task_id,
-            user_id,
-            group_id,
-            kind,
-            group_path,
-            source_key,
-            payloads,
-            input_storage_object_ids: None,
-            idempotency_key,
-            request_hash,
-        })
-        .await
-    }
+/// Grouped arguments for inserting one task item.
+#[derive(Debug, Clone, Copy)]
+pub struct InsertTaskItemRequest<'a> {
+    pub item_id: Uuid,
+    pub task_id: Uuid,
+    pub ordinal: i32,
+    pub payload: &'a Value,
+    pub stage: Option<&'a str>,
+    pub file_id: Option<Uuid>,
+    pub input_storage_object_id: Option<Uuid>,
+}
 
+/// Grouped filter arguments for listing tasks.
+#[derive(Debug, Clone, Copy)]
+pub struct TaskListFilter<'a> {
+    pub user_id: i64,
+    pub query: Option<&'a str>,
+    pub kind: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub stage: Option<&'a str>,
+    pub waiting_reason: Option<&'a str>,
+    pub dependency_key: Option<&'a str>,
+    pub sort_by: Option<&'a str>,
+    pub sort_direction: Option<&'a str>,
+    pub limit: i64,
+    pub offset: i64,
+    pub view: &'a str,
+}
+
+/// Grouped filter arguments for counting tasks.
+#[derive(Debug, Clone, Copy)]
+pub struct TaskCountFilter<'a> {
+    pub user_id: i64,
+    pub query: Option<&'a str>,
+    pub kind: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub stage: Option<&'a str>,
+    pub waiting_reason: Option<&'a str>,
+    pub dependency_key: Option<&'a str>,
+    pub view: &'a str,
+}
+
+/// Grouped arguments for finishing a task item.
+#[derive(Debug, Clone, Copy)]
+pub struct FinishTaskItemRequest<'a> {
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub status: &'a str,
+    pub resource_id: Option<&'a str>,
+    pub failure_stage: Option<&'a str>,
+    pub error_message: Option<&'a str>,
+    pub retryable: bool,
+    pub lease_token: Uuid,
+    pub attempt_id: i64,
+}
+
+/// Grouped arguments for parking a task item as waiting.
+#[derive(Debug, Clone, Copy)]
+pub struct WaitTaskItemRequest<'a> {
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub lease_token: Uuid,
+    pub waiting_reason: &'a str,
+    pub dependency_key: Option<&'a str>,
+    pub next_attempt_at: DateTime<Utc>,
+    pub error_message: Option<&'a str>,
+}
+
+impl Database {
     pub async fn create_task_submission_with_input_objects(
         &self,
         request: CreateTaskSubmissionRequest<'_>,
@@ -268,8 +308,8 @@ impl Database {
         let idempotency_key = request.idempotency_key;
         let request_hash = request.request_hash;
         let mut tx = self.pool().begin().await?;
-        if let Some(key) = idempotency_key {
-            if let Some(existing) = sqlx::query_file_as!(
+        if let Some(key) = idempotency_key
+            && let Some(existing) = sqlx::query_file_as!(
                 StoredIdempotencyKey,
                 "src/sql/db/tasks/idempotency_get.sql",
                 user_id,
@@ -277,20 +317,19 @@ impl Database {
             )
             .fetch_optional(&mut *tx)
             .await?
-            {
-                if existing.request_hash != request_hash {
-                    return Err(crate::domain_errors::DomainError::conflict(
-                        "idempotency key was already used with a different request",
-                    )
-                    .into());
-                }
-                let item_ids =
-                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", existing.task_id)
-                        .fetch_all(&mut *tx)
-                        .await?;
-                tx.commit().await?;
-                return Ok((existing.task_id, true, item_ids));
+        {
+            if existing.request_hash != request_hash {
+                return Err(crate::domain_errors::DomainError::conflict(
+                    "idempotency key was already used with a different request",
+                )
+                .into());
             }
+            let item_ids =
+                sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", existing.task_id)
+                    .fetch_all(&mut *tx)
+                    .await?;
+            tx.commit().await?;
+            return Ok((existing.task_id, true, item_ids));
         }
 
         // Deduplicate file-ingest items by `file_id`: a file may have at most
@@ -425,25 +464,16 @@ impl Database {
         Ok((task_id, false, item_ids))
     }
 
-    pub async fn insert_task_item(
-        &self,
-        item_id: Uuid,
-        task_id: Uuid,
-        ordinal: i32,
-        payload: &Value,
-        stage: Option<&str>,
-        file_id: Option<Uuid>,
-        input_storage_object_id: Option<Uuid>,
-    ) -> Result<()> {
+    pub async fn insert_task_item(&self, request: InsertTaskItemRequest<'_>) -> Result<()> {
         sqlx::query_file!(
             "src/sql/db/tasks/insert_item.sql",
-            item_id,
-            task_id,
-            ordinal,
-            payload,
-            stage,
-            file_id,
-            input_storage_object_id
+            request.item_id,
+            request.task_id,
+            request.ordinal,
+            request.payload,
+            request.stage,
+            request.file_id,
+            request.input_storage_object_id
         )
         .execute(self.pool())
         .await?;
@@ -466,62 +496,38 @@ impl Database {
         )
     }
 
-    pub async fn list_tasks(
-        &self,
-        user_id: i64,
-        query: Option<&str>,
-        kind: Option<&str>,
-        status: Option<&str>,
-        stage: Option<&str>,
-        waiting_reason: Option<&str>,
-        dependency_key: Option<&str>,
-        sort_by: Option<&str>,
-        sort_direction: Option<&str>,
-        limit: i64,
-        offset: i64,
-        view: &str,
-    ) -> Result<Vec<StoredTask>> {
+    pub async fn list_tasks(&self, filter: TaskListFilter<'_>) -> Result<Vec<StoredTask>> {
         Ok(sqlx::query_file_as!(
             StoredTask,
             "src/sql/db/tasks/list.sql",
-            user_id,
-            query,
-            kind,
-            status,
-            stage,
-            waiting_reason,
-            dependency_key,
-            sort_by,
-            sort_direction,
-            limit,
-            offset,
-            view
+            filter.user_id,
+            filter.query,
+            filter.kind,
+            filter.status,
+            filter.stage,
+            filter.waiting_reason,
+            filter.dependency_key,
+            filter.sort_by,
+            filter.sort_direction,
+            filter.limit,
+            filter.offset,
+            filter.view
         )
         .fetch_all(self.pool())
         .await?)
     }
 
-    pub async fn count_tasks(
-        &self,
-        user_id: i64,
-        query: Option<&str>,
-        kind: Option<&str>,
-        status: Option<&str>,
-        stage: Option<&str>,
-        waiting_reason: Option<&str>,
-        dependency_key: Option<&str>,
-        view: &str,
-    ) -> Result<i64> {
+    pub async fn count_tasks(&self, filter: TaskCountFilter<'_>) -> Result<i64> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/db/tasks/count.sql",
-            user_id,
-            query,
-            kind,
-            status,
-            stage,
-            waiting_reason,
-            dependency_key,
-            view
+            filter.user_id,
+            filter.query,
+            filter.kind,
+            filter.status,
+            filter.stage,
+            filter.waiting_reason,
+            filter.dependency_key,
+            filter.view
         )
         .fetch_one(self.pool())
         .await?
@@ -637,29 +643,18 @@ impl Database {
         .await?)
     }
 
-    pub async fn finish_task_item(
-        &self,
-        task_id: Uuid,
-        item_id: Uuid,
-        status: &str,
-        resource_id: Option<&str>,
-        failure_stage: Option<&str>,
-        error_message: Option<&str>,
-        retryable: bool,
-        lease_token: Uuid,
-        attempt_id: i64,
-    ) -> Result<bool> {
+    pub async fn finish_task_item(&self, request: FinishTaskItemRequest<'_>) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
         let updated = sqlx::query_file!(
             "src/sql/db/tasks/finish_item.sql",
-            item_id,
-            status,
-            resource_id,
-            failure_stage,
-            error_message,
-            retryable,
-            lease_token,
-            attempt_id
+            request.item_id,
+            request.status,
+            request.resource_id,
+            request.failure_stage,
+            request.error_message,
+            request.retryable,
+            request.lease_token,
+            request.attempt_id
         )
         .execute(&mut *tx)
         .await?;
@@ -669,13 +664,13 @@ impl Database {
             // its file succeeded or failed, never stuck running/pending.
             sqlx::query_file!(
                 "src/sql/db/tasks/project_file_status.sql",
-                item_id,
-                status,
-                error_message
+                request.item_id,
+                request.status,
+                request.error_message
             )
             .execute(&mut *tx)
             .await?;
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", request.task_id)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -942,31 +937,22 @@ impl Database {
         Ok(())
     }
 
-    pub async fn wait_task_item(
-        &self,
-        task_id: Uuid,
-        item_id: Uuid,
-        lease_token: Uuid,
-        waiting_reason: &str,
-        dependency_key: Option<&str>,
-        next_attempt_at: DateTime<Utc>,
-        error_message: Option<&str>,
-    ) -> Result<bool> {
+    pub async fn wait_task_item(&self, request: WaitTaskItemRequest<'_>) -> Result<bool> {
         let updated = sqlx::query_file!(
             "src/sql/db/tasks/wait_item.sql",
-            item_id,
-            lease_token,
-            waiting_reason,
-            dependency_key,
-            next_attempt_at,
-            error_message
+            request.item_id,
+            request.lease_token,
+            request.waiting_reason,
+            request.dependency_key,
+            request.next_attempt_at,
+            request.error_message
         )
         .execute(self.pool())
         .await?
         .rows_affected()
             > 0;
         if updated {
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", request.task_id)
                 .execute(self.pool())
                 .await?;
         }
@@ -1019,7 +1005,7 @@ impl Database {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
-        claim_failed_item_file_slots(&mut *tx, task.group_id, task_id).await?;
+        claim_failed_item_file_slots(&mut tx, task.group_id, task_id).await?;
         let ids = sqlx::query_file_scalar!("src/sql/db/tasks/retry_items.sql", task_id, user_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -1043,7 +1029,7 @@ impl Database {
             .await?;
         // Same shared per-file locks as create/retry: rerun's active-sibling
         // filter must not race a concurrent submission for the same file.
-        claim_unfinished_item_file_slots(&mut *tx, source.group_id, task_id).await?;
+        claim_unfinished_item_file_slots(&mut tx, source.group_id, task_id).await?;
         let new_task_id = Uuid::new_v4();
         let items =
             sqlx::query_file_as!(RerunTaskItem, "src/sql/db/tasks/rerun_items.sql", task_id)

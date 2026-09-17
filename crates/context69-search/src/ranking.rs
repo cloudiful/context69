@@ -473,7 +473,7 @@ mod tests {
 
         let results = apply_rerank(
             vec![first, second.clone()],
-            &[second.clone()],
+            std::slice::from_ref(&second),
             &[RerankHit {
                 index: 0,
                 score: 0.93,

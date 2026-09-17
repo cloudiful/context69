@@ -386,16 +386,16 @@ impl Context69App {
         })));
         let document_store = DocumentStoreService::new(db.clone(), index.clone(), library.clone());
         document_store.resume_pending();
-        let tasks = TaskService::new(
-            db.clone(),
-            namespace.clone(),
-            document_store.clone(),
-            library.clone(),
-            sync.clone(),
-            source_folders.clone(),
-            translation.clone(),
-            task_worker_capacity(&config),
-        );
+        let tasks = TaskService::new(crate::services::tasks::TaskServiceDependencies {
+            db: db.clone(),
+            namespace: namespace.clone(),
+            document_store: document_store.clone(),
+            library: library.clone(),
+            sync: sync.clone(),
+            source_folders: source_folders.clone(),
+            translation: translation.clone(),
+            concurrency: task_worker_capacity(&config),
+        });
         tasks.resume_pending();
         tasks.start_maintenance();
         tasks.start_event_bus();

@@ -963,7 +963,7 @@ mod tests {
         let deferred = poll_deferral_for_item(item, now);
         let secs = (deferred - now).num_seconds();
         assert!(
-            secs >= 10 && secs <= 15,
+            (10..=15).contains(&secs),
             "deferral must be short (10s plus 0..=5s jitter) without hitting Docling, got {secs}s"
         );
     }

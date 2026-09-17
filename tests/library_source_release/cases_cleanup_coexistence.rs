@@ -5,6 +5,7 @@
 use context69::library_store::LibraryStore;
 
 use super::support::*;
+use super::support_seed_release::*;
 
 #[tokio::test]
 async fn snapshot_restore_reinstates_the_release_marker() {

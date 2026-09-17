@@ -445,7 +445,7 @@ pub(crate) async fn upload_group_library_files(
     }
     let uploads = match read_library_uploads(multipart).await {
         Ok(uploads) => uploads,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let payloads = match file_batch_payloads(uploads) {
         Ok(payloads) => payloads,

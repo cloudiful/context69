@@ -196,11 +196,12 @@ async fn require_manager(
     state: &ApiState,
     user_id: i64,
     group_path: &str,
-) -> Result<crate::domain::GroupRecord, axum::response::Response> {
+) -> Result<crate::domain::GroupRecord, Box<axum::response::Response>> {
     let group = group_for_user(state, user_id, group_path)
         .await
-        .map_err(group_access_error_response)?;
-    require_group_role(&group, MembershipRole::Maintainer).map_err(group_access_error_response)?;
+        .map_err(|error| Box::new(group_access_error_response(error)))?;
+    require_group_role(&group, MembershipRole::Maintainer)
+        .map_err(|error| Box::new(group_access_error_response(error)))?;
     Ok(group)
 }
 
@@ -213,7 +214,7 @@ pub(crate) async fn update_metadata_index(
 ) -> impl IntoResponse {
     let group = match require_manager(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .app
@@ -234,7 +235,7 @@ pub(crate) async fn retry_metadata_index(
 ) -> impl IntoResponse {
     let group = match require_manager(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .app
@@ -255,7 +256,7 @@ pub(crate) async fn delete_metadata_index(
 ) -> impl IntoResponse {
     let group = match require_manager(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .app

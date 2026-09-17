@@ -35,30 +35,44 @@ async fn tmpl(db: &Database) -> String {
     sqlx::query("INSERT INTO context69.extraction_templates (template_key, version, system_prompt, output_schema, enabled) VALUES ($1,1,'p','{\"type\":\"object\"}',true) ON CONFLICT DO NOTHING").bind(&k).execute(db.pool()).await.unwrap();
     k
 }
-async fn job(
-    db: &Database,
+struct JobParams<'a> {
     doc: i64,
-    tmpl: &str,
-    hash: &str,
-    status: &str,
-    fc: Option<&str>,
+    tmpl: &'a str,
+    hash: &'a str,
+    status: &'a str,
+    fc: Option<&'a str>,
     next: Option<chrono::DateTime<Utc>>,
-) -> Uuid {
-    job_with_attempt(db, doc, tmpl, hash, status, 0, fc, next).await
 }
-async fn job_with_attempt(
-    db: &Database,
+
+struct JobWithAttemptParams<'a> {
     doc: i64,
-    tmpl: &str,
-    hash: &str,
-    status: &str,
+    tmpl: &'a str,
+    hash: &'a str,
+    status: &'a str,
     attempt: i32,
-    fc: Option<&str>,
+    fc: Option<&'a str>,
     next: Option<chrono::DateTime<Utc>>,
-) -> Uuid {
+}
+
+async fn job(db: &Database, params: JobParams<'_>) -> Uuid {
+    job_with_attempt(
+        db,
+        JobWithAttemptParams {
+            doc: params.doc,
+            tmpl: params.tmpl,
+            hash: params.hash,
+            status: params.status,
+            attempt: 0,
+            fc: params.fc,
+            next: params.next,
+        },
+    )
+    .await
+}
+async fn job_with_attempt(db: &Database, params: JobWithAttemptParams<'_>) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO context69.document_extraction_jobs (id, document_id, template_key, template_version, source_record_hash, parameters, status, attempt_count, failure_class, next_attempt_at) VALUES ($1,$2,$3,1,$4,'{}',$5,$6,$7,$8)")
-        .bind(id).bind(doc).bind(tmpl).bind(hash).bind(status).bind(attempt).bind(fc).bind(next).execute(db.pool()).await.unwrap();
+        .bind(id).bind(params.doc).bind(params.tmpl).bind(params.hash).bind(params.status).bind(params.attempt).bind(params.fc).bind(params.next).execute(db.pool()).await.unwrap();
     id
 }
 async fn clean(db: &Database, ids: &[Uuid]) {
@@ -107,22 +121,26 @@ async fn due_pending_and_claim() {
     let t = tmpl(&db).await;
     let due = job(
         &db,
-        did,
-        &t,
-        &format!("h-{}", Uuid::new_v4()),
-        "queued",
-        None,
-        None,
+        JobParams {
+            doc: did,
+            tmpl: &t,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "queued",
+            fc: None,
+            next: None,
+        },
     )
     .await;
     let fut = job(
         &db,
-        did,
-        &t,
-        &format!("h-{}", Uuid::new_v4()),
-        "queued",
-        Some("transient"),
-        Some(Utc::now() + chrono::Duration::seconds(60)),
+        JobParams {
+            doc: did,
+            tmpl: &t,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "queued",
+            fc: Some("transient"),
+            next: Some(Utc::now() + chrono::Duration::seconds(60)),
+        },
     )
     .await;
     let pending = store.pending_ids().await.unwrap();
@@ -163,7 +181,18 @@ async fn queued_retry_and_health() {
     let did = doc(&db, gid).await;
     let t = tmpl(&db).await;
     let h = format!("h-{}", Uuid::new_v4());
-    let jid = job(&db, did, &t, &h, "queued", None, None).await;
+    let jid = job(
+        &db,
+        JobParams {
+            doc: did,
+            tmpl: &t,
+            hash: &h,
+            status: "queued",
+            fc: None,
+            next: None,
+        },
+    )
+    .await;
     let j = store.claim_job(jid).await.unwrap().unwrap();
     assert_eq!(j.attempt_count, 1);
     let d = next_retry_delay(j.attempt_count);
@@ -222,13 +251,15 @@ async fn manual_retry_and_reset() {
     let t = tmpl(&db).await;
     let jid = job_with_attempt(
         &db,
-        did,
-        &t,
-        &format!("h-{}", Uuid::new_v4()),
-        "failed",
-        1,
-        Some("transient"),
-        Some(Utc::now() + chrono::Duration::seconds(30)),
+        JobWithAttemptParams {
+            doc: did,
+            tmpl: &t,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "failed",
+            attempt: 1,
+            fc: Some("transient"),
+            next: Some(Utc::now() + chrono::Duration::seconds(30)),
+        },
     )
     .await;
     sqlx::query("INSERT INTO context69.document_extraction_attempts (job_id, provider_key, provider_config_hash, attempt_number, status, latency_ms) VALUES ($1,'llm','h',1,'failed',100)").bind(jid).execute(db.pool()).await.unwrap();
@@ -246,13 +277,15 @@ async fn manual_retry_and_reset() {
     assert!(fc.is_none() && na.is_none());
     let run = job_with_attempt(
         &db,
-        did,
-        &t,
-        &format!("h-{}", Uuid::new_v4()),
-        "running",
-        1,
-        Some("transient"),
-        Some(Utc::now() + chrono::Duration::seconds(60)),
+        JobWithAttemptParams {
+            doc: did,
+            tmpl: &t,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "running",
+            attempt: 1,
+            fc: Some("transient"),
+            next: Some(Utc::now() + chrono::Duration::seconds(60)),
+        },
     )
     .await;
     store.reset_interrupted().await.unwrap();
@@ -293,12 +326,14 @@ async fn attempt_and_stop_at_max() {
     let t = tmpl(&db).await;
     let jid = job(
         &db,
-        did,
-        &t,
-        &format!("h-{}", Uuid::new_v4()),
-        "queued",
-        None,
-        None,
+        JobParams {
+            doc: did,
+            tmpl: &t,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "queued",
+            fc: None,
+            next: None,
+        },
     )
     .await;
     // quota attempt
@@ -334,12 +369,14 @@ async fn attempt_and_stop_at_max() {
     // max attempts: need fresh job
     let j2 = job(
         &db,
-        did,
-        &t,
-        &format!("h-{}", Uuid::new_v4()),
-        "queued",
-        None,
-        None,
+        JobParams {
+            doc: did,
+            tmpl: &t,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "queued",
+            fc: None,
+            next: None,
+        },
     )
     .await;
     let c1 = store.claim_job(j2).await.unwrap().unwrap();

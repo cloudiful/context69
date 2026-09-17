@@ -147,14 +147,16 @@ impl LibraryService {
                 Ok(Some(_)) => {}
                 Ok(None) => {
                     self.rollback_project_file_change(
-                        project.id,
-                        file_id,
-                        previous_file.as_ref(),
-                        previous_storage_path.as_ref(),
-                        previous_translation.as_ref(),
-                        &storage_key,
-                        Some(object.id),
-                        lease_token,
+                        super::upload_rollback::RollbackProjectFileChangeRequest {
+                            project_id: project.id,
+                            file_id,
+                            previous_file: previous_file.as_ref(),
+                            previous_storage: previous_storage_path.as_ref(),
+                            previous_translation: previous_translation.as_ref(),
+                            new_storage_key: &storage_key,
+                            new_storage_object_id: Some(object.id),
+                            lease_token,
+                        },
                     )
                     .await;
                     return Err(DomainError::not_found(format!(
@@ -165,14 +167,16 @@ impl LibraryService {
                 }
                 Err(error) => {
                     self.rollback_project_file_change(
-                        project.id,
-                        file_id,
-                        previous_file.as_ref(),
-                        previous_storage_path.as_ref(),
-                        previous_translation.as_ref(),
-                        &storage_key,
-                        Some(object.id),
-                        lease_token,
+                        super::upload_rollback::RollbackProjectFileChangeRequest {
+                            project_id: project.id,
+                            file_id,
+                            previous_file: previous_file.as_ref(),
+                            previous_storage: previous_storage_path.as_ref(),
+                            previous_translation: previous_translation.as_ref(),
+                            new_storage_key: &storage_key,
+                            new_storage_object_id: Some(object.id),
+                            lease_token,
+                        },
                     )
                     .await;
                     return Err(error);
@@ -199,14 +203,16 @@ impl LibraryService {
                 .await;
             if let Err(error) = create_result {
                 self.rollback_project_file_change(
-                    project.id,
-                    file_id,
-                    previous_file.as_ref(),
-                    previous_storage_path.as_ref(),
-                    previous_translation.as_ref(),
-                    &storage_key,
-                    Some(object.id),
-                    lease_token,
+                    super::upload_rollback::RollbackProjectFileChangeRequest {
+                        project_id: project.id,
+                        file_id,
+                        previous_file: previous_file.as_ref(),
+                        previous_storage: previous_storage_path.as_ref(),
+                        previous_translation: previous_translation.as_ref(),
+                        new_storage_key: &storage_key,
+                        new_storage_object_id: Some(object.id),
+                        lease_token,
+                    },
                 )
                 .await;
                 return Err(error);
@@ -225,14 +231,16 @@ impl LibraryService {
             .await
         {
             self.rollback_project_file_change(
-                project.id,
-                file_id,
-                previous_file.as_ref(),
-                previous_storage_path.as_ref(),
-                previous_translation.as_ref(),
-                &storage_key,
-                Some(object.id),
-                lease_token,
+                super::upload_rollback::RollbackProjectFileChangeRequest {
+                    project_id: project.id,
+                    file_id,
+                    previous_file: previous_file.as_ref(),
+                    previous_storage: previous_storage_path.as_ref(),
+                    previous_translation: previous_translation.as_ref(),
+                    new_storage_key: &storage_key,
+                    new_storage_object_id: Some(object.id),
+                    lease_token,
+                },
             )
             .await;
             return Err(error);
@@ -243,14 +251,16 @@ impl LibraryService {
                 .await
         {
             self.rollback_project_file_change(
-                project.id,
-                file_id,
-                previous_file.as_ref(),
-                previous_storage_path.as_ref(),
-                previous_translation.as_ref(),
-                &storage_key,
-                Some(object.id),
-                lease_token,
+                super::upload_rollback::RollbackProjectFileChangeRequest {
+                    project_id: project.id,
+                    file_id,
+                    previous_file: previous_file.as_ref(),
+                    previous_storage: previous_storage_path.as_ref(),
+                    previous_translation: previous_translation.as_ref(),
+                    new_storage_key: &storage_key,
+                    new_storage_object_id: Some(object.id),
+                    lease_token,
+                },
             )
             .await;
             return Err(error);
@@ -261,14 +271,16 @@ impl LibraryService {
                 .await
         {
             self.rollback_project_file_change(
-                project.id,
-                file_id,
-                previous_file.as_ref(),
-                previous_storage_path.as_ref(),
-                previous_translation.as_ref(),
-                &storage_key,
-                Some(object.id),
-                lease_token,
+                super::upload_rollback::RollbackProjectFileChangeRequest {
+                    project_id: project.id,
+                    file_id,
+                    previous_file: previous_file.as_ref(),
+                    previous_storage: previous_storage_path.as_ref(),
+                    previous_translation: previous_translation.as_ref(),
+                    new_storage_key: &storage_key,
+                    new_storage_object_id: Some(object.id),
+                    lease_token,
+                },
             )
             .await;
             return Err(error);
@@ -287,14 +299,16 @@ impl LibraryService {
             Ok(payload) => payload,
             Err(error) => {
                 self.rollback_project_file_change(
-                    project.id,
-                    file_id,
-                    previous_file.as_ref(),
-                    previous_storage_path.as_ref(),
-                    previous_translation.as_ref(),
-                    &storage_key,
-                    Some(object.id),
-                    lease_token,
+                    super::upload_rollback::RollbackProjectFileChangeRequest {
+                        project_id: project.id,
+                        file_id,
+                        previous_file: previous_file.as_ref(),
+                        previous_storage: previous_storage_path.as_ref(),
+                        previous_translation: previous_translation.as_ref(),
+                        new_storage_key: &storage_key,
+                        new_storage_object_id: Some(object.id),
+                        lease_token,
+                    },
                 )
                 .await;
                 return Err(error.into());
@@ -453,14 +467,16 @@ impl LibraryService {
                 Ok(Some(_)) => {}
                 Ok(None) => {
                     self.rollback_project_file_change(
-                        project.id,
-                        file_id,
-                        previous_file.as_ref(),
-                        previous_storage_path.as_ref(),
-                        previous_translation.as_ref(),
-                        &storage_key,
-                        Some(object.id),
-                        lease_token,
+                        super::upload_rollback::RollbackProjectFileChangeRequest {
+                            project_id: project.id,
+                            file_id,
+                            previous_file: previous_file.as_ref(),
+                            previous_storage: previous_storage_path.as_ref(),
+                            previous_translation: previous_translation.as_ref(),
+                            new_storage_key: &storage_key,
+                            new_storage_object_id: Some(object.id),
+                            lease_token,
+                        },
                     )
                     .await;
                     return Err(DomainError::not_found(format!(
@@ -471,14 +487,16 @@ impl LibraryService {
                 }
                 Err(error) => {
                     self.rollback_project_file_change(
-                        project.id,
-                        file_id,
-                        previous_file.as_ref(),
-                        previous_storage_path.as_ref(),
-                        previous_translation.as_ref(),
-                        &storage_key,
-                        Some(object.id),
-                        lease_token,
+                        super::upload_rollback::RollbackProjectFileChangeRequest {
+                            project_id: project.id,
+                            file_id,
+                            previous_file: previous_file.as_ref(),
+                            previous_storage: previous_storage_path.as_ref(),
+                            previous_translation: previous_translation.as_ref(),
+                            new_storage_key: &storage_key,
+                            new_storage_object_id: Some(object.id),
+                            lease_token,
+                        },
                     )
                     .await;
                     return Err(error);
@@ -505,14 +523,16 @@ impl LibraryService {
                 .await;
             if let Err(error) = create_result {
                 self.rollback_project_file_change(
-                    project.id,
-                    file_id,
-                    previous_file.as_ref(),
-                    previous_storage_path.as_ref(),
-                    previous_translation.as_ref(),
-                    &storage_key,
-                    Some(object.id),
-                    lease_token,
+                    super::upload_rollback::RollbackProjectFileChangeRequest {
+                        project_id: project.id,
+                        file_id,
+                        previous_file: previous_file.as_ref(),
+                        previous_storage: previous_storage_path.as_ref(),
+                        previous_translation: previous_translation.as_ref(),
+                        new_storage_key: &storage_key,
+                        new_storage_object_id: Some(object.id),
+                        lease_token,
+                    },
                 )
                 .await;
                 return Err(error);
@@ -530,14 +550,16 @@ impl LibraryService {
             metadata_json: json!({}),
         }]) {
             self.rollback_project_file_change(
-                project.id,
-                file_id,
-                previous_file.as_ref(),
-                previous_storage_path.as_ref(),
-                previous_translation.as_ref(),
-                &storage_key,
-                Some(object.id),
-                lease_token,
+                super::upload_rollback::RollbackProjectFileChangeRequest {
+                    project_id: project.id,
+                    file_id,
+                    previous_file: previous_file.as_ref(),
+                    previous_storage: previous_storage_path.as_ref(),
+                    previous_translation: previous_translation.as_ref(),
+                    new_storage_key: &storage_key,
+                    new_storage_object_id: Some(object.id),
+                    lease_token,
+                },
             )
             .await;
             return Err(error.into());

@@ -3,6 +3,7 @@
 //! direct-path retry.
 
 use super::support::*;
+use super::support_seed_release::*;
 
 #[tokio::test]
 async fn physical_delete_failure_is_rescheduled_then_retried() {

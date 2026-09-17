@@ -317,12 +317,14 @@ impl LibraryService {
             .store
             .upsert_storage_object_on_connection(
                 &mut tx,
-                Uuid::new_v4(),
-                group_id,
-                sha256,
-                bytes.len() as i64,
-                self.storage.backend(),
-                &key,
+                crate::library_store::objects::UpsertStorageObjectRequest {
+                    id: Uuid::new_v4(),
+                    group_id,
+                    sha256,
+                    size_bytes: bytes.len() as i64,
+                    storage_backend: self.storage.backend(),
+                    object_key: &key,
+                },
             )
             .await
         {

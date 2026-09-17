@@ -126,17 +126,17 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
 
     // Late worker with the stale token/attempt must be rejected.
     let stale_finish = db
-        .finish_task_item(
+        .finish_task_item(context69::db::FinishTaskItemRequest {
             task_id,
             item_id,
-            "succeeded",
-            None,
-            None,
-            None,
-            true,
-            first.lease_token,
-            first.attempt_id,
-        )
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
+            lease_token: first.lease_token,
+            attempt_id: first.attempt_id,
+        })
         .await
         .expect("stale finish should not error");
     assert!(

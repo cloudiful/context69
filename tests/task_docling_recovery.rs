@@ -874,15 +874,15 @@ async fn dependency_wait_does_not_reset_attempt_count() {
 
     let next_attempt = Utc::now() + chrono::Duration::seconds(60);
     let updated = db
-        .wait_task_item(
+        .wait_task_item(context69::db::WaitTaskItemRequest {
             task_id,
             item_id,
-            claimed.lease_token,
-            "dependency",
-            Some("docling"),
-            next_attempt,
-            Some("docling gate open"),
-        )
+            lease_token: claimed.lease_token,
+            waiting_reason: "dependency",
+            dependency_key: Some("docling"),
+            next_attempt_at: next_attempt,
+            error_message: Some("docling gate open"),
+        })
         .await
         .expect("wait task item");
     assert!(updated, "wait_item must accept the lease");

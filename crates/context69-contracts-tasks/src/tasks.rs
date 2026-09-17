@@ -612,7 +612,7 @@ pub struct TaskStreamDone {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskStreamEvent {
     Snapshot(TaskStreamSnapshot),
-    Update(TaskStreamUpdate),
+    Update(Box<TaskStreamUpdate>),
     Done(TaskStreamDone),
     Error { message: String },
 }

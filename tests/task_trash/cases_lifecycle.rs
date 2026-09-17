@@ -20,16 +20,38 @@ async fn trash_and_restore_round_trip_is_idempotent() {
     finish_task(&db, task_id, "succeeded").await;
 
     let active = db
-        .list_tasks(
-            user_id, None, None, None, None, None, None, None, None, 50, 0, "completed",
-        )
+        .list_tasks(context69::db::TaskListFilter {
+            user_id,
+            query: None,
+            kind: None,
+            status: None,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+            limit: 50,
+            offset: 0,
+            view: "completed",
+        })
         .await
         .expect("list active tasks");
     assert!(active.iter().any(|task| task.id == task_id));
     let trashed = db
-        .list_tasks(
-            user_id, None, None, None, None, None, None, None, None, 50, 0, "trash",
-        )
+        .list_tasks(context69::db::TaskListFilter {
+            user_id,
+            query: None,
+            kind: None,
+            status: None,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+            limit: 50,
+            offset: 0,
+            view: "trash",
+        })
         .await
         .expect("list trashed tasks");
     assert!(!trashed.iter().any(|task| task.id == task_id));
@@ -47,16 +69,38 @@ async fn trash_and_restore_round_trip_is_idempotent() {
     assert!(!db.trash_task(task_id).await.expect("repeat trash"));
 
     let active = db
-        .list_tasks(
-            user_id, None, None, None, None, None, None, None, None, 50, 0, "completed",
-        )
+        .list_tasks(context69::db::TaskListFilter {
+            user_id,
+            query: None,
+            kind: None,
+            status: None,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+            limit: 50,
+            offset: 0,
+            view: "completed",
+        })
         .await
         .expect("list active tasks");
     assert!(!active.iter().any(|task| task.id == task_id));
     let trashed = db
-        .list_tasks(
-            user_id, None, None, None, None, None, None, None, None, 50, 0, "trash",
-        )
+        .list_tasks(context69::db::TaskListFilter {
+            user_id,
+            query: None,
+            kind: None,
+            status: None,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+            limit: 50,
+            offset: 0,
+            view: "trash",
+        })
         .await
         .expect("list trashed tasks");
     assert!(trashed.iter().any(|task| task.id == task_id));
@@ -72,9 +116,20 @@ async fn trash_and_restore_round_trip_is_idempotent() {
     assert!(!db.restore_task(task_id).await.expect("repeat restore"));
 
     let active = db
-        .list_tasks(
-            user_id, None, None, None, None, None, None, None, None, 50, 0, "completed",
-        )
+        .list_tasks(context69::db::TaskListFilter {
+            user_id,
+            query: None,
+            kind: None,
+            status: None,
+            stage: None,
+            waiting_reason: None,
+            dependency_key: None,
+            sort_by: None,
+            sort_direction: None,
+            limit: 50,
+            offset: 0,
+            view: "completed",
+        })
         .await
         .expect("list active tasks");
     assert!(active.iter().any(|task| task.id == task_id));

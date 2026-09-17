@@ -239,7 +239,7 @@ pub(crate) async fn upload_library_files(
 ) -> impl IntoResponse {
     let uploads = match read_library_uploads(multipart).await {
         Ok(uploads) => uploads,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let group = match group_for_user(&state, session.user.id, "public").await {
         Ok(group) => group,

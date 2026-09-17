@@ -12,6 +12,9 @@ mod support;
 #[path = "library_source_release/support_seed.rs"]
 mod support_seed;
 
+#[path = "library_source_release/support_seed_release.rs"]
+mod support_seed_release;
+
 #[path = "library_source_release/cases_manual_release.rs"]
 mod cases_manual_release;
 

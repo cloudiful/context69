@@ -26,19 +26,20 @@ async fn seed_tmpl(db: &Database) -> String {
     sqlx::query("INSERT INTO context69.extraction_templates (template_key, version, system_prompt, output_schema, enabled) VALUES ($1,1,'p','{\"type\":\"object\"}',true) ON CONFLICT DO NOTHING").bind(&k).execute(db.pool()).await.expect("tmpl");
     k
 }
-async fn seed_job(
-    db: &Database,
+struct SeedJobParams<'a> {
     doc: i64,
-    tmpl: &str,
-    hash: &str,
-    status: &str,
-    fc: Option<&str>,
+    tmpl: &'a str,
+    hash: &'a str,
+    status: &'a str,
+    fc: Option<&'a str>,
     next: Option<chrono::DateTime<Utc>>,
     finished: Option<chrono::DateTime<Utc>>,
-) -> Uuid {
+}
+
+async fn seed_job(db: &Database, params: SeedJobParams<'_>) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO context69.document_extraction_jobs (id, document_id, template_key, template_version, source_record_hash, parameters, status, attempt_count, failure_class, next_attempt_at, finished_at) VALUES ($1,$2,$3,1,$4,'{}',$5,1,$6,$7,$8)")
-        .bind(id).bind(doc).bind(tmpl).bind(hash).bind(status).bind(fc).bind(next).bind(finished).execute(db.pool()).await.expect("job");
+        .bind(id).bind(params.doc).bind(params.tmpl).bind(params.hash).bind(params.status).bind(params.fc).bind(params.next).bind(params.finished).execute(db.pool()).await.expect("job");
     id
 }
 
@@ -58,68 +59,80 @@ async fn health_counts_and_class_aggregation() {
     let now = Utc::now();
     let due = seed_job(
         &db,
-        doc,
-        &tmpl,
-        &format!("h-{}", Uuid::new_v4()),
-        "queued",
-        None,
-        None,
-        None,
+        SeedJobParams {
+            doc,
+            tmpl: &tmpl,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "queued",
+            fc: None,
+            next: None,
+            finished: None,
+        },
     )
     .await;
     let await_id = seed_job(
         &db,
-        doc,
-        &tmpl,
-        &format!("h-{}", Uuid::new_v4()),
-        "queued",
-        Some("transient"),
-        Some(now + chrono::Duration::seconds(60)),
-        None,
+        SeedJobParams {
+            doc,
+            tmpl: &tmpl,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "queued",
+            fc: Some("transient"),
+            next: Some(now + chrono::Duration::seconds(60)),
+            finished: None,
+        },
     )
     .await;
     let running = seed_job(
         &db,
-        doc,
-        &tmpl,
-        &format!("h-{}", Uuid::new_v4()),
-        "running",
-        None,
-        None,
-        None,
+        SeedJobParams {
+            doc,
+            tmpl: &tmpl,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "running",
+            fc: None,
+            next: None,
+            finished: None,
+        },
     )
     .await;
     let failed_p = seed_job(
         &db,
-        doc,
-        &tmpl,
-        &format!("h-{}", Uuid::new_v4()),
-        "failed",
-        Some("permanent"),
-        None,
-        Some(now - chrono::Duration::seconds(600)),
+        SeedJobParams {
+            doc,
+            tmpl: &tmpl,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "failed",
+            fc: Some("permanent"),
+            next: None,
+            finished: Some(now - chrono::Duration::seconds(600)),
+        },
     )
     .await;
     let failed_t = seed_job(
         &db,
-        doc,
-        &tmpl,
-        &format!("h-{}", Uuid::new_v4()),
-        "failed",
-        Some("transient"),
-        None,
-        Some(now - chrono::Duration::seconds(600)),
+        SeedJobParams {
+            doc,
+            tmpl: &tmpl,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "failed",
+            fc: Some("transient"),
+            next: None,
+            finished: Some(now - chrono::Duration::seconds(600)),
+        },
     )
     .await;
     let failed_old = seed_job(
         &db,
-        doc,
-        &tmpl,
-        &format!("h-{}", Uuid::new_v4()),
-        "failed",
-        Some("permanent"),
-        None,
-        Some(now - chrono::Duration::hours(2)),
+        SeedJobParams {
+            doc,
+            tmpl: &tmpl,
+            hash: &format!("h-{}", Uuid::new_v4()),
+            status: "failed",
+            fc: Some("permanent"),
+            next: None,
+            finished: Some(now - chrono::Duration::hours(2)),
+        },
     )
     .await;
 
@@ -129,21 +142,19 @@ async fn health_counts_and_class_aggregation() {
     assert!(h.awaiting_retry >= 1);
     assert!(h.next_retry_at.is_some());
     assert!(h.failed_last_hour >= 2, "only recent fails counted");
-    assert_eq!(
+    assert!(
         h.failure_class_counts
             .get("permanent")
             .cloned()
             .unwrap_or(0)
-            >= 1,
-        true
+            >= 1
     );
-    assert_eq!(
+    assert!(
         h.failure_class_counts
             .get("transient")
             .cloned()
             .unwrap_or(0)
-            >= 1,
-        true
+            >= 1
     );
     assert!(
         !h.failure_class_counts.contains_key("quota_exceeded")

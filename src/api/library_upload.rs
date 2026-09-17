@@ -49,7 +49,7 @@ fn parse_multipart_ingest_options(
 
 pub(crate) async fn read_library_uploads(
     mut multipart: Multipart,
-) -> Result<Vec<UploadedLibraryFile>, axum::response::Response> {
+) -> Result<Vec<UploadedLibraryFile>, Box<axum::response::Response>> {
     let mut folder_id = None;
     let mut uploads = Vec::new();
     let mut declared_sha256 = None;
@@ -59,7 +59,7 @@ pub(crate) async fn read_library_uploads(
         let field = match multipart.next_field().await {
             Ok(field) => field,
             Err(error) => {
-                return Err(invalid_argument(error.to_string()));
+                return Err(Box::new(invalid_argument(error.to_string())));
             }
         };
         let Some(field) = field else {
@@ -73,11 +73,11 @@ pub(crate) async fn read_library_uploads(
                 Ok(text) => match Uuid::parse_str(text.trim()) {
                     Ok(value) => folder_id = Some(value),
                     Err(error) => {
-                        return Err(invalid_argument(format!("invalid folder_id: {error}")));
+                        return Err(Box::new(invalid_argument(format!("invalid folder_id: {error}"))));
                     }
                 },
                 Err(error) => {
-                    return Err(invalid_argument(error.to_string()));
+                    return Err(Box::new(invalid_argument(error.to_string())));
                 }
             }
             continue;
@@ -87,7 +87,7 @@ pub(crate) async fn read_library_uploads(
             declared_sha256 = match field.text().await {
                 Ok(value) => Some(value.trim().to_ascii_lowercase()),
                 Err(error) => {
-                    return Err(invalid_argument(error.to_string()));
+                    return Err(Box::new(invalid_argument(error.to_string())));
                 }
             };
             continue;
@@ -98,14 +98,14 @@ pub(crate) async fn read_library_uploads(
                 Ok(value) => match parse_multipart_ingest_options(&value) {
                     Ok(value) => Some(value),
                     Err(ParseIngestOptionsError::InvalidArgument(message)) => {
-                        return Err(invalid_argument(message));
+                        return Err(Box::new(invalid_argument(message)));
                     }
                     Err(ParseIngestOptionsError::UnprocessableEntity(message)) => {
-                        return Err(unprocessable_entity(message));
+                        return Err(Box::new(unprocessable_entity(message)));
                     }
                 },
                 Err(error) => {
-                    return Err(invalid_argument(error.to_string()));
+                    return Err(Box::new(invalid_argument(error.to_string())));
                 }
             };
             continue;
@@ -126,7 +126,7 @@ pub(crate) async fn read_library_uploads(
         let bytes = match field.bytes().await {
             Ok(bytes) => bytes,
             Err(error) => {
-                return Err(invalid_argument(error.to_string()));
+                return Err(Box::new(invalid_argument(error.to_string())));
             }
         };
 
@@ -143,9 +143,9 @@ pub(crate) async fn read_library_uploads(
     }
 
     if uploads.is_empty() {
-        return Err(invalid_argument(
+        return Err(Box::new(invalid_argument(
             "at least one file is required".to_string(),
-        ));
+        )));
     }
 
     Ok(uploads)

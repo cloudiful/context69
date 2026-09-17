@@ -194,14 +194,16 @@ impl SourceFoldersService {
             .await?;
         self.sync
             .sync_project_source_folder(
-                project,
-                &descriptor.path,
-                Some(source_id),
-                folder_id,
-                descriptor.records_folder.id,
-                &validated,
-                &self.library,
-                lease_token,
+                super::sync::project_source_folders::SyncProjectSourceFolderRequest {
+                    project,
+                    folder_path: &descriptor.path,
+                    source_id: Some(source_id),
+                    folder_id,
+                    records_folder_id: descriptor.records_folder.id,
+                    source: &validated,
+                    library: &self.library,
+                    lease_token,
+                },
             )
             .await
     }

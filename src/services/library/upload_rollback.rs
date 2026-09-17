@@ -2,7 +2,21 @@ use anyhow::{Context, Result};
 use tracing::warn;
 use uuid::Uuid;
 
+use super::LibraryService;
 use super::*;
+
+/// Grouped arguments for rolling back a project file change.
+#[derive(Debug, Clone, Copy)]
+pub struct RollbackProjectFileChangeRequest<'a> {
+    pub project_id: i64,
+    pub file_id: Uuid,
+    pub previous_file: Option<&'a crate::domain::LibraryFileRecord>,
+    pub previous_storage: Option<&'a crate::library_store::documents::StoragePathRow>,
+    pub previous_translation: Option<&'a crate::contracts::TranslationDirective>,
+    pub new_storage_key: &'a str,
+    pub new_storage_object_id: Option<Uuid>,
+    pub lease_token: Option<Uuid>,
+}
 
 impl LibraryService {
     pub(super) async fn rollback_new_file_record_for_task(
@@ -175,15 +189,18 @@ impl LibraryService {
 
     pub(super) async fn rollback_project_file_change(
         &self,
-        project_id: i64,
-        file_id: Uuid,
-        previous_file: Option<&crate::domain::LibraryFileRecord>,
-        previous_storage: Option<&crate::library_store::documents::StoragePathRow>,
-        previous_translation: Option<&crate::contracts::TranslationDirective>,
-        new_storage_key: &str,
-        new_storage_object_id: Option<Uuid>,
-        lease_token: Option<Uuid>,
+        request: RollbackProjectFileChangeRequest<'_>,
     ) {
+        let RollbackProjectFileChangeRequest {
+            project_id,
+            file_id,
+            previous_file,
+            previous_storage,
+            previous_translation,
+            new_storage_key,
+            new_storage_object_id,
+            lease_token,
+        } = request;
         if let Some(previous_file) = previous_file {
             if let Err(error) = self
                 .restore_project_file_snapshot(

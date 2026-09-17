@@ -221,7 +221,6 @@ struct SeedMissingOptions {
 /// can pin `created_at`, `ingest_status`, and `storage_object_id` to the
 /// exact values each scenario requires. Returns the seeded file id and
 /// its storage rel path.
-#[allow(clippy::too_many_arguments)]
 async fn seed_missing_source_file(
     db: &Database,
     storage_root: &std::path::Path,

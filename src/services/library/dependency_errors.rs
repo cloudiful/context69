@@ -5,10 +5,10 @@ pub(super) fn dependency_is_transient(
     dependency: LibraryDependency,
     error: &anyhow::Error,
 ) -> bool {
-    if let Some(typed) = find_domain_error(error) {
-        if let Some(decision) = typed_transient_for_dependency(dependency, typed, error) {
-            return decision;
-        }
+    if let Some(typed) = find_domain_error(error)
+        && let Some(decision) = typed_transient_for_dependency(dependency, typed, error)
+    {
+        return decision;
     }
     let message = error_chain_message(error);
     if message.contains("dimension mismatch")

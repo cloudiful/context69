@@ -18,7 +18,7 @@ fn test_database_url() -> Option<String> {
 }
 
 async fn seed_test_user(db: &Database) -> i64 {
-    let id = sqlx::query(
+    sqlx::query(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \
          VALUES ($1, $2, $3) RETURNING id",
     )
@@ -28,8 +28,7 @@ async fn seed_test_user(db: &Database) -> i64 {
     .fetch_one(db.pool())
     .await
     .expect("seed test user")
-    .get("id");
-    id
+    .get("id")
 }
 
 #[tokio::test]

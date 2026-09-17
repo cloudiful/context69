@@ -30,7 +30,7 @@ use super::source_registry::SourceRegistry;
 
 mod connections;
 mod execution;
-mod project_source_folders;
+pub(crate) mod project_source_folders;
 mod runtime;
 mod sources;
 

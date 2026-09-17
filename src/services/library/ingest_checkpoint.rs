@@ -275,9 +275,11 @@ mod tests {
         let payload = json!({
             "indexing_checkpoint": {"v": 1, "next_batch_index": 5, "record_hash": "abc"}
         });
-        let mut next = IndexingCheckpoint::default();
-        next.record_hash = Some("abc".into());
-        next.next_batch_index = 3;
+        let next = IndexingCheckpoint {
+            record_hash: Some("abc".into()),
+            next_batch_index: 3,
+            ..Default::default()
+        };
         let err = payload_with_checkpoint(&payload, &next).expect_err("regression");
         assert!(err.to_string().contains("advance"));
     }
@@ -287,8 +289,10 @@ mod tests {
         let payload = json!({
             "indexing_checkpoint": {"v": 1, "next_batch_index": 0, "record_hash": "abc", "total_batches": 3}
         });
-        let mut next = IndexingCheckpoint::reset("abc".into(), 3);
-        next.next_batch_index = 4;
+        let next = IndexingCheckpoint {
+            next_batch_index: 4,
+            ..IndexingCheckpoint::reset("abc".into(), 3)
+        };
         let err = payload_with_checkpoint(&payload, &next).expect_err("oversize");
         assert!(err.to_string().contains("total batches"));
     }

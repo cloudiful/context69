@@ -22,7 +22,7 @@ fn test_database_url() -> Option<String> {
 }
 
 async fn seed_test_user(db: &Database) -> i64 {
-    let id = sqlx::query(
+    sqlx::query(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \
          VALUES ($1, $2, $3) RETURNING id",
     )
@@ -32,8 +32,7 @@ async fn seed_test_user(db: &Database) -> i64 {
     .fetch_one(db.pool())
     .await
     .expect("seed test user")
-    .get("id");
-    id
+    .get("id")
 }
 
 async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
@@ -148,17 +147,17 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
     );
 
     assert!(
-        db.finish_task_item(
+        db.finish_task_item(context69::db::FinishTaskItemRequest {
             task_id,
-            second.id,
-            "succeeded",
-            None,
-            None,
-            None,
-            true,
-            second.lease_token,
-            second.attempt_id,
-        )
+            item_id: second.id,
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
+            lease_token: second.lease_token,
+            attempt_id: second.attempt_id,
+        })
         .await
         .expect("finish item"),
         "finishing with the current lease token must succeed"

@@ -37,17 +37,17 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
         Ok(ProcessResult::Succeeded(resource_id)) => {
             if !service
                 .db()
-                .finish_task_item(
-                    item.task_id,
-                    item.id,
-                    "succeeded",
-                    resource_id.as_deref(),
-                    None,
-                    None,
-                    true,
-                    item.lease_token,
-                    item.attempt_id,
-                )
+                .finish_task_item(crate::db::FinishTaskItemRequest {
+                    task_id: item.task_id,
+                    item_id: item.id,
+                    status: "succeeded",
+                    resource_id: resource_id.as_deref(),
+                    failure_stage: None,
+                    error_message: None,
+                    retryable: true,
+                    lease_token: item.lease_token,
+                    attempt_id: item.attempt_id,
+                })
                 .await?
             {
                 return Ok(());
@@ -108,15 +108,15 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
             );
             if !service
                 .db()
-                .wait_task_item(
-                    item.task_id,
-                    item.id,
-                    item.lease_token,
-                    &reason,
-                    dependency_key.as_deref(),
+                .wait_task_item(crate::db::WaitTaskItemRequest {
+                    task_id: item.task_id,
+                    item_id: item.id,
+                    lease_token: item.lease_token,
+                    waiting_reason: &reason,
+                    dependency_key: dependency_key.as_deref(),
                     next_attempt_at,
-                    message.as_deref(),
-                )
+                    error_message: message.as_deref(),
+                })
                 .await?
             {
                 return Ok(());
@@ -166,32 +166,32 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
             if retryable {
                 if !service
                     .db()
-                    .wait_task_item(
-                        item.task_id,
-                        item.id,
-                        item.lease_token,
-                        "backoff",
-                        None,
-                        backoff_until(item.attempt_count),
-                        Some(&format!("{stage}: {message}")),
-                    )
+                    .wait_task_item(crate::db::WaitTaskItemRequest {
+                        task_id: item.task_id,
+                        item_id: item.id,
+                        lease_token: item.lease_token,
+                        waiting_reason: "backoff",
+                        dependency_key: None,
+                        next_attempt_at: backoff_until(item.attempt_count),
+                        error_message: Some(&format!("{stage}: {message}")),
+                    })
                     .await?
                 {
                     return Ok(());
                 }
             } else if !service
                 .db()
-                .finish_task_item(
-                    item.task_id,
-                    item.id,
-                    "failed",
-                    None,
-                    Some(&stage),
-                    Some(&message),
-                    false,
-                    item.lease_token,
-                    item.attempt_id,
-                )
+                .finish_task_item(crate::db::FinishTaskItemRequest {
+                    task_id: item.task_id,
+                    item_id: item.id,
+                    status: "failed",
+                    resource_id: None,
+                    failure_stage: Some(&stage),
+                    error_message: Some(&message),
+                    retryable: false,
+                    lease_token: item.lease_token,
+                    attempt_id: item.attempt_id,
+                })
                 .await?
             {
                 return Ok(());
@@ -210,32 +210,32 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
             if is_retryable_error(&error) {
                 if !service
                     .db()
-                    .wait_task_item(
-                        item.task_id,
-                        item.id,
-                        item.lease_token,
-                        "backoff",
-                        None,
-                        backoff_until(item.attempt_count),
-                        Some(&message),
-                    )
+                    .wait_task_item(crate::db::WaitTaskItemRequest {
+                        task_id: item.task_id,
+                        item_id: item.id,
+                        lease_token: item.lease_token,
+                        waiting_reason: "backoff",
+                        dependency_key: None,
+                        next_attempt_at: backoff_until(item.attempt_count),
+                        error_message: Some(&message),
+                    })
                     .await?
                 {
                     return Ok(());
                 }
             } else if !service
                 .db()
-                .finish_task_item(
-                    item.task_id,
-                    item.id,
-                    "failed",
-                    None,
-                    item.stage.as_deref().or(Some("worker")),
-                    Some(&message),
-                    false,
-                    item.lease_token,
-                    item.attempt_id,
-                )
+                .finish_task_item(crate::db::FinishTaskItemRequest {
+                    task_id: item.task_id,
+                    item_id: item.id,
+                    status: "failed",
+                    resource_id: None,
+                    failure_stage: item.stage.as_deref().or(Some("worker")),
+                    error_message: Some(&message),
+                    retryable: false,
+                    lease_token: item.lease_token,
+                    attempt_id: item.attempt_id,
+                })
                 .await?
             {
                 return Ok(());

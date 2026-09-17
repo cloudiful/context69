@@ -486,20 +486,23 @@ mod admission_tests {
         let user_id = seed_user(&db).await;
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
-                task_id,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/admission-count"),
-                None,
-                &[
-                    json!({"external_id": "count-pending"}),
-                    json!({"external_id": "count-stale"}),
-                    json!({"external_id": "count-terminal"}),
-                ],
-                None,
-                "admission-count-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/admission-count"),
+                    source_key: None,
+                    payloads: &[
+                        json!({"external_id": "count-pending"}),
+                        json!({"external_id": "count-stale"}),
+                        json!({"external_id": "count-terminal"}),
+                    ],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "admission-count-hash",
+                },
             )
             .await
             .expect("create task");
@@ -544,16 +547,19 @@ mod admission_tests {
         // Fresh submitting (now) must also hold a slot.
         let fresh_task = Uuid::new_v4();
         let (fresh_task, _reused, fresh_items) = db
-            .create_task_submission(
-                fresh_task,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/admission-fresh"),
-                None,
-                &[json!({"external_id": "count-fresh"})],
-                None,
-                "admission-fresh-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id: fresh_task,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/admission-fresh"),
+                    source_key: None,
+                    payloads: &[json!({"external_id": "count-fresh"})],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "admission-fresh-hash",
+                },
             )
             .await
             .expect("create fresh task");
@@ -592,20 +598,23 @@ mod admission_tests {
         let user_id = seed_user(&db).await;
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
-                task_id,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/admission-expired"),
-                None,
-                &[
-                    json!({"external_id": "expired-pending"}),
-                    json!({"external_id": "expired-running"}),
-                    json!({"external_id": "live-pending"}),
-                ],
-                None,
-                "admission-expired-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/admission-expired"),
+                    source_key: None,
+                    payloads: &[
+                        json!({"external_id": "expired-pending"}),
+                        json!({"external_id": "expired-running"}),
+                        json!({"external_id": "live-pending"}),
+                    ],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "admission-expired-hash",
+                },
             )
             .await
             .expect("create task");
@@ -670,16 +679,19 @@ mod admission_tests {
         let user_id = seed_user(&db).await;
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
-                task_id,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/recycle-expired"),
-                None,
-                &[json!({"external_id": "recycle-expired"})],
-                None,
-                "recycle-expired-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/recycle-expired"),
+                    source_key: None,
+                    payloads: &[json!({"external_id": "recycle-expired"})],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "recycle-expired-hash",
+                },
             )
             .await
             .expect("create task");
@@ -732,19 +744,22 @@ mod admission_tests {
         let user_id = seed_user(&db).await;
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
-                task_id,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/admission-gate"),
-                None,
-                &[
-                    json!({"external_id": "gate-holder"}),
-                    json!({"external_id": "gate-waiter"}),
-                ],
-                None,
-                "admission-gate-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/admission-gate"),
+                    source_key: None,
+                    payloads: &[
+                        json!({"external_id": "gate-holder"}),
+                        json!({"external_id": "gate-waiter"}),
+                    ],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "admission-gate-hash",
+                },
             )
             .await
             .expect("create gate task");
@@ -801,16 +816,19 @@ mod admission_tests {
         // The admitted reservation itself must block a further claim.
         let task2 = Uuid::new_v4();
         let (task2, _reused, extra) = db
-            .create_task_submission(
-                task2,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/admission-extra"),
-                None,
-                &[json!({"external_id": "gate-extra"})],
-                None,
-                "admission-extra-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id: task2,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/admission-extra"),
+                    source_key: None,
+                    payloads: &[json!({"external_id": "gate-extra"})],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "admission-extra-hash",
+                },
             )
             .await
             .expect("create extra task");
@@ -849,19 +867,22 @@ mod admission_tests {
         let user_id = seed_user(&db).await;
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
-                task_id,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/admission-race"),
-                None,
-                &[
-                    json!({"external_id": "race-a"}),
-                    json!({"external_id": "race-b"}),
-                ],
-                None,
-                "admission-race-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/admission-race"),
+                    source_key: None,
+                    payloads: &[
+                        json!({"external_id": "race-a"}),
+                        json!({"external_id": "race-b"}),
+                    ],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "admission-race-hash",
+                },
             )
             .await
             .expect("create race task");
@@ -926,16 +947,19 @@ mod admission_tests {
         let user_id = seed_user(&db).await;
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
-                task_id,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/poll-reserve"),
-                None,
-                &[json!({"external_id": "poll-reserve"})],
-                None,
-                "poll-reserve-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/poll-reserve"),
+                    source_key: None,
+                    payloads: &[json!({"external_id": "poll-reserve"})],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "poll-reserve-hash",
+                },
             )
             .await
             .expect("create poll task");
@@ -978,19 +1002,22 @@ mod admission_tests {
         let user_id = seed_user(&db).await;
         let task_id = Uuid::new_v4();
         let (task_id, _reused, item_ids) = db
-            .create_task_submission(
-                task_id,
-                user_id,
-                None,
-                "text_batch",
-                Some("test/poll-rate"),
-                None,
-                &[
-                    json!({"external_id": "poll-rate-a"}),
-                    json!({"external_id": "poll-rate-b"}),
-                ],
-                None,
-                "poll-rate-hash",
+            .create_task_submission_with_input_objects(
+                crate::db::CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: None,
+                    kind: "text_batch",
+                    group_path: Some("test/poll-rate"),
+                    source_key: None,
+                    payloads: &[
+                        json!({"external_id": "poll-rate-a"}),
+                        json!({"external_id": "poll-rate-b"}),
+                    ],
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: "poll-rate-hash",
+                },
             )
             .await
             .expect("create poll rate task");

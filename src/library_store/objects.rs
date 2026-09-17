@@ -34,6 +34,29 @@ pub struct LegacyCleanupRow {
     pub old_storage_backend: Option<String>,
 }
 
+/// Grouped arguments for staging a storage object on a connection.
+#[derive(Debug, Clone)]
+pub struct UpsertStagedStorageObjectRequest<'a> {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub sha256: &'a str,
+    pub size_bytes: i64,
+    pub storage_backend: &'a str,
+    pub object_key: &'a str,
+    pub staging_lease_until: DateTime<Utc>,
+}
+
+/// Grouped arguments for upserting a storage object on a connection.
+#[derive(Debug, Clone)]
+pub struct UpsertStorageObjectRequest<'a> {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub sha256: &'a str,
+    pub size_bytes: i64,
+    pub storage_backend: &'a str,
+    pub object_key: &'a str,
+}
+
 impl LibraryStore {
     pub async fn get_storage_object_on_connection(
         &self,
@@ -54,24 +77,18 @@ impl LibraryStore {
     pub async fn upsert_staged_storage_object_on_connection(
         &self,
         connection: &mut sqlx::PgConnection,
-        id: Uuid,
-        group_id: i64,
-        sha256: &str,
-        size_bytes: i64,
-        storage_backend: &str,
-        object_key: &str,
-        staging_lease_until: DateTime<Utc>,
+        request: UpsertStagedStorageObjectRequest<'_>,
     ) -> Result<StorageObjectRecord> {
         Ok(sqlx::query_file_as!(
             StorageObjectRecord,
             "src/sql/library_store/objects/upsert_staged_storage_object.sql",
-            id,
-            group_id,
-            sha256,
-            size_bytes,
-            storage_backend,
-            object_key,
-            staging_lease_until
+            request.id,
+            request.group_id,
+            request.sha256,
+            request.size_bytes,
+            request.storage_backend,
+            request.object_key,
+            request.staging_lease_until
         )
         .fetch_one(connection)
         .await?)
@@ -80,22 +97,17 @@ impl LibraryStore {
     pub async fn upsert_storage_object_on_connection(
         &self,
         connection: &mut sqlx::PgConnection,
-        id: Uuid,
-        group_id: i64,
-        sha256: &str,
-        size_bytes: i64,
-        storage_backend: &str,
-        object_key: &str,
+        request: UpsertStorageObjectRequest<'_>,
     ) -> Result<StorageObjectRecord> {
         Ok(sqlx::query_file_as!(
             StorageObjectRecord,
             "src/sql/library_store/objects/upsert_storage_object.sql",
-            id,
-            group_id,
-            sha256,
-            size_bytes,
-            storage_backend,
-            object_key
+            request.id,
+            request.group_id,
+            request.sha256,
+            request.size_bytes,
+            request.storage_backend,
+            request.object_key
         )
         .fetch_one(connection)
         .await?)

@@ -31,18 +31,32 @@ struct ProjectSourceFolderSync<'a> {
     lease_token: Uuid,
 }
 
+pub(crate) struct SyncProjectSourceFolderRequest<'a> {
+    pub project: &'a crate::domain::GroupRecord,
+    pub folder_path: &'a str,
+    pub source_id: Option<Uuid>,
+    pub folder_id: Uuid,
+    pub records_folder_id: Uuid,
+    pub source: &'a SourceConfig,
+    pub library: &'a LibraryService,
+    pub lease_token: Uuid,
+}
+
 impl SyncService {
     pub(crate) async fn sync_project_source_folder(
         &self,
-        project: &crate::domain::GroupRecord,
-        folder_path: &str,
-        source_id: Option<Uuid>,
-        folder_id: Uuid,
-        records_folder_id: Uuid,
-        source: &SourceConfig,
-        library: &LibraryService,
-        lease_token: Uuid,
+        request: SyncProjectSourceFolderRequest<'_>,
     ) -> Result<SyncOutcome> {
+        let SyncProjectSourceFolderRequest {
+            project,
+            folder_path,
+            source_id,
+            folder_id,
+            records_folder_id,
+            source,
+            library,
+            lease_token,
+        } = request;
         let path_identity = source_folder_identity(project.id, folder_path);
         let identity = source_id
             .map(|source_id| source_folder_sync_identity(project.id, source_id))

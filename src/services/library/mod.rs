@@ -219,13 +219,15 @@ impl LibraryService {
             .store
             .upsert_staged_storage_object_on_connection(
                 &mut lock_tx,
-                Uuid::new_v4(),
-                group_id,
-                &sha256,
-                upload.bytes.len() as i64,
-                self.storage.backend(),
-                &key,
-                Utc::now() + ChronoDuration::hours(24),
+                crate::library_store::objects::UpsertStagedStorageObjectRequest {
+                    id: Uuid::new_v4(),
+                    group_id,
+                    sha256: &sha256,
+                    size_bytes: upload.bytes.len() as i64,
+                    storage_backend: self.storage.backend(),
+                    object_key: &key,
+                    staging_lease_until: Utc::now() + ChronoDuration::hours(24),
+                },
             )
             .await?;
         lock_tx.commit().await?;

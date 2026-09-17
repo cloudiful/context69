@@ -44,17 +44,17 @@ async fn terminal_item_status_projects_to_file() {
         let failure_stage = (finish_status == "failed").then_some("storage");
         let error_message = (finish_status == "failed").then_some("boom");
         let updated = db
-            .finish_task_item(
+            .finish_task_item(context69::db::FinishTaskItemRequest {
                 task_id,
                 item_id,
-                finish_status,
-                None,
+                status: finish_status,
+                resource_id: None,
                 failure_stage,
                 error_message,
-                false,
+                retryable: false,
                 lease_token,
                 attempt_id,
-            )
+            })
             .await
             .expect("finish item");
         assert!(updated, "finishing a leased running item must succeed");

@@ -60,14 +60,17 @@ impl SearchEmbeddingProvider for MockEmbedding {
     }
 }
 
+type SeenDateBounds = Arc<Mutex<Vec<(Option<i64>, Option<i64>)>>>;
+type SeenLimit = Arc<Mutex<Option<usize>>>;
+
 struct MockIndex {
     hits: Vec<SearchPointHit>,
-    seen_limit: Arc<Mutex<Option<usize>>>,
+    seen_limit: SeenLimit,
     /// When set, `search_by_date_window` returns this slice of the hits in
     /// the same order, honoring the `before` bound. Tests that need to
     /// exercise non-trivial date-mode behavior populate this.
     date_hits: Vec<SearchDatePointHit>,
-    seen_date_bounds: Arc<Mutex<Vec<(Option<i64>, Option<i64>)>>>,
+    seen_date_bounds: SeenDateBounds,
     /// How the mock should respond when the same `(boundary_ts, limit)`
     /// is requested more than once. `AdversarialFirstPage` is the
     /// production-faithful shape: the first call for a given `boundary_ts`
@@ -88,7 +91,7 @@ struct MockIndex {
     fetch_limit_override: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[allow(dead_code)]
 enum DateWindowStrategy {
     /// Mimics the production Qdrant `scroll` behaviour: the first call
@@ -97,18 +100,13 @@ enum DateWindowStrategy {
     /// pointing at the next record. Subsequent calls return the
     /// remaining slice. The pipeline must thread the resume key so the
     /// boundary is drained in full across pages.
+    #[default]
     AdversarialFirstPage,
     /// The mock returns the first `limit` records every time with
     /// `next_offset = None`. Useful for tests that explicitly want the
     /// legacy `take(limit)` behaviour (e.g. validating that the
     /// pipeline's in-memory `seen` set still avoids duplicates).
     Sequential,
-}
-
-impl Default for DateWindowStrategy {
-    fn default() -> Self {
-        Self::AdversarialFirstPage
-    }
 }
 
 #[async_trait]
@@ -396,11 +394,7 @@ fn build_service(
     index_hits: Vec<SearchPointHit>,
     hydrated: HashMap<Uuid, SearchHit>,
     keyword_hits: Vec<SearchHit>,
-) -> (
-    SearchService,
-    Arc<Mutex<Option<usize>>>,
-    Arc<Mutex<Option<usize>>>,
-) {
+) -> (SearchService, SeenLimit, SeenLimit) {
     let seen_index = Arc::new(Mutex::new(None));
     let seen_keyword = Arc::new(Mutex::new(None));
     let repo = MockRepo {
@@ -1354,8 +1348,8 @@ fn build_date_service_with_fetch_limit(
 #[derive(Clone)]
 struct DateMocks {
     #[allow(dead_code)]
-    seen_index: Arc<Mutex<Option<usize>>>,
-    seen_date_bounds: Arc<Mutex<Vec<(Option<i64>, Option<i64>)>>>,
+    seen_index: SeenLimit,
+    seen_date_bounds: SeenDateBounds,
 }
 
 fn date_hit(chunk_id: Uuid, published_ts: Option<i64>) -> SearchDatePointHit {
@@ -1841,8 +1835,8 @@ async fn date_mode_abort_stops_streaming_before_first_frame() {
 /// `scroll` return order is the authoritative ordering; the in-memory
 /// `seen` set is the only dedup mechanism. The cursor's `boundary_ts`
 /// + `offset` (PointId UUID) together describe the in-flight drain
-/// and the Qdrant-side resume key so a replayed request resumes the
-/// boundary in the same order.
+///   and the Qdrant-side resume key so a replayed request resumes the
+///   boundary in the same order.
 #[test]
 fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
     // 10 records at the same `published_ts`, page size 4. The

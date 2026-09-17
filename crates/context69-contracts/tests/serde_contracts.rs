@@ -1069,17 +1069,17 @@ fn b0_pagination_audit_exact_equals_but_window_and_bounds_differ() {
     let exact = Pagination::try_new(2, 8, 20).expect("exact");
     let offset = OffsetPagination::try_new(2, 8, 20).expect("offset");
     assert_eq!(
-        to_value(&exact).expect("exact"),
-        to_value(&offset).expect("offset"),
+        to_value(exact).expect("exact"),
+        to_value(offset).expect("offset"),
         "exact totals must be wire-identical"
     );
     // Window signals exist only on Pagination.
     let window = Pagination::try_new_search_window(1, 8, 9, Some(true)).expect("window");
-    let window_value = to_value(&window).expect("window");
+    let window_value = to_value(window).expect("window");
     assert_eq!(window_value.get("has_more"), Some(&json!(true)));
     assert_eq!(window_value.get("total_is_exact"), Some(&json!(false)));
     let offset_from_same =
-        to_value(&OffsetPagination::try_new(1, 8, 9).expect("offset same numbers"))
+        to_value(OffsetPagination::try_new(1, 8, 9).expect("offset same numbers"))
             .expect("offset");
     assert_ne!(
         window_value, offset_from_same,
@@ -1090,8 +1090,8 @@ fn b0_pagination_audit_exact_equals_but_window_and_bounds_differ() {
     assert!(Pagination::try_new(10_001, 8, 20).is_ok());
     // TaskPageResponse stays on Pagination (both kept); exact case matches OffsetPagination.
     let task_pagination = Pagination::try_new(1, 25, 50).expect("task pagination");
-    let task_value = to_value(&task_pagination).expect("task pagination");
+    let task_value = to_value(task_pagination).expect("task pagination");
     let offset_value =
-        to_value(&OffsetPagination::try_new(1, 25, 50).expect("offset task")).expect("offset task");
+        to_value(OffsetPagination::try_new(1, 25, 50).expect("offset task")).expect("offset task");
     assert_eq!(task_value, offset_value);
 }

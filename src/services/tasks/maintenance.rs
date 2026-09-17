@@ -51,7 +51,7 @@ pub(super) fn start_with_shutdown(
         let dispatcher = release_service
             .library()
             .source_cleanup_dispatcher()
-            .unwrap_or_else(crate::services::library::SourceCleanupDispatcher::new);
+            .unwrap_or_default();
         dispatcher
             .run(release_service.library().clone(), shutdown)
             .await;
@@ -233,15 +233,15 @@ impl TaskService {
                 if failure.retryable {
                     let updated = self
                         .db()
-                        .wait_task_item(
+                        .wait_task_item(crate::db::WaitTaskItemRequest {
                             task_id,
                             item_id,
                             lease_token,
-                            "dependency",
-                            failure.dependency_key.as_deref(),
-                            Utc::now() + chrono::Duration::seconds(60),
-                            Some(&failure.message),
-                        )
+                            waiting_reason: "dependency",
+                            dependency_key: failure.dependency_key.as_deref(),
+                            next_attempt_at: Utc::now() + chrono::Duration::seconds(60),
+                            error_message: Some(&failure.message),
+                        })
                         .await?;
                     if !updated {
                         return Err(TaskMaintenanceError::Conflict(
@@ -253,17 +253,17 @@ impl TaskService {
                 } else {
                     let updated = self
                         .db()
-                        .finish_task_item(
+                        .finish_task_item(crate::db::FinishTaskItemRequest {
                             task_id,
                             item_id,
-                            "failed",
-                            None,
-                            Some(&failure.stage),
-                            Some(&failure.message),
-                            false,
+                            status: "failed",
+                            resource_id: None,
+                            failure_stage: Some(&failure.stage),
+                            error_message: Some(&failure.message),
+                            retryable: false,
                             lease_token,
                             attempt_id,
-                        )
+                        })
                         .await?;
                     if !updated {
                         return Err(TaskMaintenanceError::Conflict(
@@ -301,18 +301,18 @@ impl TaskService {
         }
         let parked = self
             .db()
-            .wait_task_item(
+            .wait_task_item(crate::db::WaitTaskItemRequest {
                 task_id,
                 item_id,
                 lease_token,
-                "external_job",
-                None,
-                submitted.next_poll_at,
-                Some(&format!(
+                waiting_reason: "external_job",
+                dependency_key: None,
+                next_attempt_at: submitted.next_poll_at,
+                error_message: Some(&format!(
                     "docling task {} submitted; awaiting completion",
                     submitted.remote_task_id
                 )),
-            )
+            })
             .await?;
         if !parked {
             release_recovery_lease(self, task_id, item_id, lease_token).await;
@@ -490,15 +490,15 @@ async fn release_recovery_lease(
 ) {
     if let Err(error) = service
         .db()
-        .wait_task_item(
+        .wait_task_item(crate::db::WaitTaskItemRequest {
             task_id,
             item_id,
             lease_token,
-            "backoff",
-            None,
-            Utc::now() + chrono::Duration::seconds(60),
-            Some("Docling recovery could not complete; retrying later"),
-        )
+            waiting_reason: "backoff",
+            dependency_key: None,
+            next_attempt_at: Utc::now() + chrono::Duration::seconds(60),
+            error_message: Some("Docling recovery could not complete; retrying later"),
+        })
         .await
     {
         tracing::error!(

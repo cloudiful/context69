@@ -2,6 +2,7 @@
 //! and shared content-addressed object safety.
 
 use super::support::*;
+use super::support_seed_release::*;
 
 #[tokio::test]
 async fn manual_release_deletes_source_and_keeps_results() {

@@ -820,7 +820,7 @@ mod tests {
         let (total, has_more) = resolve_search_window(9, requested_limit, can_probe, false);
         assert_eq!(has_more, Some(true));
         // Lower-bound total covers offset + limit + 1 for the next page.
-        assert!(total >= requested_limit + 1);
+        assert!(total > requested_limit);
         let pagination =
             Pagination::try_new_search_window(1, 8, u64::try_from(total).unwrap(), has_more)
                 .unwrap();
@@ -900,7 +900,7 @@ mod tests {
         assert_eq!(legacy.has_more, None);
         assert_eq!(legacy.total_is_exact, None);
         // Legacy responses omit the new keys entirely.
-        let value = serde_json::to_value(&legacy).unwrap();
+        let value = serde_json::to_value(legacy).unwrap();
         assert!(!value.as_object().unwrap().contains_key("has_more"));
         assert!(!value.as_object().unwrap().contains_key("total_is_exact"));
     }

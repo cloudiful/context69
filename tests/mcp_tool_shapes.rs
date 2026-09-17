@@ -388,7 +388,7 @@ fn invalid_cursor_and_limit_are_rejected() {
 
     // Oversized key lists are rejected at deserialization, before validation.
     let too_many_keys = serde_json::to_value(
-        &(0..21)
+        (0..21)
             .map(|index| DocumentKey {
                 source_key: "news-pg".to_string(),
                 external_id: format!("art-{index}"),

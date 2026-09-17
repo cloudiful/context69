@@ -58,7 +58,7 @@ pub(crate) async fn submit_text_batch(
 ) -> Response {
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let payloads = match request
         .items
@@ -95,7 +95,7 @@ pub(crate) async fn submit_url_batch(
 ) -> Response {
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let payloads = match request
         .items
@@ -132,7 +132,7 @@ pub(crate) async fn submit_file_batch(
 ) -> Response {
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let payloads = match request
         .items
@@ -169,7 +169,7 @@ pub(crate) async fn submit_delete_batch(
 ) -> Response {
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let payloads = match request
         .items
@@ -272,7 +272,7 @@ pub(crate) async fn submit_task(
     let group = if let Some(path) = group_path.as_deref() {
         match managed_group(&state, session.user.id, path).await {
             Ok(group) => Some(group),
-            Err(response) => return response,
+            Err(response) => return *response,
         }
     } else {
         None
@@ -749,7 +749,7 @@ async fn run_task_stream(
                 for full in pending.drain() {
                     if !send_task_frame(
                         &tx,
-                        TaskStreamEvent::Update(TaskStreamUpdate { task: full }),
+                        TaskStreamEvent::Update(Box::new(TaskStreamUpdate { task: full })),
                     )
                     .await
                     {
@@ -845,12 +845,12 @@ async fn managed_group(
     state: &ApiState,
     user_id: i64,
     group_path: &str,
-) -> Result<crate::domain::GroupRecord, Response> {
+) -> Result<crate::domain::GroupRecord, Box<Response>> {
     let group = group_for_user(state, user_id, group_path)
         .await
-        .map_err(group_access_error_response)?;
+        .map_err(|error| Box::new(group_access_error_response(error)))?;
     require_group_role(&group, crate::contracts::MembershipRole::Maintainer)
-        .map_err(group_access_error_response)?;
+        .map_err(|error| Box::new(group_access_error_response(error)))?;
     Ok(group)
 }
 
@@ -1076,7 +1076,8 @@ mod tests {
         assert_eq!(serde_json::to_value(&done).expect("done").get("tasks").and_then(|v| v.as_array()).map(Vec::len), Some(1));
         // The tagged union documents the update/done/error contract; the
         // snapshot variant is the first frame on every connection.
-        let event_value = serde_json::to_value(&TaskStreamEvent::Update(update)).expect("event");
+        let event_value =
+            serde_json::to_value(TaskStreamEvent::Update(Box::new(update))).expect("event");
         assert_eq!(
             event_value.get("type").and_then(|v| v.as_str()),
             Some("update")
@@ -1097,7 +1098,7 @@ mod tests {
         // shape (mirrors the search-stream generator test structure).
         for event in [
             TaskStreamEvent::Snapshot(snapshot),
-            TaskStreamEvent::Update(TaskStreamUpdate { task: task.clone() }),
+            TaskStreamEvent::Update(Box::new(TaskStreamUpdate { task: task.clone() })),
             TaskStreamEvent::Done(done),
             TaskStreamEvent::Error {
                 message: "lagged".to_string(),

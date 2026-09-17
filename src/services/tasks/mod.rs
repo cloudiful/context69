@@ -84,17 +84,31 @@ pub(crate) fn normalize_task_worker_concurrency(concurrency: usize) -> usize {
     concurrency.max(1)
 }
 
+/// Grouped dependencies for constructing a [`TaskService`].
+#[derive(Clone)]
+pub struct TaskServiceDependencies {
+    pub db: Database,
+    pub namespace: NamespaceService,
+    pub document_store: DocumentStoreService,
+    pub library: LibraryService,
+    pub sync: SyncService,
+    pub source_folders: SourceFoldersService,
+    pub translation: TranslationService,
+    pub concurrency: usize,
+}
+
 impl TaskService {
-    pub fn new(
-        db: Database,
-        namespace: NamespaceService,
-        document_store: DocumentStoreService,
-        library: LibraryService,
-        sync: SyncService,
-        source_folders: SourceFoldersService,
-        translation: TranslationService,
-        concurrency: usize,
-    ) -> Self {
+    pub fn new(dependencies: TaskServiceDependencies) -> Self {
+        let TaskServiceDependencies {
+            db,
+            namespace,
+            document_store,
+            library,
+            sync,
+            source_folders,
+            translation,
+            concurrency,
+        } = dependencies;
         let worker_capacity = normalize_task_worker_concurrency(concurrency);
         let (task_event_bus, _) =
             tokio::sync::broadcast::channel(crate::services::tasks::events::TASK_EVENT_BUS_CAPACITY);
@@ -300,33 +314,33 @@ impl TaskService {
             .ok_or_else(|| DomainError::invalid_argument("view is required"))?;
         let total = self
             .db
-            .count_tasks(
+            .count_tasks(crate::db::TaskCountFilter {
                 user_id,
-                query.query.as_deref(),
+                query: query.query.as_deref(),
                 kind,
                 status,
-                query.stage.as_deref(),
-                query.waiting_reason.as_deref(),
-                query.dependency_key.as_deref(),
+                stage: query.stage.as_deref(),
+                waiting_reason: query.waiting_reason.as_deref(),
+                dependency_key: query.dependency_key.as_deref(),
                 view,
-            )
+            })
             .await?;
         let items = self
             .db
-            .list_tasks(
+            .list_tasks(crate::db::TaskListFilter {
                 user_id,
-                query.query.as_deref(),
+                query: query.query.as_deref(),
                 kind,
                 status,
-                query.stage.as_deref(),
-                query.waiting_reason.as_deref(),
-                query.dependency_key.as_deref(),
-                query.sort_by.map(TaskSortBy::as_str),
-                query.sort_direction.map(SortDirection::as_str),
-                i64::from(bounds.page_size),
-                bounds.offset,
+                stage: query.stage.as_deref(),
+                waiting_reason: query.waiting_reason.as_deref(),
+                dependency_key: query.dependency_key.as_deref(),
+                sort_by: query.sort_by.map(TaskSortBy::as_str),
+                sort_direction: query.sort_direction.map(SortDirection::as_str),
+                limit: i64::from(bounds.page_size),
+                offset: bounds.offset,
                 view,
-            )
+            })
             .await?
             .into_iter()
             .map(task_response)

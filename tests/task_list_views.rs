@@ -72,9 +72,20 @@ async fn list_ids(
     view: &str,
     status: Option<&str>,
 ) -> Vec<Uuid> {
-    db.list_tasks(
-        user_id, None, None, status, None, None, None, None, None, 50, 0, view,
-    )
+    db.list_tasks(context69::db::TaskListFilter {
+        user_id,
+        query: None,
+        kind: None,
+        status,
+        stage: None,
+        waiting_reason: None,
+        dependency_key: None,
+        sort_by: None,
+        sort_direction: None,
+        limit: 50,
+        offset: 0,
+        view,
+    })
     .await
     .expect("list tasks")
     .into_iter()
@@ -83,7 +94,16 @@ async fn list_ids(
 }
 
 async fn count(db: &Database, user_id: i64, view: &str, status: Option<&str>) -> i64 {
-    db.count_tasks(user_id, None, None, status, None, None, None, view)
+    db.count_tasks(context69::db::TaskCountFilter {
+        user_id,
+        query: None,
+        kind: None,
+        status,
+        stage: None,
+        waiting_reason: None,
+        dependency_key: None,
+        view,
+    })
         .await
         .expect("count tasks")
 }

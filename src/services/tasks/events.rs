@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn channel_name_is_stable() {
         assert_eq!(TASK_EVENTS_CHANNEL, "task_events");
-        assert!(TASK_EVENT_BUS_CAPACITY >= 16);
+        const { assert!(TASK_EVENT_BUS_CAPACITY >= 16) };
     }
 
     #[test]

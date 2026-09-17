@@ -2,6 +2,7 @@
 //! control-file refusal, and "failed ingest retains its source".
 
 use super::support::*;
+use super::support_seed_release::*;
 
 #[tokio::test]
 async fn cross_group_release_is_rejected() {

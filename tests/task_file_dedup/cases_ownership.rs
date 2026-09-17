@@ -108,17 +108,17 @@ async fn cross_group_item_does_not_project_status_onto_foreign_file() {
     .expect("insert attempt");
 
     let updated = db
-        .finish_task_item(
+        .finish_task_item(context69::db::FinishTaskItemRequest {
             task_id,
             item_id,
-            "succeeded",
-            None,
-            None,
-            None,
-            true,
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
             lease_token,
             attempt_id,
-        )
+        })
         .await
         .expect("finish item");
     assert!(updated, "the item itself must still finish");
