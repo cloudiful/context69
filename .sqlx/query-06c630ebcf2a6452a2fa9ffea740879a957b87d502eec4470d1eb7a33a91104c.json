@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Count Docling remote jobs holding a slot (issue #118, P1 fix issue #446).\n--\n-- `pending`/`running` are remote non-terminal states that occupy Docling Serve,\n-- but only while their `deadline_at` has not passed. Expired rows\n-- (`deadline_at <= now()`) no longer hold a slot so a wedged remote job\n-- cannot block new submissions; the dispatcher maintenance recycles them to\n-- `timed_out` on the recovery tick. `NULL` deadlines are conservative and\n-- still count because they never expire.\n-- Fresh `submitting` rows (last 10 minutes) are reservations between the\n-- atomic admission insert and the remote POST; they must count so concurrent\n-- submitters cannot both slip through. Older `submitting` rows are uncertain\n-- historical leftovers (phase 4 handles them) and are deliberately ignored\n-- so they cannot permanently wedge admission.\nSELECT COUNT(*) AS \"count!\"\nFROM context69.task_external_jobs\nWHERE provider = $1\n  AND (\n    (\n      status IN ('pending', 'running')\n      AND (deadline_at IS NULL OR deadline_at > now())\n    )\n    OR (status = 'submitting' AND submitted_at > now() - interval '10 minutes')\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "06c630ebcf2a6452a2fa9ffea740879a957b87d502eec4470d1eb7a33a91104c"
+}
