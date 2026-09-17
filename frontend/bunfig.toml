@@ -1,0 +1,4 @@
+# Match CI: `.forgejo/workflows/docker-publish.yml`, step "Build frontend",
+# which runs `bun install --no-save --minimum-release-age 604800`.
+[install]
+minimumReleaseAge = 604800
