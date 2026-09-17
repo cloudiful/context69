@@ -169,7 +169,7 @@ function handleSurfaceContextMenu(event: MouseEvent) {
           </div>
         </template>
 
-        <UTable v-model:sorting="sorting" class="min-w-[52rem]" :data="table.displayEntries.value" :columns="columns" :loading="props.loading" :sorting-options="{ manualSorting: props.paginated }" @select="selectEntry" @contextmenu="contextEntry">
+        <UTable v-model:sorting="sorting" class="min-w-[52rem]" :ui="{ th: 'whitespace-nowrap' }" :data="table.displayEntries.value" :columns="columns" :loading="props.loading" :sorting-options="{ manualSorting: props.paginated }" @select="selectEntry" @contextmenu="contextEntry">
           <template #empty><div class="py-8 text-center text-sm text-muted">{{ table.hasActiveResourceFilter.value ? t("library.noMatchingResources") : t("library.emptyFolderMessage") }}</div></template>
           <template #name-cell="{ row }">
             <div class="flex min-w-0 items-start gap-1.5" :style="table.entryIndentStyle(row.original)">

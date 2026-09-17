@@ -102,7 +102,7 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
   <UTable
     v-model:sorting="sorting"
     class="min-w-0"
-    :ui="{ root: 'overflow-visible', base: 'min-w-[88rem]' }"
+    :ui="{ root: 'overflow-visible', base: 'min-w-[88rem]', th: 'whitespace-nowrap' }"
     data-testid="processing-queue-table"
     v-model:expanded="expandedRows"
     :data="props.items"

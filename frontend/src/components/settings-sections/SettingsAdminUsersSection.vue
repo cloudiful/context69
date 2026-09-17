@@ -147,6 +147,7 @@ function confirmEnable(loginNameValue: string) {
 
     <UTable
       class="min-w-0 max-w-full"
+      :ui="{ th: 'whitespace-nowrap' }"
       v-model:sorting="sorting"
       :data="users"
       :columns="columns"

@@ -61,6 +61,7 @@ watch(() => state.membersSort, (membersSort) => {
     <UTable
       v-model:sorting="sorting"
       class="min-w-0 max-w-full"
+      :ui="{ th: 'whitespace-nowrap' }"
       :data="state.members"
       :columns="columns"
       :sorting-options="{ manualSorting: true }"

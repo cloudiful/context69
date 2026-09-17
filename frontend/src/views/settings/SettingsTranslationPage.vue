@@ -122,7 +122,7 @@ function usageLabel(provider: ProviderDraft) {
     :legend="t('settings.translation.title')"
     :description="t('settings.translation.description')"
   >
-    <UTable class="min-w-0 max-w-full" :data="visibleProviders" :columns="columns" :loading="providerLoading">
+    <UTable class="min-w-0 max-w-full" :ui="{ th: 'whitespace-nowrap' }" :data="visibleProviders" :columns="columns" :loading="providerLoading">
       <template #provider-cell="{ row }"><strong>{{ providerLabels[row.original.provider as keyof typeof providerLabels] }}</strong></template>
       <template #enabled-cell="{ row }"><USwitch :id="`translation-${row.original.provider}-enabled`" v-model="row.original.enabled" /></template>
       <template #quota-cell="{ row }"><span class="whitespace-nowrap">{{ quotaLabel(row.original) }}</span></template>

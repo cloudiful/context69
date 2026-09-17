@@ -152,6 +152,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     <UTable
       v-model:sorting="sorting"
       class="min-w-0 max-w-full"
+      :ui="{ th: 'whitespace-nowrap' }"
       :data="groups"
       :columns="columns"
       :loading="loading"

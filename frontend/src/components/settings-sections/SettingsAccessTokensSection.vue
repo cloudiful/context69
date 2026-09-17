@@ -165,6 +165,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
       <AppSettingsBlock compact>
         <UTable
           class="min-w-0 max-w-full"
+          :ui="{ th: 'whitespace-nowrap' }"
           :data="tokenRows"
           :columns="columns"
           :loading="personalAccessTokensLoading"

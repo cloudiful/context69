@@ -128,7 +128,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer));
       <UButton color="neutral" variant="outline" :disabled="loading || !sourceKey.trim()" @click="load">{{ t("common.refresh") }}</UButton>
       <UButton v-if="canManage" :disabled="!sourceKey.trim()" @click="dialogVisible = true">{{ t("metadataIndexes.add") }}</UButton>
     </div>
-    <UTable class="min-w-0 max-w-full" :data="rows" :columns="columns" :loading="loading" :empty="t('metadataIndexes.empty')">
+    <UTable class="min-w-0 max-w-full" :ui="{ th: 'whitespace-nowrap' }" :data="rows" :columns="columns" :loading="loading" :empty="t('metadataIndexes.empty')">
       <template #status-cell="{ row }"><UBadge :label="row.original.status" :color="row.original.status === 'ready' ? 'success' : row.original.status === 'failed' ? 'error' : 'neutral'" variant="subtle" /></template>
       <template #actions-cell="{ row }">
           <div class="flex gap-1">
