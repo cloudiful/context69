@@ -30,10 +30,21 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-// Bound the upstream message that flows into a tooltip so a noisy error
-// string cannot blow up the layout. The localized label below is still the
-// primary text; the tooltip only carries the bounded detail when present.
-const ITEM_ERROR_TOOLTIP_MAX = 240;
+// Issue 446 P2: the queue converges backend task statuses into 5 display
+// states (Thunder-style): queued/waiting collapse into 排队中, cancelled maps
+// to 已暂停, the rest map 1:1. Docling's internal stages (docling/docling_poll)
+// collapse into a single 转格式中 stage. Backend values still drive filters
+// and actions; only the labels converge here.
+type DisplayStatus = "queued" | "running" | "paused" | "succeeded" | "failed";
+const CONVERTING_STAGES = new Set(["docling", "docling_poll"]);
+const ACTIVE_TASK_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
+
+function displayStatus(status: TaskStatus): DisplayStatus {
+  if (status === "waiting") return "queued";
+  if (status === "cancelled") return "paused";
+  return status;
+}
+
 const SORTABLE_FIELDS: TaskSortBy[] = ["kind", "group_path", "status", "stage", "updated_at"];
 
 // Expanded-row item paging/filtering lives inside TaskItemsExpanded (issue 413
@@ -58,15 +69,6 @@ function toggleExpand(row: { original: TaskResponse; id: string }) {
   expandedRows.value = { ...expandedRows.value, [row.id]: next };
 }
 
-function clampText(value: string | null | undefined, max: number): string | null {
-  if (!value) return null;
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
-}
-
-function itemErrorTooltip(message: string | null | undefined): string | null {
-  return clampText(message, ITEM_ERROR_TOOLTIP_MAX);
-}
-
 const columns = computed<TableColumn<TaskResponse>[]>(() => [
   { id: "expand", enableHiding: false },
   { accessorKey: "task_id", header: t("processingQueue.task") },
@@ -81,20 +83,39 @@ const columns = computed<TableColumn<TaskResponse>[]>(() => [
   { id: "actions", header: t("processingQueue.actions") },
 ]);
 
-function taskStatusLabel(status: TaskStatus) { return t(`processingQueue.statuses.${status}`); }
+function taskStatusLabel(status: TaskStatus) {
+  const display = displayStatus(status);
+  return t(`processingQueue.statuses.${display}`);
+}
 function taskKindLabel(kind: TaskResponse["kind"]) { return t(`processingQueue.kinds.${kind}`); }
-function stageLabel(stage: string | null) { return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage"); }
+function stageLabel(stage: string | null) {
+  if (stage && CONVERTING_STAGES.has(stage)) return t("processingQueue.stages.converting");
+  return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage");
+}
 function waitingLabel(reason: string | null, dependency: string | null) {
   if (!reason) return "--";
   const label = t(`processingQueue.waitingReasons.${reason}`);
   return dependency ? `${label}: ${libraryDependencyLabel(t, dependency)}` : label;
 }
 function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "neutral" | "primary" {
-  if (status === "succeeded") return "success";
-  if (status === "failed") return "error";
-  if (status === "waiting") return "warning";
-  if (status === "running") return "primary";
+  const display = displayStatus(status);
+  if (display === "succeeded") return "success";
+  if (display === "failed") return "error";
+  if (display === "queued") return "warning";
+  if (display === "running") return "primary";
   return "neutral";
+}
+
+// One labeled primary action per display state: active (queued/running) pauses,
+// failed retries (the unified entry auto-decides retry vs Docling recovery),
+// paused resumes (rerun), succeeded trashes. The trash icon on failed/paused
+// rows is a secondary history action, not a primary.
+function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "trash" | null {
+  if (ACTIVE_TASK_STATUSES.includes(task.status)) return "cancel";
+  if (task.status === "failed") return "retry";
+  if (task.status === "cancelled") return "resume";
+  if (task.status === "succeeded") return "trash";
+  return null;
 }
 </script>
 
@@ -129,7 +150,7 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
     <template #stage-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ stageLabel(row.original.stage) }}</span></template>
     <template #waiting-cell="{ row }"><span class="block max-w-48 truncate text-sm text-muted" :title="waitingLabel(row.original.waiting_reason, row.original.dependency_key)">{{ waitingLabel(row.original.waiting_reason, row.original.dependency_key) }}</span></template>
     <template #progress-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ row.original.progress.succeeded }}/{{ row.original.progress.total }}</span></template>
-    <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="itemErrorTooltip(row.original.error_summary) || undefined">{{ row.original.error_summary || "--" }}</span></template>
+    <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="row.original.error_summary || undefined">{{ row.original.error_summary || "--" }}</span></template>
     <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
     <template #actions-cell="{ row }">
       <div v-if="props.trashView" class="flex items-center gap-1">
@@ -137,9 +158,10 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
         <UButton color="error" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.deletePermanently')" :title="t('processingQueue.deletePermanently')" @click="emit('delete', row.original)" />
       </div>
       <div v-else class="flex items-center gap-1">
-        <UButton v-if="props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="props.isActing(row.original)" :label="t(props.isDoclingRecoveryTask(row.original) ? 'processingQueue.doclingRecovery' : row.original.status === 'cancelled' ? 'processingQueue.resubmit' : 'processingQueue.retry')" :title="row.original.status === 'cancelled' ? t('processingQueue.resubmitHint') : undefined" @click="emit('recover', row.original)" />
-        <UButton v-if="['queued', 'running', 'waiting'].includes(row.original.status)" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
-        <UButton v-if="['succeeded', 'failed', 'cancelled'].includes(row.original.status)" color="neutral" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.trash')" :title="t('processingQueue.trash')" @click="emit('trash', row.original)" />
+        <UButton v-if="primaryAction(row.original) === 'retry' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="props.isActing(row.original)" :label="t('processingQueue.retry')" :title="t('processingQueue.retry')" @click="emit('recover', row.original)" />
+        <UButton v-if="primaryAction(row.original) === 'resume' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-play" :loading="props.isActing(row.original)" :label="t('processingQueue.continue')" :title="t('processingQueue.resubmitHint')" @click="emit('recover', row.original)" />
+        <UButton v-if="primaryAction(row.original) === 'cancel'" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
+        <UButton v-if="primaryAction(row.original) === 'trash' || row.original.status === 'failed' || row.original.status === 'cancelled'" color="neutral" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.trash')" :title="t('processingQueue.trash')" @click="emit('trash', row.original)" />
       </div>
     </template>
     <template #expanded="{ row }">

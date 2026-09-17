@@ -130,8 +130,7 @@ describe("TaskItemsExpanded", () => {
     wrapper.unmount();
   });
 
-  it("exposes a retry-load button when the first page fails and reuses getTaskItems", async () => {
-    getTaskItems
+  it("exposes a retry-load button when the first page fails and reuses getTaskItems", async () => {    getTaskItems
       .mockRejectedValueOnce(new Error("network down"))
       .mockResolvedValueOnce({ items: [item("item-1")], next_cursor: null } as never);
     const wrapper = mountExpanded();
@@ -145,6 +144,39 @@ describe("TaskItemsExpanded", () => {
 
     expect(getTaskItems).toHaveBeenCalledTimes(2);
     expect(wrapper.text()).toContain("item-1");
+    wrapper.unmount();
+  });
+
+  it("keeps the full item error text in the tooltip instead of truncating at 240", async () => {
+    const longError = `Qdrant unavailable: ${"x".repeat(400)}`;
+    getTaskItems.mockResolvedValue({
+      items: [{ ...item("item-1", "failed"), error_message: longError }],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded();
+    await flushPromises();
+
+    expect(longError.length).toBeGreaterThan(240);
+    expect(wrapper.text()).toContain(longError);
+    const errorCell = wrapper.findAll("span").find((span) => span.attributes("title") === longError);
+    expect(errorCell).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("collapses docling stages into the converting label", async () => {
+    getTaskItems.mockResolvedValue({
+      items: [
+        { ...item("docling-1", "running"), stage: "docling" },
+        { ...item("docling-2", "waiting"), stage: "docling_poll" },
+      ],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded();
+    await flushPromises();
+
+    const matches = wrapper.text().match(/Converting/g) ?? [];
+    expect(matches).toHaveLength(2);
+    expect(wrapper.text()).not.toContain("Docling Poll");
     wrapper.unmount();
   });
 });

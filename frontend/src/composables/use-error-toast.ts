@@ -8,15 +8,17 @@ export function errorMessage(error: unknown, fallback: string) {
 }
 
 // Stable, sanitized view of an API/transport error: HTTP status from the
-// ApiError wrapper plus a bounded upstream message suitable for a tooltip.
-// ApiErrorResponse.details and other operator internals are intentionally
-// not exposed; callers should render only `status` and a clipped `message`.
+// ApiError wrapper plus the full upstream message for the tooltip. Issue 446
+// P2 drops the historical 240-char truncation so the complete error text stays
+// visible; the cell keeps its CSS truncation for layout. ApiErrorResponse
+// details and other operator internals are intentionally not exposed; callers
+// should render only `status` and `message`.
 export interface ApiErrorSummary {
   status: number | null;
   message: string;
 }
 
-export function summarizeApiError(error: unknown, maxLength = 240): ApiErrorSummary {
+export function summarizeApiError(error: unknown, maxLength = Number.POSITIVE_INFINITY): ApiErrorSummary {
   const clip = (value: string) =>
     value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
   if (error instanceof ApiError) {

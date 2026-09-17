@@ -114,9 +114,11 @@ describe("ProcessingQueueView", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Docling");
-    expect(wrapper.text()).toContain("Docling");
-    expect(wrapper.text()).toContain("Waiting");
+    // Issue 446 P2: waiting collapses into the Queued display state and the
+    // internal docling stage renders as Converting.
+    expect(wrapper.text()).toContain("Converting");
+    expect(wrapper.text()).toContain("Dependency: Docling");
+    expect(wrapper.text()).toContain("Queued");
     wrapper.unmount();
   });
 
@@ -693,7 +695,8 @@ describe("ProcessingQueueView", () => {
     expect(errorSpan.exists()).toBe(true);
     expect(wrapper.text()).toContain("· 503");
     expect(errorSpan.attributes("title")).toBeDefined();
-    expect((errorSpan.attributes("title") ?? "").length).toBeLessThanOrEqual(240);
+    // Issue 446 P2: the full upstream message stays visible (no 240 truncation).
+    expect(errorSpan.attributes("title")).toBe(longMessage);
     expect((errorSpan.attributes("title") ?? "")).toContain("Qdrant unavailable");
     wrapper.unmount();
   });

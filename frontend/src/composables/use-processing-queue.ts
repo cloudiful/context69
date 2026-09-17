@@ -300,14 +300,22 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     if (!isRecoverableTask(task) || isActing(task)) return;
     actionTaskIds.value = [...actionTaskIds.value, task.task_id];
     try {
+      let rerunTaskId: string | null = null;
       if (isDoclingRecoveryTask(task)) {
         await apiClient.recoverDoclingTask(task.task_id, {
           reason: "manual recovery from the processing queue",
         });
       } else if (task.status === "cancelled") {
-        await apiClient.rerunTask(task.task_id);
+        const rerun = await apiClient.rerunTask(task.task_id);
+        rerunTaskId = rerun.task.task_id;
       } else {
         await apiClient.retryTask(task.task_id);
+      }
+      // A rerun creates a new queued task record: drop a narrowing status
+      // filter so the user lands on the new task instead of a stale view
+      // that hides it (issue 446 bulk-rerun-no-feedback).
+      if (rerunTaskId !== null && statusFilter.value !== null) {
+        statusFilter.value = null;
       }
       await load();
       toast.add({
@@ -317,7 +325,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
           : task.status === "cancelled"
             ? "processingQueue.resubmitAccepted"
             : "processingQueue.retryAccepted"),
-        description: task.task_id,
+        description: rerunTaskId ?? task.task_id,
         duration: 2500,
       });
     } catch (recoverError) {
@@ -453,19 +461,24 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   // Bulk Docling recovery is queue-only: park on `docling` for dispatcher
   // pickup under max_inflight, no POST or new attempt/job. `already_queued`
   // stays fulfilled and counts as succeeded. Others keep retry/rerun.
-  async function submitRecovery(task: TaskResponse): Promise<void> {
+  // Returns the new task id when a cancelled task was rerun into a fresh
+  // record, null otherwise, so the caller can jump to the new tasks.
+  async function submitRecovery(task: TaskResponse): Promise<string | null> {
     if (isDoclingRecoveryTask(task)) {
       await apiClient.queueDoclingRecovery(task.task_id, {
         reason: "bulk queue-only recovery from the processing queue",
       });
-    } else if (task.status === "cancelled") {
-      await apiClient.rerunTask(task.task_id);
-    } else {
-      await apiClient.retryTask(task.task_id);
+      return null;
     }
+    if (task.status === "cancelled") {
+      const rerun = await apiClient.rerunTask(task.task_id);
+      return rerun.task.task_id;
+    }
+    await apiClient.retryTask(task.task_id);
+    return null;
   }
 
-  function summarizeResults(results: PromiseSettledResult<void>[], skippedMessagePattern?: RegExp): RecoverySummary {
+  function summarizeResults(results: PromiseSettledResult<unknown>[], skippedMessagePattern?: RegExp): RecoverySummary {
     const summary: RecoverySummary = { succeeded: 0, skipped: 0, failed: 0 };
     for (const result of results) {
       if (result.status === "fulfilled") {
@@ -486,6 +499,14 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       const tasks = items.value.filter(isRecoverableTask);
       const results = await Promise.allSettled(tasks.map((task) => submitRecovery(task)));
       const summary = summarizeResults(results, /no retryable/i);
+      const rerunTaskIds = results.flatMap((result) =>
+        result.status === "fulfilled" && result.value ? [result.value] : []);
+      // Reruns create new queued task records: drop a narrowing status filter
+      // so the new tasks are visible instead of stranding the user on the old
+      // filtered view (issue 446 bulk-rerun-no-feedback).
+      if (rerunTaskIds.length > 0 && statusFilter.value !== null) {
+        statusFilter.value = null;
+      }
       await load();
       toast.add({
         color: summary.failed === 0 ? "success" : "warning",
@@ -494,6 +515,9 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
           skipped: summary.skipped,
           failed: summary.failed,
         }),
+        description: rerunTaskIds.length > 0
+          ? t("processingQueue.bulkRerunCreated", { count: rerunTaskIds.length })
+          : undefined,
         duration: 3500,
       });
     } catch (recoverError) {

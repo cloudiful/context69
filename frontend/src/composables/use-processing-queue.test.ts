@@ -198,6 +198,50 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
+  it("drops a narrowing status filter after a single rerun so the new task is visible", async () => {
+    listTasks
+      .mockResolvedValueOnce(page([cancelledTask]) as never)
+      .mockResolvedValueOnce(page([]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.setStatusFilter("cancelled");
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: "cancelled" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    await state.recoverTask(cancelledTask);
+
+    expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
+    expect(state.statusFilter.value).toBeNull();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: null }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("keeps the status filter when a single retry creates no new task", async () => {
+    listTasks
+      .mockResolvedValueOnce(page([failedTask]) as never)
+      .mockResolvedValueOnce(page([failedTask]) as never)
+      .mockResolvedValueOnce(page([failedTask]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.setStatusFilter("failed");
+    await flushPromises();
+
+    await state.recoverTask(failedTask);
+
+    expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(state.statusFilter.value).toBe("failed");
+    wrapper.unmount();
+  });
+
   it("does not count a waiting Docling poll task as recoverable while the remote job is still active", async () => {
     listTasks.mockResolvedValueOnce(page([waitingDoclingPollTask]) as never);
     const { state, wrapper } = mountState();
@@ -354,6 +398,48 @@ describe("useProcessingQueue", () => {
     expect(rerunTask).toHaveBeenCalledTimes(1);
     expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
     expect(listTasks).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("drops a narrowing status filter after bulk rerun creates new tasks", async () => {
+    listTasks
+      .mockResolvedValueOnce(page([failedTask, cancelledTask]) as never)
+      .mockResolvedValueOnce(page([failedTask, cancelledTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.setStatusFilter("failed");
+    await flushPromises();
+
+    await state.recoverAll();
+
+    expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
+    expect(state.statusFilter.value).toBeNull();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: null }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("keeps the status filter after bulk recovery with no rerun", async () => {
+    listTasks
+      .mockResolvedValueOnce(page([failedTask]) as never)
+      .mockResolvedValueOnce(page([failedTask]) as never)
+      .mockResolvedValueOnce(page([]) as never);
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.setStatusFilter("failed");
+    await flushPromises();
+
+    await state.recoverAll();
+
+    expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(rerunTask).not.toHaveBeenCalled();
+    expect(state.statusFilter.value).toBe("failed");
     wrapper.unmount();
   });
 

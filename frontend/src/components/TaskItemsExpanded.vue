@@ -62,7 +62,7 @@ async function loadFirstPage() {
     if (current !== requestId) return;
     items.value = [];
     nextCursor.value = null;
-    error.value = summarizeApiError(loadError, 240);
+    error.value = summarizeApiError(loadError);
   } finally {
     if (current === requestId) isLoading.value = false;
   }
@@ -123,6 +123,7 @@ onMounted(() => {
 });
 
 function stageLabel(stage: string | null): string {
+  if (stage === "docling" || stage === "docling_poll") return t("processingQueue.stages.converting");
   return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage");
 }
 
@@ -191,11 +192,6 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
   ];
   return parts.filter(Boolean).join("\n");
 }
-
-function clampText(value: string | null | undefined, max: number): string | null {
-  if (!value) return null;
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
-}
 </script>
 
 <template>
@@ -255,7 +251,7 @@ function clampText(value: string | null | undefined, max: number): string | null
         <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
         <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
         <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage ?? null) }}</span>
-        <span class="block truncate text-xs text-muted" :title="clampText(item.error_message, 240) || undefined">{{ item.error_message || "--" }}</span>
+        <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
         <UBadge
           v-if="item.external_job"
           :label="externalJobLabel(item.external_job)"
