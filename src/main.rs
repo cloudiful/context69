@@ -24,6 +24,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
+    opendal::install_default();
     let mode = env::args().nth(1).unwrap_or_else(|| "serve".to_string());
     if mode == "export-openapi" {
         export_openapi(env::args().nth(2)).await?;

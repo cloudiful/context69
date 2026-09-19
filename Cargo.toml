@@ -28,7 +28,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.20.2"
+version = "0.20.3"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -42,7 +42,7 @@ bytes = "1.12.1"
 base64 = "0.23.1"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.3" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.20.2" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.20.3" }
 context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
 context69-contracts-core = { path = "crates/context69-contracts-core", version = "0.1.0" }
 context69-contracts-extraction = { path = "crates/context69-contracts-extraction", version = "0.1.0" }
@@ -69,7 +69,7 @@ futures = "0.3.34"
 getrandom = "0.4.3"
 qdrant-client = "1.19.0"
 rate-limiter = { package = "cloudiful-rate-limiter", version = "0.1.0", features = ["valkey"] }
-opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3"] }
+opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3", "http-transport-reqwest", "executors-tokio"] }
 reqwest = { version = "0.13.5", default-features = false }
 redis = "1.7.0"
 rmcp = "3.4.0"
