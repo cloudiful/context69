@@ -91,7 +91,7 @@ impl Default for FileConfig {
             scheduler: SchedulerConfig {
                 interval: Duration::from_secs(300),
                 run_on_start: true,
-                max_concurrency: 2,
+                max_concurrency: 1,
                 job_id: "context69-sync".to_string(),
                 valkey_url: None,
                 execution_guard_ttl: default_scheduler_execution_guard_ttl(),

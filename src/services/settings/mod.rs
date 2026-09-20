@@ -462,7 +462,7 @@ mod tests {
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,
                 run_on_start: true,
-                max_concurrency: 2,
+                max_concurrency: 1,
                 job_id: "context69-sync".to_string(),
                 valkey_url: Some("redis://valkey:6379/0".to_string()),
             },

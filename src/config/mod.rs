@@ -105,6 +105,13 @@ enabled = true
     }
 
     #[test]
+    fn scheduler_defaults_to_single_worker() {
+        let config = FileConfig::default();
+
+        assert_eq!(config.scheduler.max_concurrency, 1);
+    }
+
+    #[test]
     fn legacy_auth_config_uses_browser_session_defaults() {
         let auth: super::AuthConfig = toml::from_str(
             r#"

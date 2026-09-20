@@ -439,12 +439,9 @@ impl Context69App {
 }
 
 pub(crate) fn task_worker_capacity(config: &Config) -> usize {
-    // scheduler.max_concurrency is the single effective control for the shared
-    // task worker pool (including URL imports) and the scheduler fan-out
-    // (translation / extraction / sync). file_library ingest and URL-import
-    // concurrency remain stored/validated for backward compatibility but do not
-    // cap the task worker pool.
+    // 单有效控制：阻塞 FIFO 只允许 1 个 worker；0 箝位到 1。
     crate::services::tasks::normalize_task_worker_concurrency(config.scheduler.max_concurrency)
+        .min(1)
 }
 
 #[cfg(test)]
@@ -458,18 +455,25 @@ mod tests {
         config.scheduler.max_concurrency = 8;
         config.file_library.ingest_concurrency = 1;
         config.file_library.url_import_concurrency = 1;
-        assert_eq!(task_worker_capacity(&config), 8);
+        assert_eq!(task_worker_capacity(&config), 1);
 
         // Changing file_library values must not affect capacity.
         config.file_library.ingest_concurrency = 100;
         config.file_library.url_import_concurrency = 100;
-        assert_eq!(task_worker_capacity(&config), 8);
+        assert_eq!(task_worker_capacity(&config), 1);
 
-        // Scheduler drives capacity independently.
+        // Scheduler fan-out collapses to a single blocking worker.
         config.scheduler.max_concurrency = 4;
         config.file_library.ingest_concurrency = 1;
         config.file_library.url_import_concurrency = 1;
-        assert_eq!(task_worker_capacity(&config), 4);
+        assert_eq!(task_worker_capacity(&config), 1);
+    }
+
+    #[test]
+    fn task_worker_capacity_defaults_to_single_worker() {
+        let config = Config::default();
+        assert_eq!(config.scheduler.max_concurrency, 1);
+        assert_eq!(task_worker_capacity(&config), 1);
     }
 
     #[test]
