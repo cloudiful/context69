@@ -57,5 +57,8 @@ pub struct EnqueueExtraction {
 
 #[async_trait]
 pub trait ExtractionCoordinator: Send + Sync {
-    async fn enqueue(&self, input: EnqueueExtraction) -> Result<Vec<ExtractionJobResponse>>;
+    /// Blocking conversion: insert or reuse the document's extraction job and
+    /// run it to completion in the caller. There is no background worker and
+    /// no dispatcher re-claim.
+    async fn convert(&self, input: EnqueueExtraction) -> Result<Vec<ExtractionJobResponse>>;
 }

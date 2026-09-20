@@ -3,14 +3,13 @@ use chrono::Utc;
 use context69::db::Database;
 use context69_contracts::ExtractionFailureClass;
 use context69_extraction::{
-    ExtractionDependencies, ExtractionReadiness, ExtractionService, ExtractionStore,
+    ExtractionStore,
     providers::{
         ProviderHttpError, ProviderPayloadError, ProviderSchemaError, classify_error,
         failure_class_as_str, next_retry_delay,
     },
 };
 use sqlx::Row;
-use std::sync::Arc;
 use uuid::Uuid;
 
 static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -87,23 +86,6 @@ async fn clean(db: &Database, ids: &[Uuid]) {
             .execute(db.pool())
             .await
             .ok();
-    }
-}
-struct Noop;
-#[async_trait::async_trait]
-impl context69_extraction::ExtractionPublisher for Noop {
-    async fn publish(
-        &self,
-        _: &context69_extraction::ExtractionPublication<'_>,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-struct Ready;
-#[async_trait::async_trait]
-impl ExtractionReadiness for Ready {
-    async fn is_ready(&self) -> anyhow::Result<bool> {
-        Ok(true)
     }
 }
 
@@ -481,26 +463,4 @@ fn classify_and_delay() {
         failure_class_as_str(ExtractionFailureClass::Transient),
         "transient"
     );
-}
-
-#[tokio::test]
-async fn semaphore_respects_concurrency() {
-    let pool = sqlx::PgPool::connect_lazy("postgres://invalid").unwrap();
-    let s = ExtractionService::new(ExtractionDependencies {
-        pool: pool.clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(Noop),
-        concurrency: 3,
-        readiness: Arc::new(Ready),
-    });
-    assert_eq!(s.configured_concurrency(), 3);
-    assert_eq!(s.available_permits(), 3);
-    let s2 = ExtractionService::new(ExtractionDependencies {
-        pool,
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(Noop),
-        concurrency: 0,
-        readiness: Arc::new(Ready),
-    });
-    assert_eq!(s2.configured_concurrency(), 1);
 }

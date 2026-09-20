@@ -2,8 +2,7 @@
 //!
 //! Holds the per-task item request/response surface for [`LibraryService`]:
 //! preparing sections, persisting them once for legacy callers, marking files
-//! running, handling failures, and enqueuing translation/extraction.
-//! The at-least-once batch checkpoint lives in
+//! running, and handling failures. The at-least-once batch checkpoint lives in
 //! `super::ingest_checkpoint` (types/helpers) and
 //! `super::ingest_checkpoint_persistence` (the driver method).
 
@@ -162,14 +161,6 @@ impl LibraryService {
                 .await;
         }
         failure
-    }
-
-    pub(crate) async fn enqueue_file_translations_for_task(&self, file_id: Uuid) -> Result<()> {
-        self.enqueue_file_translations(file_id).await
-    }
-
-    pub(crate) async fn enqueue_file_extractions_for_task(&self, file_id: Uuid) -> Result<()> {
-        self.enqueue_file_extractions(file_id).await
     }
 
     async fn task_file(

@@ -1,9 +1,8 @@
 mod job_runner;
-mod readiness;
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use context69_contracts_core::errors::DomainError;
 use context69_contracts_translation::{
@@ -12,8 +11,6 @@ use context69_contracts_translation::{
     TranslationSettingsResponse, UpdateGroupTranslationSettingsRequest,
     UpdateTranslationSettingsRequest,
 };
-use tokio::sync::{Mutex, Semaphore};
-use tracing::error;
 use uuid::Uuid;
 
 use crate::{
@@ -28,8 +25,6 @@ pub struct TranslationService {
     http_client: reqwest::Client,
     publisher: Arc<dyn TranslationPublisher>,
     readiness: Arc<dyn TranslationReadiness>,
-    semaphore: Arc<Semaphore>,
-    worker_lock: Arc<Mutex<()>>,
 }
 
 impl TranslationService {
@@ -39,15 +34,13 @@ impl TranslationService {
             http_client: dependencies.http_client,
             publisher: dependencies.publisher,
             readiness: dependencies.readiness,
-            semaphore: Arc::new(Semaphore::new(dependencies.concurrency.max(1))),
-            worker_lock: Arc::new(Mutex::new(())),
         }
     }
 
+    /// Requeue jobs interrupted by a restart. Jobs are drained inside the
+    /// blocking caller that owns them, so there is no worker to resume.
     pub async fn resume(&self) -> Result<()> {
-        self.store.reset_interrupted().await?;
-        self.spawn_worker();
-        Ok(())
+        self.store.reset_interrupted().await
     }
 
     pub async fn settings(&self) -> Result<TranslationSettingsResponse> {
@@ -113,8 +106,13 @@ impl TranslationService {
             .await?
             .ok_or_else(|| DomainError::conflict("translation job is not retryable"))
             .map_err(anyhow::Error::from)?;
-        self.spawn_worker();
-        job_response(job)
+        self.run_job_blocking(job.id).await?;
+        let record = self
+            .store
+            .job_in_group(group_id, job.id)
+            .await?
+            .ok_or_else(|| DomainError::not_found("translation job not found"))?;
+        job_response(record)
     }
 
     pub async fn rebuild_document(
@@ -136,27 +134,21 @@ impl TranslationService {
             })
         };
         let jobs = self
-            .enqueue(EnqueueTranslation {
+            .convert(EnqueueTranslation {
                 document_id,
                 directive,
             })
             .await?;
         Ok(TranslationJobsResponse { jobs })
     }
-
-    fn spawn_worker(&self) {
-        let service = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = service.run_pending().await {
-                error!(%error, "translation worker failed");
-            }
-        });
-    }
 }
 
 #[async_trait]
 impl TranslationCoordinator for TranslationService {
-    async fn enqueue(&self, input: EnqueueTranslation) -> Result<Vec<TranslationJobResponse>> {
+    /// Blocking conversion: reuse or insert the document's translation jobs
+    /// and run them to completion before returning. There is no background
+    /// worker, so a job can never be left for a later dispatcher re-claim.
+    async fn convert(&self, input: EnqueueTranslation) -> Result<Vec<TranslationJobResponse>> {
         let document = self.store.document(input.document_id).await?;
         let group = self.store.group_settings(document.group_id).await?;
         let (source_locale, target_locales) = match input.directive {
@@ -173,19 +165,25 @@ impl TranslationCoordinator for TranslationService {
         };
         let mut jobs = Vec::new();
         for target_locale in target_locales {
-            jobs.push(job_response(
-                self.store
-                    .insert_job(
-                        input.document_id,
-                        &target_locale,
-                        source_locale.as_deref(),
-                        &document.record_hash,
-                    )
-                    .await?,
-            )?);
-        }
-        if !jobs.is_empty() {
-            self.spawn_worker();
+            let job = self
+                .store
+                .insert_job(
+                    input.document_id,
+                    &target_locale,
+                    source_locale.as_deref(),
+                    &document.record_hash,
+                )
+                .await?;
+            self.run_job_blocking(job.id).await?;
+            let record = self
+                .store
+                .job_in_group(document.group_id, job.id)
+                .await?
+                .ok_or_else(|| DomainError::not_found("translation job not found"))?;
+            if matches!(record.status.as_str(), "queued" | "running") {
+                return Err(anyhow!("translation job {} did not complete", record.id));
+            }
+            jobs.push(job_response(record)?);
         }
         Ok(jobs)
     }

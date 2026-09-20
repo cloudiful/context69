@@ -1,12 +1,12 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use context69_contracts_core::errors::DomainError;
 use context69_contracts_translation::TranslationGlossaryEntry;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::{TranslationService, readiness::ProcessingPermit};
+use super::TranslationService;
 use crate::{
     TranslationPublication,
     providers::{ProviderTranslationRequest, source_character_count, translate},
@@ -27,59 +27,30 @@ struct PublishedText<'a> {
     body: &'a str,
 }
 
-const READINESS_POLL_INTERVAL: Duration = Duration::from_secs(5);
-
 impl TranslationService {
-    pub(super) async fn run_pending(&self) -> Result<()> {
-        let Ok(_guard) = self.worker_lock.try_lock() else {
-            return Ok(());
-        };
-        loop {
-            let ids = self.store.pending_ids().await?;
-            if ids.is_empty() {
-                return Ok(());
-            }
-            let permit = self.acquire_processing_permit().await?;
-            let probe_token = match permit {
-                ProcessingPermit::Ready => None,
-                ProcessingPermit::Probe(token) => Some(token),
-                ProcessingPermit::Blocked => {
-                    tokio::time::sleep(READINESS_POLL_INTERVAL).await;
-                    continue;
-                }
-            };
-
-            if let Some(probe_token) = probe_token {
-                let result = self.run_job(ids[0], Some(probe_token)).await;
-                self.finish_processing_probe(probe_token, &result).await?;
-                result?;
-                continue;
-            }
-
-            let mut tasks = Vec::with_capacity(ids.len());
-            for id in ids {
-                let service = self.clone();
-                tasks.push(tokio::spawn(async move {
-                    let _permit = service.semaphore.acquire().await?;
-                    service.run_job(id, None).await
-                }));
-            }
-            for task in tasks {
-                if let Err(error) = task.await? {
-                    warn!(%error, "translation job failed");
-                }
-            }
+    /// Blocking conversion entry: fail fast when the embedding/vector runtime
+    /// is unavailable so the owning task item can retry with backoff instead
+    /// of leaving a queued job with no worker behind it.
+    pub(super) async fn run_job_blocking(&self, id: Uuid) -> Result<()> {
+        if !self.runtime_ready().await {
+            return Err(anyhow!("translation runtime is not ready"));
         }
+        self.run_job(id).await?;
+        Ok(())
     }
 
-    async fn run_job(&self, id: Uuid, probe_token: Option<Uuid>) -> Result<bool> {
-        if !self.processing_ready_for(probe_token).await {
+    async fn runtime_ready(&self) -> bool {
+        self.readiness.is_ready().await.unwrap_or(false)
+    }
+
+    async fn run_job(&self, id: Uuid) -> Result<bool> {
+        if !self.runtime_ready().await {
             return Ok(false);
         }
         let Some(job) = self.store.claim_job(id).await? else {
             return Ok(false);
         };
-        if !self.processing_ready_for(probe_token).await {
+        if !self.runtime_ready().await {
             self.store.release_claimed_job(id).await?;
             return Ok(false);
         }
@@ -202,11 +173,7 @@ impl TranslationService {
                         .await;
                     if let Err(error) = publish_result {
                         let message = format!("{error:#}");
-                        match self
-                            .readiness
-                            .report_processing_error_with_probe(&message, probe_token)
-                            .await
-                        {
+                        match self.readiness.report_processing_error(&message).await {
                             Ok(true) => {
                                 self.store.release_claimed_job(id).await?;
                                 return Ok(false);

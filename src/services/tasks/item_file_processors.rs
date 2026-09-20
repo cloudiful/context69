@@ -281,22 +281,14 @@ pub(super) async fn process_file_stage(
             Ok(ProcessResult::Progressed)
         }
         "translation" => {
-            if let Err(error) = service
-                .library()
-                .enqueue_file_translations_for_task(file_id)
-                .await
-            {
+            if let Err(error) = service.library().convert_file_translations(file_id).await {
                 return Ok(process_error(stage, error));
             }
             set_stage(service, task, item, "extraction").await?;
             Ok(ProcessResult::Progressed)
         }
         "extraction" => {
-            if let Err(error) = service
-                .library()
-                .enqueue_file_extractions_for_task(file_id)
-                .await
-            {
+            if let Err(error) = service.library().convert_file_extractions(file_id).await {
                 return Ok(process_error(stage, error));
             }
             set_stage(service, task, item, "finalize").await?;
