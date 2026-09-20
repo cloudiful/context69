@@ -140,19 +140,6 @@ pub struct TaskResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct ExternalJobInfo {
-    pub provider: String,
-    pub remote_task_id: String,
-    pub status: String,
-    pub remote_status: Option<String>,
-    pub submitted_at: DateTime<Utc>,
-    pub last_polled_at: Option<DateTime<Utc>>,
-    pub next_poll_at: Option<DateTime<Utc>>,
-    pub deadline_at: Option<DateTime<Utc>>,
-    pub error_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskItemResponse {
     pub item_id: Uuid,
     pub ordinal: i32,
@@ -170,8 +157,6 @@ pub struct TaskItemResponse {
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub external_job: Option<ExternalJobInfo>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -515,54 +500,6 @@ pub struct RerunTaskResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct CancelActiveTasksResponse {
     pub cancelled_tasks: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct RecoverDoclingTaskRequest {
-    /// Free-form human justification recorded in the recovery audit.
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct RecoveredDoclingTask {
-    pub task_id: Uuid,
-    pub item_id: Uuid,
-    pub old_remote_task_id: Option<String>,
-    pub old_remote_status: Option<String>,
-    pub new_remote_task_id: String,
-    pub new_stage: String,
-    pub file_id: Option<Uuid>,
-    pub recovered_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct RecoverDoclingTaskResponse {
-    pub recovered: RecoveredDoclingTask,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct QueueDoclingRecoveryRequest {
-    /// Free-form human justification recorded in operator logs.
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct QueuedDoclingTask {
-    pub task_id: Uuid,
-    pub item_id: Uuid,
-    /// Stage the item was parked on for dispatcher pickup (`docling`).
-    pub stage: String,
-    pub file_id: Option<Uuid>,
-    pub queued_at: DateTime<Utc>,
-    /// True when the item was already queued and no state changed: no new
-    /// attempt row and no new remote job were created.
-    #[serde(default)]
-    pub already_queued: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct QueueDoclingRecoveryResponse {
-    pub queued: QueuedDoclingTask,
 }
 
 /// Query for `GET /v1/tasks/stream` (issue 405 Task E2).

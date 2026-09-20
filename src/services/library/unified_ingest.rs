@@ -35,14 +35,6 @@ impl UnifiedIngestError {
             message: failure.to_string(),
         }
     }
-
-    /// True only for the Docling persistent-admission denial produced when
-    /// the remote slot is full before any POST (issue #123). The worker
-    /// must defer without consuming the business attempt budget; every
-    /// other retryable Docling failure keeps ordinary backoff exhaustion.
-    pub(crate) fn is_docling_admission_denied(&self) -> bool {
-        self.stage == "docling" && self.message.contains("remote admission is full")
-    }
 }
 
 impl LibraryService {
@@ -74,6 +66,12 @@ impl LibraryService {
             .docling_task_timeout()
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
+        // Whole-document budget, identical to the crate's own
+        // `wait_for_result` deadline: `ingest_pdf`/`ingest_docx` submit a remote
+        // Docling task and wait in-process (no persisted remote id), while this
+        // outer timeout is the last-resort guard for a stuck wait. The
+        // per-request HTTP ceiling (`DEFAULT_DOCLING_TIMEOUT_SECS`, 120s) only
+        // bounds the submit POST and each long-poll, never the conversion.
         let file_bytes = bytes.len();
         let started = Instant::now();
         let result = match kind {

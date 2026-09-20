@@ -172,8 +172,6 @@ pub struct LibraryProcessingQueueHealth {
     pub recent_failure_count: u64,
     pub docling_dependency_waiting_count: u64,
     pub stale_waiting_count: u64,
-    pub expired_active_external_jobs: u64,
-    pub active_external_jobs: u64,
     pub status_counts: Vec<LibraryProcessingMetric>,
     pub stage_counts: Vec<LibraryProcessingMetric>,
     pub waiting_reason_counts: Vec<LibraryProcessingMetric>,

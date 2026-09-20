@@ -51,9 +51,7 @@ use crate::api::{
         __path_delete_source_connection, __path_list_source_connections, __path_list_sources,
         __path_sync_source, __path_update_source, __path_update_source_connection,
     },
-    task_maintenance::{
-        __path_cancel_active_tasks, __path_queue_docling_recovery, __path_recover_docling_task,
-    },
+    task_maintenance::__path_cancel_active_tasks,
     tasks::{
         __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_ensure_scope,
         __path_get_task, __path_list_task_items, __path_list_tasks, __path_rerun_task,
@@ -90,10 +88,9 @@ use crate::contracts::{
     MetadataIndexPageResponse, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
     MoveFileRequest, MoveFolderRequest, OffsetPageQuery, PersonalAccessTokenPageQuery,
     PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, QueueDoclingRecoveryRequest,
-    QueueDoclingRecoveryResponse, QueuedDoclingTask, RebuildDocumentExtractionsRequest,
-    RebuildDocumentTranslationsRequest, RecoverDoclingTaskRequest, RecoverDoclingTaskResponse,
-    RecoveredDoclingTask, RerunTaskResponse, ResetAdminUserPasswordRequest, ScopeMetadataIndex,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
+    RebuildDocumentExtractionsRequest, RebuildDocumentTranslationsRequest, RerunTaskResponse,
+    ResetAdminUserPasswordRequest, ScopeMetadataIndex,
     ScopeSpec, SearchMode, SecretPatch, SortDirection, SortOrder, SourceConfigInput,
     SourceConnectionResponse, SourceFolderResponse, SourcePageQuery, SourcePageResponse,
     SourcePolicy, SourceStatus, SyncOutcome,     TaskItemResponse, TaskItemStatus, TaskItemsQuery,
@@ -200,9 +197,7 @@ use crate::contracts::{
         restore_task,
         delete_task,
         clear_task_history,
-        cancel_active_tasks,
-        recover_docling_task,
-        queue_docling_recovery
+        cancel_active_tasks
     ),
     components(schemas(
         HealthStatus,
@@ -339,12 +334,6 @@ use crate::contracts::{
         TaskStreamUpdate,
         TaskSortBy,
         CancelActiveTasksResponse,
-        QueueDoclingRecoveryRequest,
-        QueueDoclingRecoveryResponse,
-        QueuedDoclingTask,
-        RecoverDoclingTaskRequest,
-        RecoverDoclingTaskResponse,
-        RecoveredDoclingTask,
         TextBatchRequest,
         UrlBatchRequest,
         DeleteBatchRequest,
@@ -469,14 +458,14 @@ mod tests {
             "/v1/tasks/{task_id}/trash",
             "/v1/tasks/{task_id}/restore",
             "/v1/admin/tasks/cancel-active",
-            "/v1/admin/tasks/{task_id}/recover",
-            "/v1/admin/tasks/{task_id}/recover/queue",
         ] {
             assert!(paths.contains_key(path), "missing path {path}");
         }
         for path in [
             "/v1/admin/tasks/maintenance",
             "/v1/admin/tasks/purge",
+            "/v1/admin/tasks/{task_id}/recover",
+            "/v1/admin/tasks/{task_id}/recover/queue",
             "/v1/library/processing-jobs",
             "/v1/library/processing-jobs/retry-failed",
             "/v1/library/processing-jobs/cleanup-stuck",
@@ -568,6 +557,13 @@ mod tests {
             "PurgeTasksRequest",
             "PurgeTasksResponse",
             "UpdateTaskMaintenanceSettingsRequest",
+            "ExternalJobInfo",
+            "RecoverDoclingTaskRequest",
+            "RecoverDoclingTaskResponse",
+            "RecoveredDoclingTask",
+            "QueueDoclingRecoveryRequest",
+            "QueueDoclingRecoveryResponse",
+            "QueuedDoclingTask",
         ] {
             assert!(
                 !schemas.contains_key(removed),

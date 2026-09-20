@@ -11,7 +11,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use context69_contracts::{
     ClearTaskHistoryResponse, ClearTaskHistoryView, CreateGroupRequest, CreateMetadataIndexRequest,
-    EnsureScopeResponse, ExternalJobInfo, FileBatchItem, GroupResponse, MetadataIndexResponse,
+    EnsureScopeResponse, FileBatchItem, GroupResponse, MetadataIndexResponse,
     MetadataIndexStatus, RerunTaskResponse, ScopeSpec, SortDirection, TaskItemResponse,
     TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
     TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
@@ -27,7 +27,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::{CreateTaskSubmissionRequest, Database, StoredTask, StoredTaskItemWithExternalJob},
+    db::{CreateTaskSubmissionRequest, Database, StoredTask, StoredTaskItem},
     domain::GroupRecord,
     domain_errors::DomainError,
     pagination::PageBounds,
@@ -47,7 +47,6 @@ mod item_url_processor;
 mod maintenance;
 mod runtime;
 
-pub(crate) use maintenance::TaskMaintenanceError;
 pub use events::{TASK_EVENTS_CHANNEL, TASK_EVENT_BUS_CAPACITY, TaskEvent};
 
 #[derive(Clone)]
@@ -883,7 +882,7 @@ fn parse_status(value: &str) -> Result<TaskStatus> {
     }
 }
 
-fn task_item_response(item: StoredTaskItemWithExternalJob) -> TaskItemResponse {
+fn task_item_response(item: StoredTaskItem) -> TaskItemResponse {
     TaskItemResponse {
         item_id: item.id,
         ordinal: item.ordinal,
@@ -901,17 +900,6 @@ fn task_item_response(item: StoredTaskItemWithExternalJob) -> TaskItemResponse {
         created_at: item.created_at,
         started_at: item.started_at,
         finished_at: item.finished_at,
-        external_job: item.external_job_provider.map(|provider| ExternalJobInfo {
-            provider,
-            remote_task_id: item.external_job_remote_task_id.unwrap_or_default(),
-            status: item.external_job_status.unwrap_or_default(),
-            remote_status: item.external_job_remote_status,
-            submitted_at: item.external_job_submitted_at.unwrap_or(item.created_at),
-            last_polled_at: item.external_job_last_polled_at,
-            next_poll_at: item.external_job_next_poll_at,
-            deadline_at: item.external_job_deadline_at,
-            error_message: item.external_job_error_message,
-        }),
     }
 }
 
@@ -1150,7 +1138,6 @@ mod tests {
         for forbidden in [
             "DELETE FROM context69.task_items",
             "DELETE FROM context69.task_attempts",
-            "DELETE FROM context69.task_external_jobs",
             "library_files",
             "documents",
             "qdrant",

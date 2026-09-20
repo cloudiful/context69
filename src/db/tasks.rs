@@ -19,12 +19,6 @@ pub struct ClaimMaintenanceOutcome {
     pub exhausted_files: i64,
     pub exhausted_tasks: i64,
     pub expired_attempts: i64,
-    /// Pending/running external jobs recycled to `timed_out` because their
-    /// `deadline_at` passed (issue #446 P1 running lease timeout recycle).
-    pub expired_external_jobs: i64,
-    /// Pending/running external jobs moved to `cancelled` because the
-    /// parent item is terminal.
-    pub reconciled_external_jobs: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -57,6 +51,7 @@ pub struct StoredTask {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+/// A task item listed for inspection.
 #[derive(Debug, Clone, FromRow)]
 pub struct StoredTaskItem {
     pub id: Uuid,
@@ -76,38 +71,6 @@ pub struct StoredTaskItem {
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
-}
-
-/// A task item listed for inspection, optionally joined with its active
-/// external (e.g. Docling) job when one exists.
-#[derive(Debug, Clone, FromRow)]
-pub struct StoredTaskItemWithExternalJob {
-    pub id: Uuid,
-    pub task_id: Uuid,
-    pub ordinal: i32,
-    pub status: String,
-    pub resource_id: Option<String>,
-    pub file_id: Option<Uuid>,
-    pub stage: Option<String>,
-    pub waiting_reason: Option<String>,
-    pub dependency_key: Option<String>,
-    pub next_attempt_at: Option<DateTime<Utc>>,
-    pub failure_stage: Option<String>,
-    pub error_message: Option<String>,
-    pub attempt_count: i32,
-    pub retryable: bool,
-    pub created_at: DateTime<Utc>,
-    pub started_at: Option<DateTime<Utc>>,
-    pub finished_at: Option<DateTime<Utc>>,
-    pub external_job_provider: Option<String>,
-    pub external_job_remote_task_id: Option<String>,
-    pub external_job_status: Option<String>,
-    pub external_job_remote_status: Option<String>,
-    pub external_job_submitted_at: Option<DateTime<Utc>>,
-    pub external_job_last_polled_at: Option<DateTime<Utc>>,
-    pub external_job_next_poll_at: Option<DateTime<Utc>>,
-    pub external_job_deadline_at: Option<DateTime<Utc>>,
-    pub external_job_error_message: Option<String>,
 }
 
 /// An item claimed by the dispatcher together with its parent task context.
@@ -143,17 +106,6 @@ pub struct StoredIdempotencyKey {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct StoredDoclingRecovery {
-    pub task_id: Option<Uuid>,
-    pub item_id: Option<Uuid>,
-    pub file_id: Option<Uuid>,
-    pub reason: Option<String>,
-    pub remote_task_id: Option<String>,
-    pub lease_token: Option<Uuid>,
-    pub attempt_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, FromRow)]
 struct StoredInputStorageObject {
     group_id: i64,
     sha256: String,
@@ -170,24 +122,12 @@ pub struct TaskProcessingHealth {
     pub docling_required_count: i64,
     pub docling_dependency_waiting_count: i64,
     pub stale_waiting_count: i64,
-    pub expired_active_jobs: i64,
-    pub active_jobs: i64,
     pub status_counts: Value,
     pub stage_counts: Value,
     pub waiting_reason_counts: Value,
     pub dependency_counts: Value,
     pub processed_last_hour: i64,
     pub failed_last_hour: i64,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub struct StoredQueuedDoclingRecovery {
-    pub task_id: Option<Uuid>,
-    pub item_id: Option<Uuid>,
-    pub file_id: Option<Uuid>,
-    pub reason: Option<String>,
-    pub remote_task_id: Option<String>,
-    pub requeued_item_id: Option<Uuid>,
 }
 
 /// Grouped arguments for task submission.
@@ -539,7 +479,7 @@ impl Database {
         task_id: Uuid,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<StoredTaskItemWithExternalJob>> {
+    ) -> Result<Vec<StoredTaskItem>> {
         self.list_task_items_filtered(task_id, limit, offset, None)
             .await
     }
@@ -553,9 +493,9 @@ impl Database {
         limit: i64,
         offset: i64,
         status: Option<&str>,
-    ) -> Result<Vec<StoredTaskItemWithExternalJob>> {
+    ) -> Result<Vec<StoredTaskItem>> {
         Ok(sqlx::query_file_as!(
-            StoredTaskItemWithExternalJob,
+            StoredTaskItem,
             "src/sql/db/tasks/items.sql",
             task_id,
             limit,
@@ -711,8 +651,7 @@ impl Database {
     }
     /// Soft-delete a terminal task into the recycle bin. No-op for an active
     /// task and for an already-trashed row, so callers can treat the boolean
-    /// as "this call moved the row". Never touches task items, files, or
-    /// external jobs.
+    /// as "this call moved the row". Never touches task items or files.
     pub async fn trash_task(&self, task_id: Uuid) -> Result<bool> {
         Ok(sqlx::query_file!("src/sql/db/tasks/trash.sql", task_id)
             .fetch_optional(self.pool())
@@ -764,28 +703,6 @@ impl Database {
                 .rows_affected()
                 > 0,
         )
-    }
-
-    pub async fn release_recovery_wait(
-        &self,
-        item_id: Uuid,
-        lease_token: Uuid,
-        attempt_id: i64,
-        next_attempt_at: DateTime<Utc>,
-    ) -> Result<bool> {
-        let updated = sqlx::query_file!(
-            "src/sql/db/tasks/release_recovery_wait.sql",
-            item_id,
-            lease_token,
-            "dependency",
-            "docling",
-            next_attempt_at,
-            "docling dependency gate is not ready",
-            attempt_id,
-        )
-        .execute(self.pool())
-        .await?;
-        Ok(updated.rows_affected() > 0)
     }
 
     pub async fn progress_task_item(
@@ -959,43 +876,6 @@ impl Database {
         Ok(updated)
     }
 
-    /// Scheduler deferral for Docling admission-full (issue #123).
-    ///
-    /// Releases the just-claimed lease, persists the item as
-    /// `waiting/backoff` without consuming the business attempt
-    /// (`attempt_count - 1`, floored at zero), and closes the current
-    /// `task_attempts` row as `waiting`. No new waiting reason or schema
-    /// value is introduced; ordinary retryable failures keep using
-    /// [`Database::wait_task_item`] and its five-attempt exhaustion.
-    pub async fn release_attempt_wait(
-        &self,
-        task_id: Uuid,
-        item_id: Uuid,
-        lease_token: Uuid,
-        attempt_id: i64,
-        next_attempt_at: DateTime<Utc>,
-        error_message: Option<&str>,
-    ) -> Result<bool> {
-        let updated = sqlx::query_file!(
-            "src/sql/db/tasks/release_attempt_wait.sql",
-            item_id,
-            lease_token,
-            next_attempt_at,
-            error_message,
-            attempt_id
-        )
-        .execute(self.pool())
-        .await?
-        .rows_affected()
-            > 0;
-        if updated {
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-                .execute(self.pool())
-                .await?;
-        }
-        Ok(updated)
-    }
-
     pub async fn retry_task_items(&self, task_id: Uuid, user_id: i64) -> Result<Vec<Uuid>> {
         let mut tx = self.pool().begin().await?;
         // Take the same per-file locks as a new submission before the
@@ -1091,96 +971,6 @@ impl Database {
         }
         tx.commit().await?;
         Ok(ids.len() as i64)
-    }
-
-    /// Atomically requeue a recoverable Docling item without a worker lease.
-    /// Unlike [`Database::recover_docling_item`], this never claims a lease,
-    /// bumps `attempt_count`, inserts a `task_attempts` row, or touches the
-    /// network: the item is only persisted back to the `docling` scheduling
-    /// queue for the dispatcher to submit later under admission control.
-    /// A repeat call observes `already_queued` and changes nothing.
-    pub async fn queue_docling_recovery(
-        &self,
-        task_id: Uuid,
-    ) -> Result<StoredQueuedDoclingRecovery> {
-        let precheck = sqlx::query_file!("src/sql/db/tasks/queue_docling_precheck.sql", task_id,)
-            .fetch_one(self.pool())
-            .await?;
-        if !precheck.task_exists {
-            return Ok(StoredQueuedDoclingRecovery {
-                task_id: None,
-                item_id: None,
-                file_id: None,
-                reason: Some("task_not_found".to_string()),
-                remote_task_id: None,
-                requeued_item_id: None,
-            });
-        }
-        if !precheck.has_docling_item {
-            return Ok(StoredQueuedDoclingRecovery {
-                task_id: Some(task_id),
-                item_id: None,
-                file_id: None,
-                reason: Some("no_docling_item".to_string()),
-                remote_task_id: None,
-                requeued_item_id: None,
-            });
-        }
-        let mut tx = self.pool().begin().await?;
-        let result = sqlx::query_file_as!(
-            StoredQueuedDoclingRecovery,
-            "src/sql/db/tasks/queue_docling_recovery.sql",
-            task_id,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        let result = result.unwrap_or(StoredQueuedDoclingRecovery {
-            task_id: None,
-            item_id: None,
-            file_id: None,
-            reason: Some("task_not_found".to_string()),
-            remote_task_id: None,
-            requeued_item_id: None,
-        });
-        if result.reason.as_deref() == Some("ok") {
-            self.recompute_task(task_id).await?;
-        }
-        Ok(result)
-    }
-
-    /// Atomically claim a recoverable Docling item with a real worker lease.
-    /// The lease prevents the dispatcher or a second recovery request from
-    /// submitting another remote job while the caller performs the network
-    /// submission.
-    pub async fn recover_docling_item(
-        &self,
-        task_id: Uuid,
-        lease_token: Uuid,
-    ) -> Result<StoredDoclingRecovery> {
-        let mut tx = self.pool().begin().await?;
-        let result = sqlx::query_file_as!(
-            StoredDoclingRecovery,
-            "src/sql/db/tasks/recover_docling_item.sql",
-            task_id,
-            lease_token,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        let result = result.unwrap_or(StoredDoclingRecovery {
-            task_id: None,
-            item_id: None,
-            file_id: None,
-            reason: Some("task_not_found".to_string()),
-            remote_task_id: None,
-            lease_token: None,
-            attempt_id: None,
-        });
-        if result.reason.as_deref() == Some("ok") {
-            self.recompute_task(task_id).await?;
-        }
-        Ok(result)
     }
 }
 

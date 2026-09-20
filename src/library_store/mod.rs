@@ -13,7 +13,6 @@ use crate::domain::{LibraryFileRecord, LibraryFolderRecord};
 mod dependency_gates;
 mod detail;
 pub(crate) mod documents;
-mod external_jobs;
 mod files;
 mod folders;
 mod mappers;
@@ -26,7 +25,6 @@ pub use source_object_cleanup::SourceObjectCleanupIntent;
 pub use source_release::{FileSourceLifecycleRow, PendingAutoReleaseFile};
 
 pub use dependency_gates::{DependencyGateRecord, DependencyGateTransition};
-pub(crate) use external_jobs::RecoveryAudit;
 pub(crate) use files::LegacyDirectPathFileRow;
 pub use files::MissingLegacySourceFileRow;
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format};

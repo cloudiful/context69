@@ -101,13 +101,11 @@ pub use context69_contracts_sources::sources::{
 pub use context69_contracts_tasks::tasks::{
     CancelActiveTasksResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest,
     ClearTaskHistoryResponse, ClearTaskHistoryView, DeleteBatchRequest, EnsureScopeResponse,
-    ExternalJobInfo, FileBatchItem, FileBatchRequest, FileRetryItem,
-    QueueDoclingRecoveryRequest, QueueDoclingRecoveryResponse, QueuedDoclingTask,
-    RecoverDoclingTaskRequest, RecoverDoclingTaskResponse, RecoveredDoclingTask, RerunTaskResponse,
-    ScopeMetadataIndex, ScopeSpec, TASK_STREAM_IDS_MAX, TaskItemResponse, TaskItemStatus,
-    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
-    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
-    TaskStatus, TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot,
-    TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
+    FileBatchItem, FileBatchRequest, FileRetryItem, RerunTaskResponse, ScopeMetadataIndex,
+    ScopeSpec, TASK_STREAM_IDS_MAX, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin, TaskPageResponse,
+    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
+    TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate,
+    TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
 };
 pub use context69_contracts_translation::translation::*;

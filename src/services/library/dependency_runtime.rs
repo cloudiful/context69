@@ -295,8 +295,6 @@ impl LibraryService {
                     queue.docling_dependency_waiting_count,
                 )?,
                 stale_waiting_count: non_negative_count(queue.stale_waiting_count)?,
-                expired_active_external_jobs: non_negative_count(queue.expired_active_jobs)?,
-                active_external_jobs: non_negative_count(queue.active_jobs)?,
                 status_counts,
                 stage_counts,
                 waiting_reason_counts,
@@ -589,70 +587,4 @@ fn configuration_fingerprint(parts: &[impl AsRef<str>]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
-}
-
-/// Pure, dependency-free classifier that decides whether a Docling poll
-/// error is transient (and therefore should open the dependency gate) or
-/// terminal (and therefore should fail the item). Structured
-/// `PdfConvertError` status codes win over string matching so HTTP 404, 401,
-/// and 403 are never treated as transient.
-pub(super) fn is_docling_transient(
-    docling_error: Option<&docling_convert::PdfConvertError>,
-    context_error: &anyhow::Error,
-) -> bool {
-    if let Some(error) = docling_error {
-        match docling_error_status_code(error) {
-            Some(404 | 401 | 403) => return false,
-            Some(status) if (500..600).contains(&status) => return true,
-            Some(429) => return true,
-            Some(_) => return false,
-            None => {}
-        }
-    }
-    dependency_is_transient(LibraryDependency::Docling, context_error)
-}
-
-/// Prefer the structured `ApiError::status_code` (including the `From<reqwest>`
-/// path whose `Display` hides the status behind the reqwest message), then
-/// the wrapped `reqwest::Error::status()`, and only then fall back to parsing
-/// the `Display` `HTTP XXX` form for older producers (issue #176).
-pub(super) fn docling_error_status_code(error: &docling_convert::PdfConvertError) -> Option<u16> {
-    match error {
-        docling_convert::PdfConvertError::ApiError {
-            status_code: Some(code),
-            ..
-        } => return Some(*code),
-        docling_convert::PdfConvertError::ApiError {
-            source: Some(source),
-            ..
-        } => {
-            if let Some(status) = source.status() {
-                return Some(status.as_u16());
-            }
-        }
-        _ => {}
-    }
-    let display = error.to_string();
-    let (_, value) = display.split_once("HTTP ")?;
-    let digits: String = value
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .take(3)
-        .collect();
-    (digits.len() == 3).then(|| digits.parse().ok()).flatten()
-}
-
-pub(super) fn is_docling_remote_task_not_found(error: &docling_convert::PdfConvertError) -> bool {
-    docling_error_status_code(error) == Some(404)
-}
-
-/// Test-only free-function wrapper, kept as a separate name so callers in
-/// sibling modules can import it without dragging in the `LibraryService`
-/// lifetime. Mirrors `is_docling_transient`.
-#[cfg(test)]
-pub(crate) fn is_docling_transient_error_for_test(
-    docling_error: Option<&docling_convert::PdfConvertError>,
-    context_error: &anyhow::Error,
-) -> bool {
-    is_docling_transient(docling_error, context_error)
 }

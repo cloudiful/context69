@@ -197,86 +197,21 @@ pub(super) async fn process_file_stage(
                 set_stage(service, task, item, "translation").await?;
                 return Ok(ProcessResult::Progressed);
             }
-            let submitted = match service
+            // Blocking conversion: `prepare_file_sections_for_task` holds the
+            // Docling permit for the whole conversion and releases it on
+            // return, so the item completes inline and never parks on a
+            // remote poll.
+            let sections = match service
                 .library()
-                .submit_docling_job_for_task(item.id, file_id, item.lease_token, item.task_id)
+                .prepare_file_sections_for_task(file_id, item.lease_token, item.task_id, None)
                 .await
             {
-                Ok(submitted) => submitted,
+                Ok(sections) => sections,
                 Err(error) => return ingest_error_result(service, item, file_id, error).await,
             };
-            set_stage(service, task, item, "docling_poll").await?;
-            Ok(ProcessResult::Waiting {
-                reason: "external_job".to_string(),
-                dependency_key: None,
-                next_attempt_at: submitted.next_poll_at,
-                message: Some(format!(
-                    "docling task {} submitted; awaiting completion",
-                    submitted.remote_task_id
-                )),
-            })
-        }
-        "docling_poll" => {
-            let outcome = match service
-                .library()
-                .poll_docling_job_for_task(item.id, file_id, item.lease_token)
-                .await
-            {
-                Ok(outcome) => outcome,
-                Err(error) => return ingest_error_result(service, item, file_id, error).await,
-            };
-            match outcome {
-                crate::services::library::DoclingPollOutcome::Pending { next_poll_at } => {
-                    Ok(ProcessResult::Waiting {
-                        reason: "external_job".to_string(),
-                        dependency_key: None,
-                        next_attempt_at: next_poll_at,
-                        message: Some("docling conversion in progress".to_string()),
-                    })
-                }
-                crate::services::library::DoclingPollOutcome::Success { sections } => {
-                    save_sections(service, item, sections).await?;
-                    set_stage(service, task, item, "embedding").await?;
-                    Ok(ProcessResult::Progressed)
-                }
-                crate::services::library::DoclingPollOutcome::Failed {
-                    message,
-                    retryable,
-                    dependency_key,
-                } => {
-                    // A transient Docling outage should park the item on the
-                    // dependency gate; a missed deadline or a remote failure
-                    // fails this item and the recovery admin API can resubmit
-                    // a fresh remote task.
-                    let error = UnifiedIngestError {
-                        stage: "docling_poll".to_string(),
-                        dependency_key,
-                        retryable,
-                        message,
-                    };
-                    ingest_error_result(service, item, file_id, error).await
-                }
-                crate::services::library::DoclingPollOutcome::ResubmitRequired { message } => {
-                    // Invalidate the old submission before restarting so the
-                    // next submission cannot reuse its stale remote id.
-                    service
-                        .library()
-                        .store()
-                        .supersede_external_job(
-                            item.id,
-                            crate::services::library::DOCLING_EXTERNAL_JOB_PROVIDER,
-                            &message,
-                        )
-                        .await?;
-                    tracing::info!(
-                        task_id = %item.task_id,
-                        item_id = %item.id,
-                        "restarting docling submission: {message}"
-                    );
-                    set_stage(service, task, item, "docling").await?;
-                    Ok(ProcessResult::Progressed)
-                }
-            }
+            save_sections(service, item, sections).await?;
+            set_stage(service, task, item, "embedding").await?;
+            Ok(ProcessResult::Progressed)
         }
         "embedding" => {
             if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {

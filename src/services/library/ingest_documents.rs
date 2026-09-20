@@ -64,8 +64,16 @@ impl LibraryService {
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let input = InputDocument::new(&file.filename, &file.media_type, bytes);
+        // Whole-document budget: `convert_input_async` submits the remote task
+        // and waits in-process until it reaches a terminal status, bounded by
+        // the crate's `task_timeout` (default 3600s). The synchronous
+        // `convert_input` variant would instead cap the single blocking POST at
+        // the per-request ceiling (~120s), which is why the blocking worker
+        // uses the async submit + in-process wait: still one blocking function
+        // holding the Docling permit for the whole conversion, but with the
+        // full task budget. No remote task id is persisted anywhere.
         let converted = converter
-            .convert_input(input)
+            .convert_input_async(input)
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         sections_from_converted_document(file, converted)
@@ -81,8 +89,11 @@ impl LibraryService {
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         let input = InputDocument::new(&file.filename, &file.media_type, bytes);
+        // Same async submit + in-process wait as `ingest_pdf`, so the DOCX
+        // whole-document budget follows `task_timeout` rather than the
+        // per-request ceiling.
         let converted = converter
-            .convert_input(input)
+            .convert_input_async(input)
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
         sections_from_converted_document(file, converted)
