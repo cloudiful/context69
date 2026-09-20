@@ -114,11 +114,11 @@ describe("ProcessingQueueView", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    // Issue 446 P2: waiting collapses into the Queued display state and the
-    // internal docling stage renders as Converting.
+    // Waiting renders 1:1 (the badge fix removed the queued/waiting collapse);
+    // the internal docling stage still renders as Converting.
     expect(wrapper.text()).toContain("Converting");
     expect(wrapper.text()).toContain("Dependency: Docling");
-    expect(wrapper.text()).toContain("Queued");
+    expect(wrapper.text()).toContain("Waiting");
     wrapper.unmount();
   });
 

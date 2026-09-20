@@ -30,18 +30,15 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-// Issue 446 P2: the queue converges backend task statuses into 5 display
-// states (Thunder-style): queued/waiting collapse into 排队中, cancelled maps
-// to 已暂停, the rest map 1:1. Docling's internal stages (docling/docling_poll)
-// collapse into a single 转格式中 stage. Backend values still drive filters
-// and actions; only the labels converge here.
-type DisplayStatus = "queued" | "running" | "paused" | "succeeded" | "failed";
+// The queue renders the 6 backend task states 1:1 so badges match the
+// status filter vocabulary (waiting renders 等待中, cancelled renders
+// 已取消). Docling's internal stages (docling/docling_poll) still
+// collapse into a single 转格式中 stage.
+type DisplayStatus = "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
 const CONVERTING_STAGES = new Set(["docling", "docling_poll"]);
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
 
 function displayStatus(status: TaskStatus): DisplayStatus {
-  if (status === "waiting") return "queued";
-  if (status === "cancelled") return "paused";
   return status;
 }
 
@@ -102,14 +99,15 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
   if (display === "succeeded") return "success";
   if (display === "failed") return "error";
   if (display === "queued") return "warning";
+  if (display === "waiting") return "warning";
   if (display === "running") return "primary";
   return "neutral";
 }
 
-// One labeled primary action per display state: active (queued/running) pauses,
-// failed retries (the unified entry auto-decides retry vs Docling recovery),
-// paused resumes (rerun), succeeded trashes. The trash icon on failed/paused
-// rows is a secondary history action, not a primary.
+// One labeled primary action per display state: active (queued/running/waiting)
+// cancels, failed retries (the unified entry auto-decides retry vs Docling
+// recovery), cancelled resumes (rerun), succeeded trashes. The trash icon on
+// failed/cancelled rows is a secondary history action, not a primary.
 function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "trash" | null {
   if (ACTIVE_TASK_STATUSES.includes(task.status)) return "cancel";
   if (task.status === "failed") return "retry";
