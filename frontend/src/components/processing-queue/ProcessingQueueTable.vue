@@ -11,16 +11,13 @@ import { libraryDependencyLabel } from "../../utils/library-status";
 const props = defineProps<{
   items: TaskResponse[];
   loading: boolean;
-  isAdmin: boolean;
   trashView: boolean;
   isActing: (task: TaskResponse) => boolean;
   isRecoverableTask: (task: TaskResponse) => boolean;
-  isDoclingRecoveryTask: (task: TaskResponse) => boolean;
 }>();
 
 const emit = defineEmits<{
   recover: [task: TaskResponse];
-  recoverItem: [task: TaskResponse];
   cancel: [task: TaskResponse];
   trash: [task: TaskResponse];
   restore: [task: TaskResponse];
@@ -31,16 +28,10 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 // The queue renders the 6 backend task states 1:1 so badges match the
-// status filter vocabulary (waiting renders 等待中, cancelled renders
-// 已取消). Docling's internal stages (docling/docling_poll) still
-// collapse into a single 转格式中 stage.
-type DisplayStatus = "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
-const CONVERTING_STAGES = new Set(["docling", "docling_poll"]);
+// status filter vocabulary (waiting renders 等待中, cancelled renders 已取消).
+// Stage values collapsed to processing/finalize in issue 529, so the task
+// stage renders 1:1 as well.
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
-
-function displayStatus(status: TaskStatus): DisplayStatus {
-  return status;
-}
 
 const SORTABLE_FIELDS: TaskSortBy[] = ["kind", "group_path", "status", "stage", "updated_at"];
 
@@ -81,12 +72,10 @@ const columns = computed<TableColumn<TaskResponse>[]>(() => [
 ]);
 
 function taskStatusLabel(status: TaskStatus) {
-  const display = displayStatus(status);
-  return t(`processingQueue.statuses.${display}`);
+  return t(`processingQueue.statuses.${status}`);
 }
 function taskKindLabel(kind: TaskResponse["kind"]) { return t(`processingQueue.kinds.${kind}`); }
 function stageLabel(stage: string | null) {
-  if (stage && CONVERTING_STAGES.has(stage)) return t("processingQueue.stages.converting");
   return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage");
 }
 function waitingLabel(reason: string | null, dependency: string | null) {
@@ -95,19 +84,18 @@ function waitingLabel(reason: string | null, dependency: string | null) {
   return dependency ? `${label}: ${libraryDependencyLabel(t, dependency)}` : label;
 }
 function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "neutral" | "primary" {
-  const display = displayStatus(status);
-  if (display === "succeeded") return "success";
-  if (display === "failed") return "error";
-  if (display === "queued") return "warning";
-  if (display === "waiting") return "warning";
-  if (display === "running") return "primary";
+  if (status === "succeeded") return "success";
+  if (status === "failed") return "error";
+  if (status === "queued") return "warning";
+  if (status === "waiting") return "warning";
+  if (status === "running") return "primary";
   return "neutral";
 }
 
 // One labeled primary action per display state: active (queued/running/waiting)
-// cancels, failed retries (the unified entry auto-decides retry vs Docling
-// recovery), cancelled resumes (rerun), succeeded trashes. The trash icon on
-// failed/cancelled rows is a secondary history action, not a primary.
+// cancels, failed retries, cancelled resumes (rerun), succeeded trashes. The
+// trash icon on failed/cancelled rows is a secondary history action, not a
+// primary.
 function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "trash" | null {
   if (ACTIVE_TASK_STATUSES.includes(task.status)) return "cancel";
   if (task.status === "failed") return "retry";
@@ -165,10 +153,8 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
     <template #expanded="{ row }">
       <TaskItemsExpanded
         :task="row.original"
-        :is-admin="props.isAdmin"
         :is-acting="props.isActing(row.original)"
         @retry="emit('recover', $event)"
-        @recover="emit('recoverItem', $event)"
       />
     </template>
   </UTable>

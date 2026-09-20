@@ -2,8 +2,9 @@
 //!
 //! Rerunning a cancelled/failed task must create a brand new task (fresh id,
 //! no idempotency-key binding) that carries every non-succeeded item with its
-//! payload/stage/file_id, so the old idempotency binding can never strand a
-//! resubmitted batch on the original task again.
+//! payload/file_id at the initial `processing` stage, so the old idempotency
+//! binding can never strand a resubmitted batch on the original task again and
+//! no legacy stage value leaks into the fresh task.
 //!
 //! This test runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch
 //! database (migrations are applied automatically). It is skipped otherwise.
@@ -65,7 +66,7 @@ async fn rerun_creates_a_fresh_task_with_only_unfinished_items() {
         .expect("mark first item succeeded");
     sqlx::query(
         "UPDATE context69.task_items SET status = 'failed', attempt_count = 3, \
-         failure_stage = 'storage', error_message = 'boom' WHERE id = $1",
+         failure_stage = 'storage', stage = 'docling', error_message = 'boom' WHERE id = $1",
     )
     .bind(item_ids[1])
     .execute(db.pool())
@@ -106,8 +107,8 @@ async fn rerun_creates_a_fresh_task_with_only_unfinished_items() {
     assert_eq!(payload, json!({"external_id": "b"}));
     assert_eq!(
         stage.as_deref(),
-        Some("storage"),
-        "rerun must preserve the item stage"
+        Some("processing"),
+        "rerun must start the fresh item at the collapsed initial stage, not copy a legacy source stage"
     );
 
     let bound =

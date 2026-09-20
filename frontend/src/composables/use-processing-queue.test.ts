@@ -10,8 +10,6 @@ import { useProcessingQueue } from "./use-processing-queue";
 const listTasks = vi.spyOn(apiClient, "listTasks");
 const retryTask = vi.spyOn(apiClient, "retryTask");
 const rerunTask = vi.spyOn(apiClient, "rerunTask");
-const recoverDoclingTask = vi.spyOn(apiClient, "recoverDoclingTask");
-const queueDoclingRecovery = vi.spyOn(apiClient, "queueDoclingRecovery");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
 const clearTaskHistory = vi.spyOn(apiClient, "clearTaskHistory");
 
@@ -49,19 +47,13 @@ const waitingTask: TaskResponse = {
   ...failedTask,
   task_id: "waiting-task-id",
   status: "waiting",
-  stage: "docling",
+  stage: "processing",
   waiting_reason: "dependency",
   dependency_key: "docling",
   progress: { total: 1, queued: 0, running: 0, waiting: 1, succeeded: 0, failed: 0, cancelled: 0 },
   failure_stage: null,
   error_summary: null,
   finished_at: null,
-};
-
-const waitingDoclingPollTask: TaskResponse = {
-  ...waitingTask,
-  task_id: "waiting-docling-poll-task-id",
-  stage: "docling_poll",
 };
 
 function page(items: TaskResponse[] = [failedTask]) {
@@ -71,21 +63,11 @@ function page(items: TaskResponse[] = [failedTask]) {
   };
 }
 
-const failedDoclingTask: TaskResponse = {
-  ...failedTask,
-  task_id: "failed-docling-task-id",
-  stage: "docling_poll",
-  failure_stage: "docling_poll",
-  error_summary: "Docling submission outcome is uncertain",
-};
-
 describe("useProcessingQueue", () => {
   beforeEach(() => {
     listTasks.mockReset().mockResolvedValue(page() as never);
     retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
     rerunTask.mockReset().mockResolvedValue({ task: { task_id: "new-task-id", item_ids: [] } } as never);
-    recoverDoclingTask.mockReset().mockResolvedValue({ recovered: { task_id: "waiting-docling-poll-task-id" } } as never);
-    queueDoclingRecovery.mockReset().mockResolvedValue({ queued: { task_id: "failed-docling-task-id", item_id: "item-id", stage: "docling", queued_at: "2026-07-20T00:04:00Z", already_queued: false } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
     clearTaskHistory.mockReset().mockResolvedValue({ deleted_count: 3 } as never);
   });
@@ -123,10 +105,10 @@ describe("useProcessingQueue", () => {
     );
 
     state.setStatusFilter("waiting");
-    state.setStageFilter("docling");
+    state.setStageFilter("processing");
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: "waiting", stage: "docling" }),
+      expect.objectContaining({ status: "waiting", stage: "processing" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -141,7 +123,7 @@ describe("useProcessingQueue", () => {
     state.changePage(2);
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ page: 2, status: "waiting", stage: "docling" }),
+      expect.objectContaining({ page: 2, status: "waiting", stage: "processing" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
@@ -242,84 +224,38 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("does not count a waiting Docling poll task as recoverable while the remote job is still active", async () => {
-    listTasks.mockResolvedValueOnce(page([waitingDoclingPollTask]) as never);
+  it("does not count a waiting task as recoverable while its dependency is unavailable", async () => {
+    listTasks.mockResolvedValueOnce(page([waitingTask]) as never);
     const { state, wrapper } = mountState();
     await flushPromises();
 
-    expect(state.isDoclingRecoveryTask(waitingDoclingPollTask)).toBe(false);
-    expect(state.isRecoverableTask(waitingDoclingPollTask)).toBe(false);
+    expect(state.isRecoverableTask(waitingTask)).toBe(false);
     expect(state.recoverableCount.value).toBe(0);
-    expect(state.doclingRecoveryCount.value).toBe(0);
 
-    await state.recoverTask(waitingDoclingPollTask);
+    await state.recoverTask(waitingTask);
 
-    expect(recoverDoclingTask).not.toHaveBeenCalled();
     expect(retryTask).not.toHaveBeenCalled();
     expect(rerunTask).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("uses the admin recovery endpoint for failed Docling tasks", async () => {
-    listTasks
-      .mockResolvedValueOnce(page([failedDoclingTask]) as never)
-      .mockResolvedValueOnce(page([]) as never);
-    const { state, wrapper } = mountState();
-    await flushPromises();
-
-    await state.recoverTask(failedDoclingTask);
-
-    expect(recoverDoclingTask).toHaveBeenCalledWith(
-      "failed-docling-task-id",
-      { reason: "manual recovery from the processing queue" },
-    );
-    expect(queueDoclingRecovery).not.toHaveBeenCalled();
-    expect(retryTask).not.toHaveBeenCalled();
-    wrapper.unmount();
-  });
-
-  it("refreshes and surfaces the quarantine path when immediate recovery hits an uncertain 409", async () => {
+  it("refreshes and reports a failed retry without a task-level recovery endpoint", async () => {
     const { ApiError } = await import("../services/api/api-core");
     listTasks
-      .mockResolvedValueOnce(page([failedDoclingTask]) as never)
+      .mockResolvedValueOnce(page([failedTask]) as never)
       .mockResolvedValueOnce(page([]) as never);
-    recoverDoclingTask.mockRejectedValueOnce(
-      new ApiError("Docling submission outcome is uncertain; quarantine the stale submitting job before recovery", 409),
-    );
+    retryTask.mockRejectedValueOnce(new ApiError("no retryable failed items", 409));
     const { state, wrapper } = mountState();
     await flushPromises();
 
-    await state.recoverTask(failedDoclingTask);
+    await state.recoverTask(failedTask);
 
-    expect(recoverDoclingTask).toHaveBeenCalledTimes(1);
-    expect(listTasks).toHaveBeenCalledTimes(2);
+    expect(retryTask).toHaveBeenCalledTimes(1);
+    expect(listTasks).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
 
-  it("routes item-level Docling recovery through recoverDoclingFromItem even when the task is not task-level docling", async () => {
-    const nonDoclingFailedTask: TaskResponse = {
-      ...failedTask,
-      task_id: "non-docling-task-id",
-      failure_stage: "indexing",
-    };
-    listTasks
-      .mockResolvedValueOnce(page([nonDoclingFailedTask]) as never)
-      .mockResolvedValueOnce(page([]) as never);
-    const { state, wrapper } = mountState();
-    await flushPromises();
-
-    expect(state.isDoclingRecoveryTask(nonDoclingFailedTask)).toBe(false);
-    await state.recoverDoclingFromItem(nonDoclingFailedTask);
-
-    expect(recoverDoclingTask).toHaveBeenCalledWith(
-      "non-docling-task-id",
-      { reason: expect.stringContaining("Docling") },
-    );
-    expect(retryTask).not.toHaveBeenCalled();
-    wrapper.unmount();
-  });
-
-  it("rejects a duplicate item-level Docling recovery while another task-scoped action is in flight", async () => {
+  it("rejects a duplicate task-scoped action while the same task is in flight", async () => {
     let resolveRetry: (() => void) | null = null;
     retryTask.mockReset().mockImplementationOnce(() => new Promise((resolve) => {
       resolveRetry = () => resolve({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
@@ -331,9 +267,8 @@ describe("useProcessingQueue", () => {
     await flushPromises();
 
     const inFlight = state.recoverTask(failedTask);
-    await state.recoverDoclingFromItem(failedTask);
+    await state.recoverTask(failedTask);
 
-    expect(recoverDoclingTask).not.toHaveBeenCalled();
     expect(retryTask).toHaveBeenCalledTimes(1);
 
     resolveRetry!();
@@ -348,22 +283,18 @@ describe("useProcessingQueue", () => {
       status: "succeeded",
       progress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 1, failed: 0, cancelled: 0 },
     };
-    listTasks.mockResolvedValueOnce(page([failedTask, cancelledTask, waitingTask, succeededTask, waitingDoclingPollTask]) as never);
+    listTasks.mockResolvedValueOnce(page([failedTask, cancelledTask, waitingTask, succeededTask]) as never);
     const { state, wrapper } = mountState();
     await flushPromises();
 
     expect(state.isRecoverableTask(failedTask)).toBe(true);
     expect(state.isRecoverableTask(cancelledTask)).toBe(true);
     expect(state.isRecoverableTask(waitingTask)).toBe(false);
-    expect(state.isRecoverableTask(waitingDoclingPollTask)).toBe(false);
     expect(state.isRecoverableTask(succeededTask)).toBe(false);
-    expect(state.isDoclingRecoveryTask(waitingDoclingPollTask)).toBe(false);
-    expect(state.isDoclingRecoveryTask(failedDoclingTask)).toBe(true);
     expect(state.recoverableCount.value).toBe(2);
-    expect(state.doclingRecoveryCount.value).toBe(0);
     expect(state.failedCount.value).toBe(1);
     expect(state.cancelledCount.value).toBe(1);
-    expect(state.activeCount.value).toBe(2);
+    expect(state.activeCount.value).toBe(1);
     wrapper.unmount();
   });
 
@@ -443,51 +374,29 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("excludes waiting Docling polls from bulk recovery while keeping failed Docling tasks recoverable", async () => {
-    listTasks.mockResolvedValueOnce(page([waitingDoclingPollTask, failedDoclingTask]) as never);
-    const { state, wrapper } = mountState();
-
-    await flushPromises();
-
-    expect(state.isRecoverableTask(waitingDoclingPollTask)).toBe(false);
-    expect(state.isRecoverableTask(failedDoclingTask)).toBe(true);
-    expect(state.recoverableCount.value).toBe(1);
-    expect(state.doclingRecoveryCount.value).toBe(1);
-
-    await state.recoverAll();
-
-    expect(queueDoclingRecovery).toHaveBeenCalledTimes(1);
-    expect(queueDoclingRecovery).toHaveBeenCalledWith(
-      "failed-docling-task-id",
-      { reason: "bulk queue-only recovery from the processing queue" },
-    );
-    expect(queueDoclingRecovery).not.toHaveBeenCalledWith(
-      "waiting-docling-poll-task-id",
-      expect.anything(),
-    );
-    expect(recoverDoclingTask).not.toHaveBeenCalled();
-    wrapper.unmount();
-  });
-
-  it("treats an already-queued bulk response as idempotent success", async () => {
-    queueDoclingRecovery.mockResolvedValueOnce({
-      queued: { task_id: "failed-docling-task-id", item_id: "item-id", stage: "docling", queued_at: "2026-07-20T00:04:00Z", already_queued: true },
-    } as never);
+  it("excludes waiting tasks from bulk recovery and reruns only cancelled ones", async () => {
     listTasks
-      .mockResolvedValueOnce(page([failedDoclingTask]) as never)
+      .mockResolvedValueOnce(page([waitingTask, cancelledTask, failedTask]) as never)
       .mockResolvedValueOnce(page([]) as never);
     const { state, wrapper } = mountState();
+
     await flushPromises();
+
+    expect(state.isRecoverableTask(waitingTask)).toBe(false);
+    expect(state.recoverableCount.value).toBe(2);
 
     await state.recoverAll();
 
-    expect(queueDoclingRecovery).toHaveBeenCalledTimes(1);
-    expect(listTasks).toHaveBeenCalledTimes(2);
+    expect(rerunTask).toHaveBeenCalledTimes(1);
+    expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
+    expect(retryTask).toHaveBeenCalledTimes(1);
+    expect(retryTask).toHaveBeenCalledWith("task-id");
+    expect(retryTask).not.toHaveBeenCalledWith("waiting-task-id");
     wrapper.unmount();
   });
 
-  it("does not trigger bulk recovery when only waiting Docling polls are visible", async () => {
-    listTasks.mockResolvedValueOnce(page([waitingDoclingPollTask]) as never);
+  it("does not trigger bulk recovery when only waiting tasks are visible", async () => {
+    listTasks.mockResolvedValueOnce(page([waitingTask]) as never);
     const { state, wrapper } = mountState();
 
     await flushPromises();
@@ -496,8 +405,6 @@ describe("useProcessingQueue", () => {
 
     await state.recoverAll();
 
-    expect(queueDoclingRecovery).not.toHaveBeenCalled();
-    expect(recoverDoclingTask).not.toHaveBeenCalled();
     expect(retryTask).not.toHaveBeenCalled();
     expect(rerunTask).not.toHaveBeenCalled();
     wrapper.unmount();

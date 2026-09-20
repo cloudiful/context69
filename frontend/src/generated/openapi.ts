@@ -52,38 +52,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tasks/{task_id}/recover": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["recover_docling_task"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tasks/{task_id}/recover/queue": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["queue_docling_recovery"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/users": {
         parameters: {
             query?: never;
@@ -1859,21 +1827,6 @@ export interface components {
             group: components["schemas"]["GroupResponse"];
             metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
         };
-        ExternalJobInfo: {
-            /** Format: date-time */
-            deadline_at?: string | null;
-            error_message?: string | null;
-            /** Format: date-time */
-            last_polled_at?: string | null;
-            /** Format: date-time */
-            next_poll_at?: string | null;
-            provider: string;
-            remote_status?: string | null;
-            remote_task_id: string;
-            status: string;
-            /** Format: date-time */
-            submitted_at: string;
-        };
         ExtractionDirective: {
             parameters?: Record<string, never>;
             template_key: string;
@@ -2186,13 +2139,9 @@ export interface components {
             key: string;
         };
         LibraryProcessingQueueHealth: {
-            /** Format: int64 */
-            active_external_jobs: number;
             dependency_counts: components["schemas"]["LibraryProcessingMetric"][];
             /** Format: int64 */
             docling_dependency_waiting_count: number;
-            /** Format: int64 */
-            expired_active_external_jobs: number;
             /** Format: int64 */
             failed_last_hour: number;
             /** Format: double */
@@ -2441,56 +2390,11 @@ export interface components {
             task?: null | components["schemas"]["TaskRef"];
             upload_required: boolean;
         };
-        QueueDoclingRecoveryRequest: {
-            /** @description Free-form human justification recorded in operator logs. */
-            reason: string;
-        };
-        QueueDoclingRecoveryResponse: {
-            queued: components["schemas"]["QueuedDoclingTask"];
-        };
-        QueuedDoclingTask: {
-            /**
-             * @description True when the item was already queued and no state changed: no new
-             *     attempt row and no new remote job were created.
-             */
-            already_queued?: boolean;
-            /** Format: uuid */
-            file_id?: string | null;
-            /** Format: uuid */
-            item_id: string;
-            /** Format: date-time */
-            queued_at: string;
-            /** @description Stage the item was parked on for dispatcher pickup (`docling`). */
-            stage: string;
-            /** Format: uuid */
-            task_id: string;
-        };
         RebuildDocumentExtractionsRequest: {
             template_keys?: string[];
         };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
-        };
-        RecoverDoclingTaskRequest: {
-            /** @description Free-form human justification recorded in the recovery audit. */
-            reason: string;
-        };
-        RecoverDoclingTaskResponse: {
-            recovered: components["schemas"]["RecoveredDoclingTask"];
-        };
-        RecoveredDoclingTask: {
-            /** Format: uuid */
-            file_id?: string | null;
-            /** Format: uuid */
-            item_id: string;
-            new_remote_task_id: string;
-            new_stage: string;
-            old_remote_status?: string | null;
-            old_remote_task_id?: string | null;
-            /** Format: date-time */
-            recovered_at: string;
-            /** Format: uuid */
-            task_id: string;
         };
         RerunTaskResponse: {
             task: components["schemas"]["TaskRef"];
@@ -2857,7 +2761,6 @@ export interface components {
             created_at: string;
             dependency_key?: string | null;
             error_message?: string | null;
-            external_job?: null | components["schemas"]["ExternalJobInfo"];
             failure_stage?: string | null;
             /** Format: uuid */
             file_id?: string | null;
@@ -3375,130 +3278,6 @@ export interface operations {
             };
             /** @description Admin access required */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    recover_docling_task: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecoverDoclingTaskRequest"];
-            };
-        };
-        responses: {
-            /** @description Recovered Docling task with fresh remote job */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecoverDoclingTaskResponse"];
-                };
-            };
-            /** @description Missing or empty reason */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Task not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Task or item is terminal / has an active lease or external job / is not in a Docling stage */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    queue_docling_recovery: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QueueDoclingRecoveryRequest"];
-            };
-        };
-        responses: {
-            /** @description Requeued Docling task for dispatcher pickup without contacting Docling */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QueueDoclingRecoveryResponse"];
-                };
-            };
-            /** @description Missing or empty reason */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Task not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            /** @description Task or item is terminal / has an active lease or external job / carries an uncertain submitting job / is not in a Docling stage */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

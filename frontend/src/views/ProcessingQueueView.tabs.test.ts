@@ -22,7 +22,7 @@ const row: TaskResponse = {
   status: "waiting",
   group_path: "research",
   source_key: null,
-  stage: "docling",
+  stage: "processing",
   waiting_reason: "dependency",
   dependency_key: "docling",
   progress: { total: 1, queued: 0, running: 0, waiting: 1, succeeded: 0, failed: 0, cancelled: 0 },

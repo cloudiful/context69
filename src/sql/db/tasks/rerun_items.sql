@@ -2,7 +2,6 @@ SELECT CASE
            WHEN task.kind = 'translation' THEN item.payload - 'job_ids'
            ELSE item.payload
        END AS payload,
-       item.stage,
        item.file_id,
        item.input_storage_object_id
 FROM context69.task_items item

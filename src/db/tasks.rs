@@ -94,7 +94,6 @@ pub struct ClaimedItem {
 #[derive(Debug, Clone, FromRow)]
 pub struct RerunTaskItem {
     pub payload: Value,
-    pub stage: Option<String>,
     pub file_id: Option<Uuid>,
     pub input_storage_object_id: Option<Uuid>,
 }
@@ -919,7 +918,7 @@ impl Database {
                 new_task_id,
                 ordinal as i32,
                 item.payload,
-                item.stage,
+                INITIAL_ITEM_STAGE,
                 item.file_id,
                 item.input_storage_object_id
             )
