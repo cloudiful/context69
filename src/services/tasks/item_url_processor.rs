@@ -64,9 +64,9 @@ pub(super) async fn process_url(
             }
         } else {
             let request: ImportLibraryFileFromUrlRequest =
-                match serde_json::from_value(item.payload.clone()) {
+                match url_storage_request(&item.payload) {
                     Ok(request) => request,
-                    Err(error) => return Ok(process_error(stage, error.into())),
+                    Err(error) => return Ok(process_error(stage, error)),
                 };
             let artifact = match downloaded_artifact(&item.payload) {
                 Some(artifact) => artifact,
@@ -144,6 +144,14 @@ fn downloaded_artifact(payload: &Value) -> Option<DownloadArtifact> {
     serde_json::from_value(payload.get("download_artifact")?.clone()).ok()
 }
 
+fn url_storage_request(payload: &Value) -> Result<ImportLibraryFileFromUrlRequest> {
+    let mut without_artifact = payload.clone();
+    if let Some(object) = without_artifact.as_object_mut() {
+        object.remove("download_artifact");
+    }
+    serde_json::from_value(without_artifact).map_err(anyhow::Error::from)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -197,5 +205,23 @@ mod tests {
             .is_err(),
             "url payload without options must be rejected"
         );
+    }
+
+    #[test]
+    fn storage_request_strips_persisted_download_artifact() {
+        let request: context69_contracts::ImportLibraryFileFromUrlRequest =
+            super::url_storage_request(&json!({
+                "url": "https://example.com/file.pdf",
+                "options": { "metadata": {}, "source_policy": "retain" },
+                "download_artifact": {
+                    "source_url": "https://example.com/file.pdf",
+                    "filename": "file.pdf",
+                    "media_type": "application/pdf",
+                    "sha256": "a".repeat(64),
+                    "content_base64": "Zm9v"
+                }
+            }))
+            .expect("storage request must parse despite persisted download artifact");
+        assert_eq!(request.url, "https://example.com/file.pdf");
     }
 }
