@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use context69_contracts::{RebuildDocumentTranslationsRequest, TranslationStatus};
 
 use super::TaskService;
-use super::item_processors::{ProcessResult, process_error, set_stage};
+use super::item_processors::{ProcessResult, process_error};
 
 pub(super) async fn process_translation(
     service: &TaskService,
@@ -66,8 +66,7 @@ pub(super) async fn process_translation(
             });
         }
     }
-    set_stage(service, task, item, "finalize").await?;
-    Ok(ProcessResult::Progressed)
+    Ok(ProcessResult::Progressed { next: "finalize" })
 }
 
 #[derive(Debug, serde::Deserialize)]

@@ -89,8 +89,8 @@ sessions:
 - Every replica runs a resident `LISTEN task_events` hub that fans out into a
   process-local `tokio::broadcast` channel (capacity 1024). PostgreSQL
   `NOTIFY` commits on any replica — Rust writers and pure-SQL paths
-  (`cancel`/`trash`/`restore`/`clear`, `maintain_claim_state`,
-  `update_external_job` via `tasks`/`task_items` triggers) — are visible to
+  (`cancel`/`trash`/`restore`/`clear`, `maintain_claim_state` via
+  `tasks`/`task_items` triggers) — are visible to
   every replica. Payload is exactly `task_id`/`item_id`/`status`/`updated_at`.
 - Best-effort semantics: each SSE connection first receives a `snapshot`
   frame (full states at subscribe time), then `update` deltas, then `done`

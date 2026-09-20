@@ -119,7 +119,6 @@ pub struct TaskProcessingHealth {
     pub oldest_queued_at: Option<DateTime<Utc>>,
     pub oldest_waiting_at: Option<DateTime<Utc>>,
     pub recent_failure_count: i64,
-    pub docling_required_count: i64,
     pub docling_dependency_waiting_count: i64,
     pub stale_waiting_count: i64,
     pub status_counts: Value,
@@ -359,7 +358,7 @@ impl Database {
                 task_id,
                 ordinal as i32,
                 payload,
-                initial_stage(kind),
+                INITIAL_ITEM_STAGE,
                 declared_file_id(payload),
                 input_storage_object_ids[*index]
             )
@@ -730,31 +729,6 @@ impl Database {
         Ok(updated)
     }
 
-    pub async fn set_task_item_stage(
-        &self,
-        task_id: Uuid,
-        item_id: Uuid,
-        lease_token: Uuid,
-        stage: &str,
-    ) -> Result<bool> {
-        let updated = sqlx::query_file!(
-            "src/sql/db/tasks/set_stage.sql",
-            item_id,
-            lease_token,
-            stage
-        )
-        .execute(self.pool())
-        .await?
-        .rows_affected()
-            > 0;
-        if updated {
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-                .execute(self.pool())
-                .await?;
-        }
-        Ok(updated)
-    }
-
     pub async fn set_task_item_file(
         &self,
         task_id: Uuid,
@@ -974,14 +948,7 @@ impl Database {
     }
 }
 
-fn initial_stage(kind: &str) -> Option<&'static str> {
-    Some(match kind {
-        "url_batch" => "download",
-        "file_batch" | "text_batch" => "storage",
-        "source_sync" => "sync",
-        "delete_batch" => "delete",
-        "translation" => "translation",
-        "vector_rebuild" => "indexing",
-        _ => "finalize",
-    })
-}
+/// Every item of the collapsed pipeline (issue 529 Task 4) is created in the
+/// single `processing` stage. The worker runs the whole pipeline inside one
+/// claim and never advances the column, so no other value is written.
+const INITIAL_ITEM_STAGE: &str = "processing";

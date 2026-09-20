@@ -15,58 +15,14 @@ pub(super) use super::dependency_storage::bounded_s3_operation;
 use super::{LibraryDependency, LibraryService};
 use crate::library_store::LibraryStore;
 
-const PROBE_LEASE_TTL_SECS: i64 = super::LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS;
-
 impl LibraryService {
+    /// Resolve every dependency gate once at startup (and again when the
+    /// Docling settings change). The collapsed item pipeline no longer probes
+    /// gates per stage: an operation that hits an unavailable dependency fails
+    /// through the library error path, which records the gate failure itself,
+    /// and the item retries on the `backoff`/`dependency` queue reasons.
     pub(crate) async fn initialize_dependency_gates(&self) -> Result<()> {
         self.refresh_dependency_configuration().await
-    }
-
-    pub(crate) async fn dependency_wait_until(
-        &self,
-        dependency_key: &str,
-        lease_token: Uuid,
-    ) -> Result<Option<DateTime<Utc>>> {
-        let canonical = LibraryDependency::canonical_key(dependency_key);
-        if canonical == LibraryDependency::S3.canonical_str() && self.storage.backend() != "s3" {
-            return Ok(None);
-        }
-        if (canonical == LibraryDependency::Embedding.canonical_str()
-            || canonical == LibraryDependency::Qdrant.canonical_str())
-            && self.runtime.is_none()
-        {
-            return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
-        }
-        let gates = self.store.list_dependency_gates().await?;
-        let gate = find_gate_by_canonical(&gates, canonical);
-        let Some(gate) = gate else {
-            return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
-        };
-        if gate.state == "closed" || gate.probe_lease_token == Some(lease_token) {
-            return Ok(None);
-        }
-
-        let now = Utc::now();
-        let probe_due = gate
-            .next_probe_at
-            .map(|next_probe_at| next_probe_at <= now)
-            .unwrap_or(gate.state == "half_open");
-        if probe_due
-            && let Some(transition) = self
-                .store
-                .reserve_dependency_probe(&gate.dependency_key, lease_token, PROBE_LEASE_TTL_SECS)
-                .await?
-        {
-            log_dependency_transition(&transition);
-            return Ok(None);
-        }
-
-        Ok(Some(
-            gate.probe_lease_expires_at
-                .or(gate.next_probe_at)
-                .filter(|value| *value > now)
-                .unwrap_or_else(|| now + chrono::Duration::seconds(30)),
-        ))
     }
 
     pub(crate) async fn refresh_dependency_configuration(&self) -> Result<()> {
@@ -210,13 +166,13 @@ impl LibraryService {
     )> {
         let mut gates = self.store.list_dependency_gates().await?;
         let queue = self.db.task_processing_health().await?;
+        // Readiness is configuration-level: the embedding/vector runtime and
+        // the S3 backend decide which gates must be closed. The queue snapshot
+        // below is reported as-is and no longer influences the verdict.
         let mut required_dependencies = vec![
             LibraryDependency::Embedding.canonical_str(),
             LibraryDependency::Qdrant.canonical_str(),
         ];
-        if queue.docling_required_count > 0 {
-            required_dependencies.push(LibraryDependency::Docling.canonical_str());
-        }
         if self.storage.backend() == "s3" {
             required_dependencies.push(LibraryDependency::S3.canonical_str());
         }
@@ -505,22 +461,6 @@ pub(crate) fn log_dependency_transition(
             "library dependency gate transitioned"
         );
     }
-}
-
-fn find_gate_by_canonical<'a>(
-    gates: &'a [crate::library_store::DependencyGateRecord],
-    canonical: &str,
-) -> Option<&'a crate::library_store::DependencyGateRecord> {
-    // Prefer an exact canonical row; fall back to the legacy alias that
-    // canonicalizes to the same key (e.g. `embedding_vector` -> `embedding`).
-    gates
-        .iter()
-        .find(|gate| gate.dependency_key == canonical)
-        .or_else(|| {
-            gates
-                .iter()
-                .find(|gate| LibraryDependency::canonical_key(&gate.dependency_key) == canonical)
-        })
 }
 
 fn non_negative_count(value: i64) -> Result<u64> {

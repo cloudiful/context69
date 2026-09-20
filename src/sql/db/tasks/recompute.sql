@@ -58,19 +58,15 @@ FROM (
     WHERE task_id = $1
     GROUP BY task_id
 ) counts
+-- The collapsed stage machine runs one item at a time, so the task snapshot
+-- is the first non-terminal item in ordinal order; there is no running/
+-- queued/waiting priority left to rank.
 LEFT JOIN LATERAL (
     SELECT stage, waiting_reason, dependency_key, next_attempt_at
     FROM context69.task_items
     WHERE task_id = counts.task_id
       AND status IN ('queued', 'running', 'waiting')
-    ORDER BY
-        CASE status
-            WHEN 'queued' THEN 0
-            WHEN 'running' THEN 1
-            ELSE 2
-        END,
-        next_attempt_at NULLS FIRST,
-        ordinal
+    ORDER BY ordinal
     LIMIT 1
 ) current_item ON TRUE
 WHERE t.id = counts.task_id

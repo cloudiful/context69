@@ -27,14 +27,10 @@ WITH RECURSIVE inherited_groups AS (
             ELSE item.payload
         END,
         status = 'queued',
-        -- `docling_poll` items must restart at `docling` so the worker
-        -- submits a fresh remote task id; polling the old one forever is
-        -- exactly the failure mode the canary recovered from. Other failed
-        -- stages keep their original stage.
-        stage = CASE
-            WHEN item.stage = 'docling_poll' THEN 'docling'
-            ELSE COALESCE(item.stage, item.failure_stage, 'finalize')
-        END,
+        -- A manual retry restarts the collapsed item at `processing`; the
+        -- worker re-derives its own progress from payload/file state, so no
+        -- stage is resumed and no legacy stage value can survive a retry.
+        stage = 'processing',
         attempt_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,

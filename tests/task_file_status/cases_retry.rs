@@ -81,6 +81,8 @@ async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
     add_group_maintainer(&db, group_id, user_id).await;
     let (task_id, _) =
         create_file_task(&db, user_id, group_id, file_id, "file-status-exhausted").await;
+    // Stage the row with a pre-collapse stage value: the retry must normalize
+    // it back to `processing` instead of resuming it (issue 529 Task 4).
     sqlx::query(
         "UPDATE context69.task_items SET status = 'failed', retryable = FALSE, \
          attempt_count = 5, stage = 'docling_poll', failure_stage = 'attempts', \
@@ -130,8 +132,8 @@ async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
     assert!(retryable, "manual retry must restore retryability");
     assert_eq!(
         stage.as_deref(),
-        Some("docling"),
-        "docling_poll must restart at docling"
+        Some("processing"),
+        "retry must restart the collapsed item at processing, never resume a legacy stage"
     );
     assert_eq!(failure_stage, None, "failure stage must be cleared");
     assert_eq!(error_message, None, "error message must be cleared");

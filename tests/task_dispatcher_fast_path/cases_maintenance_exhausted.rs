@@ -406,8 +406,8 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
         .expect("connect test database");
     let user_id = seed_test_user(&db).await;
 
-    // Ordinary waiting items with a dependency/backoff reason must still be
-    // exhausted at attempt_count >= 5; the docling_poll exemption is narrow.
+    // Every waiting item with a dependency/backoff reason is exhausted at
+    // attempt_count >= 5: the collapsed queue has no stage exemption left.
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {

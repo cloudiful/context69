@@ -1,3 +1,10 @@
+-- Queue snapshot for the processing health endpoint.
+--
+-- Snapshot only (issue 529 Task 4): the collapsed stage machine keeps every
+-- in-flight item at `stage = 'processing'`, so there is no stage-derived
+-- readiness signal left here. Readiness is decided from the configured
+-- dependency gates; this query only reports the queue shape (counts, ages,
+-- waiting reasons, dependencies, recent throughput).
 WITH status_counts AS (
     SELECT item.status AS key, count(*)::BIGINT AS count
     FROM context69.task_items item
@@ -48,10 +55,6 @@ queue_counts AS (
               AND item.updated_at >= now() - interval '1 hour'
         )::BIGINT AS recent_failure_count,
         count(*) FILTER (
-            WHERE item.stage = 'docling'
-              AND item.status IN ('queued', 'running', 'waiting')
-        )::BIGINT AS docling_required_count,
-        count(*) FILTER (
             WHERE item.status = 'waiting'
               AND item.waiting_reason = 'dependency'
               AND item.dependency_key = 'docling'
@@ -69,7 +72,6 @@ SELECT
     queue_counts.oldest_queued_at,
     queue_counts.oldest_waiting_at,
     queue_counts.recent_failure_count AS "recent_failure_count!",
-    queue_counts.docling_required_count AS "docling_required_count!",
     queue_counts.docling_dependency_waiting_count AS "docling_dependency_waiting_count!",
     queue_counts.stale_waiting_count AS "stale_waiting_count!",
     COALESCE(

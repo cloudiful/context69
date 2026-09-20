@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::TaskService;
-use super::item_processors::{ProcessResult, process_item};
+use super::item_processors::{ProcessResult, process_item_blocking};
 
 pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
     let task = service.task(item.task_id).await?;
@@ -30,7 +30,7 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
     };
     let kind = parse_kind(&item.kind)?;
     let item_heartbeat = spawn_item_heartbeat(service.clone(), item.id, item.lease_token);
-    let result = process_item(service, kind, group.as_ref(), &task, &item).await;
+    let result = process_item_blocking(service, kind, group.as_ref(), &task, &item).await;
     item_heartbeat.abort();
 
     match result {
@@ -81,7 +81,10 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
                 }
             }
         }
-        Ok(ProcessResult::Progressed) => {
+        // Defensive only: the blocking driver consumes every stage advance
+        // inside one claim, so an escaped `Progressed` means the item still has
+        // work and is requeued (the stage itself is never persisted).
+        Ok(ProcessResult::Progressed { .. }) => {
             if !service
                 .db()
                 .progress_task_item(item.task_id, item.id, item.lease_token, item.attempt_id)

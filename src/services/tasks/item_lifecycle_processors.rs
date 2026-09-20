@@ -7,14 +7,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::TaskService;
-use super::item_processors::{
-    ProcessResult, dependency_wait, process_error, process_source_sync_error, set_stage,
-};
+use super::item_processors::{ProcessResult, process_error, process_source_sync_error};
 
 pub(super) async fn process_delete(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
-    task: &crate::db::StoredTask,
     item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
@@ -29,9 +26,6 @@ pub(super) async fn process_delete(
             stage,
             DomainError::invalid_argument(format!("unsupported delete task stage {stage}")).into(),
         ));
-    }
-    if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
-        return Ok(waiting);
     }
     let result = if let Some(folder_id) = item
         .payload
@@ -67,17 +61,14 @@ pub(super) async fn process_delete(
             .map(|_| Some(format!("{}:{}", key.source_key, key.external_id)))
     };
     match result {
-        Ok(_resource_id) => {
-            set_stage(service, task, item, "finalize").await?;
-            Ok(ProcessResult::Progressed)
-        }
+        Ok(_resource_id) => Ok(ProcessResult::Progressed { next: "finalize" }),
         Err(error)
             if error.to_string().contains("unknown file")
                 || error.to_string().contains("unknown folder")
                 || error.to_string().contains("document not found") =>
         {
-            set_stage(service, task, item, "finalize").await?;
-            Ok(ProcessResult::Progressed)
+            // The resource is already gone: the delete is satisfied.
+            Ok(ProcessResult::Progressed { next: "finalize" })
         }
         Err(error) => Ok(process_error(stage, error)),
     }
@@ -98,15 +89,6 @@ pub(super) async fn process_sync(
             stage,
             DomainError::invalid_argument(format!("unsupported sync task stage {stage}")).into(),
         ));
-    }
-    if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
-        return Ok(waiting);
-    }
-    if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
-        return Ok(waiting);
-    }
-    if let Some(waiting) = dependency_wait(service, "qdrant", item.lease_token).await? {
-        return Ok(waiting);
     }
     let resource_id = if let Some(folder_id) = item
         .payload
@@ -152,14 +134,12 @@ pub(super) async fn process_sync(
     if let Err(error) = resource_id {
         return Ok(process_source_sync_error(item, error));
     }
-    set_stage(service, task, item, "finalize").await?;
-    Ok(ProcessResult::Progressed)
+    Ok(ProcessResult::Progressed { next: "finalize" })
 }
 
 pub(super) async fn process_vector_rebuild(
     service: &TaskService,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     if stage == "finalize" {
@@ -172,28 +152,22 @@ pub(super) async fn process_vector_rebuild(
                 .into(),
         ));
     }
-    if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
-        return Ok(waiting);
-    }
-    if let Some(waiting) = dependency_wait(service, "qdrant", item.lease_token).await? {
-        return Ok(waiting);
-    }
     let status = service.sync().vector_index_rebuild_status().await;
+    // A rebuild already in flight elsewhere is a shared-resource wait, not a
+    // failure: park on the `dependency` queue reason (the `external_job`
+    // reason was removed with the Docling async chain in issue 529 Task 2).
     if status.state == VectorIndexRebuildState::Running {
         return Ok(ProcessResult::Waiting {
-            reason: "external_job".to_string(),
+            reason: "dependency".to_string(),
             dependency_key: Some("qdrant".to_string()),
             next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
             message: Some("another vector index rebuild is still running".to_string()),
         });
     }
     match service.sync().run_vector_index_rebuild().await {
-        Ok(_) => {
-            set_stage(service, task, item, "finalize").await?;
-            Ok(ProcessResult::Progressed)
-        }
+        Ok(_) => Ok(ProcessResult::Progressed { next: "finalize" }),
         Err(error) if error.to_string().contains("already running") => Ok(ProcessResult::Waiting {
-            reason: "external_job".to_string(),
+            reason: "dependency".to_string(),
             dependency_key: Some("qdrant".to_string()),
             next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
             message: Some("another vector index rebuild is still running".to_string()),
