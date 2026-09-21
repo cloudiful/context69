@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT CASE\n           WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n           ELSE item.payload\n       END AS payload,\n       item.file_id,\n       item.input_storage_object_id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.task_id = $1\n  AND item.status <> 'succeeded'\n  -- Skip files that already have a live item in a newer task so a rerun can\n  -- never create the second active processing task for one file.\n  AND (\n      item.file_id IS NULL\n      OR NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items active\n          WHERE active.file_id = item.file_id\n            AND active.id <> item.id\n            AND active.status IN ('queued', 'running', 'waiting')\n      )\n  )\nORDER BY item.ordinal\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "payload",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "input_storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "input_storage_object_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "8b055574a3161bc2b72d90391c425d2484995599fef8e6749785595b5b489342"
+}

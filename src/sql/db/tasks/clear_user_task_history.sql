@@ -5,8 +5,8 @@
 --   trash: current user, trashed, terminal only (succeeded/failed/cancelled).
 --
 -- Active tasks, other users' rows, and non-matching views delete nothing.
--- Only context69.tasks rows are deleted; task_items/task_attempts/
--- task_external_jobs cascade via ON DELETE CASCADE while library files,
+-- Only context69.tasks rows are deleted; task_items/task_attempts cascade
+-- via ON DELETE CASCADE while library files,
 -- documents, vectors, and S3 objects are owned elsewhere and untouched.
 DELETE FROM context69.tasks
 WHERE user_id = $1

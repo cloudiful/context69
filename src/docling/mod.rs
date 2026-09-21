@@ -18,11 +18,11 @@ pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
 pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 3600;
-/// Persistent remote admission ceiling for Docling (issue #118, default
-/// raised to 2 by issue #209).
+/// Persistent remote admission ceiling for Docling (issue #118, lowered to a
+/// single slot by issue #529).
 ///
 /// Mirrors `context69_contracts::settings::DOCLING_MAX_INFLIGHT_*`: the
-/// default of 2 matches the two local scheduler workers, adjustable within
+/// default of 1 matches the single blocking task worker, adjustable within
 /// 1..=32.
 pub const DEFAULT_DOCLING_MAX_INFLIGHT: usize =
     context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT;
@@ -89,10 +89,16 @@ pub struct DoclingConfig {
 pub fn build_runtime_config(config: &DoclingConfig) -> Result<DoclingRuntimeConfig> {
     let docling_base_url = api_base_url(&config.connection.base_url);
     let mut runtime = DoclingRuntimeConfig::without_vlm(docling_base_url);
-    // The HTTP request timeout must be a short per-call ceiling so a slow
-    // Docling submit or poll cannot pin a worker slot for the whole task
-    // budget. The whole-document deadline is still enforced by the persisted
-    // `deadline_at` next to the external job.
+    // `request_timeout` is the crate's transport-level per-HTTP-request
+    // ceiling (it becomes the reqwest client timeout): the async submit POST
+    // and every long-poll are short requests, so the configured connection
+    // timeout is clamped to `DEFAULT_DOCLING_TIMEOUT_SECS` (120s) to bound a
+    // single stalled request. The whole-document budget is `task_timeout`
+    // below: the conversion runs through the crate's async submit plus an
+    // in-process `wait_for_result` loop (see `ingest_pdf`/`ingest_docx`),
+    // which is additionally wrapped by `convert_unified_docling`'s
+    // `timeout(task_timeout)`. A conversion may therefore legitimately run
+    // far longer than one request.
     runtime.request_timeout = Some(
         config
             .connection
@@ -237,8 +243,8 @@ mod tests {
         assert_eq!(
             runtime.request_timeout,
             Some(Duration::from_secs(120)),
-            "per-request HTTP timeout stays short so a slow Docling call \
-             cannot pin a worker slot for the whole task deadline",
+            "request_timeout bounds one HTTP request (async submit or long-poll), \
+             never the whole conversion",
         );
         assert_eq!(
             runtime.task_timeout,
@@ -248,6 +254,29 @@ mod tests {
         assert_ne!(
             runtime.request_timeout, runtime.task_timeout,
             "request_timeout and task_timeout must be independent budgets"
+        );
+    }
+
+    /// Issue #529 Task 2 P1 regression: the blocking worker must not shrink the
+    /// whole-document budget to the per-request ceiling. Raising
+    /// `connection.timeout` keeps the request ceiling clamped (a stalled poll
+    /// still fails fast), while `task_timeout` passes through unclamped so a
+    /// long conversion keeps the full baseline budget.
+    #[test]
+    fn runtime_config_never_clamps_the_whole_document_budget_to_the_request_ceiling() {
+        let mut config = sample_config();
+        config.connection.timeout = Duration::from_secs(600);
+
+        let runtime = build_runtime_config(&config).expect("runtime");
+        assert_eq!(
+            runtime.request_timeout,
+            Some(Duration::from_secs(120)),
+            "the per-request ceiling stays clamped to DEFAULT_DOCLING_TIMEOUT_SECS",
+        );
+        assert_eq!(
+            runtime.task_timeout,
+            Some(Duration::from_secs(3600)),
+            "the whole-document budget must keep following connection.task_timeout",
         );
     }
 

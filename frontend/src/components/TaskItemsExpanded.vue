@@ -8,13 +8,11 @@ import { summarizeApiError, type ApiErrorSummary } from "../composables/use-erro
 
 const props = defineProps<{
   task: TaskResponse;
-  isAdmin: boolean;
   isActing: boolean;
 }>();
 
 const emit = defineEmits<{
   retry: [task: TaskResponse];
-  recover: [task: TaskResponse];
 }>();
 
 const { t } = useI18n();
@@ -123,7 +121,6 @@ onMounted(() => {
 });
 
 function stageLabel(stage: string | null): string {
-  if (stage === "docling" || stage === "docling_poll") return t("processingQueue.stages.converting");
   return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage");
 }
 
@@ -133,64 +130,6 @@ function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" |
   if (status === "waiting") return "warning";
   if (status === "running") return "primary";
   return "neutral";
-}
-
-type ExternalJob = NonNullable<TaskItemResponse["external_job"]>;
-
-function isPlaceholderRemoteId(remoteTaskId: string): boolean {
-  return remoteTaskId.startsWith("submitting-");
-}
-
-function externalJobKind(job: ExternalJob): "uncertain" | "quarantined" | "queued" | "running" | "failed" | "done" | "other" {
-  if (job.status === "submitting") return "uncertain";
-  if (job.status === "orphaned") return "quarantined";
-  if (job.status === "pending") return "queued";
-  if (job.status === "running") return "running";
-  if (job.status === "failed" || job.status === "error") return "failed";
-  if (job.status === "succeeded" || job.status === "success" || job.status === "complete" || job.status === "completed") return "done";
-  return "other";
-}
-
-function externalJobLabel(job: TaskItemResponse["external_job"]): string {
-  if (!job) return "--";
-  const kind = externalJobKind(job);
-  if (kind === "uncertain") return t("processingQueue.remoteStatuses.uncertain");
-  if (kind === "quarantined") return t("processingQueue.remoteStatuses.quarantined");
-  if (kind === "queued") return t("processingQueue.remoteStatuses.doclingQueued");
-  if (kind === "running") return t("processingQueue.remoteStatuses.doclingRunning");
-  if (kind === "failed") return t("processingQueue.remoteStatuses.doclingFailed");
-  if (kind === "done") return t("processingQueue.remoteStatuses.doclingDone");
-  return job.remote_status ?? job.status;
-}
-
-function externalJobSeverity(job: TaskItemResponse["external_job"]): "success" | "error" | "warning" | "neutral" | "primary" {
-  if (!job) return "neutral";
-  const kind = externalJobKind(job);
-  if (kind === "done") return "success";
-  if (kind === "failed") return "error";
-  if (kind === "running") return "primary";
-  if (kind === "uncertain" || kind === "queued") return "warning";
-  return "neutral";
-}
-
-function externalJobTitle(job: TaskItemResponse["external_job"]): string | undefined {
-  if (!job) return undefined;
-  const kind = externalJobKind(job);
-  const parts = [
-    `${job.provider} ${job.remote_task_id}`,
-    `status: ${job.remote_status ?? job.status}`,
-    kind === "uncertain"
-      ? (isPlaceholderRemoteId(job.remote_task_id)
-        ? t("processingQueue.remoteStatuses.uncertainHintPlaceholder")
-        : t("processingQueue.remoteStatuses.uncertainHint"))
-      : null,
-    kind === "quarantined" ? t("processingQueue.remoteStatuses.quarantinedHint") : null,
-    `submitted: ${job.submitted_at}`,
-    job.last_polled_at ? `last polled: ${job.last_polled_at}` : null,
-    job.deadline_at ? `deadline: ${job.deadline_at}` : null,
-    job.error_message ? `error: ${job.error_message}` : null,
-  ];
-  return parts.filter(Boolean).join("\n");
 }
 </script>
 
@@ -246,28 +185,18 @@ function externalJobTitle(job: TaskItemResponse["external_job"]): string | undef
       <div
         v-for="item in items"
         :key="item.item_id"
-        class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
+        class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
       >
         <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
         <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
         <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage ?? null) }}</span>
         <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
-        <UBadge
-          v-if="item.external_job"
-          :label="externalJobLabel(item.external_job)"
-          :color="externalJobSeverity(item.external_job)"
-          variant="subtle"
-          :title="externalJobTitle(item.external_job)"
-        />
-        <span v-else class="text-xs text-muted">--</span>
         <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
         <TaskItemAction
           :item="item"
           :task="props.task"
-          :is-admin="props.isAdmin"
           :is-acting="props.isActing"
           @retry="emit('retry', $event)"
-          @recover="emit('recover', $event)"
         />
       </div>
       <div v-if="hasMore" class="mt-1 flex justify-center">

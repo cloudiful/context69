@@ -22,33 +22,8 @@ SELECT item.id,
        item.retryable,
        item.created_at,
        item.started_at,
-       item.finished_at,
-       job.provider AS external_job_provider,
-       job.remote_task_id AS external_job_remote_task_id,
-       job.status AS external_job_status,
-       job.remote_status AS external_job_remote_status,
-       job.submitted_at AS external_job_submitted_at,
-       job.last_polled_at AS external_job_last_polled_at,
-       job.next_poll_at AS external_job_next_poll_at,
-       job.deadline_at AS external_job_deadline_at,
-       job.error_message AS external_job_error_message
+       item.finished_at
 FROM context69.task_items item
-LEFT JOIN LATERAL (
-     SELECT job.provider,
-            job.remote_task_id,
-            job.status,
-            job.remote_status,
-            job.submitted_at,
-            job.last_polled_at,
-            job.next_poll_at,
-            job.deadline_at,
-            job.error_message
-     FROM context69.task_external_jobs job
-     WHERE job.item_id = item.id
-       AND job.provider = 'docling'
-     ORDER BY job.submitted_at DESC, job.created_at DESC
-     LIMIT 1
-) job ON TRUE
 WHERE item.task_id = $1
   AND ($4::text IS NULL OR item.status = $4::text)
 ORDER BY

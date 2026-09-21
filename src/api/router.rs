@@ -42,8 +42,8 @@ use super::{
     list_tasks, list_translation_providers, login, logout, me, move_group_library_file,
     move_group_library_folder, move_library_file, move_library_folder, openapi_json,
     prepare_group_library_upload, query_group_documents,
-    queue_docling_recovery, rebuild_document_extractions, rebuild_document_translations,
-    recover_docling_task, release_group_library_file_source, require_admin_scope_middleware,
+    rebuild_document_extractions, rebuild_document_translations,
+    release_group_library_file_source, require_admin_scope_middleware,
     require_library_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, rerun_task, reset_admin_user_password, restore_task,
@@ -289,14 +289,6 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
             post(reset_admin_user_password),
         )
         .route("/v1/admin/tasks/cancel-active", post(cancel_active_tasks))
-        .route(
-            "/v1/admin/tasks/{task_id}/recover",
-            post(recover_docling_task),
-        )
-        .route(
-            "/v1/admin/tasks/{task_id}/recover/queue",
-            post(queue_docling_recovery),
-        )
         .route("/v1/admin/extraction/health", get(get_extraction_health))
         .layer(from_fn_with_state(
             api_state,

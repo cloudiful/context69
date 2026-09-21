@@ -9,21 +9,21 @@ use uuid::Uuid;
 use super::TaskService;
 use crate::services::library::UnifiedIngestError;
 
+/// Outcome of one item run under the collapsed stage machine (issue 529
+/// Task 4). `Progressed` never leaves the worker: the blocking driver in
+/// [`process_item_blocking`] consumes it and continues with `next` inside the
+/// same claim, so no stage is persisted and no item is re-claimed between
+/// steps.
 pub(super) enum ProcessResult {
     Succeeded(Option<String>),
-    Progressed,
+    Progressed {
+        next: &'static str,
+    },
     Waiting {
         reason: String,
         dependency_key: Option<String>,
         next_attempt_at: DateTime<Utc>,
         message: Option<String>,
-    },
-    /// Scheduler deferral that releases the just-claimed lease without
-    /// consuming the business attempt (issue #123). Persisted as
-    /// waiting/backoff; only the Docling admission-denied path maps here.
-    Deferred {
-        next_attempt_at: DateTime<Utc>,
-        message: String,
     },
     Failed {
         stage: String,
@@ -32,14 +32,69 @@ pub(super) enum ProcessResult {
     },
 }
 
-pub(super) async fn process_item(
+/// Upper bound for the steps one blocking run may take. Every step either
+/// finishes the item, parks it on a wait/failure, or advances; a pipeline that
+/// keeps advancing is a bug, so the driver fails the item instead of spinning.
+const MAX_ITEM_STAGES: usize = 16;
+
+/// Run one claimed item to completion.
+///
+/// The whole pipeline runs inline: download/storage/docling/embedding/indexing/
+/// translation/extraction exist only as function calls here, never as queue
+/// values. A step that cannot finish parks the item (`Waiting`/`Failed`) and
+/// the next claim restarts from the kind's entry stage, where every step
+/// re-derives its progress from the persisted payload and file state.
+pub(super) async fn process_item_blocking(
     service: &TaskService,
     kind: TaskKind,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
     item: &crate::db::ClaimedItem,
 ) -> Result<ProcessResult> {
-    let stage = item.stage.as_deref().unwrap_or("finalize");
+    let mut stage = resume_stage(kind, item.stage.as_deref());
+    for _ in 0..MAX_ITEM_STAGES {
+        match run_stage(service, kind, group, task, item, stage).await? {
+            ProcessResult::Progressed { next } => stage = next,
+            terminal => return Ok(terminal),
+        }
+    }
+    Ok(ProcessResult::Failed {
+        stage: stage.to_string(),
+        message: format!("item pipeline did not converge within {MAX_ITEM_STAGES} steps"),
+        retryable: false,
+    })
+}
+
+/// Stage a claim starts at. `processing` is the collapsed default written at
+/// creation; a pre-collapse stage value also restarts at the kind's entry
+/// stage because the steps are resumable. `finalize` is the one terminal
+/// marker: the work is already done and only completion bookkeeping is left.
+fn resume_stage(kind: TaskKind, stage: Option<&str>) -> &'static str {
+    match stage {
+        Some("finalize") => "finalize",
+        _ => entry_stage(kind),
+    }
+}
+
+fn entry_stage(kind: TaskKind) -> &'static str {
+    match kind {
+        TaskKind::UrlBatch => "download",
+        TaskKind::TextBatch | TaskKind::FileBatch => "storage",
+        TaskKind::DeleteBatch => "delete",
+        TaskKind::SourceSync => "sync",
+        TaskKind::VectorRebuild => "indexing",
+        TaskKind::Translation => "translation",
+    }
+}
+
+async fn run_stage(
+    service: &TaskService,
+    kind: TaskKind,
+    group: Option<&crate::domain::GroupRecord>,
+    task: &crate::db::StoredTask,
+    item: &crate::db::ClaimedItem,
+    stage: &str,
+) -> Result<ProcessResult> {
     match kind {
         TaskKind::TextBatch => {
             super::item_file_processors::process_text(service, group, task, item, stage).await
@@ -51,15 +106,13 @@ pub(super) async fn process_item(
             super::item_url_processor::process_url(service, group, task, item, stage).await
         }
         TaskKind::DeleteBatch => {
-            super::item_lifecycle_processors::process_delete(service, group, task, item, stage)
-                .await
+            super::item_lifecycle_processors::process_delete(service, group, item, stage).await
         }
         TaskKind::SourceSync => {
             super::item_lifecycle_processors::process_sync(service, group, task, item, stage).await
         }
         TaskKind::VectorRebuild => {
-            super::item_lifecycle_processors::process_vector_rebuild(service, task, item, stage)
-                .await
+            super::item_lifecycle_processors::process_vector_rebuild(service, task, stage).await
         }
         TaskKind::Translation => {
             super::item_translation_processors::process_translation(
@@ -68,45 +121,6 @@ pub(super) async fn process_item(
             .await
         }
     }
-}
-
-pub(super) async fn dependency_wait(
-    service: &TaskService,
-    dependency_key: &str,
-    lease_token: Uuid,
-) -> Result<Option<ProcessResult>> {
-    let Some(next_attempt_at) = service
-        .library()
-        .dependency_wait_until(dependency_key, lease_token)
-        .await?
-    else {
-        return Ok(None);
-    };
-    Ok(Some(ProcessResult::Waiting {
-        reason: "dependency".to_string(),
-        dependency_key: Some(dependency_key.to_string()),
-        next_attempt_at,
-        message: Some(format!("dependency {dependency_key} is unavailable")),
-    }))
-}
-
-pub(super) async fn set_stage(
-    service: &TaskService,
-    task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
-    stage: &str,
-) -> Result<()> {
-    if !service
-        .db()
-        .set_task_item_stage(task.id, item.id, item.lease_token, stage)
-        .await?
-    {
-        return Err(DomainError::conflict(format!(
-            "task item lease was lost while entering stage {stage}"
-        ))
-        .into());
-    }
-    Ok(())
 }
 
 pub(super) async fn set_file(
@@ -175,16 +189,6 @@ pub(super) fn waiting_for_error(
     item: &crate::db::ClaimedItem,
     error: UnifiedIngestError,
 ) -> ProcessResult {
-    // Admission-full never consumed a remote slot or POSTed, so it must not
-    // consume the five-attempt business budget. Route only this narrow
-    // Docling marker to the scheduler-deferral contract; every other
-    // retryable error keeps ordinary backoff exhaustion.
-    if error.is_docling_admission_denied() {
-        return ProcessResult::Deferred {
-            next_attempt_at: admission_deferral_until(),
-            message: error.message,
-        };
-    }
     let attempt = item.attempt_count.clamp(1, 8) as u32;
     let seconds = 5_i64.saturating_mul(1_i64 << (attempt - 1));
     ProcessResult::Waiting {
@@ -225,13 +229,6 @@ pub(super) fn process_source_sync_error(
     process_error("sync", error)
 }
 
-/// Short fairness delay for admission deferral. No Docling HTTP is made on
-/// this path, so it stays short enough to reuse a freed remote slot
-/// promptly without tight-looping the claim path.
-fn admission_deferral_until() -> DateTime<Utc> {
-    Utc::now() + ChronoDuration::seconds(15)
-}
-
 fn is_retryable_error(error: &anyhow::Error) -> bool {
     let message = error.to_string().to_ascii_lowercase();
     !message.contains("invalid")
@@ -240,4 +237,58 @@ fn is_retryable_error(error: &anyhow::Error) -> bool {
         && !message.contains("unsupported")
         && !message.contains("unknown file")
         && !message.contains("not found")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_ITEM_STAGES, entry_stage, resume_stage};
+    use context69_contracts::TaskKind;
+
+    #[test]
+    fn collapsed_pipeline_starts_at_the_kind_entry_stage() {
+        assert_eq!(entry_stage(TaskKind::UrlBatch), "download");
+        assert_eq!(entry_stage(TaskKind::TextBatch), "storage");
+        assert_eq!(entry_stage(TaskKind::FileBatch), "storage");
+        assert_eq!(entry_stage(TaskKind::DeleteBatch), "delete");
+        assert_eq!(entry_stage(TaskKind::SourceSync), "sync");
+        assert_eq!(entry_stage(TaskKind::VectorRebuild), "indexing");
+        assert_eq!(entry_stage(TaskKind::Translation), "translation");
+    }
+
+    #[test]
+    fn processing_and_legacy_stages_restart_but_finalize_is_terminal() {
+        // The collapsed default and every pre-collapse stage value restart from
+        // the entry stage: each step re-derives its progress from payload and
+        // file state, so resuming `indexing` never re-runs the pipeline from a
+        // persisted stage machine.
+        for stage in [Some("processing"), Some("indexing"), None] {
+            assert_eq!(resume_stage(TaskKind::FileBatch, stage), "storage");
+        }
+        assert_eq!(
+            resume_stage(TaskKind::UrlBatch, Some("storage")),
+            "download"
+        );
+        // `finalize` is the terminal marker written by the success path.
+        assert_eq!(
+            resume_stage(TaskKind::FileBatch, Some("finalize")),
+            "finalize"
+        );
+    }
+
+    #[test]
+    fn stage_budget_covers_the_longest_pipeline() {
+        // URL items run the longest pipeline: download, storage, docling,
+        // embedding, indexing, translation, extraction, finalize.
+        let longest_pipeline = [
+            "download",
+            "storage",
+            "docling",
+            "embedding",
+            "indexing",
+            "translation",
+            "extraction",
+            "finalize",
+        ];
+        assert!(MAX_ITEM_STAGES > longest_pipeline.len());
+    }
 }

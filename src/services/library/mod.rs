@@ -45,8 +45,6 @@ pub(crate) use dependency_runtime::{
     log_dependency_transition, report_embedding_vector_processing_error_with_lease,
 };
 mod dependency_storage;
-mod docling_jobs;
-pub(crate) use docling_jobs::{DOCLING_EXTERNAL_JOB_PROVIDER, DoclingPollOutcome};
 mod duplicate_content;
 mod filenames;
 mod files;
@@ -78,6 +76,7 @@ pub(crate) mod object_storage;
 mod remote_download;
 mod remote_proxy;
 mod resources;
+mod s3_gate_cache;
 mod source_cleanup_dispatcher;
 pub use source_cleanup_dispatcher::{SOURCE_CLEANUP_FALLBACK_INTERVAL, SourceCleanupDispatcher};
 mod source_object_cleanup;
@@ -91,6 +90,7 @@ mod storage;
 pub mod task_ingest;
 mod texts;
 mod tree;
+mod ttl_cache;
 mod unified_ingest;
 pub use unified_ingest::UnifiedIngestError;
 mod upload_rollback;
@@ -132,25 +132,12 @@ pub struct LibraryService {
     translation: TranslationService,
     extraction: ExtractionService,
     docling_slots: Arc<Semaphore>,
-    /// Independent in-process bound for Docling poll HTTP requests (issue
-    /// #118 poll-limits). `docling_slots` guards submit POSTs; this guards
-    /// status/result polls so the two control planes do not share a permit.
-    /// Capacity follows the persisted `docling_settings.max_inflight` ceiling
-    /// (issue #209, default 2 to match `scheduler.max_concurrency = 2`).
-    /// Single-process only: cross-process safety comes from the
-    /// DB poll gate (`try_claim_docling_poll` with a dedicated advisory
-    /// lock plus a recent-poll window count).
-    docling_poll_slots: Arc<Semaphore>,
     /// Actual total permits of `docling_slots`. Tracks reality, not desire:
     /// a shrink that races checked-out permits reclaims only idle ones, so
     /// the stored value is the post-resize actual (see
     /// `resize_docling_semaphore`). The next grow then deltas from the real
     /// total instead of over-adding from a failed target.
     docling_capacity: Arc<AtomicUsize>,
-    /// Actual total permits of `docling_poll_slots`, tracked separately
-    /// because each semaphore can have different permits checked out when a
-    /// shrink runs.
-    docling_poll_capacity: Arc<AtomicUsize>,
     /// Serializes capacity resizes so concurrent workers cannot interleave
     /// opposite-direction deltas computed from different base totals.
     docling_resize_lock: Arc<Mutex<()>>,
@@ -437,9 +424,9 @@ impl LibraryService {
             )
             .await?,
         );
-        // Size the in-process Docling semaphores from the persisted ceiling
+        // Size the in-process Docling semaphore from the persisted ceiling
         // (issue #209) so a saved `max_inflight` survives restarts; runtime
-        // updates are picked up by `sync_docling_capacity` on the submit
+        // updates are picked up by `sync_docling_capacity` on the conversion
         // path. Falls back to the contract default when Docling is
         // unconfigured or the row cannot be read yet.
         let docling_limit = docling_max_inflight_or_default(&db).await;
@@ -463,9 +450,7 @@ impl LibraryService {
             translation,
             extraction,
             docling_slots: Arc::new(Semaphore::new(docling_limit)),
-            docling_poll_slots: Arc::new(Semaphore::new(docling_limit)),
             docling_capacity: Arc::new(AtomicUsize::new(docling_limit)),
-            docling_poll_capacity: Arc::new(AtomicUsize::new(docling_limit)),
             docling_resize_lock: Arc::new(Mutex::new(())),
             source_cleanup_dispatcher: None,
         })
@@ -498,23 +483,17 @@ impl LibraryService {
             .map_err(anyhow::Error::from)
     }
 
-    /// Reconcile both in-process Docling semaphores with the persisted
+    /// Reconcile the in-process Docling semaphore with the persisted
     /// `max_inflight` ceiling so a saved setting takes effect without a
     /// process restart (issue #209). Growth adds permits; shrinkage
     /// reclaims idle permits best-effort while checked-out permits keep
-    /// working. The DB admission gates
-    /// (`try_begin_external_job_submission` / `try_claim_docling_poll`,
-    /// which read `docling_settings` on every call) stay authoritative
-    /// across processes; this only keeps the local fast path from
-    /// under-admitting after a raise. Resizes run under
-    /// `docling_resize_lock` and each semaphore's tracked total is the
-    /// post-resize actual, so a shrink that fails to reclaim checked-out
-    /// permits cannot poison the next grow's delta (review note 4908).
+    /// working. Resizes run under `docling_resize_lock` and the tracked
+    /// total is the post-resize actual, so a shrink that fails to reclaim
+    /// checked-out permits cannot poison the next grow's delta (review note
+    /// 4908).
     async fn sync_docling_capacity(&self) {
         let target = docling_max_inflight_or_default(&self.db).await;
-        if self.docling_capacity.load(Ordering::Relaxed) == target
-            && self.docling_poll_capacity.load(Ordering::Relaxed) == target
-        {
+        if self.docling_capacity.load(Ordering::Relaxed) == target {
             return;
         }
         let _guard = self.docling_resize_lock.lock().await;
@@ -524,26 +503,9 @@ impl LibraryService {
             target,
         );
         self.docling_capacity.store(actual, Ordering::Relaxed);
-        let poll_actual = resize_docling_semaphore(
-            &self.docling_poll_slots,
-            self.docling_poll_capacity.load(Ordering::Relaxed),
-            target,
-        );
-        self.docling_poll_capacity
-            .store(poll_actual, Ordering::Relaxed);
     }
 
-    /// Non-blocking acquire for a Docling poll HTTP slot. Returns `None`
-    /// when all in-process poll permits are held so the caller can defer
-    /// without HTTP instead of pinning a worker. Never touches
-    /// `docling_slots`; submit and poll limits stay independent.
-    pub(super) fn try_acquire_docling_poll_permit(&self) -> Option<OwnedSemaphorePermit> {
-        self.docling_poll_slots.clone().try_acquire_owned().ok()
-    }
-
-    /// Borrow the underlying `LibraryStore` so caller modules in the task
-    /// service can run recovery SQL without widening the `LibraryService`
-    /// surface for one-off admin flows.
+    /// Borrow the underlying `LibraryStore`.
     pub(super) fn store(&self) -> &LibraryStore {
         &self.store
     }
@@ -580,7 +542,7 @@ fn library_runtime_unavailable() -> anyhow::Error {
 }
 
 /// Read the persisted Docling remote admission ceiling, falling back to the
-/// contract default (issue #209, default 2) when Docling is unconfigured or
+/// contract default (issue #209) when Docling is unconfigured or
 /// the row cannot be read. Always clamped to the validated 1..=32 range so
 /// a stale row can never size a semaphore to zero.
 async fn docling_max_inflight_or_default(db: &Database) -> usize {
@@ -598,8 +560,7 @@ async fn docling_max_inflight_or_default(db: &Database) -> usize {
 /// `add_permits` is exact. Shrinkage reclaims only idle permits: when every
 /// permit is checked out the semaphore keeps `current` permits and `current`
 /// is returned, so the caller stores reality and the next grow deltas from
-/// the real total instead of over-adding from the failed target. The DB
-/// admission gate keeps remote concurrency correct in the meantime.
+/// the real total instead of over-adding from the failed target.
 fn resize_docling_semaphore(semaphore: &Arc<Semaphore>, current: usize, target: usize) -> usize {
     if target > current {
         semaphore.add_permits(target - current);

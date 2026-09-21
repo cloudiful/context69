@@ -6,58 +6,40 @@ import type { TaskItemResponse, TaskResponse } from "../services/api";
 
 // Per-item action affordance used inside the expanded task-items grid.
 //
-// `retry` emits when the failed item is retryable but not a Docling
-// failure_stage (Qdrant/indexing/embedding/etc.) so the parent routes it
-// through `recoverTask(task)` and the standard task-scoped retry endpoint.
-// `recover` emits only for failed Docling items on admin sessions so the
-// parent can call the admin `recoverDoclingFromItem(task)` helper which
-// still reuses the same `actionTaskIds` guard to prevent duplicate row/cell
-// requests for the same task.
+// A failed retryable item emits `retry`; the parent routes it through
+// `recoverTask(task)` and the task-scoped retry endpoint. Issue 529 removed
+// the Docling recovery path (the async submit/poll chain no longer exists),
+// so retry is the single per-item action.
 const props = defineProps<{
   item: TaskItemResponse;
   task: TaskResponse;
-  isAdmin: boolean;
   isActing: boolean;
 }>();
 
 const emit = defineEmits<{
   retry: [task: TaskResponse];
-  recover: [task: TaskResponse];
 }>();
 
 const { t } = useI18n();
 
-const failureStage = computed(() => props.item.failure_stage ?? null);
-const isFailed = computed(() => props.item.status === "failed");
-const isRetryable = computed(() => props.item.retryable === true && isFailed.value);
-const isDoclingFailure = computed(
-  () => failureStage.value === "docling" || failureStage.value === "docling_poll",
-);
-
-const canRecover = computed(() => props.isAdmin && isRetryable.value && isDoclingFailure.value);
-const canRetry = computed(() => isRetryable.value && !canRecover.value);
-
-const label = computed(() =>
-  canRecover.value ? t("processingQueue.doclingRecovery") : t("processingQueue.retry"),
-);
+const isRetryable = computed(() => props.item.retryable === true && props.item.status === "failed");
 
 function handleClick() {
-  if (canRecover.value) emit("recover", props.task);
-  else if (canRetry.value) emit("retry", props.task);
+  if (isRetryable.value) emit("retry", props.task);
 }
 </script>
 
 <template>
   <UButton
-    v-if="canRecover || canRetry"
+    v-if="isRetryable"
     color="neutral"
     variant="ghost"
     size="sm"
     icon="i-lucide-rotate-ccw"
     :loading="isActing"
     :disabled="isActing"
-    :label="label"
-    :title="label"
+    :label="t('processingQueue.retry')"
+    :title="t('processingQueue.retry')"
     @click="handleClick"
   />
 </template>

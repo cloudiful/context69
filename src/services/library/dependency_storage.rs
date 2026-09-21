@@ -11,6 +11,7 @@ use uuid::Uuid;
 use super::dependency_errors::{
     is_configuration_error, is_s3_attempt_retryable, is_s3_transient_error,
 };
+use super::s3_gate_cache::cached_s3_gate;
 use super::{LibraryDependency, LibraryService};
 
 const S3_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -22,12 +23,8 @@ impl LibraryService {
         if self.storage.backend() != "s3" {
             return Ok(());
         }
-        let gate = self
-            .store
-            .list_dependency_gates()
+        let gate = cached_s3_gate(&self.store)
             .await?
-            .into_iter()
-            .find(|gate| gate.dependency_key == LibraryDependency::S3.as_str())
             .ok_or_else(|| {
                 DomainError::unavailable("s3 dependency unavailable: dependency gate is missing")
             })

@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::TaskService;
-use super::item_processors::{ProcessResult, process_item};
+use super::item_processors::{ProcessResult, process_item_blocking};
 
 pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
     let task = service.task(item.task_id).await?;
@@ -30,7 +30,7 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
     };
     let kind = parse_kind(&item.kind)?;
     let item_heartbeat = spawn_item_heartbeat(service.clone(), item.id, item.lease_token);
-    let result = process_item(service, kind, group.as_ref(), &task, &item).await;
+    let result = process_item_blocking(service, kind, group.as_ref(), &task, &item).await;
     item_heartbeat.abort();
 
     match result {
@@ -81,7 +81,10 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
                 }
             }
         }
-        Ok(ProcessResult::Progressed) => {
+        // Defensive only: the blocking driver consumes every stage advance
+        // inside one claim, so an escaped `Progressed` means the item still has
+        // work and is requeued (the stage itself is never persisted).
+        Ok(ProcessResult::Progressed { .. }) => {
             if !service
                 .db()
                 .progress_task_item(item.task_id, item.id, item.lease_token, item.attempt_id)
@@ -117,33 +120,6 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
                     next_attempt_at,
                     error_message: message.as_deref(),
                 })
-                .await?
-            {
-                return Ok(());
-            }
-        }
-        Ok(ProcessResult::Deferred {
-            next_attempt_at,
-            message,
-        }) => {
-            info!(
-                task_id = %item.task_id,
-                item_id = %item.id,
-                stage = item.stage.as_deref().unwrap_or("unknown"),
-                next_attempt_at = %next_attempt_at,
-                message = %message,
-                "task item admission deferred without consuming attempt"
-            );
-            if !service
-                .db()
-                .release_attempt_wait(
-                    item.task_id,
-                    item.id,
-                    item.lease_token,
-                    item.attempt_id,
-                    next_attempt_at,
-                    Some(&message),
-                )
                 .await?
             {
                 return Ok(());
@@ -258,7 +234,7 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
     Ok(())
 }
 
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 const HEARTBEAT_MAX_CONSECUTIVE_ERRORS: u32 = 3;
 
 /// Aborts the wrapped heartbeat task when dropped so that early `?` returns

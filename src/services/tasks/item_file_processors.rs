@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use super::TaskService;
 use super::item_processors::{
-    ProcessResult, dependency_wait, persisted_section_payload, process_error, save_sections,
-    set_file, set_stage, waiting_for_error,
+    ProcessResult, persisted_section_payload, process_error, save_sections, set_file,
+    waiting_for_error,
 };
 use crate::services::library::{UnifiedIngestError, UploadedLibraryFile};
 
@@ -22,9 +22,6 @@ pub(super) async fn process_text(
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("text tasks require group_id"))?;
     if stage == "storage" {
-        if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
-            return Ok(waiting);
-        }
         let request: UpsertLibraryTextRequest = match serde_json::from_value(item.payload.clone()) {
             Ok(request) => request,
             Err(error) => return Ok(process_error(stage, error.into())),
@@ -53,10 +50,9 @@ pub(super) async fn process_text(
             )
             .into());
         }
-        set_stage(service, task, item, "indexing").await?;
-        return Ok(ProcessResult::Progressed);
+        return Ok(ProcessResult::Progressed { next: "indexing" });
     }
-    process_file_stage(service, group.id, task, item, stage).await
+    process_file_stage(service, group.id, item, stage).await
 }
 
 pub(super) async fn process_file(
@@ -68,9 +64,6 @@ pub(super) async fn process_file(
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("file tasks require group_id"))?;
     if stage == "storage" {
-        if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
-            return Ok(waiting);
-        }
         let file = if let Some(file_id) = item.file_id {
             match service
                 .library()
@@ -130,17 +123,18 @@ pub(super) async fn process_file(
                 .release_task_input_staging(object_id, Some(file.file_id))
                 .await?;
         }
-        if file.ingest_status == LibraryIngestStatus::Succeeded {
-            set_stage(service, task, item, "translation").await?;
+        let next = if file.ingest_status == LibraryIngestStatus::Succeeded {
+            // The file is already ingested (URL task reusing an existing
+            // file, or a resumed item): only translation/extraction are left.
+            "translation"
         } else {
-            let next_stage = service
+            service
                 .library()
-                .file_ingest_stage(&file.filename, &file.media_type)?;
-            set_stage(service, task, item, next_stage).await?;
-        }
-        return Ok(ProcessResult::Progressed);
+                .file_ingest_stage(&file.filename, &file.media_type)?
+        };
+        return Ok(ProcessResult::Progressed { next });
     }
-    process_file_stage(service, group.id, task, item, stage).await
+    process_file_stage(service, group.id, item, stage).await
 }
 
 /// v0.18 stored worker payload: canonical `options` is required. Legacy
@@ -173,7 +167,6 @@ struct StoredFileBatchItem {
 pub(super) async fn process_file_stage(
     service: &TaskService,
     group_id: i64,
-    task: &crate::db::StoredTask,
     item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
@@ -183,105 +176,33 @@ pub(super) async fn process_file_stage(
     match stage {
         "docling" => {
             if persisted_section_payload(&item.payload).is_some() {
-                set_stage(service, task, item, "embedding").await?;
-                return Ok(ProcessResult::Progressed);
-            }
-            if let Some(waiting) = dependency_wait(service, "docling", item.lease_token).await? {
-                return Ok(waiting);
+                return Ok(ProcessResult::Progressed { next: "embedding" });
             }
             let file = service
                 .library()
                 .file_summary_for_task(group_id, file_id)
                 .await?;
             if file.ingest_status == LibraryIngestStatus::Succeeded {
-                set_stage(service, task, item, "translation").await?;
-                return Ok(ProcessResult::Progressed);
+                return Ok(ProcessResult::Progressed {
+                    next: "translation",
+                });
             }
-            let submitted = match service
+            // Blocking conversion: `prepare_file_sections_for_task` holds the
+            // Docling permit for the whole conversion and releases it on
+            // return, so the item completes inline and never parks on a
+            // remote poll.
+            let sections = match service
                 .library()
-                .submit_docling_job_for_task(item.id, file_id, item.lease_token, item.task_id)
+                .prepare_file_sections_for_task(file_id, item.lease_token, item.task_id, None)
                 .await
             {
-                Ok(submitted) => submitted,
+                Ok(sections) => sections,
                 Err(error) => return ingest_error_result(service, item, file_id, error).await,
             };
-            set_stage(service, task, item, "docling_poll").await?;
-            Ok(ProcessResult::Waiting {
-                reason: "external_job".to_string(),
-                dependency_key: None,
-                next_attempt_at: submitted.next_poll_at,
-                message: Some(format!(
-                    "docling task {} submitted; awaiting completion",
-                    submitted.remote_task_id
-                )),
-            })
-        }
-        "docling_poll" => {
-            let outcome = match service
-                .library()
-                .poll_docling_job_for_task(item.id, file_id, item.lease_token)
-                .await
-            {
-                Ok(outcome) => outcome,
-                Err(error) => return ingest_error_result(service, item, file_id, error).await,
-            };
-            match outcome {
-                crate::services::library::DoclingPollOutcome::Pending { next_poll_at } => {
-                    Ok(ProcessResult::Waiting {
-                        reason: "external_job".to_string(),
-                        dependency_key: None,
-                        next_attempt_at: next_poll_at,
-                        message: Some("docling conversion in progress".to_string()),
-                    })
-                }
-                crate::services::library::DoclingPollOutcome::Success { sections } => {
-                    save_sections(service, item, sections).await?;
-                    set_stage(service, task, item, "embedding").await?;
-                    Ok(ProcessResult::Progressed)
-                }
-                crate::services::library::DoclingPollOutcome::Failed {
-                    message,
-                    retryable,
-                    dependency_key,
-                } => {
-                    // A transient Docling outage should park the item on the
-                    // dependency gate; a missed deadline or a remote failure
-                    // fails this item and the recovery admin API can resubmit
-                    // a fresh remote task.
-                    let error = UnifiedIngestError {
-                        stage: "docling_poll".to_string(),
-                        dependency_key,
-                        retryable,
-                        message,
-                    };
-                    ingest_error_result(service, item, file_id, error).await
-                }
-                crate::services::library::DoclingPollOutcome::ResubmitRequired { message } => {
-                    // Invalidate the old submission before restarting so the
-                    // next submission cannot reuse its stale remote id.
-                    service
-                        .library()
-                        .store()
-                        .supersede_external_job(
-                            item.id,
-                            crate::services::library::DOCLING_EXTERNAL_JOB_PROVIDER,
-                            &message,
-                        )
-                        .await?;
-                    tracing::info!(
-                        task_id = %item.task_id,
-                        item_id = %item.id,
-                        "restarting docling submission: {message}"
-                    );
-                    set_stage(service, task, item, "docling").await?;
-                    Ok(ProcessResult::Progressed)
-                }
-            }
+            save_sections(service, item, sections).await?;
+            Ok(ProcessResult::Progressed { next: "embedding" })
         }
         "embedding" => {
-            if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
-                return Ok(waiting);
-            }
             if persisted_section_payload(&item.payload).is_none() {
                 let sections = match service
                     .library()
@@ -293,27 +214,17 @@ pub(super) async fn process_file_stage(
                 };
                 save_sections(service, item, sections).await?;
             }
-            set_stage(service, task, item, "indexing").await?;
-            Ok(ProcessResult::Progressed)
+            Ok(ProcessResult::Progressed { next: "indexing" })
         }
         "indexing" => {
-            // Indexing touches both the embedding provider (batch embed) and
-            // Qdrant (cleanup, upsert). Check both gates independently so a
-            // transient outage in one does not mask the other and so retries
-            // are routed to the correct gate.
-            if let Some(waiting) = dependency_wait(service, "embedding", item.lease_token).await? {
-                return Ok(waiting);
-            }
-            if let Some(waiting) = dependency_wait(service, "qdrant", item.lease_token).await? {
-                return Ok(waiting);
-            }
             let file = service
                 .library()
                 .file_summary_for_task(group_id, file_id)
                 .await?;
             if file.ingest_status == LibraryIngestStatus::Succeeded {
-                set_stage(service, task, item, "translation").await?;
-                return Ok(ProcessResult::Progressed);
+                return Ok(ProcessResult::Progressed {
+                    next: "translation",
+                });
             }
             let sections = match persisted_section_payload(&item.payload) {
                 Some(sections) => sections,
@@ -342,30 +253,21 @@ pub(super) async fn process_file_stage(
             {
                 return ingest_error_result(service, item, file_id, error).await;
             }
-            set_stage(service, task, item, "translation").await?;
-            Ok(ProcessResult::Progressed)
+            Ok(ProcessResult::Progressed {
+                next: "translation",
+            })
         }
         "translation" => {
-            if let Err(error) = service
-                .library()
-                .enqueue_file_translations_for_task(file_id)
-                .await
-            {
+            if let Err(error) = service.library().convert_file_translations(file_id).await {
                 return Ok(process_error(stage, error));
             }
-            set_stage(service, task, item, "extraction").await?;
-            Ok(ProcessResult::Progressed)
+            Ok(ProcessResult::Progressed { next: "extraction" })
         }
         "extraction" => {
-            if let Err(error) = service
-                .library()
-                .enqueue_file_extractions_for_task(file_id)
-                .await
-            {
+            if let Err(error) = service.library().convert_file_extractions(file_id).await {
                 return Ok(process_error(stage, error));
             }
-            set_stage(service, task, item, "finalize").await?;
-            Ok(ProcessResult::Progressed)
+            Ok(ProcessResult::Progressed { next: "finalize" })
         }
         "finalize" => Ok(ProcessResult::Succeeded(Some(file_id.to_string()))),
         other => Ok(process_error(

@@ -1,3 +1,8 @@
+-- Hot-path guard (issue #530 Task 2): the filter predicates below are
+-- intentionally unchanged. This file must stay a single prepared statement, so
+-- `SET LOCAL statement_timeout` / `work_mem` cannot be set here: the trigram
+-- scan over context69.document_chunks stays on the document_chunks GIN path and
+-- the caller bounds the returned rows with `LIMIT $9`.
 WITH query_terms AS (
     SELECT unnest($3::text[]) AS term
 ), metadata_filter_input AS (

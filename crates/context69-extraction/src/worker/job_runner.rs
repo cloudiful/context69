@@ -1,8 +1,8 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
-use context69_contracts_extraction::ExtractionFailureClass;
+use context69_contracts_extraction::{ExtractionFailureClass, ExtractionJobResponse};
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -13,60 +13,42 @@ use crate::{
     providers::{
         ProviderExtractionRequest, classify_error, extract, failure_class_as_str, next_retry_delay,
     },
-    store::{ExtractionAttempt, ExtractionVersionInput, FinishExtractionJob},
+    store::{ExtractionAttempt, ExtractionVersionInput, FinishExtractionJob, codec},
 };
 
-const READINESS_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_ATTEMPTS: i32 = 3;
 
 impl ExtractionService {
-    pub(super) async fn run_pending(&self) -> Result<()> {
+    /// Blocking conversion entry: run the job to completion, waiting out any
+    /// transient-retry delay inline. Fails fast when the embedding/vector
+    /// runtime is unavailable so the caller can retry with backoff instead of
+    /// leaving a queued job with no worker behind it.
+    pub(super) async fn run_job_blocking(
+        &self,
+        group_id: i64,
+        id: Uuid,
+    ) -> Result<ExtractionJobResponse> {
         loop {
-            let guard = match self.worker_lock.try_lock() {
-                Ok(g) => g,
-                Err(_) => return Ok(()),
-            };
-            let ids = self.store.pending_ids().await?;
-            if ids.is_empty() {
-                let next_retry = self.store.next_pending_at().await?;
-                if let Some(next_at) = next_retry {
-                    // Release lock before sleeping so a newly enqueued due job can wake via spawn_worker.
-                    drop(guard);
-                    let now = Utc::now();
-                    let sleep_duration = if next_at > now {
-                        let diff = (next_at - now).to_std().unwrap_or(Duration::from_secs(0));
-                        diff.min(Duration::from_secs(5))
-                    } else {
-                        Duration::from_millis(200)
+            if !self.readiness.is_ready().await.unwrap_or(false) {
+                return Err(anyhow!("extraction runtime is not ready"));
+            }
+            self.run_job(id).await?;
+            let record = self
+                .store
+                .job_in_group(group_id, id)
+                .await?
+                .context("extraction job not found")?;
+            match record.status.as_str() {
+                "queued" => {
+                    let Some(next_attempt_at) = record.next_attempt_at else {
+                        return Err(anyhow!("extraction job {id} did not complete"));
                     };
-                    if sleep_duration > Duration::from_millis(0) {
-                        tokio::time::sleep(sleep_duration).await;
-                    }
-                    continue;
+                    let delay = (next_attempt_at - Utc::now()).to_std().unwrap_or_default();
+                    tokio::time::sleep(delay).await;
                 }
-                return Ok(());
+                "running" => return Err(anyhow!("extraction job {id} did not complete")),
+                _ => return codec::job_response(record),
             }
-            if !self.readiness.is_ready().await? {
-                drop(guard);
-                tokio::time::sleep(READINESS_POLL_INTERVAL).await;
-                continue;
-            }
-            let mut tasks = Vec::with_capacity(ids.len());
-            for id in ids {
-                let service = self.clone();
-                tasks.push(tokio::spawn(async move {
-                    let _permit = service.semaphore.acquire().await?;
-                    service.run_job(id).await
-                }));
-            }
-            // Keep guard held while tasks run to prevent concurrent run_pending loops;
-            // tasks themselves run concurrently but are bounded by the semaphore.
-            for task in tasks {
-                if let Err(error) = task.await? {
-                    warn!(%error, "extraction job failed");
-                }
-            }
-            drop(guard);
         }
     }
 
@@ -324,8 +306,8 @@ impl ExtractionService {
                         next_attempt_at = %next_attempt_at,
                         "extraction transient failure, scheduled retry"
                     );
-                    // No explicit spawn: the run_pending loop sleeps until next_attempt_at (capped)
-                    // and new enqueues wake via spawn_worker with lock handover.
+                    // The blocking caller (`run_job_blocking`) waits out
+                    // `next_attempt_at` and re-runs the same job.
                     Ok(false)
                 } else {
                     self.store

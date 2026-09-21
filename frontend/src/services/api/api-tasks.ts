@@ -2,10 +2,6 @@ import type {
   CancelActiveTasksResponse,
   ClearTaskHistoryRequest,
   ClearTaskHistoryResponse,
-  QueueDoclingRecoveryRequest,
-  QueueDoclingRecoveryResponse,
-  RecoverDoclingTaskRequest,
-  RecoverDoclingTaskResponse,
   RequestOptions,
   RerunTaskResponse,
   TaskItemsResponse,
@@ -129,28 +125,6 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
       return unwrapResponse(openapiClient.POST("/v1/admin/tasks/cancel-active", {
         signal: options?.signal,
       })) as Promise<CancelActiveTasksResponse>;
-    },
-    recoverDoclingTask(
-      taskId: string,
-      payload: RecoverDoclingTaskRequest,
-      options?: RequestOptions,
-    ) {
-      return unwrapResponse(openapiClient.POST("/v1/admin/tasks/{task_id}/recover", {
-        params: { path: { task_id: taskId } },
-        body: payload,
-        signal: options?.signal,
-      })) as Promise<RecoverDoclingTaskResponse>;
-    },
-    queueDoclingRecovery(
-      taskId: string,
-      payload: QueueDoclingRecoveryRequest,
-      options?: RequestOptions,
-    ) {
-      return unwrapResponse(openapiClient.POST("/v1/admin/tasks/{task_id}/recover/queue", {
-        params: { path: { task_id: taskId } },
-        body: payload,
-        signal: options?.signal,
-      })) as Promise<QueueDoclingRecoveryResponse>;
     },
   };
 }

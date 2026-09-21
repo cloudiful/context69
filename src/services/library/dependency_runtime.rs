@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use context69_contracts::{
@@ -12,61 +14,33 @@ pub(super) use super::dependency_errors::{
     dependency_is_transient, is_configuration_error, is_s3_error, redact_dependency_error,
 };
 pub(super) use super::dependency_storage::bounded_s3_operation;
+use super::s3_gate_cache::observe_s3_gate_transition;
+use super::ttl_cache::TtlCache;
 use super::{LibraryDependency, LibraryService};
 use crate::library_store::LibraryStore;
 
-const PROBE_LEASE_TTL_SECS: i64 = super::LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS;
+/// `/healthz` reports the processing snapshot from a whole-queue scan, so
+/// probes inside this short window reuse the cached snapshot instead of
+/// re-reading the queue and the gates every time.
+const PROCESSING_HEALTH_CACHE_TTL: Duration = Duration::from_secs(1);
+
+type ProcessingHealthSnapshot = (
+    bool,
+    Vec<LibraryDependencyGateResponse>,
+    LibraryProcessingQueueHealth,
+);
+
+static PROCESSING_HEALTH_CACHE: TtlCache<ProcessingHealthSnapshot> =
+    TtlCache::new(PROCESSING_HEALTH_CACHE_TTL);
 
 impl LibraryService {
+    /// Resolve every dependency gate once at startup (and again when the
+    /// Docling settings change). The collapsed item pipeline no longer probes
+    /// gates per stage: an operation that hits an unavailable dependency fails
+    /// through the library error path, which records the gate failure itself,
+    /// and the item retries on the `backoff`/`dependency` queue reasons.
     pub(crate) async fn initialize_dependency_gates(&self) -> Result<()> {
         self.refresh_dependency_configuration().await
-    }
-
-    pub(crate) async fn dependency_wait_until(
-        &self,
-        dependency_key: &str,
-        lease_token: Uuid,
-    ) -> Result<Option<DateTime<Utc>>> {
-        let canonical = LibraryDependency::canonical_key(dependency_key);
-        if canonical == LibraryDependency::S3.canonical_str() && self.storage.backend() != "s3" {
-            return Ok(None);
-        }
-        if (canonical == LibraryDependency::Embedding.canonical_str()
-            || canonical == LibraryDependency::Qdrant.canonical_str())
-            && self.runtime.is_none()
-        {
-            return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
-        }
-        let gates = self.store.list_dependency_gates().await?;
-        let gate = find_gate_by_canonical(&gates, canonical);
-        let Some(gate) = gate else {
-            return Ok(Some(Utc::now() + chrono::Duration::seconds(30)));
-        };
-        if gate.state == "closed" || gate.probe_lease_token == Some(lease_token) {
-            return Ok(None);
-        }
-
-        let now = Utc::now();
-        let probe_due = gate
-            .next_probe_at
-            .map(|next_probe_at| next_probe_at <= now)
-            .unwrap_or(gate.state == "half_open");
-        if probe_due
-            && let Some(transition) = self
-                .store
-                .reserve_dependency_probe(&gate.dependency_key, lease_token, PROBE_LEASE_TTL_SECS)
-                .await?
-        {
-            log_dependency_transition(&transition);
-            return Ok(None);
-        }
-
-        Ok(Some(
-            gate.probe_lease_expires_at
-                .or(gate.next_probe_at)
-                .filter(|value| *value > now)
-                .unwrap_or_else(|| now + chrono::Duration::seconds(30)),
-        ))
     }
 
     pub(crate) async fn refresh_dependency_configuration(&self) -> Result<()> {
@@ -197,26 +171,29 @@ impl LibraryService {
             .await?
         {
             log_dependency_transition(&transition);
+            observe_s3_gate_transition(dependency, Some(&transition));
         }
         Ok(())
     }
 
-    pub(crate) async fn processing_health(
-        &self,
-    ) -> Result<(
-        bool,
-        Vec<LibraryDependencyGateResponse>,
-        LibraryProcessingQueueHealth,
-    )> {
+    pub(crate) async fn processing_health(&self) -> Result<ProcessingHealthSnapshot> {
+        PROCESSING_HEALTH_CACHE
+            .get_or_fetch(|| self.load_processing_health())
+            .await
+    }
+
+    /// Run the whole-queue processing scan. Callers reach it through
+    /// [`Self::processing_health`], which serves the short-lived cache.
+    async fn load_processing_health(&self) -> Result<ProcessingHealthSnapshot> {
         let mut gates = self.store.list_dependency_gates().await?;
         let queue = self.db.task_processing_health().await?;
+        // Readiness is configuration-level: the embedding/vector runtime and
+        // the S3 backend decide which gates must be closed. The queue snapshot
+        // below is reported as-is and no longer influences the verdict.
         let mut required_dependencies = vec![
             LibraryDependency::Embedding.canonical_str(),
             LibraryDependency::Qdrant.canonical_str(),
         ];
-        if queue.docling_required_count > 0 {
-            required_dependencies.push(LibraryDependency::Docling.canonical_str());
-        }
         if self.storage.backend() == "s3" {
             required_dependencies.push(LibraryDependency::S3.canonical_str());
         }
@@ -281,7 +258,7 @@ impl LibraryService {
         } else {
             failed_last_hour as f64 * 100.0 / processed_last_hour as f64
         };
-        Ok((
+        let snapshot = (
             ready,
             response,
             LibraryProcessingQueueHealth {
@@ -295,8 +272,6 @@ impl LibraryService {
                     queue.docling_dependency_waiting_count,
                 )?,
                 stale_waiting_count: non_negative_count(queue.stale_waiting_count)?,
-                expired_active_external_jobs: non_negative_count(queue.expired_active_jobs)?,
-                active_external_jobs: non_negative_count(queue.active_jobs)?,
                 status_counts,
                 stage_counts,
                 waiting_reason_counts,
@@ -306,7 +281,8 @@ impl LibraryService {
                 processing_rate_per_minute,
                 failure_rate_percent,
             },
-        ))
+        );
+        Ok(snapshot)
     }
 
     pub(super) async fn note_dependency_failure(
@@ -344,7 +320,10 @@ impl LibraryService {
             return;
         };
         match result {
-            Ok(Some(transition)) => log_dependency_transition(&transition),
+            Ok(Some(transition)) => {
+                log_dependency_transition(&transition);
+                observe_s3_gate_transition(canonical, Some(&transition));
+            }
             Ok(None) => {}
             Err(record_error) => {
                 warn!(
@@ -392,7 +371,10 @@ impl LibraryService {
         let canonical = dependency.canonical();
         let key = canonical.canonical_str();
         match self.store.record_dependency_success(key, lease_token).await {
-            Ok(Some(transition)) => log_dependency_transition(&transition),
+            Ok(Some(transition)) => {
+                log_dependency_transition(&transition);
+                observe_s3_gate_transition(canonical, Some(&transition));
+            }
             Ok(None) => {}
             Err(error) => {
                 warn!(
@@ -442,6 +424,7 @@ pub(crate) async fn report_dependency_processing_error_with_lease(
     };
     if let Some(transition) = result {
         log_dependency_transition(&transition);
+        observe_s3_gate_transition(canonical, Some(&transition));
     }
     // Mirror embedding results to the legacy alias.
     if canonical == LibraryDependency::Embedding {
@@ -509,22 +492,6 @@ pub(crate) fn log_dependency_transition(
     }
 }
 
-fn find_gate_by_canonical<'a>(
-    gates: &'a [crate::library_store::DependencyGateRecord],
-    canonical: &str,
-) -> Option<&'a crate::library_store::DependencyGateRecord> {
-    // Prefer an exact canonical row; fall back to the legacy alias that
-    // canonicalizes to the same key (e.g. `embedding_vector` -> `embedding`).
-    gates
-        .iter()
-        .find(|gate| gate.dependency_key == canonical)
-        .or_else(|| {
-            gates
-                .iter()
-                .find(|gate| LibraryDependency::canonical_key(&gate.dependency_key) == canonical)
-        })
-}
-
 fn non_negative_count(value: i64) -> Result<u64> {
     u64::try_from(value).map_err(|_| anyhow!("negative library processing health count"))
 }
@@ -589,70 +556,4 @@ fn configuration_fingerprint(parts: &[impl AsRef<str>]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
-}
-
-/// Pure, dependency-free classifier that decides whether a Docling poll
-/// error is transient (and therefore should open the dependency gate) or
-/// terminal (and therefore should fail the item). Structured
-/// `PdfConvertError` status codes win over string matching so HTTP 404, 401,
-/// and 403 are never treated as transient.
-pub(super) fn is_docling_transient(
-    docling_error: Option<&docling_convert::PdfConvertError>,
-    context_error: &anyhow::Error,
-) -> bool {
-    if let Some(error) = docling_error {
-        match docling_error_status_code(error) {
-            Some(404 | 401 | 403) => return false,
-            Some(status) if (500..600).contains(&status) => return true,
-            Some(429) => return true,
-            Some(_) => return false,
-            None => {}
-        }
-    }
-    dependency_is_transient(LibraryDependency::Docling, context_error)
-}
-
-/// Prefer the structured `ApiError::status_code` (including the `From<reqwest>`
-/// path whose `Display` hides the status behind the reqwest message), then
-/// the wrapped `reqwest::Error::status()`, and only then fall back to parsing
-/// the `Display` `HTTP XXX` form for older producers (issue #176).
-pub(super) fn docling_error_status_code(error: &docling_convert::PdfConvertError) -> Option<u16> {
-    match error {
-        docling_convert::PdfConvertError::ApiError {
-            status_code: Some(code),
-            ..
-        } => return Some(*code),
-        docling_convert::PdfConvertError::ApiError {
-            source: Some(source),
-            ..
-        } => {
-            if let Some(status) = source.status() {
-                return Some(status.as_u16());
-            }
-        }
-        _ => {}
-    }
-    let display = error.to_string();
-    let (_, value) = display.split_once("HTTP ")?;
-    let digits: String = value
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .take(3)
-        .collect();
-    (digits.len() == 3).then(|| digits.parse().ok()).flatten()
-}
-
-pub(super) fn is_docling_remote_task_not_found(error: &docling_convert::PdfConvertError) -> bool {
-    docling_error_status_code(error) == Some(404)
-}
-
-/// Test-only free-function wrapper, kept as a separate name so callers in
-/// sibling modules can import it without dragging in the `LibraryService`
-/// lifetime. Mirrors `is_docling_transient`.
-#[cfg(test)]
-pub(crate) fn is_docling_transient_error_for_test(
-    docling_error: Option<&docling_convert::PdfConvertError>,
-    context_error: &anyhow::Error,
-) -> bool {
-    is_docling_transient(docling_error, context_error)
 }

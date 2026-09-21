@@ -1,13 +1,10 @@
 use crate::domain_errors::DomainError;
 
 use anyhow::{Context, Result};
-use chrono::{Duration as ChronoDuration, Utc};
 use context69_contracts::{RebuildDocumentTranslationsRequest, TranslationStatus};
-use serde_json::json;
-use uuid::Uuid;
 
 use super::TaskService;
-use super::item_processors::{ProcessResult, process_error, set_stage};
+use super::item_processors::{ProcessResult, process_error};
 
 pub(super) async fn process_translation(
     service: &TaskService,
@@ -33,69 +30,43 @@ pub(super) async fn process_translation(
         Ok(request) => request,
         Err(error) => return Ok(process_error(stage, error.into())),
     };
-    let job_ids = match request.job_ids.clone() {
-        Some(job_ids) => job_ids,
-        None => {
-            let jobs = service
-                .translation()
-                .rebuild_document(
-                    group.id,
-                    request.document_id,
-                    &RebuildDocumentTranslationsRequest {
-                        target_locales: request.target_locales,
-                    },
-                )
-                .await?
-                .jobs;
-            let job_ids = jobs.iter().map(|job| job.job_id).collect::<Vec<_>>();
-            let mut payload = item.payload.clone();
-            payload["job_ids"] = json!(job_ids);
-            if !service
-                .db()
-                .set_task_item_payload(item.id, item.lease_token, &payload)
-                .await?
-            {
-                return Err(DomainError::conflict(
-                    "task item lease was lost while saving translation jobs",
-                )
-                .into());
-            }
-            job_ids
-        }
+    // `rebuild_document` is a blocking conversion: it reuses or inserts the
+    // document's jobs and runs them to completion before returning, so the
+    // terminal status is already known here.
+    let jobs = match service
+        .translation()
+        .rebuild_document(
+            group.id,
+            request.document_id,
+            &RebuildDocumentTranslationsRequest {
+                target_locales: request.target_locales,
+            },
+        )
+        .await
+    {
+        Ok(response) => response.jobs,
+        Err(error) => return Ok(process_error(stage, error)),
     };
-    for job_id in job_ids {
-        let current = service.translation().job(group.id, job_id).await?;
+    for job in jobs {
         if matches!(
-            current.status,
+            job.status,
             TranslationStatus::Failed
                 | TranslationStatus::QuotaExceeded
                 | TranslationStatus::Unavailable
         ) {
             return Ok(ProcessResult::Failed {
                 stage: stage.to_string(),
-                message: current
+                message: job
                     .error_message
                     .unwrap_or_else(|| "translation failed".to_string()),
                 retryable: matches!(
-                    current.status,
+                    job.status,
                     TranslationStatus::Unavailable | TranslationStatus::QuotaExceeded
                 ),
             });
         }
-        if matches!(
-            current.status,
-            TranslationStatus::Queued | TranslationStatus::Running
-        ) {
-            return Ok(ProcessResult::Waiting {
-                reason: "external_job".to_string(),
-                dependency_key: Some("translation".to_string()),
-                next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
-                message: Some("translation job is still running".to_string()),
-            });
-        }
     }
-    set_stage(service, task, item, "finalize").await?;
-    Ok(ProcessResult::Progressed)
+    Ok(ProcessResult::Progressed { next: "finalize" })
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -103,6 +74,4 @@ struct TranslationTaskItem {
     document_id: i64,
     #[serde(default)]
     target_locales: Vec<String>,
-    #[serde(default)]
-    job_ids: Option<Vec<Uuid>>,
 }

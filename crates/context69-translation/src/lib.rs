@@ -151,5 +151,14 @@ pub struct EnqueueTranslation {
 
 #[async_trait]
 pub trait TranslationCoordinator: Send + Sync {
-    async fn enqueue(&self, input: EnqueueTranslation) -> Result<Vec<TranslationJobResponse>>;
+    /// Blocking conversion: reuse or insert the document's translation jobs and
+    /// run them to completion in the caller. There is no background worker and
+    /// no dispatcher re-claim.
+    async fn convert(&self, input: EnqueueTranslation) -> Result<Vec<TranslationJobResponse>>;
+
+    /// Compatibility alias for callers that only submit work; the submission
+    /// now completes inline through [`convert`](Self::convert).
+    async fn enqueue(&self, input: EnqueueTranslation) -> Result<Vec<TranslationJobResponse>> {
+        self.convert(input).await
+    }
 }

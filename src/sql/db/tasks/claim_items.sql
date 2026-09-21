@@ -1,5 +1,16 @@
 -- Fast claim path used by the dispatcher on notification-driven wakes.
 --
+-- One FIFO shape only (issue 529 Task 4): the eligible selection is the
+-- oldest due item (`ORDER BY ti.created_at, ti.id`) with the generic
+-- attempt/lease/due gates and no per-kind exemptions. The stage machine is
+-- collapsed, the worker runs the whole item inline in one claim, and
+-- `task_items.stage` stays at `processing` until the item finishes (a
+-- succeeded item lands on the terminal `finalize` stage), so no stage can be
+-- prioritised, exempted, or guarded any more. The single blocking worker
+-- (scheduler.max_concurrency = 1) also makes the former `file_id`
+-- sibling/ordering guards dead: no second claim can run while one item is in
+-- flight.
+--
 -- This intentionally contains only the eligible selection (with FOR
 -- UPDATE SKIP LOCKED), parent activation for claimed task_ids, item
 -- lease/attempt fields, task_attempts insert, and the returned
@@ -14,28 +25,9 @@
 -- even when no recovery maintenance has run recently. maintain_claim_state
 -- handles the wider expired-attempt set on the recovery tick.
 --
--- Docling polling items (stage = 'docling_poll', waiting_reason = 'external_job')
--- remain claimable when due even at or above the generic five-attempt cap
--- so a live remote conversion can keep polling until its deadline or a
--- terminal/missing-remote resubmit path handles it. The existing
--- next_attempt_at and lease gates still apply and no duplicate submission
--- is permitted; ordinary queued/backoff/dependency items still exhaust at
--- the cap. A due waiting docling_poll external_job item therefore bypasses
--- the generic attempt_count < 5 gate but must still satisfy the due and
--- task-state predicates, and maintenance will not exhaust it either, so a
--- terminal or missing remote job can still be observed and resubmitted
--- through the existing poll code.
---
--- Fairness (issue #118 poll-limits): eligible rows are claimed FIFO by
--- creation time with no systematic poll priority, so due polls and ordinary
--- tasks interleave by age instead of polls monopolizing every batch when
--- `scheduler.max_concurrency` is small. Explicit poll quota lives one layer
--- up: the in-process `docling_poll_slots` semaphore (capacity 1) plus the
--- DB trailing-window reservation (`count_recent_polls.sql` bounded by the
--- persisted `max_inflight`) cap poll HTTPs across processes, and sustained
--- pending polls back off (30s minimum plus bounded age backoff plus stable
--- jitter) so ordinary tasks keep worker slots while due polls stay
--- claimable for deadline/404/terminal resubmit handling.
+-- Waiting tasks are still claimed once their `next_attempt_at` is due: the
+-- task-level wait mirrors the earliest waiting item, so backoff and the
+-- vector-rebuild resource wait both resume through this predicate.
 WITH eligible AS (
     SELECT ti.id, ti.task_id
     FROM context69.task_items ti
@@ -57,38 +49,8 @@ WITH eligible AS (
               ti.status = 'running'
               AND (ti.lease_until IS NULL OR ti.lease_until < now())
           )
-          OR (
-              ti.status = 'waiting'
-              AND ti.stage = 'docling_poll'
-              AND ti.waiting_reason = 'external_job'
-              AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
-          )
       )
-      AND (
-          ti.file_id IS NULL
-          OR NOT EXISTS (
-              SELECT 1
-              FROM context69.task_items sibling
-              WHERE sibling.file_id IS NOT NULL
-                AND sibling.file_id = ti.file_id
-                AND sibling.id <> ti.id
-                AND sibling.status = 'running'
-                AND (sibling.lease_until IS NULL OR sibling.lease_until > now())
-          )
-      )
-      AND (
-          ti.file_id IS NULL
-          OR NOT EXISTS (
-              SELECT 1
-              FROM context69.task_items earlier
-              WHERE earlier.file_id IS NOT NULL
-                AND earlier.file_id = ti.file_id
-                AND earlier.id <> ti.id
-                AND earlier.status IN ('queued', 'waiting', 'running')
-                AND (earlier.created_at, earlier.id) < (ti.created_at, ti.id)
-          )
-      )
-    ORDER BY ti.created_at
+    ORDER BY ti.created_at, ti.id
     LIMIT $1
     FOR UPDATE OF ti SKIP LOCKED
 ), activated AS (

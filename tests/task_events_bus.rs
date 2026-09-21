@@ -1,7 +1,6 @@
 //! Task event bus integration tests (issue 405 Task E1).
 //!
 //! Proves PG NOTIFY is not falsified: triggers on `tasks`/`task_items`
-//! (plus `task_external_jobs` for the `update_external_job` SQL-only path)
 //! fan out through `PgListener -> broadcast` with a 4-field payload, the
 //! heartbeat throttle suppresses storms, and LISTEN recovers after a
 //! terminated backend.
@@ -12,7 +11,6 @@
 //! - restore via `Database::restore_task` (`restore.sql`)
 //! - clear via `Database::clear_user_task_history` (`clear_user_task_history.sql` DELETE)
 //! - `maintain_claim_state` (`maintain_claim_state.sql`)
-//! - `update_external_job` (`update_external_job.sql`, dynamic SQL mirroring the file)
 //!
 //! These tests run only when `CONTEXT69_TEST_DATABASE_URL` points to a
 //! scratch database (migrations applied automatically). Skipped otherwise.
@@ -73,14 +71,6 @@ async fn create_text_task(
 }
 
 async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
-    sqlx::query(
-        "DELETE FROM context69.task_external_jobs WHERE item_id IN \
-         (SELECT id FROM context69.task_items WHERE task_id = $1)",
-    )
-    .bind(task_id)
-    .execute(db.pool())
-    .await
-    .expect("clean up external jobs");
     sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
         .bind(task_id)
         .execute(db.pool())
@@ -592,66 +582,6 @@ async fn maintain_claim_state_path_emits_event() {
 }
 
 #[tokio::test]
-async fn update_external_job_path_emits_event() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping update_external_job event test");
-        return;
-    };
-    let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
-    let user_id = seed_test_user(&db).await;
-    let (task_id, item_ids) = create_text_task(&db, user_id, "bus-extjob-hash", 1).await;
-    let item_id = item_ids[0];
-
-    // Insert a pending external job (mirrors begin_submission history shape).
-    let job_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO context69.task_external_jobs \
-         (id, item_id, provider, remote_task_id, status, submitted_at, next_poll_at, deadline_at, submission_count) \
-         VALUES ($1, $2, 'docling', 'remote-bus-1', 'pending', now(), now(), now() + interval '1 hour', 1)",
-    )
-    .bind(job_id)
-    .bind(item_id)
-    .execute(db.pool())
-    .await
-    .expect("insert external job");
-    let sender = spawn_bus_and_wait(&db).await;
-    let mut receiver = sender.subscribe();
-
-    // Same statement as src/sql/library_store/external_jobs/update_external_job.sql:
-    // UPDATE ... SET status=$2, remote_status=$3, last_polled_at=now(),
-    // next_poll_at=$4, error_message=$5, updated_at=now() WHERE id=$1.
-    let next_poll = chrono::Utc::now() + chrono::Duration::seconds(60);
-    sqlx::query(
-        "UPDATE context69.task_external_jobs SET status = $2, remote_status = $3, \
-         last_polled_at = now(), next_poll_at = $4, error_message = $5, updated_at = now() \
-         WHERE id = $1",
-    )
-    .bind(job_id)
-    .bind("running")
-    .bind(Some("started".to_string()))
-    .bind(next_poll)
-    .bind(Option::<String>::None)
-    .execute(db.pool())
-    .await
-    .expect("update external job");
-
-    let event = wait_for_event_matching(
-        &mut receiver,
-        task_id,
-        |event| event.item_id == Some(item_id) && event.status == "running",
-        Duration::from_secs(10),
-    )
-    .await;
-    assert!(
-        event.is_some(),
-        "update_external_job (pending -> running) must emit for item {item_id}"
-    );
-
-    cleanup_task(&db, task_id, user_id).await;
-}
-
-#[tokio::test]
 async fn listener_recovers_after_backend_terminate() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping reconnect test");
@@ -707,14 +637,6 @@ async fn listener_recovers_after_backend_terminate() {
 
     cleanup_task(&db, first_task, user_id).await;
     // Second task shares the same user; manual cleanup for its rows then the user.
-    sqlx::query(
-        "DELETE FROM context69.task_external_jobs WHERE item_id IN \
-         (SELECT id FROM context69.task_items WHERE task_id = $1)",
-    )
-    .bind(second_task)
-    .execute(db.pool())
-    .await
-    .expect("clean up second jobs");
     sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
         .bind(second_task)
         .execute(db.pool())

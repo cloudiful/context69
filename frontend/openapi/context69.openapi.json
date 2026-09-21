@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.20.4"
+    "version": "0.21.0"
   },
   "paths": {
     "/healthz": {
@@ -73,164 +73,6 @@
           },
           "403": {
             "description": "Admin access required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/admin/tasks/{task_id}/recover": {
-      "post": {
-        "tags": [],
-        "operationId": "recover_docling_task",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecoverDoclingTaskRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Recovered Docling task with fresh remote job",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RecoverDoclingTaskResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing or empty reason",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin access required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Task or item is terminal / has an active lease or external job / is not in a Docling stage",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/admin/tasks/{task_id}/recover/queue": {
-      "post": {
-        "tags": [],
-        "operationId": "queue_docling_recovery",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/QueueDoclingRecoveryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Requeued Docling task for dispatcher pickup without contacting Docling",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/QueueDoclingRecoveryResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing or empty reason",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin access required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Task or item is terminal / has an active lease or external job / carries an uncertain submitting job / is not in a Docling stage",
             "content": {
               "application/json": {
                 "schema": {
@@ -6911,63 +6753,6 @@
           }
         }
       },
-      "ExternalJobInfo": {
-        "type": "object",
-        "required": [
-          "provider",
-          "remote_task_id",
-          "status",
-          "submitted_at"
-        ],
-        "properties": {
-          "deadline_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "error_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "last_polled_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "next_poll_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "remote_status": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "remote_task_id": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "submitted_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
       "ExtractionDirective": {
         "type": "object",
         "required": [
@@ -8102,8 +7887,6 @@
           "recent_failure_count",
           "docling_dependency_waiting_count",
           "stale_waiting_count",
-          "expired_active_external_jobs",
-          "active_external_jobs",
           "status_counts",
           "stage_counts",
           "waiting_reason_counts",
@@ -8114,11 +7897,6 @@
           "failure_rate_percent"
         ],
         "properties": {
-          "active_external_jobs": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
           "dependency_counts": {
             "type": "array",
             "items": {
@@ -8126,11 +7904,6 @@
             }
           },
           "docling_dependency_waiting_count": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "expired_active_external_jobs": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -8934,67 +8707,6 @@
           }
         }
       },
-      "QueueDoclingRecoveryRequest": {
-        "type": "object",
-        "required": [
-          "reason"
-        ],
-        "properties": {
-          "reason": {
-            "type": "string",
-            "description": "Free-form human justification recorded in operator logs."
-          }
-        }
-      },
-      "QueueDoclingRecoveryResponse": {
-        "type": "object",
-        "required": [
-          "queued"
-        ],
-        "properties": {
-          "queued": {
-            "$ref": "#/components/schemas/QueuedDoclingTask"
-          }
-        }
-      },
-      "QueuedDoclingTask": {
-        "type": "object",
-        "required": [
-          "task_id",
-          "item_id",
-          "stage",
-          "queued_at"
-        ],
-        "properties": {
-          "already_queued": {
-            "type": "boolean",
-            "description": "True when the item was already queued and no state changed: no new\nattempt row and no new remote job were created."
-          },
-          "file_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "item_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "queued_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "stage": {
-            "type": "string",
-            "description": "Stage the item was parked on for dispatcher pickup (`docling`)."
-          },
-          "task_id": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
       "RebuildDocumentExtractionsRequest": {
         "type": "object",
         "properties": {
@@ -9014,78 +8726,6 @@
             "items": {
               "type": "string"
             }
-          }
-        }
-      },
-      "RecoverDoclingTaskRequest": {
-        "type": "object",
-        "required": [
-          "reason"
-        ],
-        "properties": {
-          "reason": {
-            "type": "string",
-            "description": "Free-form human justification recorded in the recovery audit."
-          }
-        }
-      },
-      "RecoverDoclingTaskResponse": {
-        "type": "object",
-        "required": [
-          "recovered"
-        ],
-        "properties": {
-          "recovered": {
-            "$ref": "#/components/schemas/RecoveredDoclingTask"
-          }
-        }
-      },
-      "RecoveredDoclingTask": {
-        "type": "object",
-        "required": [
-          "task_id",
-          "item_id",
-          "new_remote_task_id",
-          "new_stage",
-          "recovered_at"
-        ],
-        "properties": {
-          "file_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "item_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "new_remote_task_id": {
-            "type": "string"
-          },
-          "new_stage": {
-            "type": "string"
-          },
-          "old_remote_status": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "old_remote_task_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "recovered_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "task_id": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       },
@@ -10175,16 +9815,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "external_job": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExternalJobInfo"
-              }
             ]
           },
           "failure_stage": {

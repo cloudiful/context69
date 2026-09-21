@@ -31,6 +31,11 @@ use crate::{
     services::library::LibraryService,
 };
 
+/// Documents fetched per page while (re)building a metadata index. The build
+/// walks the group/source documents by `id` cursor so a large library never
+/// materializes every row (and its extracted values) at once.
+const METADATA_INDEX_PAGE_SIZE: i64 = 500;
+
 #[derive(Clone)]
 pub struct DocumentStoreService {
     db: Database,
@@ -424,29 +429,39 @@ impl DocumentStoreService {
     }
 
     async fn build_index(&self, definition: &StoredMetadataIndex) -> Result<()> {
-        let documents = self.db.metadata_documents(definition).await?;
+        let mut cursor = 0_i64;
         let mut processed = 0_i64;
-        let mut metadata_keys = Vec::with_capacity(documents.len());
-        let mut metadata_values = Vec::new();
-        for document in documents {
-            metadata_keys.push((definition.index_id, document.document_id));
-            let values = metadata::extract_values(definition, &document.metadata_json)
-                .with_context(|| {
-                    DomainError::internal(format!(
-                        "document {} metadata field {}",
-                        document.document_id, definition.field_path
-                    ))
-                })?;
-            metadata_values.extend(crate::db::metadata_value_rows(
-                definition.index_id,
-                document.document_id,
-                &values,
-            ));
-            processed += 1;
+        loop {
+            let documents = self
+                .db
+                .metadata_documents_page(definition, cursor, METADATA_INDEX_PAGE_SIZE)
+                .await?;
+            let Some(last) = documents.last() else {
+                break;
+            };
+            cursor = last.document_id;
+            let mut metadata_keys = Vec::with_capacity(documents.len());
+            let mut metadata_values = Vec::new();
+            for document in documents {
+                metadata_keys.push((definition.index_id, document.document_id));
+                let values = metadata::extract_values(definition, &document.metadata_json)
+                    .with_context(|| {
+                        DomainError::internal(format!(
+                            "document {} metadata field {}",
+                            document.document_id, definition.field_path
+                        ))
+                    })?;
+                metadata_values.extend(crate::db::metadata_value_rows(
+                    definition.index_id,
+                    document.document_id,
+                    &values,
+                ));
+                processed += 1;
+            }
+            self.db
+                .replace_metadata_values_bulk(&metadata_keys, &metadata_values)
+                .await?;
         }
-        self.db
-            .replace_metadata_values_bulk(&metadata_keys, &metadata_values)
-            .await?;
         if let Some(index) = &self.index {
             index
                 .ensure_metadata_field_index(&definition.field_path, &definition.data_type)

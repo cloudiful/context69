@@ -6,9 +6,7 @@ use context69_contracts::{ImportLibraryFileFromUrlRequest, LibraryIngestStatus};
 use serde_json::Value;
 
 use super::TaskService;
-use super::item_processors::{
-    ProcessResult, dependency_wait, process_error, save_payload, set_file, set_stage,
-};
+use super::item_processors::{ProcessResult, process_error, save_payload, set_file};
 use crate::services::library::UploadedLibraryFile;
 
 pub(super) async fn process_url(
@@ -21,8 +19,7 @@ pub(super) async fn process_url(
     let group = group.context(DomainError::invalid_argument("URL tasks require group_id"))?;
     if stage == "download" {
         if item.file_id.is_some() || downloaded_artifact(&item.payload).is_some() {
-            set_stage(service, task, item, "storage").await?;
-            return Ok(ProcessResult::Progressed);
+            return Ok(ProcessResult::Progressed { next: "storage" });
         }
         let request: ImportLibraryFileFromUrlRequest =
             match serde_json::from_value(item.payload.clone()) {
@@ -46,13 +43,9 @@ pub(super) async fn process_url(
             "content_base64": STANDARD.encode(downloaded.bytes),
         });
         save_payload(service, item, payload).await?;
-        set_stage(service, task, item, "storage").await?;
-        return Ok(ProcessResult::Progressed);
+        return Ok(ProcessResult::Progressed { next: "storage" });
     }
     if stage == "storage" {
-        if let Some(waiting) = dependency_wait(service, "s3", item.lease_token).await? {
-            return Ok(waiting);
-        }
         let file = if let Some(file_id) = item.file_id {
             match service
                 .library()
@@ -118,17 +111,18 @@ pub(super) async fn process_url(
             save_payload(service, item, payload).await?;
         }
         set_file(service, task, item, file_id).await?;
-        if file.ingest_status == LibraryIngestStatus::Succeeded {
-            set_stage(service, task, item, "translation").await?;
+        let next = if file.ingest_status == LibraryIngestStatus::Succeeded {
+            // A reused, already-ingested file only needs translation and
+            // extraction.
+            "translation"
         } else {
-            let next_stage = service
+            service
                 .library()
-                .file_ingest_stage(&file.filename, &file.media_type)?;
-            set_stage(service, task, item, next_stage).await?;
-        }
-        return Ok(ProcessResult::Progressed);
+                .file_ingest_stage(&file.filename, &file.media_type)?
+        };
+        return Ok(ProcessResult::Progressed { next });
     }
-    super::item_file_processors::process_file_stage(service, group.id, task, item, stage).await
+    super::item_file_processors::process_file_stage(service, group.id, item, stage).await
 }
 
 #[derive(Debug, serde::Deserialize)]

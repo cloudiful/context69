@@ -17,7 +17,7 @@ const runningTask: TaskResponse = {
   status: "running",
   group_path: "research",
   source_key: null,
-  stage: "indexing",
+  stage: "processing",
   waiting_reason: null,
   dependency_key: null,
   progress: { total: 1, queued: 0, running: 1, waiting: 0, succeeded: 0, failed: 0, cancelled: 0 },

@@ -6,7 +6,6 @@ import AppServerList from "../components/AppServerList.vue";
 import ProcessingQueueTable from "../components/processing-queue/ProcessingQueueTable.vue";
 import ProcessingQueueTabs from "../components/processing-queue/ProcessingQueueTabs.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
-import { authSessionState } from "../services/auth/session";
 import type { SortDirection, TaskKind, TaskListView, TaskSortBy, TaskStatus } from "../services/api";
 import { LIBRARY_DEPENDENCY_KEYS } from "../utils/library-status";
 
@@ -14,7 +13,6 @@ type QueueTab = TaskListView;
 
 const { t } = useI18n();
 const queue = proxyRefs(useProcessingQueue({ t }));
-const isAdmin = computed(() => authSessionState.user?.is_admin === true);
 
 // Processing is the live working set (failed tasks stay retryable there);
 // Completed and Trash are mutually exclusive typed views. Each tab passes a
@@ -51,8 +49,8 @@ onBeforeUnmount(stopLive);
 
 const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
 const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
-const stages = ["download", "storage", "docling", "docling_poll", "embedding", "indexing", "translation", "sync", "delete", "finalize"];
-const waitingReasons = ["dependency", "backoff", "external_job"];
+const stages = ["processing", "finalize"];
+const waitingReasons = ["dependency", "backoff"];
 const dependencies = LIBRARY_DEPENDENCY_KEYS;
 
 const statusOptions = computed(() => [
@@ -134,13 +132,10 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
         <ProcessingQueueTable
           :items="queue.items"
           :loading="queue.loading"
-          :is-admin="isAdmin"
           :trash-view="activeTab === 'trash'"
           :is-acting="queue.isActing"
           :is-recoverable-task="queue.isRecoverableTask"
-          :is-docling-recovery-task="queue.isDoclingRecoveryTask"
           @recover="queue.recoverTask"
-          @recover-item="queue.recoverDoclingFromItem"
           @cancel="queue.cancelTask"
           @trash="queue.confirmTrashTask"
           @restore="queue.restoreTask"

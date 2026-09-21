@@ -1,7 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { apiClient, type ClearTaskHistoryView, type SortDirection, type TaskKind, type TaskListView, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
-import { ApiError } from "../services/api/api-core";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
 import { useTaskStream } from "./use-task-stream";
@@ -27,12 +26,6 @@ interface RecoverySummary {
 
 const ACTIVE_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
 const TERMINAL_STATUSES: TaskStatus[] = ["succeeded", "failed", "cancelled"];
-
-function isUncertainSubmissionError(error: unknown): boolean {
-  return error instanceof ApiError
-    && error.status === 409
-    && /uncertain/i.test(error.message);
-}
 
 export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const showErrorToast = useErrorToast();
@@ -184,23 +177,13 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   }
 
-  // Docling polling items wait on an active external job (stage=docling_poll,
-  // waiting_reason=external_job) and are not manual-recovery candidates while
-  // the remote job is still pending/running and its deadline has not elapsed.
-  // Only failed Docling items (failure_stage docling/docling_poll) are
-  // offered as recovery; waiting polls remain pollable through the normal
-  // attempt-count-exempt claim path and must not contribute to the
-  // recoverable count or bulk recovery action. This matches the backend
-  // guard in recover_docling_item.sql which rejects active pending/running
-  // external jobs.
-  const isDoclingRecoveryTask = (task: TaskResponse) =>
-    task.status === "failed"
-    && (task.failure_stage === "docling" || task.failure_stage === "docling_poll");
+  // A failed task is retryable in place; a cancelled task has to be rerun into
+  // a fresh task record because its original idempotency key stays bound. Both
+  // are offered as the single queue-level recovery action.
   const isRecoverableTask = (task: TaskResponse) =>
-    task.status === "failed" || task.status === "cancelled" || isDoclingRecoveryTask(task);
+    task.status === "failed" || task.status === "cancelled";
   const isTerminalTask = (task: TaskResponse) => TERMINAL_STATUSES.includes(task.status);
   const recoverableCount = computed(() => items.value.filter(isRecoverableTask).length);
-  const doclingRecoveryCount = computed(() => items.value.filter(isDoclingRecoveryTask).length);
   const activeCount = computed(() => items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).length);
   const failedCount = computed(() => items.value.filter((task) => task.status === "failed").length);
   const cancelledCount = computed(() => items.value.filter((task) => task.status === "cancelled").length);
@@ -294,18 +277,14 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     return actionTaskIds.value.includes(task.task_id);
   }
 
-  // Single-item immediate recovery. A 409 uncertain rejection refreshes
-  // first: the row must be quarantined, never assumed remotely cancelled.
+  // Single-item immediate recovery. A failed task retries in place; a
+  // cancelled task is rerun into a fresh queued record.
   async function recoverTask(task: TaskResponse) {
     if (!isRecoverableTask(task) || isActing(task)) return;
     actionTaskIds.value = [...actionTaskIds.value, task.task_id];
     try {
       let rerunTaskId: string | null = null;
-      if (isDoclingRecoveryTask(task)) {
-        await apiClient.recoverDoclingTask(task.task_id, {
-          reason: "manual recovery from the processing queue",
-        });
-      } else if (task.status === "cancelled") {
+      if (task.status === "cancelled") {
         const rerun = await apiClient.rerunTask(task.task_id);
         rerunTaskId = rerun.task.task_id;
       } else {
@@ -320,56 +299,16 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       await load();
       toast.add({
         color: "success",
-        title: t(isDoclingRecoveryTask(task)
-          ? "processingQueue.doclingRecoveryAccepted"
-          : task.status === "cancelled"
-            ? "processingQueue.resubmitAccepted"
-            : "processingQueue.retryAccepted"),
+        title: t(task.status === "cancelled"
+          ? "processingQueue.resubmitAccepted"
+          : "processingQueue.retryAccepted"),
         description: rerunTaskId ?? task.task_id,
         duration: 2500,
       });
     } catch (recoverError) {
-      if (isDoclingRecoveryTask(task) && isUncertainSubmissionError(recoverError)) {
-        await load();
-        showErrorToast(recoverError, t("processingQueue.uncertainRecoveryBlocked"));
-      } else {
-        showErrorToast(recoverError, t(isDoclingRecoveryTask(task)
-          ? "processingQueue.doclingRecoveryFailed"
-          : task.status === "cancelled"
-            ? "processingQueue.resubmitFailed"
-            : "processingQueue.retryFailed"));
-      }
-    } finally {
-      actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
-    }
-  }
-
-  // Item-level Docling recovery. The task-level recoverTask refuses tasks
-  // whose own failure_stage is not docling/docling_poll, but a per-item
-  // recovery for an item with a Docling failure_stage should still route
-  // through the admin endpoint. Shares the actionTaskIds guard so row and
-  // cell requests for the same task cannot run concurrently.
-  async function recoverDoclingFromItem(task: TaskResponse) {
-    if (isActing(task)) return;
-    actionTaskIds.value = [...actionTaskIds.value, task.task_id];
-    try {
-      await apiClient.recoverDoclingTask(task.task_id, {
-        reason: "manual Docling recovery from item in the processing queue",
-      });
-      await load();
-      toast.add({
-        color: "success",
-        title: t("processingQueue.doclingRecoveryAccepted"),
-        description: task.task_id,
-        duration: 2500,
-      });
-    } catch (recoverError) {
-      if (isUncertainSubmissionError(recoverError)) {
-        await load();
-        showErrorToast(recoverError, t("processingQueue.uncertainRecoveryBlocked"));
-      } else {
-        showErrorToast(recoverError, t("processingQueue.doclingRecoveryFailed"));
-      }
+      showErrorToast(recoverError, t(task.status === "cancelled"
+        ? "processingQueue.resubmitFailed"
+        : "processingQueue.retryFailed"));
     } finally {
       actionTaskIds.value = actionTaskIds.value.filter((id) => id !== task.task_id);
     }
@@ -458,18 +397,10 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     });
   }
 
-  // Bulk Docling recovery is queue-only: park on `docling` for dispatcher
-  // pickup under max_inflight, no POST or new attempt/job. `already_queued`
-  // stays fulfilled and counts as succeeded. Others keep retry/rerun.
-  // Returns the new task id when a cancelled task was rerun into a fresh
-  // record, null otherwise, so the caller can jump to the new tasks.
+  // Bulk recovery: a failed task is retried in place, a cancelled task is
+  // rerun into a fresh task record. Returns the new task id when a cancelled
+  // task was rerun, null otherwise, so the caller can jump to the new tasks.
   async function submitRecovery(task: TaskResponse): Promise<string | null> {
-    if (isDoclingRecoveryTask(task)) {
-      await apiClient.queueDoclingRecovery(task.task_id, {
-        reason: "bulk queue-only recovery from the processing queue",
-      });
-      return null;
-    }
     if (task.status === "cancelled") {
       const rerun = await apiClient.rerunTask(task.task_id);
       return rerun.task.task_id;
@@ -557,7 +488,6 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
       message: t("processingQueue.recoverAllConfirm", {
         failed: failedCount.value,
         cancelled: cancelledCount.value,
-        docling: doclingRecoveryCount.value,
       }),
       rejectLabel: t("common.cancel"),
       acceptLabel: t("processingQueue.retryAllAction"),
@@ -660,13 +590,11 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     bulkAction,
     clearAction,
     recoverableCount,
-    doclingRecoveryCount,
     failedCount,
     cancelledCount,
     activeCount,
     isRecoverableTask,
     isTerminalTask,
-    isDoclingRecoveryTask,
     load,
     refresh: () => load(),
     liveStreaming: taskStream.streaming,
@@ -686,7 +614,6 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     changeSort,
     clearSort,
     recoverTask,
-    recoverDoclingFromItem,
     cancelTask,
     confirmTrashTask,
     restoreTask,

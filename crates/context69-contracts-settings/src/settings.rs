@@ -337,20 +337,31 @@ pub struct UpdateDoclingConnectionSettings {
     pub max_inflight: usize,
 }
 
-/// Persistent Docling remote admission ceiling (issue #118, default raised
-/// to 2 by issue #209).
+/// Persistent Docling remote admission ceiling (issue #118, lowered to a
+/// single slot by issue #529).
 ///
-/// The default of 2 matches `runtime.scheduler.max_concurrency = 2` so two
-/// local workers no longer contend for a single remote slot and idle while
-/// the admission gate churns. The bound stays intentionally small (1..=32)
-/// to keep remote backpressure effective while still allowing larger hosts
-/// to raise it via settings.
-pub const DOCLING_MAX_INFLIGHT_DEFAULT: usize = 2;
+/// The default of 1 matches the single blocking task worker
+/// (`runtime.scheduler.max_concurrency = 1`): one local worker maps to one
+/// remote slot, so the admission gate no longer churns. The bound stays
+/// intentionally small (1..=32) to keep remote backpressure effective while
+/// still allowing larger hosts to raise it via settings.
+pub const DOCLING_MAX_INFLIGHT_DEFAULT: usize = 1;
 pub const DOCLING_MAX_INFLIGHT_MIN: usize = 1;
 pub const DOCLING_MAX_INFLIGHT_MAX: usize = 32;
 
 fn default_docling_max_inflight() -> usize {
     DOCLING_MAX_INFLIGHT_DEFAULT
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DOCLING_MAX_INFLIGHT_DEFAULT, default_docling_max_inflight};
+
+    #[test]
+    fn docling_max_inflight_defaults_to_single_worker() {
+        assert_eq!(DOCLING_MAX_INFLIGHT_DEFAULT, 1);
+        assert_eq!(default_docling_max_inflight(), 1);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

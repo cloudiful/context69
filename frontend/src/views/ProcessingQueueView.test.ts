@@ -11,7 +11,6 @@ import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const listTasks = vi.spyOn(apiClient, "listTasks");
 const retryTask = vi.spyOn(apiClient, "retryTask");
-const recoverDoclingTask = vi.spyOn(apiClient, "recoverDoclingTask");
 const cancelTask = vi.spyOn(apiClient, "cancelTask");
 const getTaskItems = vi.spyOn(apiClient, "getTaskItems");
 const useOverlay = vi.spyOn(nuxtUiComposables, "useOverlay");
@@ -25,7 +24,7 @@ const row: TaskResponse = {
   status: "waiting",
   group_path: "research",
   source_key: null,
-  stage: "docling",
+  stage: "processing",
   waiting_reason: "dependency",
   dependency_key: "docling",
   progress: { total: 1, queued: 0, running: 0, waiting: 1, succeeded: 0, failed: 0, cancelled: 0 },
@@ -43,7 +42,7 @@ const failedRow: TaskResponse = {
   status: "failed",
   waiting_reason: null,
   dependency_key: null,
-  failure_stage: "indexing",
+  failure_stage: "processing",
   error_summary: "Qdrant unavailable",
   progress: { total: 1, queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 1, cancelled: 0 },
   finished_at: "2026-07-20T00:02:00Z",
@@ -58,21 +57,21 @@ const waitingQdrantRow: TaskResponse = {
 const waitingEmbeddingRow: TaskResponse = {
   ...row,
   task_id: "waiting-embedding-task-id",
-  stage: "embedding",
+  stage: "processing",
   dependency_key: "embedding",
 };
 
 const waitingLegacyEmbeddingRow: TaskResponse = {
   ...row,
   task_id: "waiting-legacy-embedding-task-id",
-  stage: "embedding",
+  stage: "processing",
   dependency_key: "embedding_vector",
 };
 
 const waitingUnknownDependencyRow: TaskResponse = {
   ...row,
   task_id: "waiting-unknown-dependency-task-id",
-  stage: "storage",
+  stage: "processing",
   dependency_key: "custom_storage",
 };
 
@@ -100,7 +99,6 @@ describe("ProcessingQueueView", () => {
     setGuest();
     listTasks.mockReset().mockResolvedValue(response([row]) as never);
     retryTask.mockReset().mockResolvedValue({ task: { task_id: "task-id", item_ids: [] }, retried_items: 1 } as never);
-    recoverDoclingTask.mockReset().mockResolvedValue({ recovered: { task_id: "task-id" } } as never);
     cancelTask.mockReset().mockResolvedValue(undefined);
     getTaskItems.mockReset();
     useOverlay.mockReset().mockReturnValue({
@@ -114,9 +112,9 @@ describe("ProcessingQueueView", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    // Waiting renders 1:1 (the badge fix removed the queued/waiting collapse);
-    // the internal docling stage still renders as Converting.
-    expect(wrapper.text()).toContain("Converting");
+    // Waiting renders 1:1 (the badge fix removed the queued/waiting collapse)
+    // and the collapsed stage renders its own label.
+    expect(wrapper.text()).toContain("Processing");
     expect(wrapper.text()).toContain("Dependency: Docling");
     expect(wrapper.text()).toContain("Waiting");
     wrapper.unmount();
@@ -273,7 +271,7 @@ describe("ProcessingQueueView", () => {
         {
           item_id: "item-id",
           status: "failed",
-          stage: "indexing",
+          stage: "processing",
           attempt_count: 3,
           error_message: "Qdrant unavailable",
           created_at: "2026-07-20T00:01:00Z",
@@ -387,10 +385,10 @@ describe("ProcessingQueueView", () => {
         {
           item_id: "item-id",
           status: "failed",
-          stage: "indexing",
+          stage: "processing",
           attempt_count: 3,
           error_message: "Qdrant unavailable",
-          failure_stage: "indexing",
+          failure_stage: "processing",
           retryable: true,
           created_at: "2026-07-20T00:01:00Z",
           updated_at: "2026-07-20T00:02:00Z",
@@ -413,21 +411,20 @@ describe("ProcessingQueueView", () => {
 
     expect(retryTask).toHaveBeenCalledWith("task-id");
     expect(getTaskItems).toHaveBeenCalledWith("task-id", expect.objectContaining({ limit: 100 }));
-    expect(recoverDoclingTask).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("routes Qdrant/indexing/embedding failed items through retry and never through Docling recovery", async () => {
+  it("routes every failed item through retry and never renders a Docling recovery action", async () => {
     listTasks.mockResolvedValue(response([failedRow]) as never);
     getTaskItems.mockResolvedValue({
       items: [
         {
           item_id: "qdrant-item",
           status: "failed",
-          stage: "indexing",
+          stage: "processing",
           attempt_count: 1,
           error_message: "Qdrant unreachable",
-          failure_stage: "indexing",
+          failure_stage: "processing",
           retryable: true,
           created_at: "2026-07-20T00:01:00Z",
           updated_at: "2026-07-20T00:02:00Z",
@@ -435,10 +432,10 @@ describe("ProcessingQueueView", () => {
         {
           item_id: "embedding-item",
           status: "failed",
-          stage: "embedding",
+          stage: "processing",
           attempt_count: 1,
           error_message: "Embedding failed",
-          failure_stage: "embedding",
+          failure_stage: "processing",
           retryable: true,
           created_at: "2026-07-20T00:01:00Z",
           updated_at: "2026-07-20T00:02:00Z",
@@ -446,7 +443,7 @@ describe("ProcessingQueueView", () => {
         {
           item_id: "qdrant-only-item",
           status: "failed",
-          stage: "embedding",
+          stage: "processing",
           attempt_count: 1,
           error_message: "qdrant: connection refused",
           failure_stage: "qdrant",
@@ -467,24 +464,25 @@ describe("ProcessingQueueView", () => {
 
     const doclingButtons = wrapper.findAll("button").filter((button) => button.text().includes("Docling"));
     expect(doclingButtons).toHaveLength(0);
+    const recoveryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Recover Docling"));
+    expect(recoveryButtons).toHaveLength(0);
     const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
     expect(retryButtons.length).toBeGreaterThanOrEqual(3);
 
-    expect(recoverDoclingTask).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("shows admin-only Docling recovery for failed Docling items and routes through recoverDoclingTask", async () => {
+  it("retries a failed Docling-stage item through the task retry endpoint for any user", async () => {
     listTasks.mockResolvedValueOnce(response([failedRow]) as never).mockResolvedValueOnce(response([row]) as never);
     getTaskItems.mockResolvedValue({
       items: [
         {
           item_id: "docling-item",
           status: "failed",
-          stage: "docling_poll",
+          stage: "processing",
           attempt_count: 1,
-          error_message: "Docling submission outcome is uncertain",
-          failure_stage: "docling_poll",
+          error_message: "Docling conversion failed",
+          failure_stage: "docling",
           retryable: true,
           created_at: "2026-07-20T00:01:00Z",
           updated_at: "2026-07-20T00:02:00Z",
@@ -492,7 +490,8 @@ describe("ProcessingQueueView", () => {
       ],
       next_cursor: undefined,
     } as never);
-    setAuthenticatedUser({ is_admin: true });
+    // Guest user (non-admin): the removed admin-only Docling recovery must not
+    // exist, and the item still retries through the normal task endpoint.
     const wrapper = await mountQueue();
     await flushPromises();
 
@@ -500,44 +499,12 @@ describe("ProcessingQueueView", () => {
     await expandButton!.trigger("click");
     await flushPromises();
 
-    const doclingButton = wrapper.findAll("button").find((button) => button.text().includes("Docling"));
-    expect(doclingButton).toBeDefined();
-    await doclingButton!.trigger("click");
+    const itemRetry = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    expect(itemRetry.length).toBeGreaterThanOrEqual(1);
+    await itemRetry[itemRetry.length - 1]!.trigger("click");
     await flushPromises();
 
-    expect(recoverDoclingTask).toHaveBeenCalledWith("task-id", expect.objectContaining({ reason: expect.stringContaining("Docling") }));
-    expect(retryTask).not.toHaveBeenCalled();
-    wrapper.unmount();
-  });
-
-  it("hides Docling recovery for non-admin users and routes failed Docling items through retry", async () => {
-    listTasks.mockResolvedValue(response([failedRow]) as never);
-    getTaskItems.mockResolvedValue({
-      items: [
-        {
-          item_id: "docling-item",
-          status: "failed",
-          stage: "docling_poll",
-          attempt_count: 1,
-          error_message: "Docling submission outcome is uncertain",
-          failure_stage: "docling_poll",
-          retryable: true,
-          created_at: "2026-07-20T00:01:00Z",
-          updated_at: "2026-07-20T00:02:00Z",
-        },
-      ],
-      next_cursor: undefined,
-    } as never);
-    // Guest user (non-admin).
-    const wrapper = await mountQueue();
-    await flushPromises();
-
-    const expandButton = wrapper.findAll("button").find((button) => button.attributes("aria-label") === "Expand task items");
-    await expandButton!.trigger("click");
-    await flushPromises();
-
-    const doclingButtons = wrapper.findAll("button").filter((button) => button.text().includes("Docling"));
-    expect(doclingButtons).toHaveLength(0);
+    expect(retryTask).toHaveBeenCalledWith("task-id");
     wrapper.unmount();
   });
 
@@ -548,10 +515,10 @@ describe("ProcessingQueueView", () => {
         {
           item_id: "non-retryable-item",
           status: "failed",
-          stage: "indexing",
+          stage: "processing",
           attempt_count: 1,
           error_message: "Hard failure",
-          failure_stage: "indexing",
+          failure_stage: "processing",
           retryable: false,
           created_at: "2026-07-20T00:01:00Z",
           updated_at: "2026-07-20T00:02:00Z",
@@ -559,7 +526,7 @@ describe("ProcessingQueueView", () => {
         {
           item_id: "succeeded-item",
           status: "succeeded",
-          stage: "indexing",
+          stage: "processing",
           attempt_count: 1,
           error_message: null,
           failure_stage: null,
@@ -599,10 +566,10 @@ describe("ProcessingQueueView", () => {
         {
           item_id: "item-id",
           status: "failed",
-          stage: "indexing",
+          stage: "processing",
           attempt_count: 3,
           error_message: "Qdrant unavailable",
-          failure_stage: "indexing",
+          failure_stage: "processing",
           retryable: true,
           created_at: "2026-07-20T00:01:00Z",
           updated_at: "2026-07-20T00:02:00Z",
@@ -642,10 +609,10 @@ describe("ProcessingQueueView", () => {
           {
             item_id: "item-id",
             status: "failed",
-            stage: "indexing",
+            stage: "processing",
             attempt_count: 1,
             error_message: "Qdrant unavailable",
-            failure_stage: "indexing",
+            failure_stage: "processing",
             retryable: true,
             created_at: "2026-07-20T00:01:00Z",
             updated_at: "2026-07-20T00:02:00Z",

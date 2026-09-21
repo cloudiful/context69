@@ -5,8 +5,8 @@
 -- safe to repeat: exhausted item/file/task propagation only touches rows
 -- that already satisfy the existing exhausted predicates
 -- (attempt_count >= 5 while queued/waiting), which the fast claim's
--- eligible selection explicitly excludes except for waiting Docling polls,
--- and expired-attempt interruption is scoped to abandoned attempts
+-- eligible selection explicitly excludes, and expired-attempt interruption
+-- is scoped to abandoned attempts
 -- (lease_until IS NULL OR lease_until < now()) so it does not
 -- clear active leases. When an expired running item is interrupted, its
 -- item lease (lease_token/lease_until) is atomically revoked in the same
@@ -22,16 +22,6 @@
 -- recovery tick keep converging exhausted-only queues toward terminal
 -- state.
 --
--- Waiting Docling poll items (stage = 'docling_poll', waiting_reason = 'external_job')
--- are excluded from generic five-attempt exhaustion so a due poll can keep
--- polling past the cap until the external-job deadline or a
--- terminal/missing-remote resubmit path handles it. The exclusion keeps
--- next_attempt_at and lease gating intact and preserves submitting-job
--- safety and terminal reconciliation; ordinary queued/backoff/dependency
--- items still exhaust at the cap, and a due docling_poll item with a
--- terminal or missing remote job remains claimable so the poll code can
--- observe the outcome and resubmit through the existing path.
---
 -- Parent aggregates are recomputed atomically from the post-exhaustion
 -- effective item state. PostgreSQL data-modifying CTEs share a snapshot,
 -- so a later CTE cannot see the earlier UPDATE's row changes via a plain
@@ -41,25 +31,6 @@
 -- their pre-update state, exhausted updates them, and the parent
 -- recompute derives effective counts/status from the snapshot plus the
 -- captured to_exhaust rows.
---
--- External-job lifecycle reconciliation is conservative and idempotent.
--- Any local pending/running task_external_jobs rows attached to terminal
--- task_items (succeeded, failed, cancelled) — including items newly
--- exhausted by this statement — are locally moved to cancelled with an
--- explicit reason that remote cancellation was not requested. Additionally
--- (issue #446 P1), pending/running rows past their `deadline_at` are
--- recycled to `timed_out` even when the parent item is still active, so an
--- expired remote job stops wedging `max_inflight` before the next poll
--- observes it; the count filter in `count_inflight.sql` already excludes
--- such rows immediately, and this CTE converges their stored state on the
--- recovery tick. Expired takes precedence over terminal-cancelled when
--- both apply. The check uses the statement's snapshot terminal items plus
--- the captured to_exhaust ids so the transition does not require a second
--- maintenance call. `submitting` rows are never touched because the remote
--- submission outcome is uncertain and must remain manual-recovery-required;
--- active items (queued, running, waiting) with unexpired deadlines are left
--- alone. No external request is made and the same external-job row is
--- never updated from two CTEs in this statement.
 WITH to_exhaust AS (
     SELECT item.id, item.task_id, item.file_id, item.status AS old_status, item.ordinal
     FROM context69.task_items AS item
@@ -74,11 +45,6 @@ WITH to_exhaust AS (
       AND item.status IN ('queued', 'waiting')
       AND item.attempt_count >= 5
       AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
-      AND NOT (
-          item.status = 'waiting'
-          AND item.stage = 'docling_poll'
-          AND item.waiting_reason = 'external_job'
-      )
     FOR UPDATE OF item
 ), exhausted AS (
     UPDATE context69.task_items AS item
@@ -231,42 +197,9 @@ WITH to_exhaust AS (
     WHERE attempt.item_id = expired_items.id
       AND attempt.finished_at IS NULL
     RETURNING attempt.id
-), reconciled_external_jobs AS (
-    UPDATE context69.task_external_jobs AS job
-    SET status = CASE
-            WHEN job.deadline_at IS NOT NULL AND job.deadline_at < now() THEN 'timed_out'
-            ELSE 'cancelled'
-        END,
-        remote_status = COALESCE(job.remote_status, job.status),
-        error_message = COALESCE(
-            job.error_message,
-            CASE
-                WHEN job.deadline_at IS NOT NULL AND job.deadline_at < now()
-                THEN 'docling remote job exceeded its deadline; local external job timed out without remote cancellation'
-                ELSE 'task item is terminal; local external job cancelled without remote cancellation'
-            END
-        ),
-        last_polled_at = now(),
-        updated_at = now()
-    WHERE job.status IN ('pending', 'running')
-      AND (
-          (job.deadline_at IS NOT NULL AND job.deadline_at < now())
-          OR EXISTS (
-              SELECT 1
-              FROM context69.task_items ti
-              WHERE ti.id = job.item_id
-                AND ti.status IN ('succeeded', 'failed', 'cancelled')
-          )
-          OR EXISTS (
-              SELECT 1 FROM to_exhaust te WHERE te.id = job.item_id
-          )
-      )
-    RETURNING job.id, job.status
 )
 SELECT
     (SELECT count(*) FROM exhausted) AS "exhausted_items!",
     (SELECT count(*) FROM exhausted_files) AS "exhausted_files!",
     (SELECT count(*) FROM recomputed) AS "exhausted_tasks!",
-    (SELECT count(*) FROM expired) AS "expired_attempts!",
-    (SELECT count(*) FILTER (WHERE status = 'timed_out') FROM reconciled_external_jobs) AS "expired_external_jobs!",
-    (SELECT count(*) FILTER (WHERE status = 'cancelled') FROM reconciled_external_jobs) AS "reconciled_external_jobs!"
+    (SELECT count(*) FROM expired) AS "expired_attempts!"

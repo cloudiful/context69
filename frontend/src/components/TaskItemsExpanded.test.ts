@@ -16,7 +16,7 @@ function task(total = 2781): TaskResponse {
     status: "running",
     group_path: "research",
     source_key: null,
-    stage: "indexing",
+    stage: "processing",
     waiting_reason: null,
     dependency_key: null,
     progress: { total, queued: 0, running: 1, waiting: 0, succeeded: 0, failed: 0, cancelled: 0 },
@@ -34,7 +34,7 @@ function item(itemId: string, status: TaskItemResponse["status"] = "running"): T
   return {
     item_id: itemId,
     status,
-    stage: "indexing",
+    stage: "processing",
     ordinal: 0,
     attempt_count: 1,
     retryable: false,
@@ -46,7 +46,7 @@ function item(itemId: string, status: TaskItemResponse["status"] = "running"): T
 
 function mountExpanded(entry: TaskResponse = task()) {
   return mount(TaskItemsExpanded, {
-    props: { task: entry, isAdmin: false, isActing: false },
+    props: { task: entry, isActing: false },
     global: { plugins: [testNuxtUiPlugin, createTestI18n("en")] },
   });
 }
@@ -163,20 +163,34 @@ describe("TaskItemsExpanded", () => {
     wrapper.unmount();
   });
 
-  it("collapses docling stages into the converting label", async () => {
+  it("renders collapsed stages 1:1 without a Docling converting label", async () => {
     getTaskItems.mockResolvedValue({
       items: [
-        { ...item("docling-1", "running"), stage: "docling" },
-        { ...item("docling-2", "waiting"), stage: "docling_poll" },
+        { ...item("collapsed-1", "running"), stage: "processing" },
+        { ...item("collapsed-2", "running"), stage: "finalize" },
       ],
       next_cursor: null,
     } as never);
     const wrapper = mountExpanded();
     await flushPromises();
 
-    const matches = wrapper.text().match(/Converting/g) ?? [];
-    expect(matches).toHaveLength(2);
-    expect(wrapper.text()).not.toContain("Docling Poll");
+    expect(wrapper.text()).toContain("Processing");
+    expect(wrapper.text()).toContain("Finalize");
+    expect(wrapper.text()).not.toContain("Converting");
+    expect(wrapper.text()).not.toContain("Docling");
+    wrapper.unmount();
+  });
+
+  it("does not render an external-job badge column", async () => {
+    getTaskItems.mockResolvedValue({
+      items: [{ ...item("item-1", "running") }],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded();
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain("Quarantined");
+    expect(wrapper.text()).not.toContain("Docling queued");
     wrapper.unmount();
   });
 });

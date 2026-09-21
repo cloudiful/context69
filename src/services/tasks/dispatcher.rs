@@ -102,8 +102,6 @@ async fn run_maintenance(service: &TaskService) {
                 + outcome.exhausted_files
                 + outcome.exhausted_tasks
                 + outcome.expired_attempts
-                + outcome.expired_external_jobs
-                + outcome.reconciled_external_jobs
                 > 0
             {
                 tracing::info!(
@@ -112,8 +110,6 @@ async fn run_maintenance(service: &TaskService) {
                     exhausted_files = outcome.exhausted_files,
                     exhausted_tasks = outcome.exhausted_tasks,
                     expired_attempts = outcome.expired_attempts,
-                    expired_external_jobs = outcome.expired_external_jobs,
-                    reconciled_external_jobs = outcome.reconciled_external_jobs,
                     "task claim maintenance converged terminal state"
                 );
             }

@@ -3,7 +3,7 @@
 //! PostgreSQL `LISTEN task_events` in a resident task fans out into a
 //! process-local `tokio::broadcast` channel. Every replica LISTENs, so
 //! increments committed on any replica (Rust or pure-SQL writers such as
-//! cancel/trash/restore/clear, `maintain_claim_state`, `update_external_job`)
+//! cancel/trash/restore/clear, `maintain_claim_state`)
 //! are visible to every replica. Best-effort semantics: subscribers must
 //! full-sync once on subscribe, then apply incremental events.
 //!

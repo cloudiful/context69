@@ -3,7 +3,6 @@ use context69_contracts::ApiErrorCode;
 
 use crate::contracts::ApiErrorResponse;
 use crate::domain_errors::status_for_error;
-use crate::services::tasks::TaskMaintenanceError;
 
 pub(crate) fn error_response(status: StatusCode, message: String) -> ApiErrorResponse {
     let code = ApiErrorCode::code_for_status(status.as_u16());
@@ -19,18 +18,6 @@ fn typed_response(error: anyhow::Error) -> axum::response::Response {
     let message = error.to_string();
     let status = status_for_error(&error);
     json_response(status, message)
-}
-
-fn task_maintenance_typed_status(error: &anyhow::Error) -> Option<StatusCode> {
-    error.chain().find_map(|cause| {
-        cause
-            .downcast_ref::<TaskMaintenanceError>()
-            .map(|typed| match typed {
-                TaskMaintenanceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-                TaskMaintenanceError::Conflict(_) => StatusCode::CONFLICT,
-                TaskMaintenanceError::NotFound(_) => StatusCode::NOT_FOUND,
-            })
-    })
 }
 
 pub(crate) fn internal_error_response(error: anyhow::Error) -> axum::response::Response {
@@ -58,10 +45,6 @@ pub(crate) fn group_access_error_response(error: anyhow::Error) -> axum::respons
 }
 
 pub(crate) fn task_maintenance_error_response(error: anyhow::Error) -> axum::response::Response {
-    let message = error.to_string();
-    if let Some(status) = task_maintenance_typed_status(&error) {
-        return json_response(status, message);
-    }
     typed_response(error)
 }
 
@@ -627,21 +610,6 @@ mod tests {
 
     #[test]
     fn task_maintenance_typed_and_domain_errors() {
-        assert_eq!(
-            status_of(&task_maintenance_error_response(
-                TaskMaintenanceError::BadRequest(
-                    "grace_minutes must be between 10 and 10080".to_string()
-                )
-                .into()
-            )),
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(
-            status_of(&task_maintenance_error_response(
-                TaskMaintenanceError::NotFound("task not found".to_string()).into()
-            )),
-            StatusCode::NOT_FOUND
-        );
         assert_eq!(
             status_of(&task_maintenance_error_response(
                 DomainError::forbidden("admin access required").into()

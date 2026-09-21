@@ -11,26 +11,28 @@ impl LibraryService {
         self.store
             .set_file_extraction_directive(file_id, Some(directive))
             .await?;
-        let should_enqueue = self
+        let should_convert = self
             .store
             .get_file(file_id)
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?
             .ingest_status
             == crate::contracts::LibraryIngestStatus::Succeeded;
-        if should_enqueue {
-            self.enqueue_file_extractions(file_id).await?;
+        if should_convert {
+            self.convert_file_extractions(file_id).await?;
         }
         Ok(())
     }
 
-    pub(super) async fn enqueue_file_extractions(&self, file_id: Uuid) -> Result<()> {
+    /// Blocking extraction conversion for every document mapped to the file.
+    /// Runs inline on the calling worker; there is no background scheduler.
+    pub(crate) async fn convert_file_extractions(&self, file_id: Uuid) -> Result<()> {
         let Some(directive) = self.store.file_extraction_directive(file_id).await? else {
             return Ok(());
         };
         for mapping in self.store.list_file_documents(file_id).await? {
             self.extraction
-                .enqueue(context69_extraction::EnqueueExtraction {
+                .convert(context69_extraction::EnqueueExtraction {
                     document_id: mapping.document_id,
                     directive: directive.clone(),
                 })
@@ -47,26 +49,28 @@ impl LibraryService {
         self.store
             .set_file_translation_directive(file_id, Some(directive))
             .await?;
-        let should_enqueue = self
+        let should_convert = self
             .store
             .get_file(file_id)
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?
             .ingest_status
             == crate::contracts::LibraryIngestStatus::Succeeded;
-        if should_enqueue {
-            self.enqueue_file_translations(file_id).await?;
+        if should_convert {
+            self.convert_file_translations(file_id).await?;
         }
         Ok(())
     }
 
-    pub(super) async fn enqueue_file_translations(&self, file_id: Uuid) -> Result<()> {
+    /// Blocking translation conversion for every document mapped to the file.
+    /// Runs inline on the calling worker; there is no background scheduler.
+    pub(crate) async fn convert_file_translations(&self, file_id: Uuid) -> Result<()> {
         let Some(directive) = self.store.file_translation_directive(file_id).await? else {
             return Ok(());
         };
         for mapping in self.store.list_file_documents(file_id).await? {
             self.translation
-                .enqueue(context69_translation::EnqueueTranslation {
+                .convert(context69_translation::EnqueueTranslation {
                     document_id: mapping.document_id,
                     directive: Some(directive.clone()),
                 })

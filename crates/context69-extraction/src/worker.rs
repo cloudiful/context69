@@ -8,8 +8,6 @@ use context69_contracts_extraction::{
     ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobsResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
 };
-use tokio::sync::{Mutex, Semaphore};
-use tracing::error;
 use uuid::Uuid;
 
 use crate::{
@@ -24,39 +22,22 @@ pub struct ExtractionService {
     http_client: reqwest::Client,
     publisher: Arc<dyn ExtractionPublisher>,
     readiness: Arc<dyn ExtractionReadiness>,
-    semaphore: Arc<Semaphore>,
-    worker_lock: Arc<Mutex<()>>,
-    concurrency: usize,
 }
 
 impl ExtractionService {
     pub fn new(dependencies: ExtractionDependencies) -> Self {
-        let concurrency = dependencies.concurrency.max(1);
         Self {
             store: ExtractionStore::new(dependencies.pool),
             http_client: dependencies.http_client,
             publisher: dependencies.publisher,
             readiness: dependencies.readiness,
-            semaphore: Arc::new(Semaphore::new(concurrency)),
-            worker_lock: Arc::new(Mutex::new(())),
-            concurrency,
         }
     }
 
-    /// Test seam: returns the configured max concurrency (semaphore size).
-    pub fn configured_concurrency(&self) -> usize {
-        self.concurrency
-    }
-
-    /// Test seam: current available permits (should equal configured when idle).
-    pub fn available_permits(&self) -> usize {
-        self.semaphore.available_permits()
-    }
-
+    /// Requeue jobs interrupted by a restart. Jobs are drained inside the
+    /// blocking caller that owns them, so there is no worker to resume.
     pub async fn resume(&self) -> Result<()> {
-        self.store.reset_interrupted().await?;
-        self.spawn_worker();
-        Ok(())
+        self.store.reset_interrupted().await
     }
 
     pub async fn templates(&self) -> Result<Vec<ExtractionTemplateResponse>> {
@@ -103,8 +84,7 @@ impl ExtractionService {
             .retry_job(group_id, id)
             .await?
             .context("extraction job is not retryable")?;
-        self.spawn_worker();
-        codec::job_response(job)
+        self.run_job_blocking(group_id, job.id).await
     }
 
     pub async fn health(&self) -> Result<ExtractionHealthResponse> {
@@ -137,31 +117,22 @@ impl ExtractionService {
                         &serde_json::json!({}),
                     )
                     .await?;
-                jobs.push(codec::job_response(job)?);
+                jobs.push(self.run_job_blocking(group_id, job.id).await?);
             }
-        }
-        if !jobs.is_empty() {
-            self.spawn_worker();
         }
         Ok(ExtractionJobsResponse {
             jobs,
             latest_results: Vec::new(),
         })
     }
-
-    fn spawn_worker(&self) {
-        let service = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = service.run_pending().await {
-                error!(%error, "extraction worker failed");
-            }
-        });
-    }
 }
 
 #[async_trait]
 impl ExtractionCoordinator for ExtractionService {
-    async fn enqueue(&self, input: EnqueueExtraction) -> Result<Vec<ExtractionJobResponse>> {
+    /// Blocking conversion: insert or reuse the document's extraction job and
+    /// run it to completion before returning. There is no background worker,
+    /// so a job can never be left for a later dispatcher re-claim.
+    async fn convert(&self, input: EnqueueExtraction) -> Result<Vec<ExtractionJobResponse>> {
         let document = self.store.document(input.document_id).await?;
         let Some(template) = self.store.template(&input.directive.template_key).await? else {
             return Err(anyhow!(
@@ -181,8 +152,7 @@ impl ExtractionCoordinator for ExtractionService {
                 &input.directive.parameters,
             )
             .await?;
-        let response = codec::job_response(job)?;
-        self.spawn_worker();
+        let response = self.run_job_blocking(document.group_id, job.id).await?;
         Ok(vec![response])
     }
 }

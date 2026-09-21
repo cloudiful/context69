@@ -2,8 +2,7 @@
 //!
 //! Holds the per-task item request/response surface for [`LibraryService`]:
 //! preparing sections, persisting them once for legacy callers, marking files
-//! running, handling failures, and enqueuing translation/extraction.
-//! The at-least-once batch checkpoint lives in
+//! running, and handling failures. The at-least-once batch checkpoint lives in
 //! `super::ingest_checkpoint` (types/helpers) and
 //! `super::ingest_checkpoint_persistence` (the driver method).
 
@@ -164,14 +163,6 @@ impl LibraryService {
         failure
     }
 
-    pub(crate) async fn enqueue_file_translations_for_task(&self, file_id: Uuid) -> Result<()> {
-        self.enqueue_file_translations(file_id).await
-    }
-
-    pub(crate) async fn enqueue_file_extractions_for_task(&self, file_id: Uuid) -> Result<()> {
-        self.enqueue_file_extractions(file_id).await
-    }
-
     async fn task_file(
         &self,
         file_id: Uuid,
@@ -238,26 +229,6 @@ fn is_transient_document_chunk_fk(error: &anyhow::Error) -> bool {
     message.contains("document_chunks_document_id_fkey")
         || (message.contains("document_chunks")
             && (message.contains("violates foreign key") || message.contains("23503")))
-}
-
-/// Retryable Docling error for the persistent remote-admission denial
-/// (issue #123). The message marker must stay in sync with
-/// [`UnifiedIngestError::is_docling_admission_denied`]: only this path
-/// maps to the scheduler-deferral contract that releases the claim
-/// without consuming the business attempt. No Docling POST is made.
-pub(crate) fn docling_admission_denied(
-    item_id: Uuid,
-    inflight: i64,
-    limit: usize,
-) -> UnifiedIngestError {
-    task_failure(
-        "docling",
-        DomainError::upstream_error(format!(
-            "docling remote admission is full ({}/{}) for item {item_id}; waiting for a remote slot without submitting",
-            inflight, limit,
-        )),
-        true,
-    )
 }
 
 impl std::str::FromStr for LibraryDependency {
