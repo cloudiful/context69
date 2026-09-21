@@ -234,7 +234,7 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
     Ok(())
 }
 
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 const HEARTBEAT_MAX_CONSECUTIVE_ERRORS: u32 = 3;
 
 /// Aborts the wrapped heartbeat task when dropped so that early `?` returns
