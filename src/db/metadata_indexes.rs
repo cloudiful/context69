@@ -302,15 +302,19 @@ impl Database {
         .await?)
     }
 
-    pub async fn metadata_documents(
+    pub async fn metadata_documents_page(
         &self,
         index: &StoredMetadataIndex,
+        after_id: i64,
+        limit: i64,
     ) -> Result<Vec<MetadataDocument>> {
         Ok(sqlx::query_file_as!(
             MetadataDocument,
             "src/sql/db/metadata_indexes/list_documents.sql",
             index.group_id,
-            index.source_key
+            index.source_key,
+            after_id,
+            limit
         )
         .fetch_all(self.pool())
         .await?)

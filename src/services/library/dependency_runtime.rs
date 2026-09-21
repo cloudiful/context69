@@ -1,3 +1,6 @@
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use context69_contracts::{
@@ -12,8 +15,83 @@ pub(super) use super::dependency_errors::{
     dependency_is_transient, is_configuration_error, is_s3_error, redact_dependency_error,
 };
 pub(super) use super::dependency_storage::bounded_s3_operation;
+use super::dependency_storage::observe_s3_gate_transition;
 use super::{LibraryDependency, LibraryService};
 use crate::library_store::LibraryStore;
+
+/// `/healthz` reports the processing snapshot from a whole-queue scan, so
+/// probes inside this short window reuse the cached snapshot instead of
+/// re-reading the queue and the gates every time.
+const PROCESSING_HEALTH_CACHE_TTL: Duration = Duration::from_secs(1);
+
+type ProcessingHealthSnapshot = (
+    bool,
+    Vec<LibraryDependencyGateResponse>,
+    LibraryProcessingQueueHealth,
+);
+
+static PROCESSING_HEALTH_CACHE: TtlCache<ProcessingHealthSnapshot> =
+    TtlCache::new(PROCESSING_HEALTH_CACHE_TTL);
+
+/// Short-lived process-wide cache for read-mostly dependency state.
+///
+/// The application process targets a single database, and every reader accepts
+/// the value being stale for at most the configured TTL.
+pub(super) struct TtlCache<T> {
+    ttl: Duration,
+    state: Mutex<Option<(Instant, T)>>,
+}
+
+impl<T: Clone> TtlCache<T> {
+    pub(super) const fn new(ttl: Duration) -> Self {
+        Self {
+            ttl,
+            state: Mutex::new(None),
+        }
+    }
+
+    pub(super) fn get(&self) -> Option<T> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let (fetched_at, value) = state.as_ref()?;
+        (fetched_at.elapsed() < self.ttl).then(|| value.clone())
+    }
+
+    pub(super) fn put(&self, value: T) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        *state = Some((Instant::now(), value));
+    }
+
+    /// Drop the cached value so the next reader fetches a fresh one, e.g. after
+    /// the underlying row changed in a way the cached value cannot represent.
+    pub(super) fn invalidate(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        *state = None;
+    }
+
+    /// Return the cached value, or run `fetch`, cache the result and return it.
+    /// A failed fetch is never cached, so the next reader retries.
+    pub(super) async fn get_or_fetch<F, Fut, E>(&self, fetch: F) -> std::result::Result<T, E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = std::result::Result<T, E>>,
+    {
+        if let Some(value) = self.get() {
+            return Ok(value);
+        }
+        let value = fetch().await?;
+        self.put(value.clone());
+        Ok(value)
+    }
+}
 
 impl LibraryService {
     /// Resolve every dependency gate once at startup (and again when the
@@ -153,17 +231,20 @@ impl LibraryService {
             .await?
         {
             log_dependency_transition(&transition);
+            observe_s3_gate_transition(dependency, Some(&transition));
         }
         Ok(())
     }
 
-    pub(crate) async fn processing_health(
-        &self,
-    ) -> Result<(
-        bool,
-        Vec<LibraryDependencyGateResponse>,
-        LibraryProcessingQueueHealth,
-    )> {
+    pub(crate) async fn processing_health(&self) -> Result<ProcessingHealthSnapshot> {
+        PROCESSING_HEALTH_CACHE
+            .get_or_fetch(|| self.load_processing_health())
+            .await
+    }
+
+    /// Run the whole-queue processing scan. Callers reach it through
+    /// [`Self::processing_health`], which serves the short-lived cache.
+    async fn load_processing_health(&self) -> Result<ProcessingHealthSnapshot> {
         let mut gates = self.store.list_dependency_gates().await?;
         let queue = self.db.task_processing_health().await?;
         // Readiness is configuration-level: the embedding/vector runtime and
@@ -237,7 +318,7 @@ impl LibraryService {
         } else {
             failed_last_hour as f64 * 100.0 / processed_last_hour as f64
         };
-        Ok((
+        let snapshot = (
             ready,
             response,
             LibraryProcessingQueueHealth {
@@ -260,7 +341,8 @@ impl LibraryService {
                 processing_rate_per_minute,
                 failure_rate_percent,
             },
-        ))
+        );
+        Ok(snapshot)
     }
 
     pub(super) async fn note_dependency_failure(
@@ -298,7 +380,10 @@ impl LibraryService {
             return;
         };
         match result {
-            Ok(Some(transition)) => log_dependency_transition(&transition),
+            Ok(Some(transition)) => {
+                log_dependency_transition(&transition);
+                observe_s3_gate_transition(canonical, Some(&transition));
+            }
             Ok(None) => {}
             Err(record_error) => {
                 warn!(
@@ -346,7 +431,10 @@ impl LibraryService {
         let canonical = dependency.canonical();
         let key = canonical.canonical_str();
         match self.store.record_dependency_success(key, lease_token).await {
-            Ok(Some(transition)) => log_dependency_transition(&transition),
+            Ok(Some(transition)) => {
+                log_dependency_transition(&transition);
+                observe_s3_gate_transition(canonical, Some(&transition));
+            }
             Ok(None) => {}
             Err(error) => {
                 warn!(
@@ -396,6 +484,7 @@ pub(crate) async fn report_dependency_processing_error_with_lease(
     };
     if let Some(transition) = result {
         log_dependency_transition(&transition);
+        observe_s3_gate_transition(canonical, Some(&transition));
     }
     // Mirror embedding results to the legacy alias.
     if canonical == LibraryDependency::Embedding {
@@ -527,4 +616,81 @@ fn configuration_fingerprint(parts: &[impl AsRef<str>]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use super::TtlCache;
+
+    #[test]
+    fn ttl_cache_serves_values_until_they_expire() {
+        let cache: TtlCache<String> = TtlCache::new(Duration::from_millis(100));
+
+        assert_eq!(cache.get(), None);
+        cache.put("closed".to_string());
+        assert_eq!(cache.get().as_deref(), Some("closed"));
+
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(cache.get(), None);
+    }
+
+    #[test]
+    fn ttl_cache_replaces_the_previous_value() {
+        let cache: TtlCache<u8> = TtlCache::new(Duration::from_secs(60));
+
+        cache.put(1);
+        cache.put(2);
+
+        assert_eq!(cache.get(), Some(2));
+    }
+
+    #[test]
+    fn ttl_cache_invalidate_drops_the_value_immediately() {
+        let cache: TtlCache<u8> = TtlCache::new(Duration::from_secs(60));
+
+        cache.invalidate();
+        assert_eq!(cache.get(), None);
+
+        cache.put(7);
+        assert_eq!(cache.get(), Some(7));
+
+        cache.invalidate();
+        assert_eq!(cache.get(), None);
+    }
+
+    #[tokio::test]
+    async fn ttl_cache_get_or_fetch_skips_the_fetch_until_the_value_expires() {
+        let calls = AtomicUsize::new(0);
+        let cache: TtlCache<u8> = TtlCache::new(Duration::from_millis(100));
+        let fetch = || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            async { Ok::<u8, anyhow::Error>(41) }
+        };
+
+        assert_eq!(cache.get_or_fetch(fetch).await.unwrap(), 41);
+        assert_eq!(cache.get_or_fetch(fetch).await.unwrap(), 41);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(cache.get_or_fetch(fetch).await.unwrap(), 41);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn ttl_cache_get_or_fetch_does_not_cache_errors() {
+        let calls = AtomicUsize::new(0);
+        let cache: TtlCache<u8> = TtlCache::new(Duration::from_secs(60));
+        let fetch = || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            async { Err::<u8, anyhow::Error>(anyhow::anyhow!("unavailable")) }
+        };
+
+        assert!(cache.get_or_fetch(fetch).await.is_err());
+        assert!(cache.get_or_fetch(fetch).await.is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        assert_eq!(cache.get(), None);
+    }
 }

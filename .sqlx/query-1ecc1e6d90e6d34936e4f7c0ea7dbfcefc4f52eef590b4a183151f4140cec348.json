@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id AS document_id, metadata_json\nFROM context69.documents\nWHERE group_id = $1 AND source_key = $2\nORDER BY id\n",
+  "query": "SELECT id AS document_id, metadata_json\nFROM context69.documents\nWHERE group_id = $1 AND source_key = $2 AND id > $3\nORDER BY id\nLIMIT $4\n",
   "describe": {
     "columns": [
       {
@@ -29,7 +29,9 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Text"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -37,5 +39,5 @@
       false
     ]
   },
-  "hash": "36c725b8e26d5881e8bf3eb9ef1822a16ca72573f854d00c51256705a9c0c235"
+  "hash": "1ecc1e6d90e6d34936e4f7c0ea7dbfcefc4f52eef590b4a183151f4140cec348"
 }
