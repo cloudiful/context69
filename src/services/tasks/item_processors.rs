@@ -1,3 +1,4 @@
+use crate::db::Database;
 use crate::domain_errors::DomainError;
 
 use anyhow::Result;
@@ -44,6 +45,10 @@ const MAX_ITEM_STAGES: usize = 16;
 /// values. A step that cannot finish parks the item (`Waiting`/`Failed`) and
 /// the next claim restarts from the kind's entry stage, where every step
 /// re-derives its progress from the persisted payload and file state.
+///
+/// Stages persist `file_id`/`payload` as they run and write the same values
+/// back into one shared snapshot, so a later stage in the same claim observes
+/// what an earlier stage saved instead of the stale claim (issue 592).
 pub(super) async fn process_item_blocking(
     service: &TaskService,
     kind: TaskKind,
@@ -51,9 +56,36 @@ pub(super) async fn process_item_blocking(
     task: &crate::db::StoredTask,
     item: &crate::db::ClaimedItem,
 ) -> Result<ProcessResult> {
-    let mut stage = resume_stage(kind, item.stage.as_deref());
+    let mut item = item.clone();
+    let stage = resume_stage(kind, item.stage.as_deref());
+    let runner = ServiceStageRunner {
+        service,
+        kind,
+        group,
+        task,
+    };
+    drive_item(&mut item, stage, &runner).await
+}
+
+/// One pipeline step. The runner reads and updates the shared item snapshot,
+/// so a later stage observes what an earlier stage persisted.
+#[async_trait::async_trait]
+pub(super) trait ItemStageRunner: Send + Sync {
+    async fn run(
+        &self,
+        item: &mut crate::db::ClaimedItem,
+        stage: &'static str,
+    ) -> Result<ProcessResult>;
+}
+
+/// Advance one mutable item snapshot through the collapsed pipeline.
+pub(super) async fn drive_item(
+    item: &mut crate::db::ClaimedItem,
+    mut stage: &'static str,
+    runner: &(dyn ItemStageRunner + '_),
+) -> Result<ProcessResult> {
     for _ in 0..MAX_ITEM_STAGES {
-        match run_stage(service, kind, group, task, item, stage).await? {
+        match runner.run(item, stage).await? {
             ProcessResult::Progressed { next } => stage = next,
             terminal => return Ok(terminal),
         }
@@ -63,6 +95,24 @@ pub(super) async fn process_item_blocking(
         message: format!("item pipeline did not converge within {MAX_ITEM_STAGES} steps"),
         retryable: false,
     })
+}
+
+struct ServiceStageRunner<'a> {
+    service: &'a TaskService,
+    kind: TaskKind,
+    group: Option<&'a crate::domain::GroupRecord>,
+    task: &'a crate::db::StoredTask,
+}
+
+#[async_trait::async_trait]
+impl ItemStageRunner for ServiceStageRunner<'_> {
+    async fn run(
+        &self,
+        item: &mut crate::db::ClaimedItem,
+        stage: &'static str,
+    ) -> Result<ProcessResult> {
+        run_stage(self.service, self.kind, self.group, self.task, item, stage).await
+    }
 }
 
 /// Stage a claim starts at. `processing` is the collapsed default written at
@@ -92,7 +142,7 @@ async fn run_stage(
     kind: TaskKind,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     match kind {
@@ -124,24 +174,24 @@ async fn run_stage(
 }
 
 pub(super) async fn set_file(
-    service: &TaskService,
-    task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
+    db: &Database,
+    task_id: Uuid,
+    item: &mut crate::db::ClaimedItem,
     file_id: Uuid,
 ) -> Result<()> {
-    if !service
-        .db()
-        .set_task_item_file(task.id, item.id, item.lease_token, file_id)
+    if !db
+        .set_task_item_file(task_id, item.id, item.lease_token, file_id)
         .await?
     {
         return Err(DomainError::conflict("task item lease was lost while saving file_id").into());
     }
+    item.file_id = Some(file_id);
     Ok(())
 }
 
 pub(super) async fn save_sections(
-    service: &TaskService,
-    item: &crate::db::ClaimedItem,
+    db: &Database,
+    item: &mut crate::db::ClaimedItem,
     sections: Value,
 ) -> Result<()> {
     let mut payload = item.payload.clone();
@@ -153,28 +203,28 @@ pub(super) async fn save_sections(
     if let Some(obj) = payload.as_object_mut() {
         obj.remove("indexing_checkpoint");
     }
-    if !service
-        .db()
+    if !db
         .set_task_item_payload(item.id, item.lease_token, &payload)
         .await?
     {
         return Err(DomainError::conflict("task item lease was lost while saving sections").into());
     }
+    item.payload = payload;
     Ok(())
 }
 
 pub(super) async fn save_payload(
-    service: &TaskService,
-    item: &crate::db::ClaimedItem,
+    db: &Database,
+    item: &mut crate::db::ClaimedItem,
     payload: Value,
 ) -> Result<()> {
-    if !service
-        .db()
+    if !db
         .set_task_item_payload(item.id, item.lease_token, &payload)
         .await?
     {
         return Err(DomainError::conflict("task item lease was lost while saving payload").into());
     }
+    item.payload = payload;
     Ok(())
 }
 

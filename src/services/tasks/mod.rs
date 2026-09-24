@@ -41,6 +41,8 @@ mod dispatcher;
 pub mod events;
 mod item_file_processors;
 mod item_lifecycle_processors;
+#[cfg(test)]
+mod item_pipeline_tests;
 mod item_processors;
 mod item_translation_processors;
 mod item_url_processor;

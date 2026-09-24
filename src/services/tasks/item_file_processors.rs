@@ -17,7 +17,7 @@ pub(super) async fn process_text(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("text tasks require group_id"))?;
@@ -34,22 +34,10 @@ pub(super) async fn process_text(
             Ok(result) => result,
             Err(error) => return Ok(process_error(stage, error)),
         };
-        set_file(service, task, item, file.file_id).await?;
-        let mut payload = item.payload.clone();
-        payload["section_payload"] = section_payload;
-        if let Some(obj) = payload.as_object_mut() {
-            obj.remove("indexing_checkpoint");
-        }
-        if !service
-            .db()
-            .set_task_item_payload(item.id, item.lease_token, &payload)
-            .await?
-        {
-            return Err(DomainError::conflict(
-                "task item lease was lost while saving text sections",
-            )
-            .into());
-        }
+        set_file(service.db(), task.id, item, file.file_id).await?;
+        // The storage stage saved the sections; the shared snapshot carries
+        // them so the indexing stage does not re-derive them.
+        save_sections(service.db(), item, section_payload).await?;
         return Ok(ProcessResult::Progressed { next: "indexing" });
     }
     process_file_stage(service, group.id, item, stage).await
@@ -59,7 +47,7 @@ pub(super) async fn process_file(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("file tasks require group_id"))?;
@@ -116,7 +104,7 @@ pub(super) async fn process_file(
                 Err(error) => return Ok(process_error(stage, error)),
             }
         };
-        set_file(service, task, item, file.file_id).await?;
+        set_file(service.db(), task.id, item, file.file_id).await?;
         if let Some(object_id) = item.input_storage_object_id {
             service
                 .library()
@@ -167,7 +155,7 @@ struct StoredFileBatchItem {
 pub(super) async fn process_file_stage(
     service: &TaskService,
     group_id: i64,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let file_id = item.file_id.context(DomainError::invalid_argument(
@@ -199,7 +187,7 @@ pub(super) async fn process_file_stage(
                 Ok(sections) => sections,
                 Err(error) => return ingest_error_result(service, item, file_id, error).await,
             };
-            save_sections(service, item, sections).await?;
+            save_sections(service.db(), item, sections).await?;
             Ok(ProcessResult::Progressed { next: "embedding" })
         }
         "embedding" => {
@@ -212,7 +200,7 @@ pub(super) async fn process_file_stage(
                     Ok(sections) => sections,
                     Err(error) => return ingest_error_result(service, item, file_id, error).await,
                 };
-                save_sections(service, item, sections).await?;
+                save_sections(service.db(), item, sections).await?;
             }
             Ok(ProcessResult::Progressed { next: "indexing" })
         }
@@ -234,7 +222,7 @@ pub(super) async fn process_file_stage(
                     .await
                 {
                     Ok(sections) => {
-                        save_sections(service, item, sections.clone()).await?;
+                        save_sections(service.db(), item, sections.clone()).await?;
                         sections
                     }
                     Err(error) => return ingest_error_result(service, item, file_id, error).await,

@@ -13,7 +13,7 @@ pub(super) async fn process_url(
     service: &TaskService,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("URL tasks require group_id"))?;
@@ -42,7 +42,7 @@ pub(super) async fn process_url(
             "sha256": downloaded.sha256,
             "content_base64": STANDARD.encode(downloaded.bytes),
         });
-        save_payload(service, item, payload).await?;
+        save_payload(service.db(), item, payload).await?;
         return Ok(ProcessResult::Progressed { next: "storage" });
     }
     if stage == "storage" {
@@ -56,11 +56,11 @@ pub(super) async fn process_url(
                 Err(error) => return Ok(process_error(stage, error)),
             }
         } else {
-            let request: ImportLibraryFileFromUrlRequest =
-                match url_storage_request(&item.payload) {
-                    Ok(request) => request,
-                    Err(error) => return Ok(process_error(stage, error)),
-                };
+            let request: ImportLibraryFileFromUrlRequest = match url_storage_request(&item.payload)
+            {
+                Ok(request) => request,
+                Err(error) => return Ok(process_error(stage, error)),
+            };
             let artifact = match downloaded_artifact(&item.payload) {
                 Some(artifact) => artifact,
                 None => {
@@ -108,9 +108,9 @@ pub(super) async fn process_url(
             payload
                 .as_object_mut()
                 .map(|object| object.remove("download_artifact"));
-            save_payload(service, item, payload).await?;
+            save_payload(service.db(), item, payload).await?;
         }
-        set_file(service, task, item, file_id).await?;
+        set_file(service.db(), task.id, item, file_id).await?;
         let next = if file.ingest_status == LibraryIngestStatus::Succeeded {
             // A reused, already-ingested file only needs translation and
             // extraction.
