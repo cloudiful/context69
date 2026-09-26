@@ -1,4 +1,5 @@
 pub mod api;
+pub(crate) mod chunk_payload;
 pub mod chunking;
 pub mod config;
 pub mod db;

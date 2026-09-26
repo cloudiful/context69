@@ -34,14 +34,6 @@ export function formatDate(value: string | null | undefined): string {
   }).format(date);
 }
 
-export function formatNumber(value: number | null | undefined): string {
-  if (value == null) {
-    return "--";
-  }
-
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
 export function formatBytes(value: number | null | undefined): string {
   if (value == null) {
     return "--";

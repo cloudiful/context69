@@ -13,7 +13,6 @@
 //! These tests run only when CONTEXT69_TEST_DATABASE_URL points to a scratch
 //! database (migrations are applied automatically). They are skipped otherwise.
 
-#[allow(dead_code)]
 #[path = "task_file_status/support.rs"]
 mod support;
 

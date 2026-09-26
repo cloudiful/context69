@@ -1,6 +1,7 @@
 use super::*;
 use std::time::Instant;
 
+use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
 use crate::domain_errors::DomainError;
 
 impl SyncService {
@@ -127,28 +128,24 @@ impl SyncService {
                 outcome.records_seen += 1;
                 let normalized = normalize_record(record);
 
-                let seed_payload = ChunkPayload {
-                    chunk_id: uuid::Uuid::nil(),
-                    document_id: 0,
+                let group = PayloadGroup {
                     group_id: source_scope.group_id,
-                    group_key: source_scope.group_key.clone(),
-                    group_path: source_scope.group_path.clone(),
+                    group_key: &source_scope.group_key,
+                    group_path: &source_scope.group_path,
                     visibility: source_scope.visibility,
-                    source_key: source.key.clone(),
-                    external_id: normalized.external_id.clone(),
-                    title: normalized.title.clone(),
-                    summary: normalized.summary.clone(),
-                    source_uri: normalized.source_uri.clone(),
+                };
+                let document = PayloadDocument {
+                    source_key: &source.key,
+                    external_id: &normalized.external_id,
+                    title: &normalized.title,
+                    summary: normalized.summary.as_deref(),
+                    source_uri: &normalized.source_uri,
                     published_at: normalized.published_at,
                     updated_at_source: normalized.updated_at,
-                    record_hash: normalized.record_hash.clone(),
-                    chunk_index: 0,
-                    chunk_text: normalized.body_text.clone(),
-                    metadata_json: normalized.metadata_json.clone(),
-                    content_locale: "original".to_string(),
-                    source_locale: None,
-                    translation_provider: None,
+                    record_hash: &normalized.record_hash,
+                    metadata_json: &normalized.metadata_json,
                 };
+                let seed_payload = seed(&group, &document, &normalized.body_text);
                 let upserted = self.db.upsert_document(&seed_payload).await?;
 
                 if upserted.changed {
@@ -169,27 +166,17 @@ impl SyncService {
                     let embeddings = runtime.embedding.embed_texts(&texts).await?;
                     let payloads = chunks
                         .iter()
-                        .map(|chunk| ChunkPayload {
-                            chunk_id: chunk.id,
-                            document_id: upserted.document_id,
-                            group_id: source_scope.group_id,
-                            group_key: source_scope.group_key.clone(),
-                            group_path: source_scope.group_path.clone(),
-                            visibility: source_scope.visibility,
-                            source_key: source.key.clone(),
-                            external_id: normalized.external_id.clone(),
-                            title: normalized.title.clone(),
-                            summary: normalized.summary.clone(),
-                            source_uri: normalized.source_uri.clone(),
-                            published_at: normalized.published_at,
-                            updated_at_source: normalized.updated_at,
-                            record_hash: normalized.record_hash.clone(),
-                            chunk_index: chunk.chunk_index,
-                            chunk_text: chunk.text.clone(),
-                            metadata_json: normalized.metadata_json.clone(),
-                            content_locale: "original".to_string(),
-                            source_locale: None,
-                            translation_provider: None,
+                        .map(|chunk| {
+                            original_chunk(
+                                &group,
+                                &document,
+                                ChunkRef {
+                                    chunk_id: chunk.id,
+                                    document_id: upserted.document_id,
+                                    chunk_index: chunk.chunk_index,
+                                    chunk_text: &chunk.text,
+                                },
+                            )
                         })
                         .collect::<Vec<_>>();
                     self.db

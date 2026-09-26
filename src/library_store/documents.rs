@@ -2,6 +2,7 @@ use anyhow::Result;
 use uuid::Uuid;
 
 use super::{ChunkPayloadRow, FileDocumentRow, LibraryStore};
+use crate::chunk_payload::{RowPayload, from_row};
 use crate::domain::ChunkPayload;
 use crate::domain::LibraryFileDocumentRecord;
 
@@ -148,30 +149,26 @@ impl LibraryStore {
 
         Ok(rows
             .into_iter()
-            .map(|row| ChunkPayload {
-                chunk_id: row.chunk_id,
-                document_id: row.document_id,
-                group_id: row.group_id,
-                group_key: row.group_key,
-                group_path: row.group_path,
-                visibility: row
-                    .visibility
-                    .parse()
-                    .unwrap_or(crate::contracts::Visibility::Private),
-                source_key: row.source_key,
-                external_id: row.external_id,
-                title: row.title,
-                summary: row.summary,
-                source_uri: row.source_uri,
-                published_at: row.published_at,
-                updated_at_source: row.updated_at_source,
-                record_hash: row.record_hash,
-                chunk_index: row.chunk_index,
-                chunk_text: row.chunk_text,
-                metadata_json: row.metadata_json,
-                content_locale: "original".to_string(),
-                source_locale: None,
-                translation_provider: None,
+            .map(|row| {
+                from_row(RowPayload {
+                    chunk_id: row.chunk_id,
+                    document_id: row.document_id,
+                    group_id: row.group_id,
+                    group_key: row.group_key,
+                    group_path: row.group_path,
+                    visibility: row.visibility,
+                    source_key: row.source_key,
+                    external_id: row.external_id,
+                    title: row.title,
+                    summary: row.summary,
+                    source_uri: row.source_uri,
+                    published_at: row.published_at,
+                    updated_at_source: row.updated_at_source,
+                    record_hash: row.record_hash,
+                    chunk_index: row.chunk_index,
+                    chunk_text: row.chunk_text,
+                    metadata_json: row.metadata_json,
+                })
             })
             .collect())
     }

@@ -18,7 +18,7 @@ use crate::{
         VectorIndexRebuildStatus,
     },
     db::{Database, StoredSourceConnection},
-    domain::{ChunkPayload, SyncCheckpoint},
+    domain::SyncCheckpoint,
     embedding::EmbeddingProvider,
     normalize::normalize_record,
     qdrant_index::QdrantIndex,

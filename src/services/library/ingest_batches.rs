@@ -2,8 +2,9 @@ use super::{FILE_LIBRARY_SOURCE_KEY, IngestFailure, IngestResult, LibraryRuntime
 use std::time::Instant;
 
 use crate::{
+    chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk},
     contracts::LibraryIngestFailureStage,
-    domain::{ChunkPayload, DocumentChunk, LibraryFileRecord, NormalizedDocument},
+    domain::{DocumentChunk, LibraryFileRecord, NormalizedDocument},
 };
 use tracing::info;
 
@@ -67,29 +68,36 @@ impl LibraryService {
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Embedding, error))?;
             drop(texts);
 
+            let group = PayloadGroup {
+                group_id: file.group_id,
+                group_key: &file.group_key,
+                group_path: &file.group_path,
+                visibility: file.visibility,
+            };
+            let document = PayloadDocument {
+                source_key: FILE_LIBRARY_SOURCE_KEY,
+                external_id: &normalized.external_id,
+                title: &normalized.title,
+                summary: normalized.summary.as_deref(),
+                source_uri: &normalized.source_uri,
+                published_at: normalized.published_at,
+                updated_at_source: normalized.updated_at,
+                record_hash: &normalized.record_hash,
+                metadata_json: &normalized.metadata_json,
+            };
             let payloads = batch
                 .iter()
-                .map(|chunk| ChunkPayload {
-                    chunk_id: chunk.id,
-                    document_id,
-                    group_id: file.group_id,
-                    group_key: file.group_key.clone(),
-                    group_path: file.group_path.clone(),
-                    visibility: file.visibility,
-                    source_key: FILE_LIBRARY_SOURCE_KEY.to_string(),
-                    external_id: normalized.external_id.clone(),
-                    title: normalized.title.clone(),
-                    summary: normalized.summary.clone(),
-                    source_uri: normalized.source_uri.clone(),
-                    published_at: normalized.published_at,
-                    updated_at_source: normalized.updated_at,
-                    record_hash: normalized.record_hash.clone(),
-                    chunk_index: chunk.chunk_index,
-                    chunk_text: chunk.text.clone(),
-                    metadata_json: normalized.metadata_json.clone(),
-                    content_locale: "original".to_string(),
-                    source_locale: None,
-                    translation_provider: None,
+                .map(|chunk| {
+                    original_chunk(
+                        &group,
+                        &document,
+                        ChunkRef {
+                            chunk_id: chunk.id,
+                            document_id,
+                            chunk_index: chunk.chunk_index,
+                            chunk_text: &chunk.text,
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
 

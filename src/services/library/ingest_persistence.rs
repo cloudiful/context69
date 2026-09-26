@@ -1,8 +1,8 @@
 use chrono::Utc;
 use tracing::info;
-use uuid::Uuid;
 
 use super::*;
+use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
 
 impl LibraryService {
     pub(super) async fn persist_sections(
@@ -29,28 +29,26 @@ impl LibraryService {
             normalized,
         } in sections
         {
-            let seed_payload = ChunkPayload {
-                chunk_id: Uuid::nil(),
-                document_id: 0,
-                group_id: file.group_id,
-                group_key: file.group_key.clone(),
-                group_path: file.group_path.clone(),
-                visibility: file.visibility,
-                source_key: FILE_LIBRARY_SOURCE_KEY.to_string(),
-                external_id: normalized.external_id.clone(),
-                title: normalized.title.clone(),
-                summary: normalized.summary.clone(),
-                source_uri: normalized.source_uri.clone(),
-                published_at: normalized.published_at,
-                updated_at_source: normalized.updated_at,
-                record_hash: normalized.record_hash.clone(),
-                chunk_index: 0,
-                chunk_text: normalized.body_text.clone(),
-                metadata_json: normalized.metadata_json.clone(),
-                content_locale: "original".to_string(),
-                source_locale: None,
-                translation_provider: None,
-            };
+            let seed_payload = seed(
+                &PayloadGroup {
+                    group_id: file.group_id,
+                    group_key: &file.group_key,
+                    group_path: &file.group_path,
+                    visibility: file.visibility,
+                },
+                &PayloadDocument {
+                    source_key: FILE_LIBRARY_SOURCE_KEY,
+                    external_id: &normalized.external_id,
+                    title: &normalized.title,
+                    summary: normalized.summary.as_deref(),
+                    source_uri: &normalized.source_uri,
+                    published_at: normalized.published_at,
+                    updated_at_source: normalized.updated_at,
+                    record_hash: &normalized.record_hash,
+                    metadata_json: &normalized.metadata_json,
+                },
+                &normalized.body_text,
+            );
             let upserted = self
                 .db
                 .upsert_document(&seed_payload)

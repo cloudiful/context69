@@ -19,6 +19,7 @@ use super::ingest_checkpoint::{
 use super::ingest_types::{IngestFailure, IngestSection, PreparedIngestSection};
 use super::task_ingest::{normalize_task_failure, task_failure};
 use crate::chunking::chunk_document_iter;
+use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
 use crate::contracts::LibraryIngestFailureStage;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
@@ -198,28 +199,26 @@ impl LibraryService {
         index: usize,
         mappings: &mut Vec<crate::domain::LibraryFileDocumentRecord>,
     ) -> Result<i64, UnifiedIngestError> {
-        let seed_payload = crate::domain::ChunkPayload {
-            chunk_id: Uuid::nil(),
-            document_id: 0,
-            group_id: file.group_id,
-            group_key: file.group_key.clone(),
-            group_path: file.group_path.clone(),
-            visibility: file.visibility,
-            source_key: super::FILE_LIBRARY_SOURCE_KEY.to_string(),
-            external_id: prepared_section.normalized.external_id.clone(),
-            title: prepared_section.normalized.title.clone(),
-            summary: prepared_section.normalized.summary.clone(),
-            source_uri: prepared_section.normalized.source_uri.clone(),
-            published_at: prepared_section.normalized.published_at,
-            updated_at_source: prepared_section.normalized.updated_at,
-            record_hash: prepared_section.normalized.record_hash.clone(),
-            chunk_index: 0,
-            chunk_text: prepared_section.normalized.body_text.clone(),
-            metadata_json: prepared_section.normalized.metadata_json.clone(),
-            content_locale: "original".to_string(),
-            source_locale: None,
-            translation_provider: None,
-        };
+        let seed_payload = seed(
+            &PayloadGroup {
+                group_id: file.group_id,
+                group_key: &file.group_key,
+                group_path: &file.group_path,
+                visibility: file.visibility,
+            },
+            &PayloadDocument {
+                source_key: super::FILE_LIBRARY_SOURCE_KEY,
+                external_id: &prepared_section.normalized.external_id,
+                title: &prepared_section.normalized.title,
+                summary: prepared_section.normalized.summary.as_deref(),
+                source_uri: &prepared_section.normalized.source_uri,
+                published_at: prepared_section.normalized.published_at,
+                updated_at_source: prepared_section.normalized.updated_at,
+                record_hash: &prepared_section.normalized.record_hash,
+                metadata_json: &prepared_section.normalized.metadata_json,
+            },
+            &prepared_section.normalized.body_text,
+        );
         let upserted = self
             .db
             .upsert_document(&seed_payload)
@@ -271,29 +270,36 @@ impl LibraryService {
                 let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
                 normalize_task_failure(failure)
             })?;
+        let group = PayloadGroup {
+            group_id: file.group_id,
+            group_key: &file.group_key,
+            group_path: &file.group_path,
+            visibility: file.visibility,
+        };
+        let document = PayloadDocument {
+            source_key: super::FILE_LIBRARY_SOURCE_KEY,
+            external_id: &prepared_section.normalized.external_id,
+            title: &prepared_section.normalized.title,
+            summary: prepared_section.normalized.summary.as_deref(),
+            source_uri: &prepared_section.normalized.source_uri,
+            published_at: prepared_section.normalized.published_at,
+            updated_at_source: prepared_section.normalized.updated_at,
+            record_hash: &prepared_section.normalized.record_hash,
+            metadata_json: &prepared_section.normalized.metadata_json,
+        };
         let payloads = batch
             .iter()
-            .map(|chunk| crate::domain::ChunkPayload {
-                chunk_id: chunk.id,
-                document_id,
-                group_id: file.group_id,
-                group_key: file.group_key.clone(),
-                group_path: file.group_path.clone(),
-                visibility: file.visibility,
-                source_key: super::FILE_LIBRARY_SOURCE_KEY.to_string(),
-                external_id: prepared_section.normalized.external_id.clone(),
-                title: prepared_section.normalized.title.clone(),
-                summary: prepared_section.normalized.summary.clone(),
-                source_uri: prepared_section.normalized.source_uri.clone(),
-                published_at: prepared_section.normalized.published_at,
-                updated_at_source: prepared_section.normalized.updated_at,
-                record_hash: prepared_section.normalized.record_hash.clone(),
-                chunk_index: chunk.chunk_index,
-                chunk_text: chunk.text.clone(),
-                metadata_json: prepared_section.normalized.metadata_json.clone(),
-                content_locale: "original".to_string(),
-                source_locale: None,
-                translation_provider: None,
+            .map(|chunk| {
+                original_chunk(
+                    &group,
+                    &document,
+                    ChunkRef {
+                        chunk_id: chunk.id,
+                        document_id,
+                        chunk_index: chunk.chunk_index,
+                        chunk_text: &chunk.text,
+                    },
+                )
             })
             .collect::<Vec<_>>();
 

@@ -175,15 +175,6 @@ export function loadSearchSession(): SearchSessionState | null {
   }
 }
 
-export function clearSearchSession(): void {
-  if (typeof window === "undefined" || !window.sessionStorage) return;
-  try {
-    window.sessionStorage.removeItem(SEARCH_SESSION_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
-}
-
 export function buildSearchPayload(
   filters: SearchFilters,
   navigation: number | SearchNavigationState = 1,
@@ -210,7 +201,7 @@ export function buildSearchPayload(
   };
 }
 
-export function escapeSearchHtml(value: string): string {
+function escapeSearchHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

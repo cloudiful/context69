@@ -30,7 +30,7 @@ use crate::{
     },
     db::Database,
     docling::DoclingXlsxClient,
-    domain::{ChunkPayload, LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
+    domain::{LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
     embedding::EmbeddingProvider,
     library_store::{LibraryStore, NewLibraryFile, file_to_summary},
     normalize::{normalize_body, normalize_record, normalize_whitespace},

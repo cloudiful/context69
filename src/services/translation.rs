@@ -11,9 +11,10 @@ use context69_translation::{
 use tracing::info;
 
 use crate::{
+    chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, PayloadLocale, translated_chunk},
     chunking::{ChunkingConfig, chunk_document},
     contracts::Visibility,
-    domain::{ChunkPayload, SourceRecord},
+    domain::SourceRecord,
     embedding::EmbeddingProvider,
     normalize::normalize_record,
     qdrant_index::QdrantIndex,
@@ -101,29 +102,42 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             .map(|chunk| chunk.text.clone())
             .collect::<Vec<_>>();
         let embeddings = embedding.embed_texts(&texts).await?;
+        let group = PayloadGroup {
+            group_id: translation.group_id,
+            group_key: translation.group_key,
+            group_path: translation.group_path,
+            visibility,
+        };
+        let document = PayloadDocument {
+            source_key: translation.source_key,
+            external_id: translation.external_id,
+            title: translation.title,
+            summary: translation.summary,
+            source_uri: translation.source_uri,
+            published_at: translation.published_at,
+            updated_at_source: translation.updated_at,
+            record_hash: &normalized.record_hash,
+            metadata_json: translation.metadata_json,
+        };
+        let locale = PayloadLocale {
+            content_locale: translation.target_locale,
+            source_locale: translation.source_locale,
+            translation_provider: Some(translation.provider_key),
+        };
         let payloads = chunks
             .iter()
-            .map(|chunk| ChunkPayload {
-                chunk_id: chunk.id,
-                document_id: translation.document_id,
-                group_id: translation.group_id,
-                group_key: translation.group_key.to_string(),
-                group_path: translation.group_path.to_string(),
-                visibility,
-                source_key: translation.source_key.to_string(),
-                external_id: translation.external_id.to_string(),
-                title: translation.title.to_string(),
-                summary: translation.summary.map(ToOwned::to_owned),
-                source_uri: translation.source_uri.to_string(),
-                published_at: translation.published_at,
-                updated_at_source: translation.updated_at,
-                record_hash: normalized.record_hash.clone(),
-                chunk_index: chunk.chunk_index,
-                chunk_text: chunk.text.clone(),
-                metadata_json: translation.metadata_json.clone(),
-                content_locale: translation.target_locale.to_string(),
-                source_locale: translation.source_locale.map(ToOwned::to_owned),
-                translation_provider: Some(translation.provider_key.to_string()),
+            .map(|chunk| {
+                translated_chunk(
+                    &group,
+                    &document,
+                    ChunkRef {
+                        chunk_id: chunk.id,
+                        document_id: translation.document_id,
+                        chunk_index: chunk.chunk_index,
+                        chunk_text: &chunk.text,
+                    },
+                    locale,
+                )
             })
             .collect::<Vec<_>>();
         let replacement = index

@@ -207,19 +207,19 @@ pub struct SeedFileOptions {
     pub storage_rel_path: OrphanKey,
 }
 
-/// How a seeded row points at storage.
+/// Storage path of a seeded row.
+///
+/// A legacy direct-path row carries no storage object row; that is modelled by
+/// `SeedFileOptions::storage_object_id` being `None`, not by a distinct key
+/// shape, so the key is always the stored relative path.
 pub enum OrphanKey {
     /// Content-addressed key produced by [`seed_storage_object`].
     Object(String),
-    /// A legacy direct-path key with no storage-object row.
-    Legacy(String),
 }
 
 pub async fn seed_file(db: &Database, group_id: i64, options: SeedFileOptions) -> Uuid {
     let file_id = Uuid::new_v4();
-    let storage_rel_path = match &options.storage_rel_path {
-        OrphanKey::Object(key) | OrphanKey::Legacy(key) => key.clone(),
-    };
+    let OrphanKey::Object(storage_rel_path) = &options.storage_rel_path;
     sqlx::query(
         "INSERT INTO context69.library_files \
          (id, group_id, filename, media_type, size_bytes, sha256, storage_rel_path, \
@@ -233,7 +233,7 @@ pub async fn seed_file(db: &Database, group_id: i64, options: SeedFileOptions) -
     .bind(format!("release-{file_id}.txt"))
     .bind(options.content.len() as i64)
     .bind(&options.sha256)
-    .bind(&storage_rel_path)
+    .bind(storage_rel_path)
     .bind(options.storage_object_id)
     .bind(&options.ingest_status)
     .bind(options.delete_source_after_processing)
@@ -242,48 +242,6 @@ pub async fn seed_file(db: &Database, group_id: i64, options: SeedFileOptions) -
     .await
     .expect("seed library file");
     file_id
-}
-
-/// Seed a legacy direct-path row with no storage object (eligible for the
-/// missing-source cleanup checks).
-pub async fn seed_legacy_file(
-    db: &Database,
-    group_id: i64,
-    storage_rel_path: &str,
-    released: bool,
-) -> Uuid {
-    seed_file(
-        db,
-        group_id,
-        SeedFileOptions {
-            sha256: "a".repeat(64),
-            content: b"legacy".to_vec(),
-            ingest_status: "succeeded".to_string(),
-            delete_source_after_processing: false,
-            source_released: released,
-            storage_object_id: None,
-            storage_rel_path: OrphanKey::Legacy(storage_rel_path.to_string()),
-        },
-    )
-    .await
-}
-
-pub async fn release_state(
-    db: &Database,
-    file_id: Uuid,
-) -> (bool, Option<chrono::DateTime<chrono::Utc>>) {
-    let row = sqlx::query(
-        "SELECT source_released_at, (storage_object_id IS NULL) AS detached \
-         FROM context69.library_files WHERE id = $1",
-    )
-    .bind(file_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("load release state");
-    (
-        row.get::<bool, _>("detached"),
-        row.get("source_released_at"),
-    )
 }
 
 pub async fn object_row_exists(db: &Database, object_id: Uuid) -> bool {
@@ -344,25 +302,4 @@ pub async fn cleanup_group(db: &Database, group_id: i64) {
         .execute(db.pool())
         .await
         .expect("clean up group");
-}
-
-pub async fn seed_user(db: &Database) -> i64 {
-    sqlx::query(
-        "INSERT INTO context69.users (login_name, display_name, password_hash) \
-         VALUES ($1, $2, 'unused') RETURNING id",
-    )
-    .bind(format!("source-release-{}", Uuid::new_v4()))
-    .bind("Source Release Test")
-    .fetch_one(db.pool())
-    .await
-    .expect("seed test user")
-    .get("id")
-}
-
-pub async fn cleanup_user(db: &Database, user_id: i64) {
-    sqlx::query("DELETE FROM context69.users WHERE id = $1")
-        .bind(user_id)
-        .execute(db.pool())
-        .await
-        .ok();
 }

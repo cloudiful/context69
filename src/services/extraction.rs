@@ -5,9 +5,10 @@ use serde_json::json;
 use tracing::info;
 
 use crate::{
+    chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk},
     contracts::Visibility,
     db::Database,
-    domain::{AccessScope, ChunkPayload},
+    domain::AccessScope,
     qdrant_index::QdrantIndex,
 };
 
@@ -49,30 +50,37 @@ impl ExtractionPublisher for ExtractionPublisherAdapter {
             .visibility
             .parse::<Visibility>()
             .context("invalid extraction document visibility")?;
+        let group = PayloadGroup {
+            group_id: publication.group_id,
+            group_key: publication.group_key,
+            group_path: publication.group_path,
+            visibility,
+        };
+        let payload_document = PayloadDocument {
+            source_key: publication.source_key,
+            external_id: publication.external_id,
+            title: &document.title,
+            summary: document.summary.as_deref(),
+            source_uri: publication.source_uri,
+            published_at: publication.published_at,
+            updated_at_source: publication.updated_at,
+            record_hash: &document.record_hash,
+            metadata_json: &merged_metadata,
+        };
         let payloads = document
             .chunks
             .iter()
-            .map(|chunk| ChunkPayload {
-                chunk_id: chunk.chunk_id,
-                document_id: publication.document_id,
-                group_id: publication.group_id,
-                group_key: publication.group_key.to_string(),
-                group_path: publication.group_path.to_string(),
-                visibility,
-                source_key: publication.source_key.to_string(),
-                external_id: publication.external_id.to_string(),
-                title: document.title.clone(),
-                summary: document.summary.clone(),
-                source_uri: publication.source_uri.to_string(),
-                published_at: publication.published_at,
-                updated_at_source: publication.updated_at,
-                record_hash: document.record_hash.clone(),
-                chunk_index: chunk.chunk_index,
-                chunk_text: chunk.text.clone(),
-                metadata_json: merged_metadata.clone(),
-                content_locale: "original".to_string(),
-                source_locale: None,
-                translation_provider: None,
+            .map(|chunk| {
+                original_chunk(
+                    &group,
+                    &payload_document,
+                    ChunkRef {
+                        chunk_id: chunk.chunk_id,
+                        document_id: publication.document_id,
+                        chunk_index: chunk.chunk_index,
+                        chunk_text: &chunk.text,
+                    },
+                )
             })
             .collect::<Vec<_>>();
 

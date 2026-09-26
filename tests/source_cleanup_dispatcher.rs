@@ -6,7 +6,6 @@
 //! scratch database; they are skipped otherwise like the existing
 //! `library_source_release` suite.
 
-#[allow(dead_code)]
 #[path = "library_source_release/support.rs"]
 mod support;
 

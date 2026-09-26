@@ -5,8 +5,8 @@ import { parseDate } from "@internationalized/date";
 import type { DateValue } from "@internationalized/date";
 
 import AppFormField from "./AppFormField.vue";
-import type { GroupResponse, SourceStatus } from "../services/api";
-import type { SearchFilters, SearchSortMode } from "../types/ui";
+import type { GroupResponse, SearchSort, SourceStatus } from "../services/api";
+import type { SearchFilters } from "../types/ui";
 import type { SearchHistoryEntry } from "../utils/search-history";
 import { GROUP_FOLDER_ALL_VALUE, groupFolderOptions } from "../utils/search";
 
@@ -30,14 +30,14 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const advancedFiltersOpen = ref(false);
 
-const sortOptions = computed<Array<{ label: string; value: SearchSortMode }>>(() => [
+const sortOptions = computed<Array<{ label: string; value: SearchSort }>>(() => [
   { label: t("search.form.sortRelevance"), value: "relevance" },
   { label: t("search.form.sortDate"), value: "date" },
 ]);
 
 const sortModel = computed({
   get: () => props.filters.sort ?? "relevance",
-  set: (value: SearchSortMode) => patchFilters({ sort: value }),
+  set: (value: SearchSort) => patchFilters({ sort: value }),
 });
 
 function patchFilters(next: Partial<SearchFilters>) {

@@ -1,7 +1,7 @@
 import type { Client } from "openapi-fetch";
 import type { paths } from "../../generated/openapi";
 import { handleUnauthorized } from "../auth/session";
-import { API_BASE_URL, openapiClient } from "../openapi-client";
+import { openapiClient, resolveApiUrl } from "../openapi-client";
 import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";
 import { createNamespacesApi } from "./api-namespaces";
@@ -23,6 +23,8 @@ export class ApiError extends Error {
 }
 
 export type OpenApiClient = Client<paths>;
+
+export { resolveApiUrl };
 
 function readErrorMessage(response: Response, error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
@@ -63,10 +65,6 @@ export async function unwrapFetchResponse<TData>(response: Response): Promise<TD
   }
 
   return response.json() as Promise<TData>;
-}
-
-export function resolveApiUrl(path: string): string {
-  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 }
 
 export async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
