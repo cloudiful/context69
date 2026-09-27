@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::domain_errors::DomainError;
 use chrono::{DateTime, Utc};
-use context69_contracts::MetadataValueKind;
+use context69_contracts::{MetadataDataType, MetadataIndexResponse, MetadataValueKind};
 use serde_json::Value;
 
 use crate::db::StoredMetadataIndex;
@@ -131,6 +131,42 @@ fn typed_value(data_type: &str, value: &Value) -> Result<TypedMetadataValue> {
         }
     }
     Ok(result)
+}
+
+pub(super) fn data_type_str(value: MetadataDataType) -> &'static str {
+    use MetadataDataType::*;
+    match value {
+        Keyword => "keyword",
+        Integer => "integer",
+        Float => "float",
+        Boolean => "boolean",
+        Datetime => "datetime",
+    }
+}
+
+pub(super) fn value_kind_str(value: MetadataValueKind) -> &'static str {
+    match value {
+        MetadataValueKind::Scalar => "scalar",
+        MetadataValueKind::Array => "array",
+    }
+}
+
+pub(super) fn map_index(value: StoredMetadataIndex) -> Result<MetadataIndexResponse> {
+    Ok(MetadataIndexResponse {
+        index_id: value.index_id,
+        group_path: value.group_path,
+        source_key: value.source_key,
+        path: value.field_path,
+        data_type: serde_json::from_value(serde_json::Value::String(value.data_type))?,
+        value_kind: serde_json::from_value(serde_json::Value::String(value.value_kind))?,
+        sortable: value.sortable,
+        status: serde_json::from_value(serde_json::Value::String(value.status))?,
+        processed_documents: value.processed_documents,
+        total_documents: value.total_documents,
+        error_message: value.error_message,
+        created_at: value.created_at,
+        updated_at: value.updated_at,
+    })
 }
 
 #[cfg(test)]

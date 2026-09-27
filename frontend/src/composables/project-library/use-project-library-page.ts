@@ -12,6 +12,7 @@ import {
 } from "../../services/api";
 import type { ExplorerEntry } from "../../types/library";
 import { useErrorToast } from "../use-error-toast";
+import { emptyPagination } from "../use-server-pagination";
 
 interface Options {
   groupPath: MaybeRefOrGetter<string>;
@@ -27,7 +28,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
   const page = ref(1);
   const pageSize = ref(50);
   const total = ref(0);
-  const pagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
+  const pagination = ref<Pagination>(emptyPagination(50));
   const sortBy = ref<LibraryResourceSortBy>("updated_at");
   const sortDirection = ref<SortDirection>("desc");
   const query = ref("");
@@ -160,7 +161,7 @@ export function useProjectLibraryPage({ groupPath, folder, t }: Options) {
     error.value = null;
     page.value = 1;
     total.value = 0;
-    pagination.value = { page: 1, page_size: pageSize.value, total: 0, total_pages: 0 };
+    pagination.value = emptyPagination(pageSize.value);
   }
 
   return {

@@ -1,0 +1,22 @@
+export const auth = {
+  sessionUnavailable: "认证服务暂不可用",
+  sessionUnavailableMessage: "暂时无法恢复登录状态，请稍后重试。",
+  label: "身份认证",
+  title: "登录",
+  description: "使用 Context69 账号登录后，才能继续访问搜索、文件库、来源和设置。",
+  loginName: "登录名",
+  loginNamePlaceholder: "输入登录名",
+  password: "密码",
+  passwordPlaceholder: "输入密码",
+  signIn: "登录",
+  signingIn: "登录中...",
+  logout: "退出登录",
+  loginFailed: "登录失败。",
+  loginFailedTitle: "登录失败",
+  invalidCredentials: "登录名或密码错误。",
+  networkError: "无法连接认证服务。",
+  validation: {
+    loginNameRequired: "登录名不能为空。",
+    passwordRequired: "密码不能为空。",
+  },
+} as const;

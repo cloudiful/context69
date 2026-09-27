@@ -27,6 +27,7 @@ mod health;
 mod library;
 mod library_upload;
 mod personal_access_tokens;
+mod resource_routes;
 mod router;
 mod sources;
 mod task_inputs;

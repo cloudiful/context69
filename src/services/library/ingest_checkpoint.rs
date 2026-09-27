@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use super::ingest_batches::ChunkBatchIter;
 use super::ingest_types::PreparedIngestSection;
 use crate::chunking::chunk_document_iter;
 
@@ -150,42 +151,20 @@ pub fn compute_prepared_record_hash(prepared: &[PreparedIngestSection]) -> Strin
 }
 
 /// Estimate the total number of embedding batches a prepared set of sections
-/// would produce. Mirrors the batching rules of `persist_document_chunks`.
+/// would produce. Counts the same streaming batches as `persist_document_chunks`.
 pub fn estimate_total_batches(
     prepared: &[PreparedIngestSection],
     chunking: &crate::chunking::ChunkingConfig,
 ) -> usize {
-    use super::ingest_batches::{MAX_BATCH_CHARS, MAX_BATCH_CHUNKS};
     let mut total = 0usize;
     for section in prepared {
-        let mut chunks = chunk_document_iter(
+        let chunks = chunk_document_iter(
             0,
             super::FILE_LIBRARY_SOURCE_KEY,
             &section.normalized,
             chunking,
         );
-        let mut pending: Option<crate::domain::DocumentChunk> = None;
-        loop {
-            let mut batch = Vec::with_capacity(MAX_BATCH_CHUNKS);
-            let mut batch_chars = 0usize;
-            while batch.len() < MAX_BATCH_CHUNKS {
-                let next = pending.take().or_else(|| chunks.next());
-                let Some(chunk) = next else {
-                    break;
-                };
-                let chunk_chars = chunk.text.chars().count();
-                if !batch.is_empty() && batch_chars + chunk_chars > MAX_BATCH_CHARS {
-                    pending = Some(chunk);
-                    break;
-                }
-                batch_chars += chunk_chars;
-                batch.push(chunk);
-            }
-            if batch.is_empty() {
-                break;
-            }
-            total += 1;
-        }
+        total += ChunkBatchIter::new(chunks).count();
     }
     total
 }
@@ -305,6 +284,23 @@ mod tests {
         };
         let prepared = vec![section("hash", "hi")];
         assert!(estimate_total_batches(&prepared, &cfg) >= 1);
+    }
+
+    #[test]
+    fn estimate_total_batches_counts_count_boundaries_across_sections() {
+        let cfg = crate::chunking::ChunkingConfig {
+            max_chars: 100,
+            overlap_chars: 0,
+        };
+        // 33 paragraphs of 60 chars each overflow the 100-char chunking budget
+        // pairwise, so chunking yields 33 chunks => 32 + 1 batches.
+        let body = vec!["x".repeat(60); 33].join("\n\n");
+        let first = estimate_total_batches(&[section("hash", &body)], &cfg);
+        assert_eq!(first, 2, "fixture must cross the chunk-count boundary");
+
+        let both =
+            estimate_total_batches(&[section("hash", &body), section("hash-b", "short")], &cfg);
+        assert_eq!(both, first + 1, "section batches must be summed");
     }
 
     #[test]

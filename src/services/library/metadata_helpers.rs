@@ -71,7 +71,9 @@ mod tests {
         .expect("metadata should compose");
 
         assert_eq!(merged["score"], json!(10));
+        assert_eq!(merged["section_only"], json!(true));
         assert_eq!(merged["library_file_id"], json!("system"));
+        assert_eq!(merged["is_library_file"], json!(true));
         assert!(merged.get("record_hash").is_none());
     }
 }

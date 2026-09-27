@@ -2,8 +2,8 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent } from "vue";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PaginatedResponse } from "../services/api";
-import { useServerPagination, type ServerPageLoader } from "./use-server-pagination";
+import type { PaginatedResponse, Pagination } from "../services/api";
+import { emptyPagination, useServerPagination, type ServerPageLoader } from "./use-server-pagination";
 
 function response(page: number, pageSize: number, items: number[], total = items.length): PaginatedResponse<number> {
   return {
@@ -16,6 +16,19 @@ function response(page: number, pageSize: number, items: number[], total = items
     },
   };
 }
+
+describe("emptyPagination", () => {
+  it("returns the generated Pagination shape for an empty first page", () => {
+    const pagination: Pagination = emptyPagination(25);
+
+    expect(pagination).toEqual({ page: 1, page_size: 25, total: 0, total_pages: 0 });
+    expect(Object.keys(pagination).sort()).toEqual(["page", "page_size", "total", "total_pages"]);
+  });
+
+  it("returns a fresh object per call", () => {
+    expect(emptyPagination(50)).not.toBe(emptyPagination(50));
+  });
+});
 
 describe("useServerPagination", () => {
   it("exposes loading while a request is pending", async () => {
