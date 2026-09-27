@@ -8,7 +8,6 @@
 //! these run only when `CONTEXT69_TEST_DATABASE_URL` is set; they are skipped
 //! otherwise.
 
-#[allow(dead_code)]
 #[path = "task_file_status/support.rs"]
 mod support;
 

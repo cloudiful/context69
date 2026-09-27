@@ -129,14 +129,8 @@ impl LibraryService {
         {
             Ok(file) => file,
             Err(error) => {
-                self.rollback_new_file_record_for_task(
-                    Some(group_id),
-                    file_id,
-                    Some(&object.object_key),
-                    Some(object.id),
-                    lease_token,
-                )
-                .await;
+                self.rollback_new_uploaded_file_for_task(group_id, file_id, &object, lease_token)
+                    .await;
                 return Err(error);
             }
         };
@@ -147,11 +141,10 @@ impl LibraryService {
             {
                 Ok(file) => file,
                 Err(error) => {
-                    self.rollback_new_file_record_for_task(
-                        Some(group_id),
+                    self.rollback_new_uploaded_file_for_task(
+                        group_id,
                         file_id,
-                        Some(&object.object_key),
-                        Some(object.id),
+                        &object,
                         lease_token,
                     )
                     .await;
@@ -164,14 +157,8 @@ impl LibraryService {
                 .apply_file_translation_directive(file_id, directive)
                 .await
         {
-            self.rollback_new_file_record_for_task(
-                Some(group_id),
-                file_id,
-                Some(&object.object_key),
-                Some(object.id),
-                lease_token,
-            )
-            .await;
+            self.rollback_new_uploaded_file_for_task(group_id, file_id, &object, lease_token)
+                .await;
             return Err(error);
         }
         if let Some(directive) = upload.options.extraction.as_ref()
@@ -179,14 +166,8 @@ impl LibraryService {
                 .apply_file_extraction_directive(file_id, directive)
                 .await
         {
-            self.rollback_new_file_record_for_task(
-                Some(group_id),
-                file_id,
-                Some(&object.object_key),
-                Some(object.id),
-                lease_token,
-            )
-            .await;
+            self.rollback_new_uploaded_file_for_task(group_id, file_id, &object, lease_token)
+                .await;
             return Err(error);
         }
 

@@ -4,16 +4,29 @@
 //!
 //! These run only when `CONTEXT69_TEST_DATABASE_URL` points at a scratch
 //! database with the current migrations applied; they are skipped otherwise.
+//!
+//! The shared helpers live in `support_core` and the release-only additions in
+//! `support_release_only`; the `support` module re-exports both so the case
+//! files keep importing a single fixture namespace.
 
-#[allow(dead_code)]
 #[path = "library_source_release/support.rs"]
-mod support;
+mod support_core;
 
 #[path = "library_source_release/support_seed.rs"]
 mod support_seed;
 
 #[path = "library_source_release/support_seed_release.rs"]
 mod support_seed_release;
+
+#[path = "library_source_release/support_release_only.rs"]
+mod support_release_only;
+
+/// Fixture namespace imported by the case files: the shared helpers plus the
+/// release-only additions.
+mod support {
+    pub use crate::support_core::*;
+    pub use crate::support_release_only::*;
+}
 
 #[path = "library_source_release/cases_manual_release.rs"]
 mod cases_manual_release;

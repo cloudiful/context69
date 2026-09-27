@@ -3,7 +3,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::{
     Router,
-    extract::DefaultBodyLimit,
     http::{HeaderName, Method, header},
     middleware::from_fn_with_state,
     routing::{get, post, put},
@@ -24,37 +23,20 @@ use tower_sessions_redis_store::{
 
 use crate::services::app::Context69App;
 
+use super::resource_routes::{document_routes, library_routes, task_routes};
 use super::{
-    ApiState, auth_middleware, batch_get_group_documents, build_api_state, cancel_active_tasks,
-    cancel_task, clear_task_history, create_admin_user, create_group_library_folder,
-    create_group_library_text, create_group_source_folder, create_library_folder,
-    create_library_text, create_metadata_index, create_personal_access_token, create_source,
-    create_source_connection, delete_group_document_by_key, delete_group_library_file,
-    delete_group_library_folder, delete_library_file, delete_library_folder, delete_metadata_index,
-    delete_source, delete_source_connection, delete_task, disable_admin_user, enable_admin_user,
-    ensure_scope, forbid_personal_access_token_middleware, get_extraction_health,
-    get_group_document_by_key, get_group_library_file, get_group_library_resources,
-    get_group_library_tree, get_group_translation_settings, get_library_file,
-    get_library_resources, get_library_tree, get_task, get_translation_settings, healthz,
-    import_group_library_file_url, list_admin_users, list_document_extraction_jobs,
-    list_document_translation_jobs, list_extraction_templates, list_metadata_indexes,
-    list_personal_access_tokens, list_source_connections, list_sources, list_task_items,
-    list_tasks, list_translation_providers, login, logout, me, move_group_library_file,
-    move_group_library_folder, move_library_file, move_library_folder, openapi_json,
-    prepare_group_library_upload, query_group_documents,
-    rebuild_document_extractions, rebuild_document_translations,
-    release_group_library_file_source, require_admin_scope_middleware,
-    require_library_scope_middleware, require_search_scope_middleware,
+    ApiState, auth_middleware, build_api_state, cancel_active_tasks, create_admin_user,
+    create_group_source_folder, create_personal_access_token, create_source,
+    create_source_connection, delete_source, delete_source_connection, disable_admin_user,
+    enable_admin_user, forbid_personal_access_token_middleware, get_extraction_health,
+    get_translation_settings, healthz, list_admin_users, list_personal_access_tokens,
+    list_source_connections, list_sources, list_translation_providers, login, logout, me,
+    openapi_json, require_admin_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, rerun_task, reset_admin_user_password, restore_task,
-    retry_metadata_index, retry_task, revoke_personal_access_token, stream_tasks,
-    submit_delete_batch, submit_file_batch, submit_task, submit_text_batch, submit_url_batch,
+    require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
     submit_vector_index_rebuild, sync_group_source_folder, sync_source,
-    touch_personal_access_token_middleware, trash_task, update_admin_user,
-    update_group_source_folder_config, update_group_translation_settings, update_metadata_index,
+    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
     update_source, update_source_connection, update_translation_settings,
-    upload_group_library_files, upload_library_files, upsert_extraction_template,
-    upsert_group_library_text,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -148,97 +130,6 @@ fn protected_routes(upload_body_limit: usize, api_state: ApiState) -> Router<Api
         .merge(library_routes(upload_body_limit, api_state.clone()))
         .merge(document_routes(api_state.clone()))
         .merge(task_routes(api_state))
-}
-
-fn task_routes(api_state: ApiState) -> Router<ApiState> {
-    Router::new()
-        .route("/v1/scopes/ensure", post(ensure_scope))
-        .route("/v1/tasks/clear", post(clear_task_history))
-        .route("/v1/tasks/stream", get(stream_tasks))
-        .route("/v1/tasks", get(list_tasks).post(submit_task))
-        .route("/v1/tasks/{task_id}", get(get_task).delete(delete_task))
-        .route("/v1/tasks/{task_id}/items", get(list_task_items))
-        .route("/v1/tasks/{task_id}/retry", post(retry_task))
-        .route("/v1/tasks/{task_id}/rerun", post(rerun_task))
-        .route("/v1/tasks/{task_id}/cancel", post(cancel_task))
-        .route("/v1/tasks/{task_id}/trash", post(trash_task))
-        .route("/v1/tasks/{task_id}/restore", post(restore_task))
-        .route(
-            "/v1/groups/by-path/{group_path}/batch/text",
-            post(submit_text_batch),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/batch/url",
-            post(submit_url_batch),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/batch/file",
-            post(submit_file_batch),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/batch/delete",
-            post(submit_delete_batch),
-        )
-        .layer(from_fn_with_state(
-            api_state,
-            require_workspace_scope_middleware,
-        ))
-}
-
-fn document_routes(api_state: ApiState) -> Router<ApiState> {
-    Router::new()
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/query",
-            post(query_group_documents),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/batch-get",
-            post(batch_get_group_documents),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/by-external-id",
-            get(get_group_document_by_key).delete(delete_group_document_by_key),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/metadata-indexes",
-            get(list_metadata_indexes).post(create_metadata_index),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}",
-            put(update_metadata_index).delete(delete_metadata_index),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}/retry",
-            post(retry_metadata_index),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/translation-settings",
-            get(get_group_translation_settings).put(update_group_translation_settings),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/translations",
-            get(list_document_translation_jobs),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild",
-            post(rebuild_document_translations),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/extraction-templates",
-            get(list_extraction_templates).put(upsert_extraction_template),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions",
-            get(list_document_extraction_jobs),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild",
-            post(rebuild_document_extractions),
-        )
-        .layer(from_fn_with_state(
-            api_state,
-            require_library_scope_middleware,
-        ))
 }
 
 fn general_protected_routes(api_state: ApiState) -> Router<ApiState> {
@@ -363,88 +254,6 @@ fn settings_routes(api_state: ApiState) -> Router<ApiState> {
         .layer(from_fn_with_state(
             api_state,
             require_settings_scope_middleware,
-        ))
-}
-
-fn library_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiState> {
-    Router::new()
-        .route("/v1/library/tree", get(get_library_tree))
-        .route("/v1/library/resources", get(get_library_resources))
-        .route("/v1/library/folders", post(create_library_folder))
-        .route(
-            "/v1/library/texts",
-            post(create_library_text).layer(DefaultBodyLimit::max(upload_body_limit)),
-        )
-        .route(
-            "/v1/library/folders/{folder_id}/move",
-            post(move_library_folder),
-        )
-        .route(
-            "/v1/library/folders/{folder_id}",
-            axum::routing::delete(delete_library_folder),
-        )
-        .route(
-            "/v1/library/files/upload",
-            post(upload_library_files).layer(DefaultBodyLimit::max(upload_body_limit)),
-        )
-        .route(
-            "/v1/library/files/{file_id}",
-            get(get_library_file).delete(delete_library_file),
-        )
-        .route("/v1/library/files/{file_id}/move", post(move_library_file))
-        .route(
-            "/v1/groups/by-path/{group_path}/library/tree",
-            get(get_group_library_tree),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/resources",
-            get(get_group_library_resources),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/folders",
-            post(create_group_library_folder),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/texts",
-            post(create_group_library_text)
-                .put(upsert_group_library_text)
-                .layer(DefaultBodyLimit::max(upload_body_limit)),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move",
-            post(move_group_library_folder),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/folders/{folder_id}",
-            axum::routing::delete(delete_group_library_folder),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/files/prepare-upload",
-            post(prepare_group_library_upload),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/files/upload",
-            post(upload_group_library_files).layer(DefaultBodyLimit::max(upload_body_limit)),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/files/import-url",
-            post(import_group_library_file_url),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/files/{file_id}",
-            get(get_group_library_file).delete(delete_group_library_file),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",
-            post(move_group_library_file),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/library/files/{file_id}/release-source",
-            post(release_group_library_file_source),
-        )
-        .layer(from_fn_with_state(
-            api_state,
-            require_library_scope_middleware,
         ))
 }
 

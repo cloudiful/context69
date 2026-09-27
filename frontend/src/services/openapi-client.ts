@@ -5,6 +5,11 @@ import { handleUnauthorized } from "./auth/session";
 
 export const API_BASE_URL = resolveApiBaseUrl();
 
+/** Prefixes a request path with the configured API base, matching the client. */
+export function resolveApiUrl(path: string): string {
+  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
+
 export const openapiClient = createClient<paths>({
   baseUrl: API_BASE_URL || undefined,
   credentials: "include",

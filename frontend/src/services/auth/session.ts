@@ -1,6 +1,6 @@
 import { shallowReactive } from "vue";
 
-import { API_BASE_URL } from "../openapi-client";
+import { resolveApiUrl } from "../openapi-client";
 import type { ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse } from "../api/api-types";
 
 export type AuthStatus = "idle" | "restoring" | "authenticated" | "guest";
@@ -30,10 +30,6 @@ export const authSessionState = shallowReactive<{
 let restorePromise: Promise<boolean> | null = null;
 let initialized = false;
 let authNavigator: ((to?: string) => void) | null = null;
-
-function resolveApiUrl(path: string) {
-  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
-}
 
 async function parseJson<T>(response: Response): Promise<T | null> {
   try {

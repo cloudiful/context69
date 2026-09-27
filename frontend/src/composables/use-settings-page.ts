@@ -1,18 +1,13 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useToast } from "@nuxt/ui/composables";
-import { useAppConfirm } from "./use-app-confirm";
 import { useErrorToast } from "./use-error-toast";
 
 import {
   apiClient,
-  type AdminUserResponse,
-  type AdminUserPageResponse,
-  type AdminUserSortBy,
   type DoclingSettingsResponse,
   type RuntimeSettingsResponse,
   type SearchSettingsResponse,
-  type TaskResponse,
   type TranslationProviderInput,
   type TranslationSettingsResponse,
 } from "../services/api";
@@ -34,7 +29,9 @@ import {
   runtimeResponseToPayload,
   searchResponseToPayload,
 } from "../utils/settings";
+import { useSettingsAdminUsers } from "./use-settings-admin-users";
 import { useSettingsPersonalAccessTokens } from "./use-settings-personal-access-tokens";
+import { useSettingsVectorRebuild } from "./use-settings-vector-rebuild";
 
 type TranslationProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
   enabled: boolean;
@@ -45,31 +42,22 @@ type TranslationProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
 export function useSettingsPage() {
   const { t } = useI18n();
   const toast = useToast();
-  const confirm = useAppConfirm();
   const showErrorToast = useErrorToast();
   const personalAccessTokens = useSettingsPersonalAccessTokens();
+  const adminUsersState = useSettingsAdminUsers();
+  const vectorRebuildState = useSettingsVectorRebuild();
 
   const loading = ref(false);
   const saving = ref(false);
   const s3Testing = ref(false);
   const valkeyTesting = ref(false);
-  const vectorRebuildStatus = ref<TaskResponse | null>(null);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
   const searchSettings = ref<SearchSettingsResponse | null>(null);
   const translationSettings = ref<TranslationSettingsResponse | null>(null);
   const translationProviders = ref<TranslationProviderDraft[]>([]);
-  const adminUsers = ref<AdminUserResponse[]>([]);
-  const adminUsersPage = ref<AdminUserPageResponse>({ items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } });
-  const adminUsersPageNumber = ref(1);
-  const adminUsersPageSize = ref(50);
-  const adminUsersQuery = ref("");
-  const adminUsersSort = ref<{ field: AdminUserSortBy; direction: "asc" | "desc" } | null>(null);
-  const adminUsersBusy = ref(false);
-  const adminUsersCreateBusy = ref(false);
   const rerankApiKeyDraft = ref("");
-  let vectorRebuildTimer: ReturnType<typeof setTimeout> | undefined;
   let adminUsersSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
   const runtimeDraft = reactive<DraftRuntimeSettings>(createRuntimeDraft());
@@ -143,51 +131,6 @@ export function useSettingsPage() {
     }
   });
 
-  async function loadAdminUsers() {
-    if (!authSessionState.user?.is_admin) {
-      adminUsers.value = [];
-      return;
-    }
-
-    adminUsersBusy.value = true;
-    try {
-      const response = await apiClient.listAdminUsers({
-        page: adminUsersPageNumber.value,
-        page_size: adminUsersPageSize.value,
-        query: adminUsersQuery.value.trim() || undefined,
-        sort_by: adminUsersSort.value?.field,
-        sort_direction: adminUsersSort.value?.direction,
-      });
-      adminUsersPage.value = response;
-      adminUsers.value = response.items;
-      adminUsersPageNumber.value = response.pagination.page;
-      adminUsersPageSize.value = response.pagination.page_size;
-    } catch (error) {
-      showErrorToast(error, t("adminUsers.loadFailed"));
-    } finally {
-      adminUsersBusy.value = false;
-    }
-  }
-
-  function changeAdminUsersPage(page: number) {
-    adminUsersPageNumber.value = page;
-    void loadAdminUsers();
-  }
-
-  function changeAdminUsersPageSize(value: number) {
-    if (adminUsersPageSize.value === value) return;
-    adminUsersPageSize.value = value;
-    adminUsersPageNumber.value = 1;
-    void loadAdminUsers();
-  }
-
-  function changeAdminUsersSort(sort: { field: AdminUserSortBy; direction: "asc" | "desc" } | null) {
-    if (adminUsersSort.value?.field === sort?.field && adminUsersSort.value?.direction === sort?.direction) return;
-    adminUsersSort.value = sort;
-    adminUsersPageNumber.value = 1;
-    void loadAdminUsers();
-  }
-
   async function loadPage() {
     loading.value = true;
 
@@ -208,7 +151,7 @@ export function useSettingsPage() {
       assignDoclingDraft(docling);
       assignSearchDraft(search);
       if (translation) assignTranslationDraft(translation);
-      await loadVectorRebuildTask();
+      await vectorRebuildState.loadVectorRebuildTask();
 
     } catch (error) {
       showErrorToast(error, t("settings.loadFailed"));
@@ -311,131 +254,6 @@ export function useSettingsPage() {
     }
   }
 
-  async function loadVectorRebuildTask() {
-    const response = await apiClient.listTasks({
-      page: 1,
-      pageSize: 1,
-      view: "processing",
-       kind: "vector_rebuild",
-      status: null,
-      stage: null,
-      waitingReason: null,
-      dependencyKey: null,
-    });
-    vectorRebuildStatus.value = response.items[0] ?? null;
-    scheduleVectorRebuildPoll();
-  }
-
-  function scheduleVectorRebuildPoll() {
-    clearTimeout(vectorRebuildTimer);
-    if (!vectorRebuildStatus.value || !["queued", "running", "waiting"].includes(vectorRebuildStatus.value.status)) return;
-    vectorRebuildTimer = setTimeout(async () => {
-      try {
-        await loadVectorRebuildTask();
-      } catch (error) {
-        showErrorToast(error, t("settings.runtime.vectorRebuildStatusFailed"));
-      }
-    }, 1500);
-  }
-
-  function confirmVectorIndexRebuild() {
-    confirm.require({
-      header: t("settings.runtime.vectorRebuild"),
-      message: t("settings.runtime.vectorRebuildConfirm"),
-      rejectLabel: t("common.cancel"),
-      acceptLabel: t("settings.runtime.vectorRebuild"),
-      accept: () => void startVectorIndexRebuild(),
-    });
-  }
-
-  async function startVectorIndexRebuild() {
-    try {
-      const task = await apiClient.submitVectorIndexRebuild();
-      vectorRebuildStatus.value = await apiClient.getTask(task.task_id);
-      toast.add({ color: "info", title: t("settings.runtime.vectorRebuildStarted"), duration: 2500 });
-      scheduleVectorRebuildPoll();
-    } catch (error) {
-      showErrorToast(error, t("settings.runtime.vectorRebuildFailed"));
-    }
-  }
-
-  async function createAdminUser(payload: {
-    login_name: string;
-    display_name: string;
-    password: string;
-    is_admin: boolean;
-  }) {
-    adminUsersCreateBusy.value = true;
-    try {
-      await apiClient.createAdminUser(payload);
-      await loadAdminUsers();
-    } catch (error) {
-      showErrorToast(error, t("adminUsers.createFailed"));
-    } finally {
-      adminUsersCreateBusy.value = false;
-    }
-  }
-
-  async function updateAdminUser(payload: {
-    login_name: string;
-    display_name: string;
-    is_admin: boolean;
-  }) {
-    adminUsersBusy.value = true;
-    try {
-      await apiClient.updateAdminUser(payload.login_name, {
-        display_name: payload.display_name,
-        is_admin: payload.is_admin,
-      });
-      await loadAdminUsers();
-    } catch (error) {
-      showErrorToast(error, t("adminUsers.updateFailed"));
-    } finally {
-      adminUsersBusy.value = false;
-    }
-  }
-
-  async function resetAdminUserPassword(payload: {
-    login_name: string;
-    password: string;
-  }) {
-    adminUsersBusy.value = true;
-    try {
-      await apiClient.resetAdminUserPassword(payload.login_name, {
-        password: payload.password,
-      });
-      await loadAdminUsers();
-    } catch (error) {
-      showErrorToast(error, t("adminUsers.resetFailed"));
-    } finally {
-      adminUsersBusy.value = false;
-    }
-  }
-
-  async function disableAdminUser(loginName: string) {
-    adminUsersBusy.value = true;
-    try {
-      await apiClient.disableAdminUser(loginName);
-      await loadAdminUsers();
-    } catch (error) {
-      showErrorToast(error, t("adminUsers.disableFailed"));
-    } finally {
-      adminUsersBusy.value = false;
-    }
-  }
-
-  async function enableAdminUser(loginName: string) {
-    adminUsersBusy.value = true;
-    try {
-      await apiClient.enableAdminUser(loginName);
-      await loadAdminUsers();
-    } catch (error) {
-      showErrorToast(error, t("adminUsers.enableFailed"));
-    } finally {
-      adminUsersBusy.value = false;
-    }
-  }
-
   function assignRuntimeDraft(response: RuntimeSettingsResponse) {
     Object.assign(runtimeDraft, runtimeResponseToDraft(response));
   }
@@ -467,44 +285,31 @@ export function useSettingsPage() {
 
   onMounted(() => {
     void loadPage();
-    void loadAdminUsers();
+    void adminUsersState.loadAdminUsers();
     void personalAccessTokens.loadPersonalAccessTokens();
   });
 
-  watch(adminUsersQuery, () => {
+  watch(adminUsersState.adminUsersQuery, () => {
     clearTimeout(adminUsersSearchTimer);
     adminUsersSearchTimer = setTimeout(() => {
-      adminUsersPageNumber.value = 1;
-      void loadAdminUsers();
+      adminUsersState.adminUsersPageNumber.value = 1;
+      void adminUsersState.loadAdminUsers();
     }, 250);
   });
 
   onBeforeUnmount(() => {
-    clearTimeout(vectorRebuildTimer);
+    vectorRebuildState.clearVectorRebuildPoll();
     clearTimeout(adminUsersSearchTimer);
   });
 
   return {
-    adminUsers,
-    adminUsersBusy,
-    adminUsersCreateBusy,
-    adminUsersPage,
-    adminUsersPageNumber,
-    adminUsersPageSize,
-    adminUsersQuery,
-    changeAdminUsersPage,
-    changeAdminUsersPageSize,
-    changeAdminUsersSort,
-    createAdminUser,
+    ...adminUsersState,
     doclingDraft,
-    disableAdminUser,
-    enableAdminUser,
     hasChanges,
     loading,
     qdrantToggleModel,
     rerankApiKeyDraft,
     rerankToggleModel,
-    resetAdminUserPassword,
     ...personalAccessTokens,
     saveMessage,
     saveSettings,
@@ -517,10 +322,9 @@ export function useSettingsPage() {
     testS3Connection,
     testValkeyConnection,
     translationProviders,
-    updateAdminUser,
     valkeyTesting,
-    vectorRebuildStatus,
-    confirmVectorIndexRebuild,
+    vectorRebuildStatus: vectorRebuildState.vectorRebuildStatus,
+    confirmVectorIndexRebuild: vectorRebuildState.confirmVectorIndexRebuild,
   };
 }
 

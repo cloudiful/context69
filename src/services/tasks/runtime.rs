@@ -4,12 +4,12 @@ use crate::domain_errors::DomainError;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use context69_contracts::TaskKind;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::TaskService;
 use super::item_processors::{ProcessResult, process_item_blocking};
+use super::responses::parse_kind;
 
 pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
     let task = service.task(item.task_id).await?;
@@ -289,21 +289,6 @@ fn spawn_item_heartbeat(service: TaskService, item_id: Uuid, lease_token: Uuid) 
         },
         HEARTBEAT_INTERVAL,
     )))
-}
-
-fn parse_kind(value: &str) -> Result<TaskKind> {
-    match value {
-        "source_sync" => Ok(TaskKind::SourceSync),
-        "text_batch" => Ok(TaskKind::TextBatch),
-        "file_batch" => Ok(TaskKind::FileBatch),
-        "url_batch" => Ok(TaskKind::UrlBatch),
-        "translation" => Ok(TaskKind::Translation),
-        "vector_rebuild" => Ok(TaskKind::VectorRebuild),
-        "delete_batch" => Ok(TaskKind::DeleteBatch),
-        other => {
-            Err(DomainError::invalid_argument(format!("unsupported task kind {other}")).into())
-        }
-    }
 }
 
 fn is_retryable_error(error: &anyhow::Error) -> bool {

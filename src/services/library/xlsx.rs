@@ -159,7 +159,7 @@ impl Write for LimitedWriter {
 mod tests {
     use serde_json::json;
 
-    use super::json_output_size;
+    use super::{extract_xlsx_sections, json_output_size};
 
     #[test]
     fn rejects_json_output_before_copying_past_limit() {
@@ -167,5 +167,48 @@ mod tests {
 
         assert!(json_output_size(&value, 8).is_err());
         assert!(json_output_size(&value, 64).is_ok());
+    }
+
+    #[test]
+    fn xlsx_sections_are_split_by_sheet_groups() {
+        let json = json!({
+            "groups": [
+                {
+                    "name": "sheet: Budget",
+                    "children": [{ "$ref": "#/tables/0" }]
+                },
+                {
+                    "name": "sheet: Risks",
+                    "children": [{ "$ref": "#/tables/1" }]
+                }
+            ],
+            "tables": [
+                {
+                    "data": {
+                        "grid": [
+                            [{ "text": "Item" }, { "text": "Amount" }],
+                            [{ "text": "Ops" }, { "text": "100" }]
+                        ]
+                    }
+                },
+                {
+                    "data": {
+                        "grid": [
+                            [{ "text": "Risk" }, { "text": "Level" }],
+                            [{ "text": "Capacity" }, { "text": "High" }]
+                        ]
+                    }
+                }
+            ]
+        });
+
+        let sections = extract_xlsx_sections("report.xlsx", &json).expect("sections");
+
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].section_label, "Budget");
+        assert_eq!(sections[0].title, "report.xlsx / Budget");
+        assert!(sections[0].body_text.contains("Item | Amount"));
+        assert_eq!(sections[1].section_label, "Risks");
+        assert!(sections[1].body_text.contains("Capacity | High"));
     }
 }

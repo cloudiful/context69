@@ -1,0 +1,18 @@
+export const document = {
+  detailLabel: "Document Details",
+  title: "Document Details",
+  invalidId: "Invalid document id",
+  loadFailed: "Document load failed",
+  loadingMessage: "Loading document metadata and stored content blocks.",
+  chunkLabel: "Content Block {index}",
+  noBodyChunksTitle: "No Content",
+  noBodyChunksMessage: "This document has metadata, but no stored body content.",
+  published: "Published",
+  updated: "Updated",
+  sourceLink: "Source Link",
+  openOrigin: "Open Source",
+  openLibraryFile: "Open In Library",
+  backToSearch: "Back to Search",
+  libraryPath: "Library Path",
+  metadata: "Metadata",
+} as const;

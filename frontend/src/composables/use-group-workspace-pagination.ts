@@ -1,5 +1,6 @@
 import { ref, watch, type Ref } from "vue";
 import { useErrorToast } from "./use-error-toast";
+import { emptyPagination } from "./use-server-pagination";
 
 import {
   apiClient,
@@ -14,11 +15,11 @@ import {
 } from "../services/api";
 
 function emptyGroupPage(): GroupPageResponse {
-  return { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } };
+  return { items: [], pagination: emptyPagination(50) };
 }
 
 function emptyMemberPage(): GroupMemberPageResponse {
-  return { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } };
+  return { items: [], pagination: emptyPagination(50) };
 }
 
 type Options = {

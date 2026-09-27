@@ -9,7 +9,7 @@ use crate::api::{
         __path_create_admin_user, __path_disable_admin_user, __path_enable_admin_user,
         __path_list_admin_users, __path_reset_admin_user_password, __path_update_admin_user,
     },
-    auth::{__path_login, __path_logout, __path_me},
+    auth::handlers::{__path_login, __path_logout, __path_me},
     documents::{
         __path_batch_get_group_documents, __path_create_metadata_index,
         __path_delete_group_document_by_key, __path_delete_metadata_index,

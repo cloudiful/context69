@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref } from "vue";
 
-import type { PageRequest, PaginatedResponse, RequestOptions, SortDirection } from "../services/api";
+import type { PageRequest, PaginatedResponse, Pagination, RequestOptions, SortDirection } from "../services/api";
 
 export type ServerListSort = {
   field: string;
@@ -16,7 +16,7 @@ export type ServerPageLoader<T> = (
   options?: RequestOptions,
 ) => Promise<PaginatedResponse<T>>;
 
-function emptyPagination(pageSize: number) {
+export function emptyPagination(pageSize: number): Pagination {
   return { page: 1, page_size: pageSize, total: 0, total_pages: 0 };
 }
 

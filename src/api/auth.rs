@@ -12,12 +12,22 @@ use context69_http_support::AuthenticatedUser;
 use uuid::Uuid;
 
 use crate::{
-    contracts::{ApiErrorResponse, AuthLoginRequest, AuthMeResponse, PersonalAccessTokenScope},
-    services::auth::{AuthService, AuthSession, Credentials, user_response},
+    contracts::{ApiErrorResponse, PersonalAccessTokenScope},
+    services::auth::{AuthService, AuthSession},
     services::personal_access_tokens::is_personal_access_token,
 };
 
 use super::{ApiState, errors::internal_error_response};
+
+pub(crate) mod handlers;
+mod scopes;
+
+pub(crate) use handlers::{login, logout, me};
+pub(crate) use scopes::{
+    require_admin_scope_middleware, require_library_scope_middleware,
+    require_search_scope_middleware, require_settings_scope_middleware,
+    require_sources_scope_middleware, require_workspace_scope_middleware,
+};
 
 #[derive(Clone)]
 pub(crate) enum AuthKind {
@@ -73,34 +83,15 @@ pub(crate) async fn auth_middleware(
     mut request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    let bearer = extract_bearer_token(request.headers()).map(|token| token.map(str::to_owned));
-    let browser_session = match request.extensions().get::<BrowserAuthSession>() {
-        Some(auth) => auth.user().await.as_ref().map(|principal| principal.0.clone()),
-        None => None,
-    };
-    match authenticate_request(&state, bearer, browser_session).await {
+    match resolve_request_auth(&state, request.headers(), request.extensions()).await {
         Ok(Some(authenticated)) => {
-            request
-                .extensions_mut()
-                .insert(authenticated_user(&authenticated.session));
-            request
-                .extensions_mut()
-                .insert(RequestAuth(Some(authenticated)));
+            apply_authenticated_auth(&mut request, authenticated);
             next.run(request).await
         }
-        Ok(None) => (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse::new(
-                "unauthorized",
-                "missing authenticated session or personal access token".to_string(),
-            )),
-        )
-            .into_response(),
-        Err(error) => (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse::new("unauthorized", error)),
-        )
-            .into_response(),
+        Ok(None) => unauthorized_response(
+            "missing authenticated session or personal access token".to_string(),
+        ),
+        Err(message) => unauthorized_response(message),
     }
 }
 
@@ -109,31 +100,50 @@ pub(crate) async fn optional_auth_middleware(
     mut request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    let bearer = extract_bearer_token(request.headers()).map(|token| token.map(str::to_owned));
-    let browser_session = match request.extensions().get::<BrowserAuthSession>() {
-        Some(auth) => auth.user().await.as_ref().map(|principal| principal.0.clone()),
-        None => None,
-    };
-    match authenticate_request(&state, bearer, browser_session).await {
+    match resolve_request_auth(&state, request.headers(), request.extensions()).await {
         Ok(Some(authenticated)) => {
-            request
-                .extensions_mut()
-                .insert(authenticated_user(&authenticated.session));
-            request
-                .extensions_mut()
-                .insert(RequestAuth(Some(authenticated)));
+            apply_authenticated_auth(&mut request, authenticated);
             next.run(request).await
         }
         Ok(None) => {
             request.extensions_mut().insert(RequestAuth(None));
             next.run(request).await
         }
-        Err(error) => (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse::new("unauthorized", error)),
-        )
-            .into_response(),
+        Err(message) => unauthorized_response(message),
     }
+}
+
+async fn resolve_request_auth(
+    state: &ApiState,
+    headers: &axum::http::HeaderMap,
+    extensions: &axum::http::Extensions,
+) -> Result<Option<AuthenticatedRequest>, String> {
+    let bearer = extract_bearer_token(headers).map(|token| token.map(str::to_owned));
+    let browser_session = match extensions.get::<BrowserAuthSession>() {
+        Some(auth) => auth.user().await.as_ref().map(|principal| principal.0.clone()),
+        None => None,
+    };
+    authenticate_request(state, bearer, browser_session).await
+}
+
+fn apply_authenticated_auth(
+    request: &mut axum::http::Request<axum::body::Body>,
+    authenticated: AuthenticatedRequest,
+) {
+    request
+        .extensions_mut()
+        .insert(authenticated_user(&authenticated.session));
+    request
+        .extensions_mut()
+        .insert(RequestAuth(Some(authenticated)));
+}
+
+fn unauthorized_response(message: String) -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiErrorResponse::new("unauthorized", message)),
+    )
+        .into_response()
 }
 
 fn authenticated_user(session: &AuthSession) -> AuthenticatedUser {
@@ -189,121 +199,6 @@ pub(crate) async fn touch_personal_access_token_middleware(
     next.run(request).await
 }
 
-pub(crate) async fn require_search_scope_middleware(
-    State(state): State<ApiState>,
-    request: axum::http::Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    require_scope_middleware(state, request, next, PersonalAccessTokenScope::Search).await
-}
-
-pub(crate) async fn require_workspace_scope_middleware(
-    State(state): State<ApiState>,
-    request: axum::http::Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    require_scope_middleware(state, request, next, PersonalAccessTokenScope::Workspace).await
-}
-
-pub(crate) async fn require_library_scope_middleware(
-    State(state): State<ApiState>,
-    request: axum::http::Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    require_scope_middleware(state, request, next, PersonalAccessTokenScope::Library).await
-}
-
-pub(crate) async fn require_sources_scope_middleware(
-    State(state): State<ApiState>,
-    request: axum::http::Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    require_scope_middleware(state, request, next, PersonalAccessTokenScope::Sources).await
-}
-
-pub(crate) async fn require_settings_scope_middleware(
-    State(state): State<ApiState>,
-    request: axum::http::Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    require_scope_middleware(state, request, next, PersonalAccessTokenScope::Settings).await
-}
-
-pub(crate) async fn require_admin_scope_middleware(
-    State(state): State<ApiState>,
-    request: axum::http::Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    require_scope_middleware(state, request, next, PersonalAccessTokenScope::Admin).await
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/auth/login",
-    request_body = AuthLoginRequest,
-    responses(
-        (status = 204, description = "Authenticated session"),
-        (status = 401, description = "Invalid login or password", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn login(
-    auth_session: BrowserAuthSession,
-    Json(request): Json<AuthLoginRequest>,
-) -> impl IntoResponse {
-    let credentials = Credentials {
-        login_name: request.login_name,
-        password: request.password,
-    };
-    match auth_session.authenticate(credentials).await {
-        Ok(Some(principal)) => match auth_session.login(&principal).await {
-            Ok(()) => StatusCode::NO_CONTENT.into_response(),
-            Err(error) => internal_error_response(anyhow::anyhow!(error)),
-        },
-        Ok(None) => (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse::new(
-                "unauthorized",
-                "invalid login or password".to_string(),
-            )),
-        )
-            .into_response(),
-        Err(error) => internal_error_response(anyhow::anyhow!(error)),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/auth/logout",
-    responses(
-        (status = 204, description = "Logged out"),
-        (status = 500, description = "Internal error", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn logout(auth_session: BrowserAuthSession) -> impl IntoResponse {
-    match auth_session.logout().await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => internal_error_response(anyhow::anyhow!(error)),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/auth/me",
-    responses(
-        (status = 200, description = "Current authenticated user", body = crate::contracts::AuthMeResponse),
-        (status = 401, description = "Missing or invalid session", body = ApiErrorResponse)
-    )
-)]
-pub(crate) async fn me(CurrentUser(session): CurrentUser) -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        Json(AuthMeResponse {
-            user: user_response(&session),
-        }),
-    )
-        .into_response()
-}
-
 pub(crate) fn extract_bearer_token(
     headers: &axum::http::HeaderMap,
 ) -> Result<Option<&str>, String> {
@@ -350,63 +245,6 @@ async fn authenticate_request(
         session,
         kind: AuthKind::BrowserSession,
     }))
-}
-
-async fn require_scope_middleware(
-    state: ApiState,
-    request: axum::http::Request<axum::body::Body>,
-    next: Next,
-    required_scope: PersonalAccessTokenScope,
-) -> Response {
-    let auth = request.extensions().get::<RequestAuth>().cloned();
-    let Some(RequestAuth(Some(authenticated))) = auth else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiErrorResponse::new(
-                "unauthorized",
-                "missing authenticated session or personal access token".to_string(),
-            )),
-        )
-            .into_response();
-    };
-
-    if let AuthKind::PersonalAccessToken { token_id, scopes } = authenticated.kind {
-        if !scopes.contains(&required_scope) {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(ApiErrorResponse::new(
-                    "forbidden",
-                    format!(
-                        "personal access token missing {} scope",
-                        scope_name(required_scope)
-                    ),
-                )),
-            )
-                .into_response();
-        }
-
-        if let Err(error) = state
-            .app
-            .personal_access_tokens
-            .touch_last_used(token_id)
-            .await
-        {
-            return internal_error_response(error);
-        }
-    }
-
-    next.run(request).await
-}
-
-fn scope_name(scope: PersonalAccessTokenScope) -> &'static str {
-    match scope {
-        PersonalAccessTokenScope::Search => "search",
-        PersonalAccessTokenScope::Workspace => "workspace",
-        PersonalAccessTokenScope::Library => "library",
-        PersonalAccessTokenScope::Sources => "sources",
-        PersonalAccessTokenScope::Settings => "settings",
-        PersonalAccessTokenScope::Admin => "admin",
-    }
 }
 
 #[cfg(test)]

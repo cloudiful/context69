@@ -1,0 +1,18 @@
+export const document = {
+  detailLabel: "文档详情",
+  title: "文档详情",
+  invalidId: "无效的文档 ID",
+  loadFailed: "文档加载失败",
+  loadingMessage: "正在加载文档元数据和已存储内容块。",
+  chunkLabel: "内容块 {index}",
+  noBodyChunksTitle: "暂无内容",
+  noBodyChunksMessage: "该文档包含元数据，但没有存储正文内容。",
+  published: "发布时间",
+  updated: "更新时间",
+  sourceLink: "来源链接",
+  openOrigin: "打开来源",
+  openLibraryFile: "在文件库中打开",
+  backToSearch: "返回搜索",
+  libraryPath: "文件库路径",
+  metadata: "元数据",
+} as const;

@@ -11,6 +11,7 @@ import {
   type Pagination,
 } from "../services/api";
 import { useErrorToast } from "./use-error-toast";
+import { emptyPagination } from "./use-server-pagination";
 
 const DEFAULT_SCOPES: PersonalAccessTokenScope[] = ["search"];
 const DEFAULT_EXPIRY_DAYS = 30;
@@ -25,7 +26,7 @@ export function useSettingsPersonalAccessTokens() {
   const personalAccessTokensPage = ref(1);
   const personalAccessTokensPageSize = ref(50);
   const personalAccessTokensTotal = ref(0);
-  const personalAccessTokensPagination = ref<Pagination>({ page: 1, page_size: 50, total: 0, total_pages: 0 });
+  const personalAccessTokensPagination = ref<Pagination>(emptyPagination(50));
   const personalAccessTokensLoading = ref(false);
   const personalAccessTokensCreating = ref(false);
   const personalAccessTokensReveal = ref<CreatePersonalAccessTokenResponse | null>(null);

@@ -1,20 +1,19 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from "vue";
-import { proxyRefs, ref } from "vue";
-import type { ContextMenuItem } from "@nuxt/ui";
+import { computed, onBeforeUnmount, proxyRefs, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 
-import LibraryCreateFolderDialog from "./LibraryCreateFolderDialog.vue";
-import LibraryCreateTextFileDialog from "./LibraryCreateTextFileDialog.vue";
-import LibraryMoveDialog from "./LibraryMoveDialog.vue";
-import LibraryPreviewPanel from "./LibraryPreviewPanel.vue";
 import LibraryResourceTable from "./LibraryResourceTable.vue";
 import LibraryToolbar from "./LibraryToolbar.vue";
-import MarkdownChunk from "./MarkdownChunk.vue";
-import ProjectSourceFolderDialog from "./ProjectSourceFolderDialog.vue";
-import { groupContextItems, resourceContextItems, surfaceContextItems } from "./project-files-context-menu";
+import ProjectFilesFileUpload, { type ProjectFilesFileUploadHandle } from "./ProjectFilesFileUpload.vue";
+import ProjectFilesLibraryDialogs from "./ProjectFilesLibraryDialogs.vue";
+import ProjectFilesPreviewModal from "./ProjectFilesPreviewModal.vue";
+import ProjectFilesRouteActions from "./ProjectFilesRouteActions.vue";
+import ProjectFilesScopedSearchModal from "./ProjectFilesScopedSearchModal.vue";
 import { useProjectLibraryActions } from "../composables/project-library/use-project-library-actions";
+import { useProjectFilesContextMenu } from "../composables/project-library/use-project-files-context-menu";
+import { useProjectFilesDialogs } from "../composables/project-library/use-project-files-dialogs";
+import { useProjectFilesRowHandlers } from "../composables/project-library/use-project-files-row-handlers";
 import { useLibraryRetryAllFailed } from "../composables/project-library/use-library-retry-all-failed";
 import { useProjectLibraryDetail } from "../composables/project-library/use-project-library-detail";
 import { useProjectLibraryPage } from "../composables/project-library/use-project-library-page";
@@ -25,7 +24,6 @@ import { useProjectLibraryTree } from "../composables/project-library/use-projec
 import { useProjectSourceFolder } from "../composables/project-library/use-project-source-folder";
 import type { GroupPageResponse, GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
-import type { ExplorerEntry, GroupExplorerEntry } from "../types/library";
 
 const props = defineProps<{
   childGroups: GroupResponse[];
@@ -45,12 +43,8 @@ const emit = defineEmits<{
   "update:child-group-search": [string];
 }>();
 
-type FileUploadController = {
-  inputRef?: HTMLInputElement;
-};
-
 function openFilePicker() {
-  fileUpload.value?.inputRef?.click();
+  fileUpload.value?.trigger();
 }
 
 const { t } = useI18n();
@@ -113,6 +107,7 @@ const actions = useProjectLibraryActions({
   previewDialogVisible: preview.previewDialogVisible,
 });
 const actionsState = proxyRefs(actions);
+const dialogs = proxyRefs(useProjectFilesDialogs({ actions: actionsState, sourceFolder: sourceFolderState, t }));
 const retryAll = useLibraryRetryAllFailed({
   groupPath: () => props.groupPath,
   folderId: () => tree.selectedFolder.value?.folder_id ?? null,
@@ -144,113 +139,39 @@ function runScopedSearch() {
   void scopedSearch.run();
 }
 
-const groupContextEntry = ref<GroupExplorerEntry | null>(null);
-const fileUpload = ref<FileUploadController | null>(null);
-const uploadFiles = ref<File[] | null>(null);
-const resourceMenuItems = computed(() => resourceContextItems({
-  entry: treeState.resourceContextEntry, t,
-  unavailableFileIds: actionsState.unavailableFileIds, retryingFileIds: actionsState.retryingFileIds,
-  releasingFileIds: actionsState.releasingFileIds,
-  open: (entry) => { void openExplorerEntry(entry); },
+const fileUpload = ref<ProjectFilesFileUploadHandle | null>(null);
+const {
+  groupContextEntry,
+  handleExplorerRowClick,
+  handleExplorerRowDoubleClick,
+  handleExplorerRowContextMenu,
+  handleGroupRowContextMenu,
+  handleReleaseSource,
+  handleSurfaceContextMenu,
+  openExplorerEntry,
+  retryExplorerEntry,
+} = useProjectFilesRowHandlers({
+  tree: treeState,
+  actions: actionsState,
+  sourceFolder: sourceFolderState,
+});
+const { activeContextMenuItems, createMenuItems } = useProjectFilesContextMenu({
+  t,
+  groupContextEntry,
+  resourceContextEntry: () => treeState.resourceContextEntry,
+  actions: actionsState,
+  sourceFolder: sourceFolderState,
   selectFolder: (id) => { void treeState.selectFolder(id); },
-  createFolder: (entry) => entry.kind === "folder" && actionsState.openCreateFolderDialog(entry.folder),
-  syncFolder: (id) => { void sourceFolderState.sync(id); },
-  move: (entry) => entry.kind === "folder" ? actionsState.openMoveFolderDialog(entry.folder) : entry.kind === "file" && actionsState.openMoveFileDialog(entry.file),
-  remove: (entry) => entry.kind === "folder" ? void actionsState.deleteFolder(entry.folder) : entry.kind === "file" && void actionsState.deleteFile(entry.file),
+  open: openExplorerEntry,
+  releaseSource: handleReleaseSource,
   refresh: () => { void refreshLibraryData(); },
-  retry: (id) => { void actionsState.retryFile(id); },
-  releaseSource: (entry) => { handleReleaseSource(entry); },
-}));
-const groupMenuItems = computed(() => groupContextItems(groupContextEntry.value, t, (action, entry) => {
-  if (action === "open") emit("open-child-group", entry.group);
-  else if (action === "edit") emit("edit-child-group", entry.group);
-  else if (action === "move") emit("move-child-group", entry.group);
-  else emit("delete-child-group", entry.group);
-}));
-const createMenuItems = computed(() => [
-  { label: t("library.newFolder"), icon: "i-lucide-folder-plus", onSelect: () => actionsState.openCreateFolderDialog() },
-  { label: t("library.newTextFile"), icon: "i-lucide-file-plus", onSelect: () => actionsState.openCreateTextDialog() },
-  { label: t("library.newSourceFolder"), icon: "i-lucide-database-plus", onSelect: () => sourceFolderState.openCreate() },
-]);
-const surfaceMenuItems = computed(() => surfaceContextItems(t, {
-  createGroup: () => emit("create-child-group"), createFolder: () => actionsState.openCreateFolderDialog(),
-  createText: () => actionsState.openCreateTextDialog(), createSource: () => sourceFolderState.openCreate(),
-  upload: () => fileUpload.value?.inputRef?.click(), refresh: () => { void refreshLibraryData(); },
-}));
-const activeContextMenuItems = computed<ContextMenuItem[][]>(() => [
-  (treeState.resourceContextEntry ? resourceMenuItems.value : groupContextEntry.value ? groupMenuItems.value : surfaceMenuItems.value) as ContextMenuItem[],
-]);
-
-function handleExplorerRowClick(event: { data: ExplorerEntry }) {
-  const entry = event.data;
-  treeState.selectedExplorerEntry = entry;
-  if (entry.kind === "folder") {
-    treeState.toggleFolderExpansion(entry.id);
-    void treeState.selectFolder(entry.id);
-    return;
-  }
-  void openExplorerEntry(entry);
-}
-
-function handleExplorerRowDoubleClick(event: { data: ExplorerEntry }) {
-  const entry = event.data;
-  if (entry.kind === "folder") {
-    treeState.toggleFolderExpansion(entry.id);
-    void treeState.selectFolder(entry.id);
-    return;
-  }
-  void openExplorerEntry(entry);
-}
-
-async function openExplorerEntry(entry: ExplorerEntry) {
-  if (entry.kind === "folder") {
-    treeState.toggleFolderExpansion(entry.id);
-    await treeState.selectFolder(entry.id);
-    return;
-  }
-  if (entry.isSourceConfigFile) {
-    await sourceFolderState.openEditor(entry);
-    return;
-  }
-  await actionsState.revealPreviewForFile(entry.id);
-}
-
-function handleExplorerRowContextMenu(event: { originalEvent: Event; data: ExplorerEntry }) {
-  treeState.resourceContextEntry = event.data;
-  groupContextEntry.value = null;
-}
-
-function retryExplorerEntry(entry: ExplorerEntry) {
-  if (entry.kind === "file") {
-    void actionsState.retryFile(entry.id);
-  }
-}
-
-function handleReleaseSource(entry: ExplorerEntry) {
-  if (entry.kind === "file") {
-    void actionsState.releaseFileSource(entry.id, entry.name);
-  }
-}
+  upload: openFilePicker,
+  emit,
+});
 
 function releaseSelectedFile(fileId: string) {
   void actionsState.releaseFileSource(fileId, detailState.detail?.filename ?? "");
 }
-
-function handleGroupRowContextMenu(event: { originalEvent: Event; data: GroupExplorerEntry }) {
-  groupContextEntry.value = event.data;
-  treeState.resourceContextEntry = null;
-}
-
-function handleSurfaceContextMenu(event: { originalEvent: MouseEvent }) {
-  treeState.resourceContextEntry = null;
-  groupContextEntry.value = null;
-}
-
-watch(uploadFiles, (files) => {
-  if (!files?.length) return;
-  actionsState.handleFileSelection({ files });
-  uploadFiles.value = null;
-});
 
 watch(tree.selectedFileId, (fileId) => {
   if (fileId && !previewState.previewDocked) {
@@ -334,83 +255,24 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="project-files-panel h-full min-h-0">
-    <UFileUpload
-      ref="fileUpload"
-      v-model="uploadFiles"
-      class="sr-only"
-      multiple
-      :preview="false"
-      :dropzone="false"
-      accept=".pdf,.docx,.xlsx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown"
+    <ProjectFilesFileUpload ref="fileUpload" @select="actionsState.handleFileSelection" />
+    <ProjectFilesRouteActions
+      :create-menu-items="createMenuItems"
+      :delete-source-after-processing="actionsState.deleteSourceAfterProcessing"
+      :query="pageState.query"
+      :retry-all-busy="retryAllState.retryAllBusy"
+      :retry-all-failed-count="retryAllState.retryAllFailedCount"
+      :scoped-query="scopedSearch.query"
+      :scoped-search-loading="scopedSearch.loading"
+      :scoped-search-placeholder="scopedSearchPlaceholder"
+      :upload-busy="actionsState.uploadBusy"
+      @retry-all-failed="retryAllState.retryAllFailed()"
+      @run-scoped-search="runScopedSearch"
+      @update:delete-source-after-processing="actionsState.deleteSourceAfterProcessing = $event"
+      @update:query="pageState.query = $event"
+      @update:scoped-query="scopedSearch.query = $event"
+      @upload="openFilePicker"
     />
-    <Teleport to="#app-route-actions">
-      <div class="flex items-center gap-2">
-        <UInput v-model="pageState.query" class="w-40 sm:w-56" icon="i-lucide-search" :placeholder="t('nav.search')" />
-        <UInput
-          v-model="scopedSearch.query"
-          class="hidden w-40 sm:inline-flex md:w-56"
-          icon="i-lucide-scan-text"
-          data-testid="scoped-content-search-input"
-          :aria-label="scopedSearchPlaceholder"
-          :placeholder="scopedSearchPlaceholder"
-          :title="scopedSearchPlaceholder"
-          @keydown.enter="runScopedSearch"
-        />
-        <UButton
-          class="hidden shrink-0 sm:inline-flex"
-          icon="i-lucide-scan-text"
-          data-testid="scoped-content-search-trigger"
-          :label="t('search.scoped.run')"
-          :loading="scopedSearch.loading"
-          @click="runScopedSearch"
-        />
-        <UButton
-          icon="i-lucide-rotate-ccw"
-          :label="t('library.retryAllFailed')"
-          class="hidden shrink-0 sm:inline-flex"
-          data-testid="retry-all-failed"
-          :loading="retryAllState.retryAllBusy"
-          :disabled="retryAllState.retryAllBusy || retryAllState.retryAllFailedCount === 0"
-          :title="t('library.retryAllFailed')"
-          @click="retryAllState.retryAllFailed()"
-        />
-        <UButton
-          icon="i-lucide-rotate-ccw"
-          aria-label="Retry all failed"
-          class="shrink-0 sm:hidden"
-          data-testid="retry-all-failed-compact"
-          :loading="retryAllState.retryAllBusy"
-          :disabled="retryAllState.retryAllBusy || retryAllState.retryAllFailedCount === 0"
-          @click="retryAllState.retryAllFailed()"
-        />
-        <UDropdownMenu :items="createMenuItems" :content="{ align: 'end' }">
-          <UButton icon="i-lucide-plus" :label="t('common.new')" class="hidden sm:inline-flex" />
-          <UButton icon="i-lucide-plus" aria-label="New" class="sm:hidden" />
-        </UDropdownMenu>
-        <UCheckbox
-          v-model="actionsState.deleteSourceAfterProcessing"
-          binary
-          class="hidden md:flex"
-          :label="t('library.releaseSourceAfterUpload')"
-          :title="t('library.releaseSourceAfterUploadHint')"
-          :aria-label="t('library.releaseSourceAfterUpload')"
-        />
-        <UButton
-          icon="i-lucide-upload"
-          :label="t('common.upload')"
-          class="hidden sm:inline-flex"
-          :loading="actionsState.uploadBusy"
-          @click="openFilePicker"
-        />
-        <UButton
-          icon="i-lucide-upload"
-          aria-label="Upload"
-          class="sm:hidden"
-          :loading="actionsState.uploadBusy"
-          @click="openFilePicker"
-        />
-      </div>
-    </Teleport>
 
     <UContextMenu :items="activeContextMenuItems">
       <section
@@ -487,107 +349,44 @@ onBeforeUnmount(() => {
       </section>
     </UContextMenu>
 
-    <LibraryCreateFolderDialog
-      :open="!!actionsState.createDialog"
-      :busy="actionsState.createFolderBusy"
-      :parent-name="actionsState.createDialog?.parentFolderName ?? t('library.rootFolder')"
-      @cancel="actionsState.createDialog = null"
-      @confirm="actionsState.confirmCreateFolder"
+    <ProjectFilesLibraryDialogs
+      v-bind="dialogs.bindings"
+      @create-folder-cancel="dialogs.cancelCreateFolder"
+      @create-folder-confirm="dialogs.confirmCreateFolder"
+      @create-text-file-cancel="dialogs.cancelCreateTextFile"
+      @create-text-file-confirm="dialogs.confirmCreateTextFile"
+      @move-cancel="dialogs.cancelMove"
+      @move-confirm="dialogs.confirmMove"
+      @source-folder-cancel="dialogs.cancelSourceFolder"
+      @source-folder-confirm="dialogs.confirmSourceFolder"
+      @source-folder-update-value="dialogs.updateSourceFolderValue"
     />
 
-    <LibraryCreateTextFileDialog
-      :open="!!actionsState.createTextDialog"
-      :busy="actionsState.createFolderBusy"
-      :parent-name="actionsState.createTextDialog?.parentFolderName ?? t('library.rootFolder')"
-      @cancel="actionsState.createTextDialog = null"
-      @confirm="actionsState.confirmCreateTextFile"
-    />
-
-    <LibraryMoveDialog
-      :open="!!actionsState.moveDialog"
-      :busy="actionsState.actionBusy"
-      :title="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderTitle', { name: actionsState.moveDialog?.name ?? '' }) : t('library.moveFileTitle', { name: actionsState.moveDialog?.name ?? '' })"
-      :description="actionsState.moveDialog?.kind === 'folder' ? t('library.moveFolderDescription') : t('library.moveFileDescription')"
-      :options="actionsState.filteredMoveOptions"
-      :current-folder-id="actionsState.moveDialog?.currentFolderId ?? null"
-      @cancel="actionsState.moveDialog = null"
-      @confirm="actionsState.confirmMove"
-    />
-
-    <ProjectSourceFolderDialog
-      :open="sourceFolderState.open"
-      :busy="sourceFolderState.busy"
-      :folder-name="sourceFolderState.folderName"
-      :folder-name-readonly="!!sourceFolderState.folderId"
-      :title="sourceFolderState.title"
-      :value="sourceFolderState.value"
-      @cancel="sourceFolderState.open = false"
-      @confirm="sourceFolderState.save"
-      @update:value="sourceFolderState.value = $event"
-    />
-
-    <UModal
-      v-model:open="previewState.previewDialogVisible"
-
+    <ProjectFilesPreviewModal
+      :open="previewState.previewDialogVisible"
       :title="previewState.previewTitle"
-      class="library-preview-dialog w-[min(96vw,72rem)] max-w-[min(96vw,72rem)]"
-    >
-      <template #body>
-        <LibraryPreviewPanel
-          :active-section-key="detailState.activeSectionKey"
-          :detail="detailState.detail"
-          :detail-loading="detailState.detailLoading"
-          :group-path="groupPath"
-          :selected-file-id="treeState.selectedFileId"
-          :selected-folder-summary="treeState.selectedFolderSummary"
-          :releasable="selectedFileEntry ? actionsState.canReleaseSource(selectedFileEntry) : false"
-          :releasing="!!treeState.selectedFileId && actionsState.releasingFileIds.includes(treeState.selectedFileId)"
-          :retrying="!!treeState.selectedFileId && actionsState.retryingFileIds.includes(treeState.selectedFileId)"
-          @retry="actionsState.retryFile"
-          @release="releaseSelectedFile"
-          @update:active-section-key="detailState.activeSectionKey = $event"
-        />
-      </template>
-    </UModal>
+      :active-section-key="detailState.activeSectionKey"
+      :detail="detailState.detail"
+      :detail-loading="detailState.detailLoading"
+      :group-path="groupPath"
+      :selected-file-id="treeState.selectedFileId"
+      :selected-folder-summary="treeState.selectedFolderSummary"
+      :releasable="selectedFileEntry ? actionsState.canReleaseSource(selectedFileEntry) : false"
+      :releasing="!!treeState.selectedFileId && actionsState.releasingFileIds.includes(treeState.selectedFileId)"
+      :retrying="!!treeState.selectedFileId && actionsState.retryingFileIds.includes(treeState.selectedFileId)"
+      @retry="actionsState.retryFile"
+      @release="releaseSelectedFile"
+      @update:active-section-key="detailState.activeSectionKey = $event"
+      @update:open="previewState.previewDialogVisible = $event"
+    />
 
-    <UModal
-      v-model:open="scopedSearch.modalVisible"
+    <ProjectFilesScopedSearchModal
+      :open="scopedSearch.modalVisible"
       :title="scopedSearchTitle"
-      class="w-[min(96vw,72rem)] max-w-[min(96vw,72rem)]"
-    >
-      <template #body>
-        <div class="grid min-w-0 gap-3">
-          <div v-if="scopedSearch.loading" class="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <UIcon name="i-lucide-loader-circle" class="h-8 w-8 animate-spin text-muted" />
-            <p class="text-sm text-muted">{{ t("search.scoped.searching") }}</p>
-          </div>
-          <UAlert
-            v-else-if="scopedSearch.results.length === 0"
-            variant="subtle"
-            :title="t('search.scoped.noResultsTitle')"
-            :description="t('search.scoped.noResultsMessage')"
-          />
-          <ul
-            v-else
-            data-testid="scoped-content-search-results"
-            class="grid min-h-0 min-w-0 gap-3 overflow-y-auto"
-          >
-            <li
-              v-for="hit in scopedSearch.results"
-              :key="hit.chunk_id"
-              class="min-w-0 rounded-md border border-default p-3"
-            >
-              <div class="flex min-w-0 items-start justify-between gap-2">
-                <p class="min-w-0 truncate text-sm font-semibold text-color" :title="hit.title">{{ hit.title }}</p>
-                <span class="shrink-0 text-xs text-muted">{{ hit.group_path }}</span>
-              </div>
-              <div class="mt-2 min-w-0">
-                <MarkdownChunk :content="hit.chunk_text" markdown :highlight="scopedSearch.query" />
-              </div>
-            </li>
-          </ul>
-        </div>
-      </template>
-    </UModal>
+      :loading="scopedSearch.loading"
+      :query="scopedSearch.query"
+      :results="scopedSearch.results"
+      @update:open="scopedSearch.modalVisible = $event"
+    />
   </div>
 </template>

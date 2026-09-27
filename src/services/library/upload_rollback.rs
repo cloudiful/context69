@@ -37,6 +37,23 @@ impl LibraryService {
         .await;
     }
 
+    pub(super) async fn rollback_new_uploaded_file_for_task(
+        &self,
+        project_id: i64,
+        file_id: Uuid,
+        storage_object: &crate::library_store::objects::StorageObjectRecord,
+        lease_token: Uuid,
+    ) {
+        self.rollback_new_file_record_for_task(
+            Some(project_id),
+            file_id,
+            Some(&storage_object.object_key),
+            Some(storage_object.id),
+            lease_token,
+        )
+        .await;
+    }
+
     async fn rollback_new_file_record_with_lease(
         &self,
         project_id: Option<i64>,

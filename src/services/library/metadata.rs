@@ -1,5 +1,6 @@
 use super::*;
-use crate::domain::{AccessScope, ChunkPayload, SourceRecord};
+use crate::chunk_payload::{PayloadDocument, PayloadGroup, business_update};
+use crate::domain::{AccessScope, SourceRecord};
 use crate::domain_errors::DomainError;
 
 impl LibraryService {
@@ -233,28 +234,27 @@ impl LibraryService {
                     updated_at: Utc::now(),
                     metadata_json: metadata,
                 });
-                let payload = ChunkPayload {
-                    chunk_id: Uuid::nil(),
-                    document_id: mapping.document_id,
-                    group_id: file.group_id,
-                    group_key: file.group_key.clone(),
-                    group_path: file.group_path.clone(),
-                    visibility: file.visibility,
-                    source_key: FILE_LIBRARY_SOURCE_KEY.to_string(),
-                    external_id: normalized.external_id,
-                    title: normalized.title,
-                    summary: normalized.summary,
-                    source_uri: normalized.source_uri,
-                    published_at: normalized.published_at,
-                    updated_at_source: normalized.updated_at,
-                    record_hash: normalized.record_hash,
-                    chunk_index: 0,
-                    chunk_text: normalized.body_text,
-                    metadata_json: normalized.metadata_json,
-                    content_locale: "original".to_string(),
-                    source_locale: None,
-                    translation_provider: None,
-                };
+                let payload = business_update(
+                    &PayloadGroup {
+                        group_id: file.group_id,
+                        group_key: &file.group_key,
+                        group_path: &file.group_path,
+                        visibility: file.visibility,
+                    },
+                    &PayloadDocument {
+                        source_key: FILE_LIBRARY_SOURCE_KEY,
+                        external_id: &normalized.external_id,
+                        title: &normalized.title,
+                        summary: normalized.summary.as_deref(),
+                        source_uri: &normalized.source_uri,
+                        published_at: normalized.published_at,
+                        updated_at_source: normalized.updated_at,
+                        record_hash: &normalized.record_hash,
+                        metadata_json: &normalized.metadata_json,
+                    },
+                    mapping.document_id,
+                    &normalized.body_text,
+                );
                 self.db
                     .update_library_document_business_fields(mapping.document_id, &payload)
                     .await?;

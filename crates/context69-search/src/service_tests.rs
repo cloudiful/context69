@@ -71,17 +71,6 @@ struct MockIndex {
     /// exercise non-trivial date-mode behavior populate this.
     date_hits: Vec<SearchDatePointHit>,
     seen_date_bounds: SeenDateBounds,
-    /// How the mock should respond when the same `(boundary_ts, limit)`
-    /// is requested more than once. `AdversarialFirstPage` is the
-    /// production-faithful shape: the first call for a given `boundary_ts`
-    /// returns an arbitrary 1024-subset ordered by descending `chunk_id`
-    /// (Qdrant does not guarantee a deterministic tie-break) with a
-    /// `next_offset` set, and every subsequent call returns the
-    /// remainder. `Sequential` is the legacy behaviour: the first
-    /// `limit` records every time, `next_offset` is always `None`.
-    /// Tests default to `AdversarialFirstPage` so the cross-page union
-    /// is exercised exactly like the production pipeline.
-    date_window_strategy: Arc<Mutex<DateWindowStrategy>>,
     /// Optional override for the `query.limit` reported to the mock. When
     /// `Some(n)`, the mock slices its matching records to `n` per call
     /// regardless of what the pipeline asked for. Used by the genuine
@@ -89,24 +78,6 @@ struct MockIndex {
     /// to exercise the per-request cap without forcing a 4 096-record
     /// population.
     fetch_limit_override: Option<usize>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[allow(dead_code)]
-enum DateWindowStrategy {
-    /// Mimics the production Qdrant `scroll` behaviour: the first call
-    /// for a `(boundary_ts, limit)` pair returns an arbitrary 1024
-    /// subset ordered by descending `chunk_id` plus a `next_offset`
-    /// pointing at the next record. Subsequent calls return the
-    /// remaining slice. The pipeline must thread the resume key so the
-    /// boundary is drained in full across pages.
-    #[default]
-    AdversarialFirstPage,
-    /// The mock returns the first `limit` records every time with
-    /// `next_offset = None`. Useful for tests that explicitly want the
-    /// legacy `take(limit)` behaviour (e.g. validating that the
-    /// pipeline's in-memory `seen` set still avoids duplicates).
-    Sequential,
 }
 
 #[async_trait]
@@ -166,56 +137,41 @@ impl SearchIndex for MockIndex {
             .fetch_limit_override
             .map(|override_limit| override_limit.min(query.limit))
             .unwrap_or(query.limit);
-        let strategy = *self
-            .date_window_strategy
-            .lock()
-            .expect("date window strategy lock");
-        match strategy {
-            DateWindowStrategy::Sequential => {
-                matching.truncate(effective_limit);
-                Ok(crate::DateWindowPage {
-                    hits: matching,
-                    next_offset: None,
-                })
-            }
-            DateWindowStrategy::AdversarialFirstPage => {
-                // The mock mirrors the production Qdrant scroll order
-                // for date-mode windows: `published_ts DESC` first,
-                // then `chunk_id DESC` as the tie-break so the within-
-                // boundary order is deterministic. Without the
-                // `published_ts` ordering the mock would return an
-                // arbitrary slice that may exclude the boundary
-                // records the per-ts fetch needs to drain.
-                matching.sort_by(|left, right| {
-                    right
-                        .published_ts
-                        .cmp(&left.published_ts)
-                        .then_with(|| right.chunk_id.cmp(&left.chunk_id))
-                });
-                let offset_idx = match query.offset {
-                    // The Qdrant `next_page_offset` is the ID of the
-                    // FIRST point in the next page. The next call
-                    // with that offset is INCLUSIVE — the point at
-                    // `offset_idx` is the first point returned.
-                    Some(offset) => matching
-                        .iter()
-                        .position(|hit| hit.chunk_id == offset)
-                        .unwrap_or(0),
-                    None => 0,
-                };
-                let slice_end = (offset_idx + effective_limit).min(matching.len());
-                let page_hits: Vec<SearchDatePointHit> = matching[offset_idx..slice_end].to_vec();
-                let next_offset = if slice_end < matching.len() {
-                    matching.get(slice_end).map(|hit| hit.chunk_id)
-                } else {
-                    None
-                };
-                Ok(crate::DateWindowPage {
-                    hits: page_hits,
-                    next_offset,
-                })
-            }
-        }
+        // The mock mirrors the production Qdrant scroll order
+        // for date-mode windows: `published_ts DESC` first,
+        // then `chunk_id DESC` as the tie-break so the within-
+        // boundary order is deterministic. Without the
+        // `published_ts` ordering the mock would return an
+        // arbitrary slice that may exclude the boundary
+        // records the per-ts fetch needs to drain.
+        matching.sort_by(|left, right| {
+            right
+                .published_ts
+                .cmp(&left.published_ts)
+                .then_with(|| right.chunk_id.cmp(&left.chunk_id))
+        });
+        let offset_idx = match query.offset {
+            // The Qdrant `next_page_offset` is the ID of the
+            // FIRST point in the next page. The next call
+            // with that offset is INCLUSIVE — the point at
+            // `offset_idx` is the first point returned.
+            Some(offset) => matching
+                .iter()
+                .position(|hit| hit.chunk_id == offset)
+                .unwrap_or(0),
+            None => 0,
+        };
+        let slice_end = (offset_idx + effective_limit).min(matching.len());
+        let page_hits: Vec<SearchDatePointHit> = matching[offset_idx..slice_end].to_vec();
+        let next_offset = if slice_end < matching.len() {
+            matching.get(slice_end).map(|hit| hit.chunk_id)
+        } else {
+            None
+        };
+        Ok(crate::DateWindowPage {
+            hits: page_hits,
+            next_offset,
+        })
     }
 }
 
@@ -376,19 +332,6 @@ fn hybrid_settings(rerank: bool) -> SearchSettings {
     }
 }
 
-/// Cursor context matching the default `test_request(...)` shape: a fresh
-/// empty request, default settings, and the mock generation `0`.
-#[allow(dead_code)]
-fn default_cursor_context() -> CursorContext {
-    CursorContext {
-        query_hash: SearchCache::query_hash("query"),
-        filter_hash: SearchCache::filter_hash(&test_request(1, 8)),
-        generation: 0,
-        settings_hash: SearchCache::settings_hash(&hybrid_settings(true)),
-        limit: 8,
-    }
-}
-
 fn build_service(
     settings: SearchSettings,
     index_hits: Vec<SearchPointHit>,
@@ -413,7 +356,6 @@ fn build_service(
             seen_limit: Arc::clone(&seen_index),
             date_hits: Vec::new(),
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
-            date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
             fetch_limit_override: None,
         }),
         None,
@@ -959,7 +901,6 @@ fn build_service_with_rerank(
             seen_limit: Arc::new(Mutex::new(None)),
             date_hits: Vec::new(),
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
-            date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
             fetch_limit_override: None,
         }),
         Arc::new(MockReverseRerank),
@@ -1224,7 +1165,6 @@ async fn stream_abort_stops_producer_before_first_frame() {
         seen_limit: Arc::new(Mutex::new(None)),
         date_hits: Vec::new(),
         seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
-        date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
         fetch_limit_override: None,
     });
     let scope = Arc::new(MockScope);
@@ -1270,7 +1210,6 @@ fn build_date_service(
     hydrated: HashMap<Uuid, SearchHit>,
     upper_bound: Option<i64>,
 ) -> (SearchService, DateMocks) {
-    let seen_index = Arc::new(Mutex::new(None));
     let seen_date_bounds = Arc::new(Mutex::new(Vec::new()));
     let repo = MockRepo {
         settings: vector_settings(),
@@ -1280,7 +1219,6 @@ fn build_date_service(
         upper_bound,
     };
     let mocks = DateMocks {
-        seen_index: Arc::clone(&seen_index),
         seen_date_bounds: Arc::clone(&seen_date_bounds),
     };
     let service = block_on(SearchService::new(
@@ -1289,10 +1227,9 @@ fn build_date_service(
         Arc::new(MockEmbedding),
         Arc::new(MockIndex {
             hits: Vec::new(),
-            seen_limit: seen_index,
+            seen_limit: Arc::new(Mutex::new(None)),
             date_hits: index_hits,
             seen_date_bounds,
-            date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
             fetch_limit_override: None,
         }),
         None,
@@ -1313,7 +1250,6 @@ fn build_date_service_with_fetch_limit(
     upper_bound: Option<i64>,
     fetch_limit: usize,
 ) -> (SearchService, DateMocks) {
-    let seen_index = Arc::new(Mutex::new(None));
     let seen_date_bounds = Arc::new(Mutex::new(Vec::new()));
     let repo = MockRepo {
         settings: vector_settings(),
@@ -1323,7 +1259,6 @@ fn build_date_service_with_fetch_limit(
         upper_bound,
     };
     let mocks = DateMocks {
-        seen_index: Arc::clone(&seen_index),
         seen_date_bounds: Arc::clone(&seen_date_bounds),
     };
     let service = block_on(SearchService::new(
@@ -1332,10 +1267,9 @@ fn build_date_service_with_fetch_limit(
         Arc::new(MockEmbedding),
         Arc::new(MockIndex {
             hits: Vec::new(),
-            seen_limit: seen_index,
+            seen_limit: Arc::new(Mutex::new(None)),
             date_hits: index_hits,
             seen_date_bounds,
-            date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
             fetch_limit_override: Some(fetch_limit),
         }),
         None,
@@ -1347,8 +1281,6 @@ fn build_date_service_with_fetch_limit(
 
 #[derive(Clone)]
 struct DateMocks {
-    #[allow(dead_code)]
-    seen_index: SeenLimit,
     seen_date_bounds: SeenDateBounds,
 }
 
@@ -1798,7 +1730,6 @@ async fn date_mode_abort_stops_streaming_before_first_frame() {
         seen_limit: Arc::new(Mutex::new(None)),
         date_hits: Vec::new(),
         seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
-        date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
         fetch_limit_override: None,
     });
     let scope = Arc::new(MockScope);
@@ -2053,7 +1984,6 @@ fn date_mode_snapshot_error_propagates_as_repository_error() {
             seen_limit: Arc::new(Mutex::new(None)),
             date_hits: vec![date_hit(chunk_id, Some(1_700_000_010))],
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
-            date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
             fetch_limit_override: None,
         }),
         None,
@@ -2151,7 +2081,6 @@ fn date_mode_snapshot_receives_caller_user_id() {
             seen_limit: Arc::new(Mutex::new(None)),
             date_hits: vec![date_hit(chunk_id, Some(1_700_000_010))],
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
-            date_window_strategy: Arc::new(Mutex::new(DateWindowStrategy::AdversarialFirstPage)),
             fetch_limit_override: None,
         }),
         None,

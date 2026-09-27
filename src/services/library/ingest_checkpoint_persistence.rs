@@ -11,31 +11,18 @@ use anyhow::{Context, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::LibraryRuntime;
+use super::ingest_batches::ChunkBatchIter;
 use super::ingest_checkpoint::{
-    INDEXING_CHECKPOINT_VERSION, IndexingCheckpoint, compute_prepared_record_hash,
-    estimate_total_batches, parse_indexing_checkpoint, payload_with_checkpoint,
+    IndexingCheckpoint, compute_prepared_record_hash, estimate_total_batches,
+    parse_indexing_checkpoint, payload_with_checkpoint,
 };
+use super::ingest_checkpoint_batch::BatchPersistInputs;
 use super::ingest_types::{IngestFailure, IngestSection, PreparedIngestSection};
 use super::task_ingest::{normalize_task_failure, task_failure};
 use crate::chunking::chunk_document_iter;
+use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
 use crate::contracts::LibraryIngestFailureStage;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
-
-/// Immutable inputs for one indexing batch. Grouped so the batch-persist
-/// helper stays within Clippy's argument-count budget without a lint
-/// suppression.
-struct BatchPersistInputs<'a> {
-    file: &'a crate::domain::LibraryFileRecord,
-    prepared_section: &'a PreparedIngestSection,
-    document_id: i64,
-    batch: &'a [crate::domain::DocumentChunk],
-    this_batch_index: usize,
-    total_batches: usize,
-    current_hash: &'a str,
-    item_id: Uuid,
-    lease_token: Uuid,
-}
 
 impl LibraryService {
     /// Checkpointed variant used by the task item processor.
@@ -131,35 +118,14 @@ impl LibraryService {
             let document_id = self
                 .upsert_section_document(&file, &prepared_section, index, &mut mappings)
                 .await?;
-            let mut chunks = chunk_document_iter(
+            let chunks = chunk_document_iter(
                 document_id,
                 super::FILE_LIBRARY_SOURCE_KEY,
                 &prepared_section.normalized,
                 &self.chunking,
             );
-            let mut pending_chunk: Option<crate::domain::DocumentChunk> = None;
 
-            loop {
-                let mut batch = Vec::with_capacity(super::ingest_batches::MAX_BATCH_CHUNKS);
-                let mut batch_chars = 0usize;
-                while batch.len() < super::ingest_batches::MAX_BATCH_CHUNKS {
-                    let next = pending_chunk.take().or_else(|| chunks.next());
-                    let Some(chunk) = next else {
-                        break;
-                    };
-                    let chunk_chars = chunk.text.chars().count();
-                    if !batch.is_empty()
-                        && batch_chars + chunk_chars > super::ingest_batches::MAX_BATCH_CHARS
-                    {
-                        pending_chunk = Some(chunk);
-                        break;
-                    }
-                    batch_chars += chunk_chars;
-                    batch.push(chunk);
-                }
-                if batch.is_empty() {
-                    break;
-                }
+            for batch in ChunkBatchIter::new(chunks) {
                 let this_batch_index = global_batch_index;
                 global_batch_index += 1;
 
@@ -198,28 +164,26 @@ impl LibraryService {
         index: usize,
         mappings: &mut Vec<crate::domain::LibraryFileDocumentRecord>,
     ) -> Result<i64, UnifiedIngestError> {
-        let seed_payload = crate::domain::ChunkPayload {
-            chunk_id: Uuid::nil(),
-            document_id: 0,
-            group_id: file.group_id,
-            group_key: file.group_key.clone(),
-            group_path: file.group_path.clone(),
-            visibility: file.visibility,
-            source_key: super::FILE_LIBRARY_SOURCE_KEY.to_string(),
-            external_id: prepared_section.normalized.external_id.clone(),
-            title: prepared_section.normalized.title.clone(),
-            summary: prepared_section.normalized.summary.clone(),
-            source_uri: prepared_section.normalized.source_uri.clone(),
-            published_at: prepared_section.normalized.published_at,
-            updated_at_source: prepared_section.normalized.updated_at,
-            record_hash: prepared_section.normalized.record_hash.clone(),
-            chunk_index: 0,
-            chunk_text: prepared_section.normalized.body_text.clone(),
-            metadata_json: prepared_section.normalized.metadata_json.clone(),
-            content_locale: "original".to_string(),
-            source_locale: None,
-            translation_provider: None,
-        };
+        let seed_payload = seed(
+            &PayloadGroup {
+                group_id: file.group_id,
+                group_key: &file.group_key,
+                group_path: &file.group_path,
+                visibility: file.visibility,
+            },
+            &PayloadDocument {
+                source_key: super::FILE_LIBRARY_SOURCE_KEY,
+                external_id: &prepared_section.normalized.external_id,
+                title: &prepared_section.normalized.title,
+                summary: prepared_section.normalized.summary.as_deref(),
+                source_uri: &prepared_section.normalized.source_uri,
+                published_at: prepared_section.normalized.published_at,
+                updated_at_source: prepared_section.normalized.updated_at,
+                record_hash: &prepared_section.normalized.record_hash,
+                metadata_json: &prepared_section.normalized.metadata_json,
+            },
+            &prepared_section.normalized.body_text,
+        );
         let upserted = self
             .db
             .upsert_document(&seed_payload)
@@ -239,122 +203,6 @@ impl LibraryService {
             sort_order: index as i32,
         });
         Ok(upserted.document_id)
-    }
-
-    async fn persist_one_batch(
-        &self,
-        inputs: BatchPersistInputs<'_>,
-        checkpoint: &mut IndexingCheckpoint,
-        current_payload_value: &mut Value,
-        runtime: &LibraryRuntime,
-    ) -> Result<(), UnifiedIngestError> {
-        let BatchPersistInputs {
-            file,
-            prepared_section,
-            document_id,
-            batch,
-            this_batch_index,
-            total_batches,
-            current_hash,
-            item_id,
-            lease_token,
-        } = inputs;
-        let texts = batch
-            .iter()
-            .map(|chunk| chunk.text.clone())
-            .collect::<Vec<_>>();
-        let embeddings = runtime
-            .embedding
-            .embed_texts(&texts)
-            .await
-            .map_err(|error| {
-                let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
-                normalize_task_failure(failure)
-            })?;
-        let payloads = batch
-            .iter()
-            .map(|chunk| crate::domain::ChunkPayload {
-                chunk_id: chunk.id,
-                document_id,
-                group_id: file.group_id,
-                group_key: file.group_key.clone(),
-                group_path: file.group_path.clone(),
-                visibility: file.visibility,
-                source_key: super::FILE_LIBRARY_SOURCE_KEY.to_string(),
-                external_id: prepared_section.normalized.external_id.clone(),
-                title: prepared_section.normalized.title.clone(),
-                summary: prepared_section.normalized.summary.clone(),
-                source_uri: prepared_section.normalized.source_uri.clone(),
-                published_at: prepared_section.normalized.published_at,
-                updated_at_source: prepared_section.normalized.updated_at,
-                record_hash: prepared_section.normalized.record_hash.clone(),
-                chunk_index: chunk.chunk_index,
-                chunk_text: chunk.text.clone(),
-                metadata_json: prepared_section.normalized.metadata_json.clone(),
-                content_locale: "original".to_string(),
-                source_locale: None,
-                translation_provider: None,
-            })
-            .collect::<Vec<_>>();
-
-        // SQL persist; idempotent under deterministic chunk IDs.
-        match self
-            .db
-            .insert_document_chunks(document_id, &prepared_section.normalized.record_hash, batch)
-            .await
-        {
-            Ok(()) => {}
-            Err(error) => {
-                let msg = error.to_string().to_ascii_lowercase();
-                if msg.contains("duplicate key") || msg.contains("unique constraint") {
-                    // Document chunks primary key collision => already inserted
-                    // by an earlier partial ingest. Treat as success.
-                } else {
-                    let failure = IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
-                    return Err(normalize_task_failure(failure));
-                }
-            }
-        }
-
-        if let Err(error) = runtime
-            .index
-            .upsert_document_chunks(&payloads, &embeddings)
-            .await
-        {
-            let failure = IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
-            return Err(normalize_task_failure(failure));
-        }
-
-        // Advance checkpoint only after both stores succeeded.
-        let next_checkpoint = IndexingCheckpoint {
-            v: INDEXING_CHECKPOINT_VERSION,
-            next_batch_index: this_batch_index + 1,
-            total_batches: Some(total_batches),
-            record_hash: Some(current_hash.to_string()),
-        };
-        let next_payload = payload_with_checkpoint(current_payload_value, &next_checkpoint)
-            .map_err(|error| task_failure("indexing", error, false))?;
-        let ok = self
-            .db
-            .set_task_item_payload(item_id, lease_token, &next_payload)
-            .await
-            .map_err(|error| task_failure("indexing", error, true))?;
-        if !ok {
-            // Lease lost or status not running; Qdrant upsert already
-            // succeeded, but checkpoint stays behind. Retry re-upserts the
-            // same points idempotently via deterministic chunk IDs.
-            return Err(task_failure(
-                "indexing",
-                anyhow!(
-                    "task item lease was lost while checkpointing batch {}",
-                    this_batch_index
-                ),
-                true,
-            ));
-        }
-        *current_payload_value = next_payload;
-        *checkpoint = next_checkpoint;
-        Ok(())
     }
 
     async fn finalize_resumed_indexing(
