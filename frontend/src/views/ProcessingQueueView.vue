@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, proxyRefs, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, proxyRefs, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import AppServerList from "../components/AppServerList.vue";
 import ProcessingQueueTable from "../components/processing-queue/ProcessingQueueTable.vue";
 import ProcessingQueueTabs from "../components/processing-queue/ProcessingQueueTabs.vue";
 import { useProcessingQueue } from "../composables/use-processing-queue";
-import type { SortDirection, TaskKind, TaskListView, TaskSortBy, TaskStatus } from "../services/api";
-import { LIBRARY_DEPENDENCY_KEYS } from "../utils/library-status";
+import type { SortDirection, TaskListView, TaskSortBy } from "../services/api";
 
 type QueueTab = TaskListView;
 
@@ -46,33 +45,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(stopLive);
-
-const statuses: TaskStatus[] = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
-const kinds: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
-const stages = ["processing", "finalize"];
-const waitingReasons = ["dependency", "backoff"];
-const dependencies = LIBRARY_DEPENDENCY_KEYS;
-
-const statusOptions = computed(() => [
-  { label: t("processingQueue.allStatuses"), value: null },
-  ...statuses.map((value) => ({ label: t(`processingQueue.statuses.${value}`), value })),
-]);
-const kindOptions = computed(() => [
-  { label: t("processingQueue.allKinds"), value: null },
-  ...kinds.map((value) => ({ label: t(`processingQueue.kinds.${value}`), value })),
-]);
-const stageOptions = computed(() => [
-  { label: t("processingQueue.allStages"), value: null },
-  ...stages.map((value) => ({ label: t(`processingQueue.stages.${value}`), value })),
-]);
-const waitingReasonOptions = computed(() => [
-  { label: t("processingQueue.allWaitingReasons"), value: null },
-  ...waitingReasons.map((value) => ({ label: t(`processingQueue.waitingReasons.${value}`), value })),
-]);
-const dependencyOptions = computed(() => [
-  { label: t("processingQueue.allDependencies"), value: null },
-  ...dependencies.map((value) => ({ label: t(`processingQueue.dependencies.${value}`), value })),
-]);
 
 function handleSort(value: { field: TaskSortBy; direction: SortDirection } | null) {
   if (!value) {
@@ -114,11 +86,6 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
             <UInput v-model="queue.searchInput" class="min-w-0 flex-1" icon="i-lucide-search" :placeholder="t('processingQueue.searchPlaceholder')" />
             <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-search" :aria-label="t('processingQueue.searchHint')" />
           </form>
-          <USelect v-if="activeTab === 'processing'" :model-value="queue.statusFilter" :items="statusOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.statusFilter')" @update:model-value="queue.setStatusFilter($event as TaskStatus | null)" />
-          <USelect :model-value="queue.kindFilter" :items="kindOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.kindFilter')" @update:model-value="queue.setKindFilter($event as TaskKind | null)" />
-          <USelect :model-value="queue.stageFilter" :items="stageOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.stageFilter')" @update:model-value="queue.setStageFilter($event as string | null)" />
-          <USelect :model-value="queue.waitingReasonFilter" :items="waitingReasonOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.waitingReasonFilter')" @update:model-value="queue.setWaitingReasonFilter($event as string | null)" />
-          <USelect :model-value="queue.dependencyKeyFilter" :items="dependencyOptions" value-key="value" class="w-44" :aria-label="t('processingQueue.dependencyFilter')" @update:model-value="queue.setDependencyKeyFilter($event as string | null)" />
         </div>
 
         <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />
@@ -132,7 +99,13 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
         <ProcessingQueueTable
           :items="queue.items"
           :loading="queue.loading"
-          :trash-view="activeTab === 'trash'"
+          :view="activeTab"
+          :sort="queue.sort"
+          :status-filter="queue.statusFilter"
+          :kind-filter="queue.kindFilter"
+          :stage-filter="queue.stageFilter"
+          :waiting-reason-filter="queue.waitingReasonFilter"
+          :dependency-key-filter="queue.dependencyKeyFilter"
           :is-acting="queue.isActing"
           :is-recoverable-task="queue.isRecoverableTask"
           @recover="queue.recoverTask"
@@ -141,6 +114,11 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
           @restore="queue.restoreTask"
           @delete="queue.confirmDeleteTask"
           @sort="handleSort"
+          @update:status-filter="queue.setStatusFilter"
+          @update:kind-filter="queue.setKindFilter"
+          @update:stage-filter="queue.setStageFilter"
+          @update:waiting-reason-filter="queue.setWaitingReasonFilter"
+          @update:dependency-key-filter="queue.setDependencyKeyFilter"
         />
       </div>
       <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">

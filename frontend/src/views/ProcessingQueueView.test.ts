@@ -159,14 +159,84 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("renders a library dependency filter select alongside the existing filters", async () => {
+  it("renders header filter popovers for the column-specific filters", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
+    // Column-specific filters moved from the toolbar into header popovers;
+    // global search stays in the toolbar.
     const labels = ["Task status", "Task type", "Task stage", "Waiting reason", "Library dependency"];
     for (const label of labels) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
     }
+    expect(wrapper.find("input[placeholder]").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows creation and update time columns on the processing tab", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Created");
+    expect(wrapper.text()).toContain("Updated");
+    expect(wrapper.find('[data-testid="queue-sort-created_at"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="queue-sort-updated_at"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("sorts by creation time through the header and sends the backend sort field", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    // Processing defaults to creation-time descending; one header click flips
+    // the same field to ascending through the server-side sort contract.
+    await wrapper.find('[data-testid="queue-sort-created_at"]').trigger("click");
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "created_at", sortDirection: "asc" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(wrapper.find('[data-testid="queue-sort-created_at"]').attributes("data-sort")).toBe("asc");
+    wrapper.unmount();
+  });
+
+  it("offers processing statuses without the completed value in the status popover", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="Task status"]').trigger("click");
+    await flushPromises();
+
+    const listbox = document.body.querySelector('[role="listbox"][aria-label="Task status"]');
+    expect(listbox).not.toBeNull();
+    const options = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')].map((el) => el.textContent?.trim());
+    expect(options).toContain("All statuses");
+    expect(options).toContain("Failed");
+    expect(options).not.toContain("Succeeded");
+
+    const failed = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
+      .find((el) => el.textContent?.trim() === "Failed");
+    expect(failed).toBeDefined();
+    (failed as HTMLElement).click();
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: "failed" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    // Re-selecting the active value closes the popover without a duplicate request.
+    const callsAfterSelect = listTasks.mock.calls.length;
+    await wrapper.find('[aria-label="Task status"]').trigger("click");
+    await flushPromises();
+    const reopened = document.body.querySelector('[role="listbox"][aria-label="Task status"]');
+    expect(reopened).not.toBeNull();
+    const failedAgain = [...(reopened as HTMLElement).querySelectorAll('[role="option"]')]
+      .find((el) => el.textContent?.trim() === "Failed");
+    (failedAgain as HTMLElement).click();
+    await flushPromises();
+    expect(listTasks.mock.calls.length).toBe(callsAfterSelect);
     wrapper.unmount();
   });
 
