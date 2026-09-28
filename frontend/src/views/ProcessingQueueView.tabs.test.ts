@@ -58,6 +58,10 @@ function tabButton(wrapper: ReturnType<typeof mount>, label: string) {
   return wrapper.findAll("button").find((button) => button.text().includes(label));
 }
 
+function headerLabels(wrapper: ReturnType<typeof mount>) {
+  return wrapper.find('[data-testid="processing-queue-table"]').findAll("th").map((th) => th.text().trim());
+}
+
 describe("ProcessingQueueView tabs", () => {
   beforeEach(() => {
     setGuest();
@@ -90,8 +94,7 @@ describe("ProcessingQueueView tabs", () => {
     wrapper.unmount();
   });
 
-  it("narrows the same list to the completed view when Completed is selected", async () => {
-    const wrapper = await mountQueue();
+  it("narrows the same list to the completed view when Completed is selected", async () => {    const wrapper = await mountQueue();
     await flushPromises();
 
     await tabButton(wrapper, "Completed")!.trigger("mousedown");
@@ -234,6 +237,119 @@ describe("ProcessingQueueView tabs", () => {
     await tabButton(wrapper, "Trash")!.trigger("mousedown");
     await flushPromises();
     expect(wrapper.find('[data-testid="task-maintenance-toolbar"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("labels the completed timestamp as completion time and defaults to update-time ordering", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "processing", sortBy: "created_at", sortDirection: "desc" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    await tabButton(wrapper, "Completed")!.trigger("mousedown");
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed", sortBy: "updated_at", sortDirection: "desc" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(wrapper.text()).toContain("Completed");
+    expect(wrapper.text()).toContain("Created");
+    expect(wrapper.text()).not.toContain("Updated");
+    expect(wrapper.find('[data-testid="queue-sort-updated_at"]').attributes("data-sort")).toBe("desc");
+    wrapper.unmount();
+  });
+
+  it("hides terminal-view selectors on completed while keeping type and dependency filters", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await tabButton(wrapper, "Completed")!.trigger("mousedown");
+    await flushPromises();
+
+    expect(wrapper.find('[aria-label="Task status"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Task stage"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Waiting reason"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Task type"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Library dependency"]').exists()).toBe(true);
+
+    await tabButton(wrapper, "Processing")!.trigger("mousedown");
+    await flushPromises();
+    expect(wrapper.find('[aria-label="Task status"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Task stage"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("keeps column filters and creation-time sorting available in trash", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await tabButton(wrapper, "Trash")!.trigger("mousedown");
+    await flushPromises();
+
+    expect(wrapper.find('[aria-label="Task status"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Task type"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Task stage"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Waiting reason"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Library dependency"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="queue-sort-created_at"]').exists()).toBe(true);
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "trash", sortBy: "created_at", sortDirection: "desc" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("renders tab-aware columns: completed hides stage/waiting/progress and keeps dependency visible", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(headerLabels(wrapper)).toEqual(expect.arrayContaining(["Stage", "Waiting", "Progress"]));
+    expect(headerLabels(wrapper)).not.toContain("Library dependency");
+
+    await tabButton(wrapper, "Completed")!.trigger("mousedown");
+    await flushPromises();
+
+    const completedHeaders = headerLabels(wrapper);
+    expect(completedHeaders).not.toContain("Stage");
+    expect(completedHeaders).not.toContain("Waiting");
+    expect(completedHeaders).not.toContain("Progress");
+    expect(completedHeaders).toEqual(
+      expect.arrayContaining(["Task", "Type", "Group", "Status", "Library dependency", "Error", "Created", "Completed", "Actions"]),
+    );
+    expect(wrapper.find('[data-testid="queue-sort-stage"]').exists()).toBe(false);
+    // The dependency value stays visible in its own completed column.
+    expect(wrapper.text()).toContain("Docling");
+
+    // Header sorting stays server-side on the completed timestamp.
+    await wrapper.find('[data-testid="queue-sort-updated_at"]').trigger("click");
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed", sortBy: "updated_at", sortDirection: "asc" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    // The dependency filter forwards from the completed header popover.
+    await wrapper.find('[aria-label="Library dependency"]').trigger("click");
+    await flushPromises();
+    const listbox = document.body.querySelector('[role="listbox"][aria-label="Library dependency"]');
+    expect(listbox).not.toBeNull();
+    const qdrant = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
+      .find((el) => el.textContent?.trim() === "Qdrant");
+    expect(qdrant).toBeDefined();
+    (qdrant as HTMLElement).click();
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed", dependencyKey: "qdrant" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    await tabButton(wrapper, "Trash")!.trigger("mousedown");
+    await flushPromises();
+    expect(headerLabels(wrapper)).toEqual(expect.arrayContaining(["Stage", "Waiting", "Progress"]));
     wrapper.unmount();
   });
 });

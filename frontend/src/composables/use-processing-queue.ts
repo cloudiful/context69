@@ -2,7 +2,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { apiClient, type ClearTaskHistoryView, type SortDirection, type TaskKind, type TaskListView, type TaskPageResponse, type TaskResponse, type TaskSortBy, type TaskStatus } from "../services/api";
 import { useQueueActions } from "./queue-actions";
-import { ACTIVE_STATUSES, isRecoverableTask, isTerminalTask } from "./queue-helpers";
+import { ACTIVE_STATUSES, DEFAULT_QUEUE_SORT_BY_VIEW, isRecoverableTask, isTerminalTask } from "./queue-helpers";
 import { useQueueStream } from "./queue-stream";
 import { useAppConfirm } from "./use-app-confirm";
 import { errorMessage, useErrorToast } from "./use-error-toast";
@@ -33,7 +33,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const stageFilter = ref<string | null>(null);
   const waitingReasonFilter = ref<string | null>(null);
   const dependencyKeyFilter = ref<string | null>(null);
-  const sort = ref<{ field: TaskSortBy; direction: SortDirection } | null>(null);
+  const sort = ref<{ field: TaskSortBy; direction: SortDirection }>({ ...DEFAULT_QUEUE_SORT_BY_VIEW.processing });
   const actionTaskIds = ref<string[]>([]);
   const bulkAction = ref<"recover" | "cancel" | null>(null);
   const clearAction = ref<ClearTaskHistoryView | null>(null);
@@ -106,12 +106,21 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
 
   // Tab changes move the typed list view at once (processing/completed/trash).
   // The backend view owns the trash/succeeded predicate; a user-selected
-  // status only narrows the view and never widens it. A single load keeps
-  // the switch atomic instead of firing one request per filter.
+  // status only narrows the view and never widens it. Each view restores its
+  // own default ordering, and entering completed drops the stage and
+  // waiting-reason filters because that view exposes no selectors for them —
+  // a hidden filter must never keep narrowing a view that cannot display it.
+  // A single load keeps the switch atomic instead of firing one request per
+  // filter.
   function setListView(next: { view: TaskListView }) {
     if (viewFilter.value === next.view && statusFilter.value === null) return;
     viewFilter.value = next.view;
     statusFilter.value = null;
+    if (next.view === "completed") {
+      stageFilter.value = null;
+      waitingReasonFilter.value = null;
+    }
+    sort.value = { ...DEFAULT_QUEUE_SORT_BY_VIEW[next.view] };
     void load({ resetPage: true });
   }
 
@@ -136,8 +145,12 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   }
 
   function clearSort() {
-    if (!sort.value) return;
-    sort.value = null;
+    // Clearing a header sort returns to the current view's default ordering
+    // instead of an unsorted request, so completed never falls back to the
+    // backend creation-time default.
+    const fallback = DEFAULT_QUEUE_SORT_BY_VIEW[viewFilter.value];
+    if (sort.value.field === fallback.field && sort.value.direction === fallback.direction) return;
+    sort.value = { ...fallback };
     page.value = 1;
     void load();
   }

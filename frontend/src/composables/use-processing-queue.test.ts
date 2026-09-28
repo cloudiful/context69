@@ -100,6 +100,8 @@ describe("useProcessingQueue", () => {
         stage: null,
         waitingReason: null,
         dependencyKey: null,
+        sortBy: "created_at",
+        sortDirection: "desc",
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
@@ -426,8 +428,7 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("switches typed list views without status guessing and narrows processing by status", async () => {
-    const { state, wrapper } = mountState();
+  it("switches typed list views without status guessing and narrows processing by status", async () => {    const { state, wrapper } = mountState();
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
@@ -514,8 +515,7 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("does not bulk recover while a history clear is in flight", async () => {
-    let resolveClear: ((value: { deleted_count: number }) => void) | null = null;
+  it("does not bulk recover while a history clear is in flight", async () => {    let resolveClear: ((value: { deleted_count: number }) => void) | null = null;
     clearTaskHistory.mockReset().mockImplementationOnce(() => new Promise((resolve) => {
       resolveClear = resolve as (value: { deleted_count: number }) => void;
     }));
@@ -532,6 +532,101 @@ describe("useProcessingQueue", () => {
     resolveClear!({ deleted_count: 1 });
     await clearing;
     expect(clearTaskHistory).toHaveBeenCalledWith({ view: "trash" });
+    wrapper.unmount();
+  });
+
+  it("defaults processing to creation-time ordering and completed to update-time ordering", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    expect(state.sort.value).toEqual({ field: "created_at", direction: "desc" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "processing", sortBy: "created_at", sortDirection: "desc" }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "completed" });
+    await flushPromises();
+    expect(state.sort.value).toEqual({ field: "updated_at", direction: "desc" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed", sortBy: "updated_at", sortDirection: "desc" }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "trash" });
+    await flushPromises();
+    expect(state.sort.value).toEqual({ field: "created_at", direction: "desc" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "trash", sortBy: "created_at", sortDirection: "desc" }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "processing" });
+    await flushPromises();
+    expect(state.sort.value).toEqual({ field: "created_at", direction: "desc" });
+    wrapper.unmount();
+  });
+
+  it("clears stage and waiting-reason filters when entering completed so hidden filters never leak", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.setStageFilter("processing");
+    state.setWaitingReasonFilter("dependency");
+    state.setKindFilter("file_batch");
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ stage: "processing", waitingReason: "dependency", kind: "file_batch" }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "completed" });
+    await flushPromises();
+    expect(state.stageFilter.value).toBeNull();
+    expect(state.waitingReasonFilter.value).toBeNull();
+    expect(state.kindFilter.value).toBe("file_batch");
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed", stage: null, waitingReason: null, kind: "file_batch" }),
+      expect.anything(),
+    );
+    wrapper.unmount();
+  });
+
+  it("forwards header sorting and resets a cleared sort to the current view default", async () => {
+    const { state, wrapper } = mountState();
+    await flushPromises();
+
+    state.changeSort("updated_at", "asc");
+    await flushPromises();
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "updated_at", sortDirection: "asc" }),
+      expect.anything(),
+    );
+
+    const callsBeforeClear = listTasks.mock.calls.length;
+    state.changeSort("updated_at", "asc");
+    await flushPromises();
+    expect(listTasks.mock.calls.length).toBe(callsBeforeClear);
+
+    state.clearSort();
+    await flushPromises();
+    expect(state.sort.value).toEqual({ field: "created_at", direction: "desc" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "created_at", sortDirection: "desc" }),
+      expect.anything(),
+    );
+
+    state.setListView({ view: "completed" });
+    await flushPromises();
+    state.changeSort("kind", "asc");
+    await flushPromises();
+    state.clearSort();
+    await flushPromises();
+    expect(state.sort.value).toEqual({ field: "updated_at", direction: "desc" });
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "completed", sortBy: "updated_at", sortDirection: "desc" }),
+      expect.anything(),
+    );
     wrapper.unmount();
   });
 });
