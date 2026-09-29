@@ -75,6 +75,14 @@ const waitingUnknownDependencyRow: TaskResponse = {
   dependency_key: "custom_storage",
 };
 
+const waitingDoclingRow: TaskResponse = {
+  ...row,
+  task_id: "waiting-docling-task-id",
+  stage: "processing",
+  waiting_reason: "docling",
+  dependency_key: "docling",
+};
+
 function response(items: TaskResponse[]) {
   return {
     items,
@@ -82,7 +90,7 @@ function response(items: TaskResponse[]) {
   };
 }
 
-async function mountQueue() {
+async function mountQueue(locale: "en" | "zh-CN" = "en") {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
@@ -90,7 +98,7 @@ async function mountQueue() {
   await router.push("/processing-queue");
   await router.isReady();
   return mount(ProcessingQueueView, {
-    global: { plugins: [testNuxtUiPlugin, createTestI18n("en"), router] },
+    global: { plugins: [testNuxtUiPlugin, createTestI18n(locale), router] },
   });
 }
 
@@ -117,6 +125,55 @@ describe("ProcessingQueueView", () => {
     expect(wrapper.text()).toContain("Processing");
     expect(wrapper.text()).toContain("Dependency: Docling");
     expect(wrapper.text()).toContain("Waiting");
+    wrapper.unmount();
+  });
+
+  it("renders the Docling waiting reason with the dependency suffix instead of a raw key", async () => {
+    listTasks.mockReset().mockResolvedValue(response([waitingDoclingRow]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Remote conversion: Docling");
+    expect(wrapper.text()).toContain("waiting-docling-task-id");
+    expect(wrapper.text()).not.toContain("processingQueue.waitingReasons.");
+    wrapper.unmount();
+  });
+
+  it("renders the Docling waiting reason in Chinese with the dependency suffix", async () => {
+    listTasks.mockReset().mockResolvedValue(response([waitingDoclingRow]) as never);
+    const wrapper = await mountQueue("zh-CN");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("远端转换: Docling");
+    expect(wrapper.text()).toContain("waiting-docling-task-id");
+    expect(wrapper.text()).not.toContain("processingQueue.waitingReasons.");
+    wrapper.unmount();
+  });
+
+  it("offers Docling in the waiting-reason filter popover while keeping existing options", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="Waiting reason"]').trigger("click");
+    await flushPromises();
+
+    const listbox = document.body.querySelector('[role="listbox"][aria-label="Waiting reason"]');
+    expect(listbox).not.toBeNull();
+    const options = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')].map((el) => el.textContent?.trim());
+    for (const label of ["All waiting reasons", "Dependency", "Backoff", "Remote conversion"]) {
+      expect(options).toContain(label);
+    }
+
+    const docling = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
+      .find((el) => el.textContent?.trim() === "Remote conversion");
+    expect(docling).toBeDefined();
+    (docling as HTMLElement).click();
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ waitingReason: "docling" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     wrapper.unmount();
   });
 

@@ -30,6 +30,14 @@ const QUEUE_STAGE_SET: ReadonlySet<string> = new Set(QUEUE_STAGE_VALUES);
 
 type StageTranslate = (key: string, params?: Record<string, unknown>) => string;
 
+// Waiting-reason vocabulary (issue 646): the durable Docling submit path
+// emits `waiting_reason = "docling"` with `dependency_key = "docling"`, so
+// the filter options and locale keys share this list to prevent the raw
+// `processingQueue.waitingReasons.docling` key from rendering again.
+export const QUEUE_WAITING_REASON_VALUES = ["dependency", "backoff", "docling"] as const;
+
+export type QueueWaitingReason = (typeof QUEUE_WAITING_REASON_VALUES)[number];
+
 // Unknown or missing stages fall back to the Unknown label so the UI never
 // leaks a raw `processingQueue.stages.*` key.
 export function queueStageLabel(t: StageTranslate, stage: string | null | undefined): string {
