@@ -114,6 +114,7 @@ export const processingQueue = {
   waitingReasons: {
     dependency: "Dependency",
     backoff: "Backoff",
+    docling: "Remote conversion",
   },
   dependencies: {
     s3: "S3",

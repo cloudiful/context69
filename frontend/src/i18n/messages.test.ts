@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { QUEUE_STAGE_VALUES } from "../composables/queue-helpers";
+import { QUEUE_STAGE_VALUES, QUEUE_WAITING_REASON_VALUES } from "../composables/queue-helpers";
 import { messages } from "./messages";
 
 function collectLeafKeys(node: object, prefix = ""): string[] {
@@ -32,6 +32,16 @@ describe("i18n message catalogs", () => {
     for (const stage of QUEUE_STAGE_VALUES) {
       expect(messages.en.processingQueue.stages[stage]).toBeTruthy();
       expect(messages["zh-CN"].processingQueue.stages[stage]).toBeTruthy();
+    }
+  });
+
+  it("covers every queue waiting reason in both locales without drift", () => {
+    const expected = [...QUEUE_WAITING_REASON_VALUES].sort();
+    expect(Object.keys(messages.en.processingQueue.waitingReasons).sort()).toEqual(expected);
+    expect(Object.keys(messages["zh-CN"].processingQueue.waitingReasons).sort()).toEqual(expected);
+    for (const reason of QUEUE_WAITING_REASON_VALUES) {
+      expect(messages.en.processingQueue.waitingReasons[reason]).toBeTruthy();
+      expect(messages["zh-CN"].processingQueue.waitingReasons[reason]).toBeTruthy();
     }
   });
 });
