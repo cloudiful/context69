@@ -6,14 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{serde_helpers, support::normalize::normalize_optional_string};
 
-mod client;
-mod xlsx_polling;
-
-#[cfg(test)]
-mod client_tests;
-
-pub use client::DoclingXlsxClient;
-
 pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
 pub const DEFAULT_DOCLING_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_DOCLING_POLL_INTERVAL_SECS: u64 = 2;
@@ -94,11 +86,10 @@ pub fn build_runtime_config(config: &DoclingConfig) -> Result<DoclingRuntimeConf
     // and every long-poll are short requests, so the configured connection
     // timeout is clamped to `DEFAULT_DOCLING_TIMEOUT_SECS` (120s) to bound a
     // single stalled request. The whole-document budget is `task_timeout`
-    // below: the conversion runs through the crate's async submit plus an
-    // in-process `wait_for_result` loop (see `ingest_pdf`/`ingest_docx`),
-    // which is additionally wrapped by `convert_unified_docling`'s
-    // `timeout(task_timeout)`. A conversion may therefore legitimately run
-    // far longer than one request.
+    // below: the conversion runs through the durable submit/park/sweep stage
+    // (issue 639), which polls the persisted remote id until the deadline
+    // instead of waiting in-process. A conversion may therefore legitimately
+    // run far longer than one request.
     runtime.request_timeout = Some(
         config
             .connection

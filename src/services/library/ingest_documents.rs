@@ -1,23 +1,28 @@
 use anyhow::{Context, Result};
-use docling_convert::{ConversionBehavior, InputDocument, OutputFormat, PdfConvert};
+use docling_convert::{ConversionBehavior, OutputFormat, PdfConvert};
 use serde_json::json;
-use tokio::time::Duration;
 
 use super::*;
 use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
 
 impl LibraryService {
-    pub(super) async fn docling_task_timeout(&self) -> Result<Duration> {
-        Ok(self
-            .settings
-            .resolve_docling_config()
-            .await?
-            .context(DomainError::internal("docling is not configured"))?
-            .connection
-            .task_timeout)
+    pub(crate) async fn load_docling_pdf_converter(&self) -> Result<PdfConvert> {
+        self.load_docling_converter_with_formats(vec![
+            OutputFormat::Md,
+            OutputFormat::Text,
+            OutputFormat::Json,
+        ])
+        .await
     }
 
-    pub(super) async fn load_docling_pdf_converter(&self) -> Result<PdfConvert> {
+    /// Builds a converter requesting exactly `formats`. The durable sweep
+    /// submit path uses this with per-kind formats so XLSX only requests the
+    /// JSON output its parser consumes (mirroring the legacy XLSX client's
+    /// `to_formats=json` form).
+    pub(crate) async fn load_docling_converter_with_formats(
+        &self,
+        formats: Vec<OutputFormat>,
+    ) -> Result<PdfConvert> {
         let config = self
             .settings
             .resolve_docling_config()
@@ -36,109 +41,19 @@ impl LibraryService {
         };
         PdfConvert::builder(runtime)
             .behavior(behavior)
-            .output_formats(vec![
-                OutputFormat::Md,
-                OutputFormat::Text,
-                OutputFormat::Json,
-            ])
+            .output_formats(formats)
             .build()
             .map_err(anyhow::Error::from)
     }
 
-    pub(super) async fn load_docling_xlsx_client(&self) -> Result<DoclingXlsxClient> {
-        let config = self
-            .settings
-            .resolve_docling_config()
-            .await?
-            .context(DomainError::internal("docling is not configured; open Settings and save the Docling base URL before uploading library files"))?;
-        DoclingXlsxClient::new(config)
-    }
-
-    pub(super) async fn ingest_pdf(
+    /// Converter for one durable-submit file kind: XLSX requests only the
+    /// JSON output its sweep parser consumes, PDF/DOCX keep the full triple.
+    pub(crate) async fn load_docling_converter_for_kind(
         &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: Bytes,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let converter = self
-            .load_docling_pdf_converter()
+        kind: &LibraryFileKind,
+    ) -> Result<PdfConvert> {
+        self.load_docling_converter_with_formats(docling_output_formats_for_kind(kind))
             .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        let input = InputDocument::new(&file.filename, &file.media_type, bytes);
-        // Whole-document budget: `convert_input_async` submits the remote task
-        // and waits in-process until it reaches a terminal status, bounded by
-        // the crate's `task_timeout` (default 3600s). The synchronous
-        // `convert_input` variant would instead cap the single blocking POST at
-        // the per-request ceiling (~120s), which is why the blocking worker
-        // uses the async submit + in-process wait: still one blocking function
-        // holding the Docling permit for the whole conversion, but with the
-        // full task budget. No remote task id is persisted anywhere.
-        let converted = converter
-            .convert_input_async(input)
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        sections_from_converted_document(file, converted)
-    }
-
-    pub(super) async fn ingest_docx(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: Bytes,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let converter = self
-            .load_docling_pdf_converter()
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        let input = InputDocument::new(&file.filename, &file.media_type, bytes);
-        // Same async submit + in-process wait as `ingest_pdf`, so the DOCX
-        // whole-document budget follows `task_timeout` rather than the
-        // per-request ceiling.
-        let converted = converter
-            .convert_input_async(input)
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        sections_from_converted_document(file, converted)
-    }
-
-    pub(super) async fn ingest_xlsx(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: Bytes,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let docling = self
-            .load_docling_xlsx_client()
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        let json = docling
-            .convert_xlsx(&file.filename, &file.media_type, bytes)
-            .await
-            .map_err(|error| {
-                DomainError::upstream_error(format!(
-                    "docling did not return json_content for xlsx: {error}"
-                ))
-            })
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        xlsx::ensure_json_output_size(&json)
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-        let sections = xlsx::extract_xlsx_sections(&file.filename, &json)
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-        if sections.is_empty() {
-            let fallback = xlsx::extract_json_text(&json).unwrap_or_default();
-            drop(json);
-            let fallback = limit_docling_text(fallback)?;
-            return Ok(vec![IngestSection {
-                section_key: "workbook".to_string(),
-                section_label: file.filename.clone(),
-                title: file.filename.clone(),
-                summary: None,
-                body_text: normalize_body(&fallback),
-                source_uri: None,
-                external_id: None,
-                published_at: None,
-                metadata_json: json!({}),
-            }]);
-        }
-        drop(json);
-        Ok(sections)
     }
 
     pub(super) async fn ingest_text(
@@ -212,7 +127,7 @@ impl LibraryService {
     }
 }
 
-pub(super) fn sections_from_converted_document(
+pub(crate) fn sections_from_converted_document(
     file: &crate::domain::LibraryFileRecord,
     converted: docling_convert::ConvertedDocument,
 ) -> IngestResult<Vec<IngestSection>> {
@@ -247,4 +162,41 @@ fn limit_docling_text(text: String) -> IngestResult<String> {
         ));
     }
     Ok(text)
+}
+
+/// Output formats requested per file kind on the durable submit path.
+/// PDF/DOCX keep the full triple the inline pipeline parses; XLSX requests
+/// only JSON, matching the legacy XLSX client's `to_formats=json` form and
+/// keeping `sections_for_remote_result`'s `converted.json` contract exact.
+pub(crate) fn docling_output_formats_for_kind(kind: &LibraryFileKind) -> Vec<OutputFormat> {
+    match kind {
+        LibraryFileKind::Xlsx => vec![OutputFormat::Json],
+        LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::PlainText => {
+            vec![OutputFormat::Md, OutputFormat::Text, OutputFormat::Json]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LibraryFileKind, docling_output_formats_for_kind};
+    use docling_convert::OutputFormat;
+
+    #[test]
+    fn xlsx_requests_only_json_output() {
+        assert_eq!(
+            docling_output_formats_for_kind(&LibraryFileKind::Xlsx),
+            vec![OutputFormat::Json]
+        );
+    }
+
+    #[test]
+    fn pdf_and_docx_keep_the_full_output_triple() {
+        let full = vec![OutputFormat::Md, OutputFormat::Text, OutputFormat::Json];
+        assert_eq!(docling_output_formats_for_kind(&LibraryFileKind::Pdf), full);
+        assert_eq!(
+            docling_output_formats_for_kind(&LibraryFileKind::Docx),
+            full
+        );
+    }
 }

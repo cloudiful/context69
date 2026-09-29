@@ -17,6 +17,13 @@ impl Database {
         sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query_file!(
+            "src/sql/db/tasks/docling_remote_jobs/cancel_active_for_task.sql",
+            task_id,
+            Option::<&str>::None,
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
             .execute(&mut *tx)
             .await?;

@@ -4,15 +4,40 @@ use serde_json::Value;
 use super::LibraryIngestFailureStage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum LibraryFileKind {
+pub(crate) enum LibraryFileKind {
     Pdf,
     Docx,
     Xlsx,
     PlainText,
 }
 
+impl LibraryFileKind {
+    /// Stage that owns this kind's conversion (issue 639): Docling files go
+    /// through the durable `docling` submit/park/sweep stage; plain text has
+    /// no remote conversion and prepares inline at `embedding`. Single source
+    /// for `file_ingest_stage` and the embedding/indexing recovery routing so
+    /// no task path can silently reintroduce an inline Docling wait.
+    pub(crate) fn conversion_stage(&self) -> &'static str {
+        match self {
+            Self::Pdf | Self::Docx | Self::Xlsx => "docling",
+            Self::PlainText => "embedding",
+        }
+    }
+
+    /// Recovery routing for an item that reaches embedding/indexing without
+    /// a persisted section payload (issue 639): Docling kinds advance back
+    /// to the durable stage; plain text is already inline at `embedding`, so
+    /// `None` means "stay and prepare inline".
+    pub(crate) fn recovery_stage_for_missing_sections(&self) -> Option<&'static str> {
+        match self.conversion_stage() {
+            "docling" => Some("docling"),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(super) struct IngestSection {
+pub(crate) struct IngestSection {
     pub section_key: String,
     pub section_label: String,
     pub title: String,
@@ -72,7 +97,7 @@ impl LibraryDependency {
 }
 
 #[derive(Debug)]
-pub(super) struct IngestFailure {
+pub(crate) struct IngestFailure {
     pub stage: LibraryIngestFailureStage,
     pub error: anyhow::Error,
     pub dependency: Option<LibraryDependency>,
@@ -138,4 +163,41 @@ pub(super) struct PreparedIngestSection {
     pub index: usize,
     pub section: IngestSection,
     pub normalized: crate::domain::NormalizedDocument,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LibraryFileKind;
+
+    #[test]
+    fn docling_kinds_convert_at_the_durable_stage_and_text_stays_inline() {
+        assert_eq!(LibraryFileKind::Pdf.conversion_stage(), "docling");
+        assert_eq!(LibraryFileKind::Docx.conversion_stage(), "docling");
+        assert_eq!(LibraryFileKind::Xlsx.conversion_stage(), "docling");
+        assert_eq!(LibraryFileKind::PlainText.conversion_stage(), "embedding");
+    }
+
+    /// Issue 639 regression: the embedding/indexing recovery branch (missing
+    /// section payload) must send every Docling format back to the durable
+    /// `docling` submit/park/sweep stage — never inline conversion — while
+    /// plain text keeps preparing inline.
+    #[test]
+    fn missing_sections_recovery_returns_to_the_durable_docling_stage() {
+        for kind in [
+            LibraryFileKind::Pdf,
+            LibraryFileKind::Docx,
+            LibraryFileKind::Xlsx,
+        ] {
+            assert_eq!(
+                kind.recovery_stage_for_missing_sections(),
+                Some("docling"),
+                "recovery for {kind:?} must re-enter durable submit/park/sweep"
+            );
+        }
+        assert_eq!(
+            LibraryFileKind::PlainText.recovery_stage_for_missing_sections(),
+            None,
+            "plain text has no remote conversion and stays inline"
+        );
+    }
 }

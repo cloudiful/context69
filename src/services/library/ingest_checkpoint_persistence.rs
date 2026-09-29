@@ -19,8 +19,8 @@ use super::ingest_checkpoint::{
 use super::ingest_checkpoint_batch::BatchPersistInputs;
 use super::ingest_types::{IngestFailure, IngestSection, PreparedIngestSection};
 use super::task_ingest::{normalize_task_failure, task_failure};
-use crate::chunking::chunk_document_iter;
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
+use crate::chunking::chunk_document_iter;
 use crate::contracts::LibraryIngestFailureStage;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 

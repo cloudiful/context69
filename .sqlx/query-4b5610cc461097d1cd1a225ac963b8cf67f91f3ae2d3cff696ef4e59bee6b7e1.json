@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Fails a parked Docling item when its remote conversion reaches a terminal\n-- failure, cancellation, or deadline.\n--\n-- Same fencing as the success requeue: only a waiting `docling` item is\n-- touched, so a concurrent cancel/retry that already moved the row is left\n-- alone. The caller finishes the remote job in the same transaction, then\n-- projects the file status and recomputes the parent task.\nUPDATE context69.task_items\nSET status = 'failed',\n    failure_stage = $2,\n    error_message = $3,\n    retryable = FALSE,\n    waiting_reason = NULL,\n    dependency_key = NULL,\n    next_attempt_at = NULL,\n    waiting_since = NULL,\n    lease_token = NULL,\n    lease_until = NULL,\n    finished_at = now(),\n    updated_at = now()\nWHERE id = $1\n  AND status = 'waiting'\n  AND waiting_reason = 'docling'\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4b5610cc461097d1cd1a225ac963b8cf67f91f3ae2d3cff696ef4e59bee6b7e1"
+}

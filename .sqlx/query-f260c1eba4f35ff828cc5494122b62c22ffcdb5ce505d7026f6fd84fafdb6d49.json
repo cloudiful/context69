@@ -1,0 +1,220 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    id,\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    remote_status,\n    attempt_count,\n    next_poll_at,\n    last_polled_at,\n    deadline_at,\n    lease_token,\n    lease_until,\n    last_error,\n    created_at,\n    updated_at,\n    finished_at\nFROM context69.task_docling_remote_jobs\nWHERE remote_task_id = $1\nLIMIT 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "remote_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "remote_status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "next_poll_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "next_poll_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "last_polled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "last_polled_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "deadline_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "deadline_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "lease_until"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "finished_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "f260c1eba4f35ff828cc5494122b62c22ffcdb5ce505d7026f6fd84fafdb6d49"
+}

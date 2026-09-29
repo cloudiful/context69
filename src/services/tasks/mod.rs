@@ -21,6 +21,11 @@ use crate::{
 
 mod actions;
 mod dispatcher;
+mod docling_finalize;
+mod docling_heartbeat;
+mod docling_poll;
+mod docling_submit;
+pub mod docling_sweep;
 pub mod events;
 mod item_file_processors;
 mod item_lifecycle_processors;
@@ -159,7 +164,10 @@ impl TaskService {
         maintenance::start_with_shutdown(self, shutdown);
     }
 
-    fn notify_dispatch(&self) {
+    /// Wakes the dispatcher after the Docling sweep moved items (requeue on
+    /// success, fail on terminal/error) so they resume without waiting for
+    /// the 30s recovery tick.
+    pub(crate) fn notify_dispatch(&self) {
         self.dispatch_notify.notify_one();
     }
 

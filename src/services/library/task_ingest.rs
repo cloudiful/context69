@@ -19,25 +19,34 @@ impl LibraryService {
         &self,
         file_id: Uuid,
         lease_token: Uuid,
-        task_id: Uuid,
+        _task_id: Uuid,
         section_payload: Option<Value>,
     ) -> Result<Value, UnifiedIngestError> {
         let file = self.task_file(file_id).await?;
         let kind = storage::detect_file_kind(&file.filename, &file.media_type)
             .map_err(|error| task_failure("parsing", error, false))?;
-        let uses_docling = matches!(
-            kind,
-            LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx
-        ) && section_payload.is_none();
-        let docling_permit = if uses_docling {
-            Some(
-                self.acquire_docling_permit()
-                    .await
-                    .map_err(|error| task_failure("docling", error, true))?,
+        // Issue 639: Docling files convert only through the durable
+        // submit/park/sweep stage. Reaching here without a section payload
+        // means a caller bypassed that stage; fail closed (non-retryable so
+        // the item fails instead of parking on a path that can never
+        // succeed) rather than converting inline while holding worker
+        // capacity.
+        if section_payload.is_none()
+            && matches!(
+                kind,
+                LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx
             )
-        } else {
-            None
-        };
+        {
+            return Err(UnifiedIngestError {
+                stage: "docling".to_string(),
+                dependency_key: Some(LibraryDependency::Docling.as_str().to_string()),
+                retryable: false,
+                message: format!(
+                    "docling file {} must convert through the durable submit/park/sweep stage",
+                    file.filename,
+                ),
+            });
+        }
         let sections = if let Some(payload) = section_payload {
             serde_json::from_value::<Vec<IngestSection>>(payload)
                 .map_err(|error| task_failure("parsing", error, false))?
@@ -50,24 +59,12 @@ impl LibraryService {
                     DomainError::not_found(format!("stored file not found for file {file_id}"))
                 })
                 .map_err(|error| task_failure("storage", error, false))?;
-            match kind {
-                LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx => {
-                    self.convert_unified_docling(
-                        &file,
-                        bytes,
-                        task_id,
-                        docling_permit.expect("Docling file conversion has a permit"),
-                    )
-                    .await
-                }
-                LibraryFileKind::PlainText => self.ingest_text(&file, &bytes).await,
-            }
-            .map_err(normalize_task_failure)?
+            // Only plain text reaches the inline path: every Docling kind
+            // fails closed above, so no in-process Docling wait remains here.
+            self.ingest_text(&file, &bytes)
+                .await
+                .map_err(normalize_task_failure)?
         };
-        if uses_docling {
-            self.note_dependency_success(LibraryDependency::Docling, lease_token)
-                .await;
-        }
         serde_json::to_value(sections).map_err(|error| task_failure("parsing", error, false))
     }
 
@@ -176,7 +173,7 @@ impl LibraryService {
     }
 }
 
-pub(super) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
+pub(crate) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestError {
     let mut failure = failure;
     if is_transient_document_chunk_fk(&failure.error) {
         failure.dependency = None;

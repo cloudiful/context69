@@ -285,7 +285,7 @@ impl LibraryService {
         Ok(snapshot)
     }
 
-    pub(super) async fn note_dependency_failure(
+    pub(crate) async fn note_dependency_failure(
         &self,
         dependency: LibraryDependency,
         error: &anyhow::Error,
@@ -294,7 +294,7 @@ impl LibraryService {
             .await;
     }
 
-    pub(super) async fn note_dependency_failure_with_lease(
+    pub(crate) async fn note_dependency_failure_with_lease(
         &self,
         dependency: LibraryDependency,
         lease_token: Uuid,
@@ -363,7 +363,7 @@ impl LibraryService {
         }
     }
 
-    pub(super) async fn note_dependency_success(
+    pub(crate) async fn note_dependency_success(
         &self,
         dependency: LibraryDependency,
         lease_token: Uuid,

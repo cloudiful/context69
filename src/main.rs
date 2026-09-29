@@ -9,7 +9,8 @@ use context69::{
         app::Context69App,
         scheduler::{
             ManualRunResult, SCHEDULER_EXECUTION_LEASE_PREFIX, SCHEDULER_VALKEY_KEY_PREFIX,
-            build_valkey_execution_guard, run_manual_sync_guarded, startup_execution_slot_at,
+            build_valkey_execution_guard, run_docling_sweep_scheduler, run_manual_sync_guarded,
+            startup_execution_slot_at,
         },
     },
 };
@@ -115,6 +116,14 @@ async fn serve(app: Arc<Context69App>) -> Result<()> {
         info!("scheduler disabled until runtime settings are configured and the service restarts");
         None
     };
+    let docling_sweep_task = Some(tokio::spawn({
+        let app = app.clone();
+        async move {
+            if let Err(error) = run_docling_sweep_scheduler(app).await {
+                error!(error = %error, "docling sweep scheduler exited with error");
+            }
+        }
+    }));
     let cleanup_task = tokio::spawn(run_rerank_cache_cleanup(app.clone()));
     let mcp_task = if app.config.mcp.enabled {
         Some(tokio::spawn({
@@ -138,6 +147,9 @@ async fn serve(app: Arc<Context69App>) -> Result<()> {
 
     if let Some(scheduler_task) = scheduler_task {
         scheduler_task.abort();
+    }
+    if let Some(docling_sweep_task) = docling_sweep_task {
+        docling_sweep_task.abort();
     }
     cleanup_task.abort();
     if let Some(mcp_task) = mcp_task {

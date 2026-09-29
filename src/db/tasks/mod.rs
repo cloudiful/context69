@@ -5,11 +5,15 @@
 
 mod admin;
 mod claims;
+mod docling_remote_finalize;
+mod docling_remote_jobs;
 mod item_lifecycle;
 mod queries;
 mod submission;
 mod types;
 
+pub use docling_remote_finalize::{DoclingFailureFinish, DoclingRemoteJobCounts};
+pub use docling_remote_jobs::StoredDoclingRemoteJob;
 pub use types::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, FinishTaskItemRequest,
     InsertTaskItemRequest, StoredTask, StoredTaskItem, TaskCountFilter, TaskListFilter,

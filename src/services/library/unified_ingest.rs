@@ -1,12 +1,5 @@
-use std::time::Instant;
-
-use tokio::sync::OwnedSemaphorePermit;
-use tokio::time::timeout;
-use uuid::Uuid;
-
 use super::dependency_runtime::is_s3_error;
 use super::*;
-use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
 
 #[derive(Debug, Clone)]
 pub struct UnifiedIngestError {
@@ -43,107 +36,8 @@ impl LibraryService {
         filename: &str,
         media_type: &str,
     ) -> anyhow::Result<&'static str> {
-        Ok(match storage::detect_file_kind(filename, media_type)? {
-            LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx => "docling",
-            LibraryFileKind::PlainText => "embedding",
-        })
+        Ok(storage::detect_file_kind(filename, media_type)?.conversion_stage())
     }
-
-    pub(super) async fn convert_unified_docling(
-        &self,
-        file: &crate::domain::LibraryFileRecord,
-        bytes: bytes::Bytes,
-        task_id: Uuid,
-        _docling_permit: OwnedSemaphorePermit,
-    ) -> IngestResult<Vec<IngestSection>> {
-        let kind = storage::detect_file_kind(&file.filename, &file.media_type)
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Parsing, error))?;
-        if kind == LibraryFileKind::PlainText {
-            return self.ingest_text(file, &bytes).await;
-        }
-
-        let task_timeout = self
-            .docling_task_timeout()
-            .await
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Docling, error))?;
-        // Whole-document budget, identical to the crate's own
-        // `wait_for_result` deadline: `ingest_pdf`/`ingest_docx` submit a remote
-        // Docling task and wait in-process (no persisted remote id), while this
-        // outer timeout is the last-resort guard for a stuck wait. The
-        // per-request HTTP ceiling (`DEFAULT_DOCLING_TIMEOUT_SECS`, 120s) only
-        // bounds the submit POST and each long-poll, never the conversion.
-        let file_bytes = bytes.len();
-        let started = Instant::now();
-        let result = match kind {
-            LibraryFileKind::Pdf => match timeout(task_timeout, self.ingest_pdf(file, bytes)).await
-            {
-                Ok(result) => result,
-                Err(error) => Err(IngestFailure::new(
-                    LibraryIngestFailureStage::Docling,
-                    DomainError::upstream_timeout(format!("docling conversion timed out: {error}")),
-                )),
-            },
-            LibraryFileKind::Docx => {
-                match timeout(task_timeout, self.ingest_docx(file, bytes)).await {
-                    Ok(result) => result,
-                    Err(error) => Err(IngestFailure::new(
-                        LibraryIngestFailureStage::Docling,
-                        DomainError::upstream_timeout(format!(
-                            "docling conversion timed out: {error}"
-                        )),
-                    )),
-                }
-            }
-            LibraryFileKind::Xlsx => {
-                match timeout(task_timeout, self.ingest_xlsx(file, bytes)).await {
-                    Ok(result) => result,
-                    Err(error) => Err(IngestFailure::new(
-                        LibraryIngestFailureStage::Docling,
-                        DomainError::upstream_timeout(format!(
-                            "docling conversion timed out: {error}"
-                        )),
-                    )),
-                }
-            }
-            LibraryFileKind::PlainText => unreachable!("plain text handled before Docling permit"),
-        };
-        let output_bytes = result
-            .as_ref()
-            .map(|sections| section_output_bytes(sections))
-            .unwrap_or_default();
-        let result = result.and_then(limit_docling_output);
-        let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        info!(
-            target: "docling",
-            task_id = %task_id,
-            file_name = %file.filename,
-            file_bytes,
-            output_bytes,
-            elapsed_ms,
-            inflight = 1usize.saturating_sub(self.docling_slots.available_permits()),
-            "docling conversion finished"
-        );
-        result
-    }
-}
-
-fn section_output_bytes(sections: &[IngestSection]) -> usize {
-    sections.iter().fold(0, |total, section| {
-        total.saturating_add(section.body_text.len())
-    })
-}
-
-fn limit_docling_output(sections: Vec<IngestSection>) -> IngestResult<Vec<IngestSection>> {
-    let output_bytes = section_output_bytes(&sections);
-    if output_bytes > MAX_DOCLING_OUTPUT_BYTES {
-        return Err(IngestFailure::new(
-            LibraryIngestFailureStage::Parsing,
-            DomainError::payload_too_large(format!(
-                "docling output exceeds maximum of {MAX_DOCLING_OUTPUT_BYTES} bytes: {output_bytes} bytes"
-            )),
-        ));
-    }
-    Ok(sections)
 }
 
 pub(super) fn infer_unified_dependency(failure: &IngestFailure) -> Option<LibraryDependency> {

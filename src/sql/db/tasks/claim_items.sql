@@ -28,6 +28,21 @@
 -- Waiting tasks are still claimed once their `next_attempt_at` is due: the
 -- task-level wait mirrors the earliest waiting item, so backoff and the
 -- vector-rebuild resource wait both resume through this predicate.
+--
+-- Durable Docling remote jobs own their items while active (issue 639): an
+-- item with a ('pending','running') row in `task_docling_remote_jobs` is
+-- polled by the docling-poll-sweep scheduler job, never by this dispatcher.
+-- The NOT EXISTS guard prevents resubmit/double-claim across restarts and
+-- replicas; the sweep requeues the item once the remote job is terminal.
+--
+-- The waiting/docling exclusion below is the crash-window guard (issue 639
+-- P2-1): the sweep finalizes expired remote jobs atomically per job (remote
+-- finish + item fail + file projection in one transaction), but between the
+-- expiry claim and that single commit the remote row may already read
+-- terminal while the item is still waiting on Docling. Excluding every
+-- waiting/docling item here — regardless of remote-row state — keeps the
+-- dispatcher from resubmitting an item the sweep still owns. Only the sweep
+-- moves such items (requeue on success, fail on terminal/error).
 WITH eligible AS (
     SELECT ti.id, ti.task_id
     FROM context69.task_items ti
@@ -49,6 +64,20 @@ WITH eligible AS (
               ti.status = 'running'
               AND (ti.lease_until IS NULL OR ti.lease_until < now())
           )
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM context69.task_docling_remote_jobs remote
+          WHERE remote.item_id = ti.id
+            AND remote.status IN ('pending', 'running')
+      )
+      -- NULL-safe: only waiting/docling rows are excluded. A plain
+      -- `waiting_reason = 'docling'` comparison yields NULL (not true) for
+      -- ordinary waiting rows with a NULL reason, and `NOT NULL` would
+      -- wrongly filter them out of the dispatcher.
+      AND NOT (
+          ti.status = 'waiting'
+          AND COALESCE(ti.waiting_reason, '') = 'docling'
       )
     ORDER BY ti.created_at, ti.id
     LIMIT $1

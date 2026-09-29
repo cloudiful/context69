@@ -6,7 +6,7 @@ use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
 
 use super::*;
 
-pub(super) fn ensure_json_output_size(value: &Value) -> Result<usize> {
+pub(crate) fn ensure_json_output_size(value: &Value) -> Result<usize> {
     json_output_size(value, MAX_DOCLING_OUTPUT_BYTES)
 }
 
@@ -16,7 +16,7 @@ fn json_output_size(value: &Value, limit: usize) -> Result<usize> {
     Ok(writer.written)
 }
 
-pub(super) fn extract_json_text(value: &Value) -> Option<String> {
+pub(crate) fn extract_json_text(value: &Value) -> Option<String> {
     let body = value.get("body")?;
     let groups = value.get("groups")?.as_array()?;
     let tables = value
@@ -45,7 +45,7 @@ pub(super) fn extract_json_text(value: &Value) -> Option<String> {
     }
 }
 
-pub(super) fn extract_xlsx_sections(filename: &str, value: &Value) -> Result<Vec<IngestSection>> {
+pub(crate) fn extract_xlsx_sections(filename: &str, value: &Value) -> Result<Vec<IngestSection>> {
     let groups = value
         .get("groups")
         .and_then(Value::as_array)

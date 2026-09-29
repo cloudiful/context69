@@ -29,7 +29,6 @@ use crate::{
         UpsertLibraryTextRequest,
     },
     db::Database,
-    docling::DoclingXlsxClient,
     domain::{LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
     embedding::EmbeddingProvider,
     library_store::{LibraryStore, NewLibraryFile, file_to_summary},
@@ -88,8 +87,10 @@ pub use source_object_cleanup::{
 };
 mod source_release;
 pub use source_release::{DEFAULT_SOURCE_RELEASE_RETRY_BATCH_SIZE, SourceReleaseSweepSummary};
+mod docling_remote_result;
+mod docling_remote_submit;
 mod staging;
-mod storage;
+pub(crate) mod storage;
 pub mod task_ingest;
 mod texts;
 mod tree;
@@ -105,9 +106,10 @@ mod xlsx;
 
 pub(crate) use crate::contracts::LibraryIngestFailureStage;
 pub use ingest_types::LibraryDependency;
+pub(crate) use ingest_types::LibraryFileKind;
 use ingest_types::{
-    IngestFailure, IngestResult, IngestSection, LibraryFileKind, PreparedIngestSection,
-    SourceConfigPreview, SourceRecordJson,
+    IngestFailure, IngestResult, IngestSection, PreparedIngestSection, SourceConfigPreview,
+    SourceRecordJson,
 };
 use metadata_helpers::{compose_library_metadata, library_system_metadata};
 pub(crate) use upload_types::DownloadedLibraryFile;

@@ -4,7 +4,7 @@ use crate::contracts::LibraryTextContentFormat;
 
 use super::*;
 
-pub(super) fn detect_file_kind(filename: &str, media_type: &str) -> Result<LibraryFileKind> {
+pub(crate) fn detect_file_kind(filename: &str, media_type: &str) -> Result<LibraryFileKind> {
     let lowered = filename.to_ascii_lowercase();
     if lowered.ends_with(".pdf") || media_type == "application/pdf" {
         return Ok(LibraryFileKind::Pdf);
