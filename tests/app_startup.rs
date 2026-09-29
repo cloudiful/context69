@@ -7,6 +7,10 @@
 //! that degradation, and a restart keeps using the persisted runtime settings
 //! rather than a freshly passed config.
 //!
+//! The first boot also enables a scratch bootstrap admin, so startup must
+//! create the admin's root personal group with `full_path = group_key`
+//! (issue 648); the test deletes exactly those rows again.
+//!
 //! Opt-in: runs only for `CONTEXT69_TEST_APP_STARTUP=1` plus
 //! `CONTEXT69_TEST_DATABASE_URL`.
 //!
@@ -22,16 +26,20 @@
 mod support;
 
 use context69::{
-    config::DEFAULT_SESSION_VALKEY_URL, db::Database, library_store::LibraryStore,
+    config::DEFAULT_SESSION_VALKEY_URL,
+    contracts::{GroupKind, Visibility},
+    db::Database,
+    library_store::LibraryStore,
     services::app::Context69App,
 };
 use uuid::Uuid;
 
 use crate::support::{
     APP_STARTUP_ENV_VAR, TEST_DATABASE_ENV_VAR, assert_open_gate, assert_runtime_settings_applied,
-    assert_test_owned_runtime_settings, cleanup_own_rows, internal_secret_key_for_value,
-    internal_secret_keys, remove_test_storage_roots, search_request, test_config,
-    test_database_url, test_storage_root, work_row_count,
+    assert_test_owned_runtime_settings, bootstrap_admin_config, cleanup_bootstrap_admin_rows,
+    cleanup_own_rows, internal_secret_key_for_value, internal_secret_keys,
+    remove_test_storage_roots, search_request, test_config, test_database_url, test_storage_root,
+    work_row_count,
 };
 
 /// Degradation recorded by `LibraryService::initialize_dependency_gates` when
@@ -63,9 +71,13 @@ async fn app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settin
 
     // First boot: the fresh database imports the passed config into runtime
     // settings and loads them back before vector, library, and worker startup.
+    // The scratch bootstrap admin exercises personal-group creation on this
+    // boot; the restart boot below leaves it off so no further rows appear.
     let first_marker = Uuid::new_v4().simple().to_string();
     let first_root = test_storage_root(&first_marker);
-    let first_config = test_config(&database_url, &first_marker, &first_root);
+    let mut first_config = test_config(&database_url, &first_marker, &first_root);
+    let bootstrap = bootstrap_admin_config(&first_marker);
+    first_config.auth.bootstrap_admin = Some(bootstrap.clone());
     let app = Context69App::new(first_config.clone())
         .await
         .expect("app startup");
@@ -81,6 +93,26 @@ async fn app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settin
     let first_root_created = first_effective.file_library.storage_root.is_dir();
     let signing_key_name = internal_secret_key_for_value(&app.db, &signing_key).await;
     let signing_key_name = signing_key_name.expect("startup must persist the signing key");
+    // Bootstrap admin rows are read before cleanup so the path assertions
+    // below run after this run's rows are already deleted again.
+    let bootstrap_user = app
+        .db
+        .get_user_by_login_name(&bootstrap.login_name)
+        .await
+        .expect("read bootstrap admin")
+        .expect("startup must create the bootstrap admin");
+    let bootstrap_personal = app
+        .db
+        .get_personal_group_for_user(bootstrap_user.id)
+        .await
+        .expect("read bootstrap personal group")
+        .expect("startup must create the bootstrap personal group");
+    let bootstrap_group = app
+        .db
+        .get_group_by_id(bootstrap_personal.group_id)
+        .await
+        .expect("read bootstrap personal group row")
+        .expect("bootstrap personal group row must exist");
     drop(app);
 
     // Restart on the same database: the persisted runtime settings must win
@@ -104,9 +136,31 @@ async fn app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settin
         key_created.then_some(signing_key_name.as_str()),
     )
     .await;
+    cleanup_bootstrap_admin_rows(&db, bootstrap_user.id, bootstrap_personal.group_id).await;
     let first_used_root = first_effective.file_library.storage_root.clone();
     let restart_used_root = restart_effective.file_library.storage_root.clone();
     remove_test_storage_roots([first_used_root.clone(), restart_used_root.clone()]);
+
+    // Bootstrap personal group (issue 648): a root personal group stores
+    // `full_path = group_key`, stays parentless, and keeps its private kind,
+    // personal ownership, and owner membership path.
+    let expected_personal_path = format!("personal-{}", bootstrap.login_name);
+    assert_eq!(
+        bootstrap_personal.group_path, expected_personal_path,
+        "personal group path must equal its key"
+    );
+    assert_eq!(
+        bootstrap_group.group_path, expected_personal_path,
+        "personal group row path must equal its key"
+    );
+    assert_eq!(
+        bootstrap_group.parent_group_id, None,
+        "personal group must stay a root group"
+    );
+    assert_eq!(bootstrap_group.group_key, expected_personal_path);
+    assert_eq!(bootstrap_group.kind, GroupKind::Personal);
+    assert_eq!(bootstrap_group.visibility, Visibility::Private);
+    assert_eq!(bootstrap_group.owner_user_id, Some(bootstrap_user.id));
 
     // Import timing: the first boot on a fresh database persists exactly the
     // passed config; later boots must not re-import over existing settings.

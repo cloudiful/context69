@@ -12,6 +12,7 @@
 //! id samples; document bodies and chunk texts are never printed.
 
 use anyhow::{Context, Result};
+use context69::config::DATABASE_URL_ENV_VAR;
 use context69::db::Database;
 use db_init::{load_dotenv_if_exists, resolve_database_url};
 use serde::Serialize;
@@ -46,14 +47,8 @@ async fn run() -> Result<()> {
         return Ok(());
     }
     load_dotenv_if_exists(".env").context("load repository .env for read-only audit")?;
-    let resolution = resolve_database_url(
-        args.database_url,
-        &["CONTEXT69_APP_DB__URL", "DATABASE_URL"],
-        || Ok(None),
-    )
-    .context(
-        "missing database URL; pass --database-url or set CONTEXT69_APP_DB__URL/DATABASE_URL",
-    )?;
+    let resolution = resolve_database_url(args.database_url, &[DATABASE_URL_ENV_VAR], || Ok(None))
+        .context("missing database URL; pass --database-url or set DATABASE_URL")?;
     let source = match &resolution.source {
         db_init::DatabaseUrlSource::CliArgument => "--database-url".to_string(),
         db_init::DatabaseUrlSource::EnvVar(name) => format!("env:{name}"),
@@ -170,8 +165,7 @@ fn print_help() {
     println!();
     println!("Database URL resolution (read-only):");
     println!("  1. --database-url");
-    println!("  2. CONTEXT69_APP_DB__URL");
-    println!("  3. DATABASE_URL (repository .env is loaded if present)");
+    println!("  2. DATABASE_URL (repository .env is loaded if present)");
     println!();
     println!("Output: JSON summary with counts and document-id samples only.");
     println!("Document bodies and chunk texts are never printed.");

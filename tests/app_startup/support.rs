@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use context69::{
-    config::Config,
+    config::{BootstrapAdminConfig, Config},
     contracts::SearchRequest,
     db::{Database, StoredRuntimeSettings},
     library_store::DependencyGateRecord,
@@ -18,6 +18,9 @@ pub const TEST_DATABASE_ENV_VAR: &str = "CONTEXT69_TEST_DATABASE_URL";
 pub const SENTINEL_URL: &str = "http://127.0.0.1:1";
 pub const SENTINEL_EMBEDDING_URL: &str = "http://127.0.0.1:1/v1";
 pub const STORAGE_ROOT_PREFIX: &str = "context69-app-startup-test-";
+/// Scratch-only bootstrap admin password: unique rows come from the login
+/// marker, and this value is never logged.
+const BOOTSTRAP_ADMIN_PASSWORD: &str = "app-startup-admin-pass";
 /// Tables that startup resumes, migrates, or cleans up. The scratch database
 /// must not hold any of this work, so the test can never act on operator rows.
 const GUARDED_WORK_TABLES: &[&str] = &[
@@ -69,10 +72,20 @@ pub fn test_config(database_url: &str, marker: &str, storage_root: &Path) -> Con
     config.embedding.dimensions = 128;
     config.file_library.storage_root = storage_root.to_path_buf();
     config.scheduler.job_id = format!("app-startup-{marker}");
-    // Startup would create a bootstrap admin user, personal group, and
-    // namespace; this test must not create operator rows it cannot clean up.
+    // Bootstrap admin stays off by default: the startup test opts in per boot
+    // and deletes exactly the user, group, and membership rows it created.
     config.auth.bootstrap_admin = None;
     config
+}
+
+/// Bootstrap admin for one startup: the login carries the run marker, so the
+/// created user and its personal group are unambiguously this test's own rows.
+pub fn bootstrap_admin_config(marker: &str) -> BootstrapAdminConfig {
+    BootstrapAdminConfig {
+        login_name: format!("app-startup-admin-{marker}"),
+        display_name: "App Startup Admin".to_string(),
+        password: BOOTSTRAP_ADMIN_PASSWORD.to_string(),
+    }
 }
 
 /// The config must carry every value that startup loaded from the persisted
@@ -195,6 +208,35 @@ pub async fn cleanup_own_rows(
         let result = sqlx::query(sql).bind(key).execute(db.pool()).await;
         assert_eq!(result.expect("delete key").rows_affected(), 1, "{key}");
     }
+}
+
+/// Deletes only the bootstrap admin rows this run created: the owner
+/// membership, then the personal group, then the user.
+pub async fn cleanup_bootstrap_admin_rows(db: &Database, user_id: i64, group_id: i64) {
+    let sql = "DELETE FROM context69.group_memberships WHERE group_id = $1 AND user_id = $2";
+    let result = sqlx::query(sql)
+        .bind(group_id)
+        .bind(user_id)
+        .execute(db.pool());
+    assert_eq!(
+        result.await.expect("delete membership").rows_affected(),
+        1,
+        "bootstrap membership"
+    );
+    let sql = "DELETE FROM context69.groups WHERE id = $1";
+    let result = sqlx::query(sql).bind(group_id).execute(db.pool()).await;
+    assert_eq!(
+        result.expect("delete group").rows_affected(),
+        1,
+        "bootstrap personal group"
+    );
+    let sql = "DELETE FROM context69.users WHERE id = $1";
+    let result = sqlx::query(sql).bind(user_id).execute(db.pool()).await;
+    assert_eq!(
+        result.expect("delete user").rows_affected(),
+        1,
+        "bootstrap admin user"
+    );
 }
 
 /// Removes this test's temp storage roots; foreign paths are never touched.

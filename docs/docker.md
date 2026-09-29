@@ -37,7 +37,7 @@ Run:
 ```bash
 docker run --rm \
   -p 80:80 \
-  -e CONTEXT69_APP_DB__URL='postgres://user:pass@db/context69' \
+  -e DATABASE_URL='postgres://user:pass@db/context69' \
   context69:latest
 ```
 

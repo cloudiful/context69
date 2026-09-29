@@ -85,18 +85,21 @@ Legacy OCR, PDF backend, image export, and enrichment toggle fields are no longe
 
 Do not store production secrets in config files committed to source control.
 
+The application database URL resolves as: explicit `--database-url` where
+supported, then `DATABASE_URL`, then configured `app_db.url` / built-in default.
+
 Useful environment overrides:
 
-- `CONTEXT69_APP_DB__URL`
+- `DATABASE_URL`
 - `CONTEXT69_SCHEDULER__VALKEY_URL`
 - `CONTEXT69_FILE_LIBRARY__TRUSTED_PROXY_ENABLED`
 
-Any nested config field can be overridden with `__` separators.
+Any other nested config field can still be overridden with `__` separators.
 
 Example:
 
 ```bash
-export CONTEXT69_APP_DB__URL='postgres://user:pass@db/context69'
+export DATABASE_URL='postgres://user:pass@db/context69'
 cargo run
 ```
 
@@ -131,18 +134,15 @@ is available. Runtime settings changes take effect after the service restarts.
 
 ## SQLx CLI
 
-Root `sqlx.toml` makes SQLx macros and `cargo sqlx prepare` read
-`CONTEXT69_APP_DB__URL` by default.
+SQLx macros and `cargo sqlx prepare` read `DATABASE_URL`.
 `cargo run --bin db_init -- --database-url ...` has highest priority.
 Without that flag, `db_init` loads root `.env` if present, then resolves
-`CONTEXT69_APP_DB__URL`, `DATABASE_URL`, and finally `app_db.url`.
+`DATABASE_URL`, and finally `app_db.url`.
 
-For local development, set `CONTEXT69_APP_DB__URL` as the canonical value.
-Keep `DATABASE_URL` aligned only if you still use tools that expect it:
+For local development, set `DATABASE_URL` as the canonical value:
 
 ```bash
-export CONTEXT69_APP_DB__URL='postgres://postgres:postgres@127.0.0.1:5432/context69'
-export DATABASE_URL="$CONTEXT69_APP_DB__URL"
+export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/context69'
 cargo run --bin db_init
 cargo sqlx prepare --workspace -- --all-targets
 ```

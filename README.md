@@ -40,7 +40,7 @@ docker run -d \
   -p 80:80 \
   -p 8097:8097 \
   -v context69-library:/app/data/library \
-  -e CONTEXT69_APP_DB__URL='postgres://user:password@db/context69' \
+  -e DATABASE_URL='postgres://user:password@db/context69' \
   ghcr.io/cloudiful/context69:<tag>
 ```
 
