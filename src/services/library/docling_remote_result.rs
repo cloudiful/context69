@@ -6,7 +6,7 @@ use super::UnifiedIngestError;
 use super::task_ingest::task_failure;
 use super::{LibraryDependency, LibraryFileKind, LibraryService, storage};
 
-/// Classifies a Docling client error for the durable sweep path.
+/// Classifies a Docling client error for the blocking worker path.
 ///
 /// Transport failures (no HTTP status), rate limits, timeouts and 5xx are
 /// retryable inside the deadline budget; validation, parse and other 4xx
@@ -39,9 +39,9 @@ pub(crate) fn docling_operation_error(
 
 impl LibraryService {
     /// Polls one remote Docling task via the shared long-poll endpoint
-    /// (`?wait=30` with bounded retries inside the client). One in-flight
-    /// request per remote id is enforced by the sweep lease plus the
-    /// in-flight heartbeat, never by the worker pool.
+    /// (`?wait=30` with bounded retries inside the client). Called inline by
+    /// the owning task worker; at most one worker owns an item lease, so at
+    /// most one poll is in flight per remote id.
     pub(crate) async fn poll_docling_remote(
         &self,
         remote_task_id: &str,
@@ -56,10 +56,10 @@ impl LibraryService {
             .map_err(docling_operation_error)
     }
 
-    /// Fetches a terminal remote result exactly once and returns the raw
-    /// converted document. The caller persists sections via
-    /// [`Self::sections_for_remote_result`] and marks the job terminal in
-    /// the same sweep tick so duplicate deliveries cannot double-fetch.
+    /// Fetches a terminal remote result and returns the raw converted
+    /// document. The blocking worker persists sections and marks the job
+    /// terminal through one atomic commit, so duplicate deliveries cannot
+    /// double-fetch.
     pub(crate) async fn fetch_docling_remote(
         &self,
         file_id: Uuid,
@@ -97,7 +97,7 @@ impl LibraryService {
 
     /// Converts a terminal Docling `ConvertedDocument` into the persisted
     /// `section_payload` value, preserving format-specific parsing while the
-    /// sweep owns the shared status lifecycle.
+    /// blocking worker owns the shared status lifecycle.
     pub(crate) async fn sections_for_remote_result(
         &self,
         file_id: Uuid,

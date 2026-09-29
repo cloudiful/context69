@@ -1,11 +1,9 @@
 -- Cancels the active remote job for one item without a lease.
 --
 -- Used when the owning task item is cancelled or the conversion is
--- abandoned: the sweep must stop polling even though no poll lease is held.
--- Only ('pending','running') rows are touched; terminal history is left
--- alone. Clearing the lease also invalidates any in-flight poll holder, so
--- its late record_pending/finish with the old token matches zero rows and
--- cannot resurrect the cancelled job.
+-- abandoned: recovery and the blocking worker must stop observing the remote
+-- even though no poll lease is held. Only ('pending','running') rows are
+-- touched; terminal history is left alone.
 UPDATE context69.task_docling_remote_jobs
 SET status = 'cancelled',
     remote_status = COALESCE(remote_status, status),

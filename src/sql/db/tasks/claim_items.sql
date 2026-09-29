@@ -27,10 +27,13 @@
 -- statement) and releases it when that item lease is declared expired, and
 -- `recompute.sql` clears it once every item is terminal.
 --
--- Item gates are unchanged from issue 529 / 639: the attempt cap, the
--- expired-lease recovery branch, and the Docling remote-job exclusions that
--- keep the sweep's rows out of the dispatcher until the remote wait becomes
--- inline (P3). Items advance strictly in ordinal order inside the parent slot:
+-- Item gates are unchanged from issue 529 / 639 except the crash-recovery
+-- adoption below: the attempt cap, the expired-lease recovery branch, and the
+-- Docling remote-job exclusion that keeps parked or queued items with an
+-- active remote row out of the dispatcher until recovery adopts or fences
+-- them. A running item whose lease expired is exempt from that exclusion so
+-- the reclaim adopts the tracked remote id. Items advance strictly in
+-- ordinal order inside the parent slot:
 -- only the parent's current (lowest ordinal non-terminal) item is ever
 -- eligible, so a parked item blocks its later siblings instead of letting a
 -- batch task start several items at once. The crashed worker's attempt is still
@@ -58,11 +61,21 @@ eligible_items AS (
                 AND (ti.lease_until IS NULL OR ti.lease_until < now())
             )
         )
-      AND NOT EXISTS (
-            SELECT 1
-            FROM context69.task_docling_remote_jobs remote
-            WHERE remote.item_id = ti.id
-              AND remote.status IN ('pending', 'running')
+      -- Crash-recovery adoption (issue 650 P3): a running item whose lease
+      -- expired is reclaimed even while its durable remote reference is still
+      -- active, so the resumed worker adopts the tracked remote id instead of
+      -- recovery cancelling it for a fresh submit. Queued/waiting items with
+      -- an active row stay excluded until recovery adopts (legacy parks) or
+      -- fences them.
+      AND (
+            (ti.status = 'running'
+                AND (ti.lease_until IS NULL OR ti.lease_until < now()))
+            OR NOT EXISTS (
+                SELECT 1
+                FROM context69.task_docling_remote_jobs remote
+                WHERE remote.item_id = ti.id
+                  AND remote.status IN ('pending', 'running')
+            )
         )
       -- NULL-safe: only waiting/docling rows are excluded. A plain
       -- `waiting_reason = 'docling'` comparison yields NULL (not true) for

@@ -176,19 +176,25 @@ pub(super) async fn process_file_stage(
                     next: "translation",
                 });
             }
-            // Durable submit (issue 639): short async submit, persist the
-            // remote id, park as waiting on the sweep. Worker capacity is
-            // released here; no in-process poll loop remains on this path.
-            return super::docling_submit::submit_and_park(service, item.task_id, item, file_id)
-                .await;
+            // Blocking conversion (issue 650 P3): submit, status polling, and
+            // result fetching run inline inside the admitted parent slot. The
+            // worker keeps its item lease for the whole remote wait; a crash
+            // resumes from the persisted remote id without resubmitting.
+            return super::docling_submit::submit_and_await_blocking(
+                service,
+                item.task_id,
+                item,
+                file_id,
+            )
+            .await;
         }
         "embedding" => {
             if persisted_section_payload(&item.payload).is_none() {
-                // Recovery (issue 639): without a section payload the file
-                // still needs conversion. Docling files advance back to the
-                // durable `docling` submit/park/sweep stage instead of
-                // converting inline while holding worker capacity; plain text
-                // has no remote conversion and keeps preparing inline.
+                // Recovery: without a section payload the file still needs
+                // conversion. Docling files advance back to the blocking
+                // `docling` stage instead of converting while holding worker
+                // capacity ambiguously; plain text has no remote conversion
+                // and keeps preparing inline.
                 let file = service
                     .library()
                     .file_summary_for_task(group_id, file_id)
@@ -226,11 +232,11 @@ pub(super) async fn process_file_stage(
             let sections = match persisted_section_payload(&item.payload) {
                 Some(sections) => sections,
                 None => {
-                    // Same recovery as the embedding stage (issue 639): a
-                    // Docling file without sections goes back to the durable
-                    // `docling` stage instead of converting inline. An
-                    // undetectable kind falls through to the inline prepare,
-                    // which reports the parsing failure exactly as before.
+                    // Same recovery as the embedding stage: a Docling file
+                    // without sections goes back to the blocking `docling`
+                    // stage instead of converting inline. An undetectable
+                    // kind falls through to the inline prepare, which reports
+                    // the parsing failure exactly as before.
                     let recovery = storage::detect_file_kind(&file.filename, &file.media_type)
                         .ok()
                         .and_then(|kind| kind.recovery_stage_for_missing_sections());

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Requeues a legacy parked Docling item so the blocking worker can adopt it\n-- (issue 650 P3 recovery). The recovery pass calls this with the item's\n-- current payload, then cancels the orphaned remote row: the next claim\n-- picks the item up and the worker submits a fresh conversion.\n--\n-- The item must still be waiting on the durable remote job; a concurrent\n-- cancel/retry that already moved it returns zero rows so recovery does not\n-- resurrect terminal work. The caller recomputes the parent task afterwards.\nUPDATE context69.task_items\nSET status = 'queued',\n    payload = $2,\n    waiting_reason = NULL,\n    dependency_key = NULL,\n    next_attempt_at = now(),\n    waiting_since = NULL,\n    lease_token = NULL,\n    lease_until = NULL,\n    failure_stage = NULL,\n    error_message = NULL,\n    finished_at = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND status = 'waiting'\n  AND waiting_reason = 'docling'\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5a5b46518cecb2f52da071acc80a7241f52ac362d02316db1ea4be1d35ec19a"
+}

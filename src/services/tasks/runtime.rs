@@ -8,7 +8,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::TaskService;
-use super::item_processors::{ProcessResult, process_item_blocking};
+use super::inline_waits::{backoff_until, drive_with_inline_waits};
+use super::item_processors::ProcessResult;
 use super::responses::parse_kind;
 
 pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
@@ -30,7 +31,10 @@ pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem
     };
     let kind = parse_kind(&item.kind)?;
     let item_heartbeat = spawn_item_heartbeat(service.clone(), item.id, item.lease_token);
-    let result = process_item_blocking(service, kind, group.as_ref(), &task, &item).await;
+    // Retryable waits stay inline (issue 650 P3): the driver sleeps keeping
+    // the admitted parent/item lease and re-drives, so only a terminal
+    // outcome or an over-budget wait reaches the commit path below.
+    let result = drive_with_inline_waits(service, kind, group.as_ref(), &task, &item).await;
     item_heartbeat.abort();
 
     match result {
@@ -299,12 +303,6 @@ fn is_retryable_error(error: &anyhow::Error) -> bool {
         && !message.contains("unsupported")
         && !message.contains("unknown file")
         && !message.contains("not found")
-}
-
-fn backoff_until(attempt_count: i32) -> chrono::DateTime<chrono::Utc> {
-    let attempt = attempt_count.clamp(1, 8) as u32;
-    let seconds = 5_i64.saturating_mul(1_i64 << (attempt - 1));
-    chrono::Utc::now() + chrono::Duration::seconds(seconds.min(300))
 }
 
 #[cfg(test)]

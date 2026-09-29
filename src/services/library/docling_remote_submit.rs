@@ -28,8 +28,8 @@ pub(crate) struct DoclingRemoteSubmit {
 impl LibraryService {
     /// Submits one file as a whole-document async Docling task and returns
     /// the resumable remote id. Holds the Docling permit only for the submit
-    /// POST; polling happens in the sweep under a separate bounded semaphore
-    /// so task-worker capacity is released immediately after this returns.
+    /// POST; the task worker then polls and fetches inline while holding its
+    /// admitted parent slot (issue 650 P3).
     pub(crate) async fn submit_docling_remote_for_task(
         &self,
         file_id: Uuid,

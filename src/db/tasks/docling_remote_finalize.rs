@@ -1,208 +1,175 @@
 use anyhow::Result;
+use chrono::DateTime;
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use super::docling_remote_jobs::StoredDoclingRemoteJob;
 use crate::db::Database;
 
-/// Sweep observability snapshot without payloads or secrets.
+/// One active remote job with its owning item/task state for the recovery
+/// pass. `adopt_payload` carries the item payload only for legacy
+/// `waiting/docling` parks (the one case that requeues with unchanged
+/// content); every other row returns NULL so the periodic pass never drags
+/// conversion payloads through the listing.
 #[derive(Debug, Clone, FromRow)]
-pub struct DoclingRemoteJobCounts {
-    pub active_count: i64,
-    pub due_count: i64,
-    pub inflight_count: i64,
-    pub expired_count: i64,
-    pub oldest_due_age_secs: i64,
+pub struct DoclingRecoveryRow {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub remote_task_id: String,
+    pub deadline_at: Option<DateTime<chrono::Utc>>,
+    pub item_status: String,
+    pub item_waiting_reason: Option<String>,
+    pub item_lease_until: Option<DateTime<chrono::Utc>>,
+    pub task_status: String,
+    pub adopt_payload: Option<Value>,
+}
+
+/// Per-run recovery outcome for logs. No payloads or secrets.
+#[derive(Debug, Clone, Default)]
+pub struct DoclingRecoverySummary {
+    pub cancelled_remote_jobs: u64,
+    pub adopted_items: u64,
+}
+
+fn is_live_status(status: &str) -> bool {
+    matches!(status, "queued" | "running" | "waiting")
+}
+
+fn is_docling_park(row: &DoclingRecoveryRow) -> bool {
+    row.item_status == "waiting" && row.item_waiting_reason.as_deref() == Some("docling")
 }
 
 impl Database {
-    pub async fn docling_remote_job_counts(&self) -> Result<DoclingRemoteJobCounts> {
-        Ok(sqlx::query_file_as!(
-            DoclingRemoteJobCounts,
-            "src/sql/db/tasks/docling_remote_jobs/counts.sql",
+    /// Atomically commits one inline success: marks the remote job
+    /// `succeeded` and persists the fetched sections into its running item's
+    /// payload in a single statement. Returns `Some(item_id)` on commit and
+    /// `None` when either fence fails (row already terminal, or the item
+    /// moved/lost its lease) with no partial write.
+    pub async fn finish_docling_remote_job_with_sections(
+        &self,
+        job_id: Uuid,
+        item_id: Uuid,
+        item_lease: Uuid,
+        sections_payload: &Value,
+        remote_status: &str,
+    ) -> Result<Option<Uuid>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/tasks/docling_remote_jobs/finish_with_sections.sql",
+            job_id,
+            item_id,
+            sections_payload,
+            remote_status,
+            item_lease,
         )
-        .fetch_one(self.pool())
+        .fetch_optional(self.pool())
         .await?)
     }
 
-    pub async fn cancel_active_docling_remote_jobs_for_task(
+    /// Requeues one legacy parked Docling item with unchanged content so the
+    /// next claim adopts it. Fenced on `waiting/docling`: a concurrent
+    /// cancel/retry that already moved the row matches zero rows. Returns
+    /// whether the item was requeued.
+    pub async fn requeue_docling_waiting_item(
         &self,
-        task_id: Uuid,
-        last_error: Option<&str>,
-    ) -> Result<u64> {
+        item_id: Uuid,
+        payload: &Value,
+    ) -> Result<bool> {
         Ok(sqlx::query_file!(
-            "src/sql/db/tasks/docling_remote_jobs/cancel_active_for_task.sql",
-            task_id,
-            last_error
+            "src/sql/db/tasks/docling_remote_jobs/requeue_waiting_item.sql",
+            item_id,
+            payload,
         )
         .execute(self.pool())
         .await?
-        .rows_affected())
+        .rows_affected()
+            > 0)
     }
 
-    /// Atomically finishes the remote job and requeues its parked item with
-    /// the fetched sections payload. Returns `None` when either fence fails
-    /// (stale lease or concurrently moved item) with no partial write.
-    pub async fn finish_docling_remote_job_with_requeue(
-        &self,
-        id: Uuid,
-        lease_token: Uuid,
-        remote_status: Option<&str>,
-        item_id: Uuid,
-        task_id: Uuid,
-        sections_payload: &Value,
-    ) -> Result<Option<StoredDoclingRemoteJob>> {
-        let mut tx = self.pool().begin().await?;
-        let finished = sqlx::query_file_as!(
-            StoredDoclingRemoteJob,
-            "src/sql/db/tasks/docling_remote_jobs/finish.sql",
-            id,
-            lease_token,
-            "succeeded",
-            remote_status,
-            Option::<&str>::None,
+    /// Lists every non-terminal remote job with its owner state. The recovery
+    /// pass never polls a remote: it only fences rows whose owner is gone and
+    /// adopts pre-P3 parked items back into the claimable queue.
+    pub async fn list_active_docling_remote_jobs(&self) -> Result<Vec<DoclingRecoveryRow>> {
+        Ok(sqlx::query_file_as!(
+            DoclingRecoveryRow,
+            "src/sql/db/tasks/docling_remote_jobs/list_active_for_recovery.sql",
         )
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some(finished) = finished else {
-            tx.rollback().await?;
-            return Ok(None);
-        };
-        let requeued = sqlx::query_file!(
-            "src/sql/db/tasks/docling_remote_jobs/requeue_waiting_item.sql",
-            item_id,
-            sections_payload,
-        )
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        if requeued == 0 {
-            tx.rollback().await?;
-            return Ok(None);
-        }
-        sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(Some(finished))
-    }
-}
-
-/// Grouped arguments for atomically failing a parked Docling item.
-pub struct DoclingFailureFinish<'a> {
-    pub id: Uuid,
-    pub lease_token: Option<Uuid>,
-    pub status: &'a str,
-    pub remote_status: Option<&'a str>,
-    pub last_error: Option<&'a str>,
-    pub item_id: Uuid,
-    pub task_id: Uuid,
-    pub failure_stage: &'a str,
-    pub error_message: &'a str,
-}
-
-impl Database {
-    /// Atomically finishes the remote job terminally and fails its parked
-    /// item, projecting the file status. Used for failure, cancellation, and
-    /// deadline paths so late results cannot resurrect the item.
-    pub async fn finish_docling_remote_job_with_failure(
-        &self,
-        request: DoclingFailureFinish<'_>,
-    ) -> Result<Option<StoredDoclingRemoteJob>> {
-        let DoclingFailureFinish {
-            id,
-            lease_token,
-            status,
-            remote_status,
-            last_error,
-            item_id,
-            task_id,
-            failure_stage,
-            error_message,
-        } = request;
-        if !matches!(status, "failed" | "cancelled" | "timed_out") {
-            anyhow::bail!("docling remote failure finish requires failed/cancelled/timed_out");
-        }
-        let mut tx = self.pool().begin().await?;
-        let finished = if let Some(lease_token) = lease_token {
-            sqlx::query_file_as!(
-                StoredDoclingRemoteJob,
-                "src/sql/db/tasks/docling_remote_jobs/finish.sql",
-                id,
-                lease_token,
-                status,
-                remote_status,
-                last_error,
-            )
-            .fetch_optional(&mut *tx)
-            .await?
-        } else {
-            sqlx::query_file_as!(
-                StoredDoclingRemoteJob,
-                "src/sql/db/tasks/docling_remote_jobs/finish_without_lease.sql",
-                id,
-                status,
-                remote_status,
-                last_error,
-            )
-            .fetch_optional(&mut *tx)
-            .await?
-        };
-        let Some(finished) = finished else {
-            tx.rollback().await?;
-            return Ok(None);
-        };
-        let failed = sqlx::query_file!(
-            "src/sql/db/tasks/docling_remote_jobs/fail_waiting_item.sql",
-            item_id,
-            failure_stage,
-            error_message,
-        )
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        if failed == 0 {
-            tx.rollback().await?;
-            return Ok(None);
-        }
-        sqlx::query_file!(
-            "src/sql/db/tasks/project_file_status.sql",
-            item_id,
-            "failed",
-            error_message,
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(Some(finished))
+        .fetch_all(self.pool())
+        .await?)
     }
 
-    /// Atomically times out one expired remote job and fails its parked
-    /// item (with file projection and parent recompute) in a single
-    /// transaction. Uses the leaseless finish path so no bulk pre-marking is
-    /// needed: either the remote row and the item move together, or neither
-    /// does and the next sweep retries. Returns `None` when the row is
-    /// already terminal or the item already moved.
-    pub async fn fail_expired_docling_remote_job(
-        &self,
-        job: &StoredDoclingRemoteJob,
-        error_message: &str,
-    ) -> Result<Option<StoredDoclingRemoteJob>> {
-        self.finish_docling_remote_job_with_failure(DoclingFailureFinish {
-            id: job.id,
-            lease_token: None,
-            status: "timed_out",
-            remote_status: job.remote_status.as_deref(),
-            last_error: Some(error_message),
-            item_id: job.item_id,
-            task_id: job.task_id,
-            failure_stage: "docling",
-            error_message,
-        })
-        .await
+    /// Fences orphaned remote rows and adopts legacy parked items (issue 650
+    /// P3 recovery). Per active row:
+    ///
+    /// - task or item terminal: cancel the row; the owner is done and no
+    ///   worker will ever observe it again.
+    /// - legacy `waiting/docling` park: requeue the item with unchanged
+    ///   content, recompute the parent, then cancel the orphaned row so the
+    ///   next claim adopts the item and the worker submits a fresh
+    ///   conversion. Requeue runs before the cancel so a crash between the
+    ///   two stays visible to the next pass (queued item plus active row is
+    ///   cancelled below; a parked item keeps its row for re-adoption).
+    /// - `running` item: never touched, whether its lease is live (an
+    ///   in-flight blocking worker owns it) or expired (the claim reclaims
+    ///   it with the active row intact so the resumed worker adopts the
+    ///   tracked remote id instead of resubmitting).
+    /// - `waiting` on another reason with an active row (a worker parked
+    ///   after its inline budget with the conversion still referenced), or
+    ///   `queued` with an active row (adoption transient): cancel the row so
+    ///   the item becomes claimable and resumes with a fresh submit.
+    pub async fn reconcile_docling_remote_state(&self) -> Result<DoclingRecoverySummary> {
+        let mut summary = DoclingRecoverySummary::default();
+        for row in self.list_active_docling_remote_jobs().await? {
+            if !is_live_status(&row.task_status) || !is_live_status(&row.item_status) {
+                if self
+                    .cancel_active_docling_remote_job_for_item(
+                        row.item_id,
+                        Some("owning task/item is terminal"),
+                    )
+                    .await?
+                    .is_some()
+                {
+                    summary.cancelled_remote_jobs += 1;
+                }
+                continue;
+            }
+            if is_docling_park(&row) {
+                let Some(payload) = row.adopt_payload.as_ref() else {
+                    continue;
+                };
+                if self
+                    .requeue_docling_waiting_item(row.item_id, payload)
+                    .await?
+                {
+                    self.recompute_task(row.task_id).await?;
+                    summary.adopted_items += 1;
+                    if self
+                        .cancel_active_docling_remote_job_for_item(
+                            row.item_id,
+                            Some("legacy parked item adopted for fresh submit"),
+                        )
+                        .await?
+                        .is_some()
+                    {
+                        summary.cancelled_remote_jobs += 1;
+                    }
+                }
+                continue;
+            }
+            if row.item_status == "running" {
+                continue;
+            }
+            if self
+                .cancel_active_docling_remote_job_for_item(
+                    row.item_id,
+                    Some("remote reference without a live owner"),
+                )
+                .await?
+                .is_some()
+            {
+                summary.cancelled_remote_jobs += 1;
+            }
+        }
+        Ok(summary)
     }
 }

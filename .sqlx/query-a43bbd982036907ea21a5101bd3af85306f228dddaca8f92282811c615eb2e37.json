@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "-- Loads one parked item for the Docling sweep finalize path.\n--\n-- Returns the payload the sweep must patch with the fetched sections, plus\n-- the file and status guards so a concurrently cancelled/retried item is\n-- detected before any remote finish is committed.\nSELECT\n    id,\n    task_id,\n    payload,\n    file_id,\n    status,\n    waiting_reason\nFROM context69.task_items\nWHERE id = $1\nLIMIT 1\n",
+  "query": "-- Loads one item for the blocking Docling worker path.\n--\n-- Returns the payload the worker patches with the fetched sections, plus\n-- the file and status guards so a concurrently cancelled/retried item is\n-- detected before any remote finish is committed.\nSELECT\n    id,\n    task_id,\n    payload,\n    file_id,\n    status,\n    waiting_reason,\n    lease_token\nFROM context69.task_items\nWHERE id = $1\nLIMIT 1\n",
   "describe": {
     "columns": [
       {
@@ -68,6 +68,17 @@
             "name": "waiting_reason"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_token"
+          }
+        }
       }
     ],
     "parameters": {
@@ -81,8 +92,9 @@
       false,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "3f5a45dc65c0ae2b70c8e2e02317e234e5403a6ea660515f28f57e65c15ed74c"
+  "hash": "a43bbd982036907ea21a5101bd3af85306f228dddaca8f92282811c615eb2e37"
 }

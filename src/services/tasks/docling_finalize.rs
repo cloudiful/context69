@@ -4,24 +4,24 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::db::Database;
-use crate::db::StoredDoclingRemoteJob;
 
-/// Parked item snapshot for the sweep finalize path.
+/// Running item snapshot for the blocking Docling worker path.
 #[derive(Debug, Clone, FromRow)]
-pub struct SweepItem {
+pub struct DoclingWorkItem {
     pub id: Uuid,
     pub task_id: Uuid,
     pub payload: Value,
     pub file_id: Option<Uuid>,
     pub status: String,
     pub waiting_reason: Option<String>,
+    pub lease_token: Option<Uuid>,
 }
 
 impl Database {
-    pub async fn get_docling_sweep_item(&self, item_id: Uuid) -> Result<Option<SweepItem>> {
+    pub async fn get_docling_work_item(&self, item_id: Uuid) -> Result<Option<DoclingWorkItem>> {
         Ok(sqlx::query_file_as!(
-            SweepItem,
-            "src/sql/db/tasks/docling_remote_jobs/get_item_for_sweep.sql",
+            DoclingWorkItem,
+            "src/sql/db/tasks/docling_remote_jobs/get_work_item.sql",
             item_id
         )
         .fetch_optional(self.pool())
@@ -29,9 +29,9 @@ impl Database {
     }
 }
 
-/// Patches fetched sections into the parked payload under the same
-/// `section_payload` key the inline pipeline uses, so the requeued item
-/// resumes at `embedding` without re-entering the Docling stage.
+/// Patches fetched sections into the in-flight payload under the same
+/// `section_payload` key the pipeline uses, so the item advances at
+/// `embedding` without re-entering the Docling stage.
 pub fn payload_with_sections(mut payload: Value, sections: Value) -> Value {
     if let Some(obj) = payload.as_object_mut() {
         obj.insert("section_payload".to_string(), sections);
@@ -40,75 +40,6 @@ pub fn payload_with_sections(mut payload: Value, sections: Value) -> Value {
         payload = serde_json::json!({ "section_payload": sections });
     }
     payload
-}
-
-/// Finalizes one terminal success: parses the converted document per file
-/// kind, patches the payload, and atomically finishes the remote job while
-/// requeueing the item. `terminal_status` is the freshly polled terminal
-/// status name (not the stale `job.remote_status`), so the finished row
-/// records what actually completed. Returns `false` when fencing fails with
-/// no write.
-pub async fn finalize_docling_success(
-    db: &Database,
-    library: &crate::services::library::LibraryService,
-    job: &StoredDoclingRemoteJob,
-    terminal_status: &str,
-    converted: docling_convert::ConvertedDocument,
-) -> Result<bool> {
-    let Some(item) = db.get_docling_sweep_item(job.item_id).await? else {
-        return Ok(false);
-    };
-    if item.status != "waiting" || item.waiting_reason.as_deref() != Some("docling") {
-        return Ok(false);
-    }
-    let Some(file_id) = item.file_id else {
-        return Ok(false);
-    };
-    let sections = library
-        .sections_for_remote_result(file_id, converted)
-        .await
-        .map_err(anyhow::Error::from)?;
-    let payload = payload_with_sections(item.payload.clone(), sections);
-    Ok(db
-        .finish_docling_remote_job_with_requeue(
-            job.id,
-            job.lease_token
-                .ok_or_else(|| anyhow::anyhow!("sweep job missing lease"))?,
-            Some(terminal_status),
-            job.item_id,
-            job.task_id,
-            &payload,
-        )
-        .await?
-        .is_some())
-}
-
-/// Finalizes one terminal failure/cancel/timeout: atomically finishes the
-/// remote job and fails the parked item with file projection.
-pub async fn finalize_docling_failure(
-    db: &Database,
-    job: &StoredDoclingRemoteJob,
-    status: &str,
-    remote_status: Option<&str>,
-    last_error: Option<&str>,
-    failure_stage: &str,
-    error_message: &str,
-) -> Result<bool> {
-    use crate::db::DoclingFailureFinish;
-    Ok(db
-        .finish_docling_remote_job_with_failure(DoclingFailureFinish {
-            id: job.id,
-            lease_token: job.lease_token,
-            status,
-            remote_status,
-            last_error,
-            item_id: job.item_id,
-            task_id: job.task_id,
-            failure_stage,
-            error_message,
-        })
-        .await?
-        .is_some())
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@ mod queries;
 mod submission;
 mod types;
 
-pub use docling_remote_finalize::{DoclingFailureFinish, DoclingRemoteJobCounts};
+pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
 pub use types::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, FinishTaskItemRequest,

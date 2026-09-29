@@ -1,0 +1,129 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Recovery listing for the blocking Docling flow (issue 650 P3).\n--\n-- Returns every non-terminal remote job with its owning item/task state so\n-- the recovery pass can fence orphaned rows (cancel) and adopt pre-P3 parked\n-- items (requeue) without polling any remote endpoint. `adopt_payload`\n-- carries the item payload only for legacy `waiting/docling` parks, the one\n-- case that requeues with unchanged content; every other row returns NULL so\n-- the periodic pass never drags conversion payloads through the listing.\nSELECT\n    job.id,\n    job.task_id,\n    job.item_id,\n    job.remote_task_id,\n    job.deadline_at,\n    item.status AS item_status,\n    item.waiting_reason AS item_waiting_reason,\n    item.lease_until AS item_lease_until,\n    task.status AS task_status,\n    CASE\n        WHEN item.status = 'waiting' AND item.waiting_reason = 'docling'\n        THEN item.payload\n        ELSE NULL\n    END AS adopt_payload\nFROM context69.task_docling_remote_jobs AS job\nJOIN context69.task_items AS item ON item.id = job.item_id\nJOIN context69.tasks AS task ON task.id = job.task_id\nWHERE job.status IN ('pending', 'running')\nORDER BY job.created_at, job.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "deadline_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "deadline_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "item_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "item_waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "waiting_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "item_lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_until"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "task_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "adopt_payload",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "ebdc5884bc3bbd7aed76037e55b3158bc9045c007e90c9411cdc20a1a7b74e9c"
+}

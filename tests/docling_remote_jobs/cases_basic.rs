@@ -34,12 +34,6 @@ async fn create_and_fetch_roundtrip() {
         .expect("get item")
         .expect("active exists");
     assert_eq!(by_item.remote_task_id, remote_id);
-    let by_remote = db
-        .get_docling_remote_job_by_remote_id(&remote_id)
-        .await
-        .expect("get remote")
-        .expect("exists");
-    assert_eq!(by_remote.item_id, item_id);
     cleanup(&db, task_id, user_id).await;
 }
 

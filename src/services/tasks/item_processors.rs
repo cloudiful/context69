@@ -48,23 +48,28 @@ const MAX_ITEM_STAGES: usize = 16;
 ///
 /// Stages persist `file_id`/`payload` as they run and write the same values
 /// back into one shared snapshot, so a later stage in the same claim observes
-/// what an earlier stage saved instead of the stale claim (issue 592).
+/// what an earlier stage saved instead of the stale claim (issue 592). The
+/// working snapshot is written back into `item` on return so an inline retry
+/// re-drive (issue 650 P3) resumes from fresh progress instead of redoing
+/// persisted stages.
 pub(super) async fn process_item_blocking(
     service: &TaskService,
     kind: TaskKind,
     group: Option<&crate::domain::GroupRecord>,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
 ) -> Result<ProcessResult> {
-    let mut item = item.clone();
-    let stage = resume_stage(kind, item.stage.as_deref());
+    let mut working = item.clone();
+    let stage = resume_stage(kind, working.stage.as_deref());
     let runner = ServiceStageRunner {
         service,
         kind,
         group,
         task,
     };
-    drive_item(&mut item, stage, &runner).await
+    let outcome = drive_item(&mut working, stage, &runner).await?;
+    *item = working;
+    Ok(outcome)
 }
 
 /// One pipeline step. The runner reads and updates the shared item snapshot,

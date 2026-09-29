@@ -36,8 +36,8 @@ pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
 pub use tasks::{
-    ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, DoclingFailureFinish,
-    DoclingRemoteJobCounts, FinishTaskItemRequest, InsertTaskItemRequest, StoredDoclingRemoteJob,
+    ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow,
+    DoclingRecoverySummary, FinishTaskItemRequest, InsertTaskItemRequest, StoredDoclingRemoteJob,
     StoredTask, StoredTaskItem, TaskCountFilter, TaskListFilter, WaitTaskItemRequest,
 };
 pub use vector_index_state::VectorIndexState;

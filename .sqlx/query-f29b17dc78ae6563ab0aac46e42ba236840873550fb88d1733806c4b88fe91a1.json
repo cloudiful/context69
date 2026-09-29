@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Atomic inline success commit for the blocking Docling stage (issue 650 P3).\n--\n-- Marks one active remote job `succeeded` and persists the fetched sections\n-- into its running item's payload in a single statement. Both writes are\n-- gated on the worker's item lease (`lease_token` plus `status = 'running'`)\n-- via the `owned` guard, so a worker that lost its lease (task cancel, crash\n-- reclaim by another worker) changes nothing at all: the row stays active\n-- for the rightful owner and the payload is left alone. The remote write\n-- only transitions ('pending','running') rows, so a concurrent recovery\n-- cancel that already moved the row yields no row either.\nWITH owned AS (\n    SELECT item.id AS item_id\n    FROM context69.task_items AS item\n    WHERE item.id = $2\n      AND item.lease_token = $5\n      AND item.status = 'running'\n),\nfinished AS (\n    UPDATE context69.task_docling_remote_jobs AS job\n    SET status = 'succeeded',\n        remote_status = $4,\n        last_polled_at = now(),\n        finished_at = now(),\n        lease_token = NULL,\n        lease_until = NULL,\n        updated_at = now()\n    WHERE job.id = $1\n      AND job.status IN ('pending', 'running')\n      AND EXISTS (SELECT 1 FROM owned)\n    RETURNING job.id\n)\nUPDATE context69.task_items AS item\nSET payload = $3,\n    updated_at = now()\nFROM finished\nWHERE item.id = $2\n  AND item.lease_token = $5\n  AND item.status = 'running'\nRETURNING item.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f29b17dc78ae6563ab0aac46e42ba236840873550fb88d1733806c4b88fe91a1"
+}

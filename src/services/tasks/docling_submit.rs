@@ -1,20 +1,24 @@
 use anyhow::Result;
-use chrono::Utc;
 
 use super::TaskService;
 use super::item_processors::ProcessResult;
 
-/// Submits a Docling file for durable polling and parks the worker.
+/// Submits a Docling file and blocks the worker on the conversion (issue 650
+/// P3): submit, status polling, and result fetching are one blocking flow
+/// inside the admitted parent slot. The item lease stays alive under the
+/// runtime heartbeat (and the parent slot under the recovery tick) for the
+/// whole wait; nothing parks, and no sweep requeues.
 ///
-/// Returns `Waiting` with `waiting_reason='docling'` so the dispatcher
-/// exclusion (`claim_items.sql` NOT EXISTS) keeps the item away from normal
-/// workers until the sweep requeues it. Capacity is released as soon as this
-/// returns; the Docling permit is held only for the submit POST inside the
-/// library call.
-pub(super) async fn submit_and_park(
+/// A crash between the submit and the terminal commit is resumed, not
+/// resubmitted: an active remote row for the item short-circuits straight
+/// into the poll loop, fenced by the partial unique active-row index. On
+/// terminal success the committed sections are written back into the same
+/// in-memory snapshot, so the same claim advances to `embedding` without
+/// re-entering Docling.
+pub(super) async fn submit_and_await_blocking(
     service: &TaskService,
     task_id: uuid::Uuid,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
     file_id: uuid::Uuid,
 ) -> Result<ProcessResult> {
     if let Some(active) = service
@@ -22,16 +26,16 @@ pub(super) async fn submit_and_park(
         .get_active_docling_remote_job_for_item(item.id)
         .await?
     {
-        return Ok(ProcessResult::Waiting {
-            reason: "docling".to_string(),
-            dependency_key: Some("docling".to_string()),
-            next_attempt_at: active.next_poll_at.min(
-                active
-                    .deadline_at
-                    .unwrap_or_else(|| Utc::now() + chrono::Duration::hours(1)),
-            ),
-            message: Some(format!("docling remote {} pending", active.remote_task_id)),
-        });
+        // Crash/restart resume: a previous worker submitted but never
+        // committed. Adopt the remote id instead of submitting a duplicate.
+        return super::docling_poll::run_docling_stage_blocking(
+            service.db(),
+            service.library(),
+            item,
+            file_id,
+            active,
+        )
+        .await;
     }
     let submit = match service
         .library()
@@ -40,6 +44,9 @@ pub(super) async fn submit_and_park(
     {
         Ok(submit) => submit,
         Err(error) => {
+            // Retryable submit failures (service down, transport) return a
+            // backoff wait that the blocking driver sleeps inline keeping
+            // the lease, then re-drives into a fresh submit.
             if error.retryable {
                 return Ok(super::item_processors::waiting_for_error(item, error));
             }
@@ -62,15 +69,19 @@ pub(super) async fn submit_and_park(
         )
         .await
     {
-        Ok(job) => Ok(ProcessResult::Waiting {
-            reason: "docling".to_string(),
-            dependency_key: Some("docling".to_string()),
-            next_attempt_at: job.next_poll_at,
-            message: Some(format!("docling remote {} submitted", job.remote_task_id)),
-        }),
+        Ok(job) => {
+            super::docling_poll::run_docling_stage_blocking(
+                service.db(),
+                service.library(),
+                item,
+                file_id,
+                job,
+            )
+            .await
+        }
         Err(error) => {
-            // Lost race with a concurrent submit (unique active/remote): park
-            // on the winner instead of failing the item.
+            // Lost race with a concurrent submit (unique active/remote): adopt
+            // the winner instead of failing the item.
             let message = error.to_string().to_ascii_lowercase();
             if (message.contains("duplicate")
                 || message.contains("unique")
@@ -80,19 +91,21 @@ pub(super) async fn submit_and_park(
                     .get_active_docling_remote_job_for_item(item.id)
                     .await?
             {
-                return Ok(ProcessResult::Waiting {
-                    reason: "docling".to_string(),
-                    dependency_key: Some("docling".to_string()),
-                    next_attempt_at: active.next_poll_at,
-                    message: Some(format!("docling remote {} pending", active.remote_task_id)),
-                });
+                return super::docling_poll::run_docling_stage_blocking(
+                    service.db(),
+                    service.library(),
+                    item,
+                    file_id,
+                    active,
+                )
+                .await;
             }
             // Transient persist failure after a successful submit: the
             // conversion is already running server-side under an id nobody
             // polls yet. Retry the insert a bounded number of times before
             // giving up; on final failure the item retries and submits a new
             // remote task, leaving the orphaned conversion to run out
-            // server-side unfetched (see Remaining in the phase note).
+            // server-side unfetched.
             if is_transient_persist_error(&message) {
                 for backoff_ms in [100, 250] {
                     tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
@@ -109,15 +122,14 @@ pub(super) async fn submit_and_park(
                         .await
                     {
                         Ok(job) => {
-                            return Ok(ProcessResult::Waiting {
-                                reason: "docling".to_string(),
-                                dependency_key: Some("docling".to_string()),
-                                next_attempt_at: job.next_poll_at,
-                                message: Some(format!(
-                                    "docling remote {} submitted",
-                                    job.remote_task_id
-                                )),
-                            });
+                            return super::docling_poll::run_docling_stage_blocking(
+                                service.db(),
+                                service.library(),
+                                item,
+                                file_id,
+                                job,
+                            )
+                            .await;
                         }
                         Err(retry_error) => {
                             let retry_message = retry_error.to_string().to_ascii_lowercase();
@@ -137,7 +149,7 @@ pub(super) async fn submit_and_park(
     }
 }
 
-/// Unique-violation inserts are handled by parking on the winning row, never
+/// Unique-violation inserts are handled by adopting the winning row, never
 /// retried here. Everything else from the persist step is treated as
 /// transient (connection/read timeouts, serialization failures) and gets the
 /// bounded insert retry above.

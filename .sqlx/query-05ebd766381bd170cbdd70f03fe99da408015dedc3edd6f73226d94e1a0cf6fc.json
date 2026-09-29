@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "-- Marks a remote job terminal exactly once.\n--\n-- Fenced by the independent remote lease like record_pending.sql: only the\n-- current lease holder may finish the row. $3 must be terminal\n-- ('succeeded','failed','cancelled','timed_out'); any other value matches\n-- zero rows. The lease is released and finished_at is set so the row is\n-- never claimed again, and late duplicate deliveries with a stale token\n-- return no row instead of overwriting the terminal state.\nUPDATE context69.task_docling_remote_jobs\nSET status = $3,\n    remote_status = $4,\n    last_error = $5,\n    last_polled_at = COALESCE(last_polled_at, now()),\n    finished_at = now(),\n    lease_token = NULL,\n    lease_until = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status IN ('pending', 'running')\n  AND $3 IN ('succeeded', 'failed', 'cancelled', 'timed_out')\nRETURNING\n    id,\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    remote_status,\n    attempt_count,\n    next_poll_at,\n    last_polled_at,\n    deadline_at,\n    lease_token,\n    lease_until,\n    last_error,\n    created_at,\n    updated_at,\n    finished_at\n",
+  "query": "-- Cancels the active remote job for one item without a lease.\n--\n-- Used when the owning task item is cancelled or the conversion is\n-- abandoned: recovery and the blocking worker must stop observing the remote\n-- even though no poll lease is held. Only ('pending','running') rows are\n-- touched; terminal history is left alone.\nUPDATE context69.task_docling_remote_jobs\nSET status = 'cancelled',\n    remote_status = COALESCE(remote_status, status),\n    last_error = COALESCE($2, last_error, 'remote job cancelled with owning item'),\n    last_polled_at = COALESCE(last_polled_at, now()),\n    finished_at = now(),\n    lease_token = NULL,\n    lease_until = NULL,\n    updated_at = now()\nWHERE item_id = $1\n  AND status IN ('pending', 'running')\nRETURNING\n    id,\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    remote_status,\n    attempt_count,\n    next_poll_at,\n    last_polled_at,\n    deadline_at,\n    lease_token,\n    lease_until,\n    last_error,\n    created_at,\n    updated_at,\n    finished_at\n",
   "describe": {
     "columns": [
       {
@@ -194,9 +194,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
         "Text"
       ]
     },
@@ -220,5 +217,5 @@
       true
     ]
   },
-  "hash": "87746c23418135a8b3ed4ec66a686d6c97727c6ef25ecf57a561f95fd231236e"
+  "hash": "05ebd766381bd170cbdd70f03fe99da408015dedc3edd6f73226d94e1a0cf6fc"
 }

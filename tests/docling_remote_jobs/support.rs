@@ -43,9 +43,10 @@ pub async fn seed_task(db: &Database, user_id: i64) -> (Uuid, Uuid) {
     (task_id, items[0])
 }
 
-/// Parks an item as waiting on the durable remote job, mirroring the worker
-/// submit path (`waiting_reason='docling'`) so sweep finalize tests start
-/// from the same state the dispatcher exclusion guards.
+/// Parks an item as waiting on the durable remote job, mirroring the pre-P3
+/// worker submit path (`waiting_reason='docling'`) so legacy-row adoption and
+/// dispatcher-exclusion tests start from the same state production rows were
+/// left in before the blocking worker flow.
 pub async fn park_item_for_sweep(db: &Database, item_id: Uuid) {
     sqlx::query(
         "UPDATE context69.task_items SET status = 'waiting', waiting_reason = 'docling', dependency_key = 'docling', next_attempt_at = now() + interval '1 hour', waiting_since = COALESCE(waiting_since, now()), updated_at = now() WHERE id = $1",
