@@ -2,13 +2,13 @@ import { computed, type Ref } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 
 import type { TaskKind, TaskResponse, TaskStatus } from "../../services/api";
-import { PROCESSING_STATUS_FILTERS } from "../../composables/queue-helpers";
+import { PROCESSING_STATUS_FILTERS, QUEUE_STAGE_VALUES } from "../../composables/queue-helpers";
 import type { QueueHeaderFilterOption } from "./QueueHeaderFilter.vue";
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 const TASK_KIND_FILTERS: TaskKind[] = ["source_sync", "text_batch", "file_batch", "url_batch", "delete_batch", "translation", "vector_rebuild"];
-const STAGE_FILTERS = ["processing", "finalize"];
+const STAGE_FILTERS: readonly string[] = QUEUE_STAGE_VALUES;
 const WAITING_REASON_FILTERS = ["dependency", "backoff"];
 const DEPENDENCY_FILTERS = ["s3", "docling", "embedding", "qdrant"];
 

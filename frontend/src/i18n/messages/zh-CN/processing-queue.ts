@@ -122,6 +122,12 @@ export const processingQueue = {
     qdrant: "Qdrant",
   },
   stages: {
+    download: "下载",
+    storage: "存储",
+    sync: "同步",
+    delete: "删除",
+    translation: "翻译",
+    indexing: "索引",
     processing: "处理中",
     finalize: "收尾",
   },

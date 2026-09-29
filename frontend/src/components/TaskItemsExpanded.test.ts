@@ -193,4 +193,43 @@ describe("TaskItemsExpanded", () => {
     expect(wrapper.text()).not.toContain("Docling queued");
     wrapper.unmount();
   });
+
+  it("renders entry stages with localized labels instead of raw i18n keys", async () => {
+    getTaskItems.mockResolvedValue({
+      items: [
+        { ...item("download-1", "running"), stage: "download" },
+        { ...item("storage-1", "running"), stage: "storage" },
+        { ...item("sync-1", "running"), stage: "sync" },
+        { ...item("delete-1", "running"), stage: "delete" },
+        { ...item("translation-1", "running"), stage: "translation" },
+        { ...item("indexing-1", "running"), stage: "indexing" },
+      ],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded();
+    await flushPromises();
+
+    for (const label of ["Download", "Storage", "Sync", "Delete", "Translation", "Indexing"]) {
+      expect(wrapper.text()).toContain(label);
+    }
+    expect(wrapper.text()).not.toContain("processingQueue.stages.");
+    wrapper.unmount();
+  });
+
+  it("falls back to Unknown for unknown and null item stages", async () => {
+    getTaskItems.mockResolvedValue({
+      items: [
+        { ...item("unknown-1", "running"), stage: "future_stage" },
+        { ...item("null-1", "running"), stage: null },
+      ],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Unknown");
+    expect(wrapper.text()).not.toContain("future_stage");
+    expect(wrapper.text()).not.toContain("processingQueue.stages.");
+    wrapper.unmount();
+  });
 });

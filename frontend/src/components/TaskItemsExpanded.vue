@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 
 import TaskItemAction from "./TaskItemAction.vue";
 import { apiClient, type TaskItemResponse, type TaskItemStatus, type TaskResponse } from "../services/api";
+import { queueStageLabel } from "../composables/queue-helpers";
 import { summarizeApiError, type ApiErrorSummary } from "../composables/use-error-toast";
 
 const props = defineProps<{
@@ -121,7 +122,7 @@ onMounted(() => {
 });
 
 function stageLabel(stage: string | null): string {
-  return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage");
+  return queueStageLabel(t, stage);
 }
 
 function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" | "warning" | "neutral" | "primary" {
