@@ -1,0 +1,17 @@
+-- Serializes durable parent-task slot admission across Context69 replicas.
+--
+-- Every replica runs the dispatcher and every replica receives the same PG
+-- NOTIFY wakes, so two admissions routinely run at the same time. Counting the
+-- held slot leases and granting new ones must not interleave: a READ COMMITTED
+-- statement that blocks on a row lock keeps the snapshot it started with, so
+-- waiting for another replica's grant inside the admitting statement would
+-- still observe the pre-grant state and both replicas would fill the same free
+-- slot.
+--
+-- Taking this transaction-scoped lock as its own statement, before the
+-- admitting statement, guarantees that admission starts from a snapshot that
+-- already contains every competing replica's committed grants. The lock is
+-- released when the claim transaction commits or rolls back; callers must run
+-- it inside the same transaction as the claim (see `Database::claim_items` and
+-- `Database::claim_items_fast`).
+SELECT pg_advisory_xact_lock(hashtextextended('context69.task_admission', 0))

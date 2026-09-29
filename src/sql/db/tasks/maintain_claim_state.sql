@@ -22,6 +22,22 @@
 -- recovery tick keep converging exhausted-only queues toward terminal
 -- state.
 --
+-- This file also owns the two parent-task admission leases (issue 650 P2)
+-- that must converge outside the claim path:
+--   * `renewed_parent_leases` keeps an admitted parent's slot alive while a
+--     worker item lease is live. It is the only renewal that runs when a
+--     replica's local worker pool is full, because the dispatcher only reaches
+--     its claim statement while a local worker slot is free. Liveness is the
+--     item lease, so a crashed owner's task lease is never renewed and expires
+--     on its own.
+--   * `revoked_parent_leases` releases the slot as soon as the worker item
+--     lease that owned it is declared expired, instead of waiting out the full
+--     parent lease TTL. Recovery is therefore bounded by the item lease, the
+--     same fence that already decides a worker is gone.
+-- Both updates target disjoint task rows (an expired running item cannot also
+-- be a live running item) and exclude the rows `recomputed` writes, because a
+-- task row may only be updated by one CTE per statement.
+--
 -- Parent aggregates are recomputed atomically from the post-exhaustion
 -- effective item state. PostgreSQL data-modifying CTEs share a snapshot,
 -- so a later CTE cannot see the earlier UPDATE's row changes via a plain
@@ -78,6 +94,31 @@ WITH to_exhaust AS (
             AND other.status IN ('queued', 'running', 'waiting')
       )
     RETURNING file.id
+), renewed_parent_leases AS (
+    -- An admitted parent keeps its global slot while a worker is running one of
+    -- its items. `claim_items.sql` renews the same lease on the claim path, but
+    -- a replica whose local worker pool is full never reaches that statement,
+    -- so the recovery tick must keep the slot alive here. A task whose only
+    -- owner died has no live item lease, so nothing renews it and it expires.
+    -- The remaining-lease gate matches the claim path: renewing a still-fresh
+    -- lease would write a task row (and emit a task event) on every tick.
+    UPDATE context69.tasks AS task
+    SET lease_until = now() + interval '8 minutes',
+        updated_at = now()
+    WHERE task.lease_token IS NOT NULL
+      AND task.lease_until > now()
+      AND task.lease_until < now() + interval '4 minutes'
+      AND task.status IN ('queued', 'running', 'waiting')
+      AND task.deleted_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM exhausted e WHERE e.task_id = task.id)
+      AND EXISTS (
+          SELECT 1
+          FROM context69.task_items item
+          WHERE item.task_id = task.id
+            AND item.status = 'running'
+            AND item.lease_until > now()
+      )
+    RETURNING task.id
 ), recomputed AS (
     UPDATE context69.tasks t
     SET queued_count = counts.queued_count,
@@ -186,7 +227,31 @@ WITH to_exhaust AS (
               AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
           )
       )
-    RETURNING item.id
+    RETURNING item.id, item.task_id
+), revoked_parent_leases AS (
+    -- No live worker item lease remains for these tasks: the slot they held is
+    -- no longer owned by anything, so release it now instead of letting it idle
+    -- until the parent lease TTL runs out. Rows already written by `recomputed`
+    -- are excluded because a task row may only be updated by one CTE per
+    -- statement.
+    UPDATE context69.tasks AS task
+    SET lease_token = NULL,
+        lease_until = NULL,
+        updated_at = now()
+    WHERE task.lease_token IS NOT NULL
+      AND task.status IN ('queued', 'running', 'waiting')
+      AND task.deleted_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM exhausted e WHERE e.task_id = task.id)
+      AND EXISTS (SELECT 1 FROM expired_items revoked WHERE revoked.task_id = task.id)
+      AND NOT EXISTS (
+          SELECT 1
+          FROM context69.task_items item
+          WHERE item.task_id = task.id
+            AND item.status = 'running'
+            AND item.lease_until > now()
+            AND NOT EXISTS (SELECT 1 FROM expired_items revoked WHERE revoked.id = item.id)
+      )
+    RETURNING task.id
 ), expired AS (
     UPDATE context69.task_attempts AS attempt
     SET status = 'interrupted',
@@ -202,4 +267,6 @@ SELECT
     (SELECT count(*) FROM exhausted) AS "exhausted_items!",
     (SELECT count(*) FROM exhausted_files) AS "exhausted_files!",
     (SELECT count(*) FROM recomputed) AS "exhausted_tasks!",
-    (SELECT count(*) FROM expired) AS "expired_attempts!"
+    (SELECT count(*) FROM expired) AS "expired_attempts!",
+    (SELECT count(*) FROM renewed_parent_leases) AS "renewed_parent_leases!",
+    (SELECT count(*) FROM revoked_parent_leases) AS "revoked_parent_leases!"

@@ -91,9 +91,11 @@ impl Context69App {
 }
 
 pub(crate) fn task_worker_capacity(config: &Config) -> usize {
-    // 单有效控制：阻塞 FIFO 只允许 1 个 worker；0 箝位到 1。
+    // `scheduler.max_concurrency` is the global parent-task capacity (issue 650
+    // P2): the durable task lease enforces it across replicas and the local
+    // worker pool mirrors it so one replica cannot run more parents than the
+    // global limit. Zero still clamps to one worker.
     crate::services::tasks::normalize_task_worker_concurrency(config.scheduler.max_concurrency)
-        .min(1)
 }
 
 #[cfg(test)]
@@ -107,18 +109,17 @@ mod tests {
         config.scheduler.max_concurrency = 8;
         config.file_library.ingest_concurrency = 1;
         config.file_library.url_import_concurrency = 1;
-        assert_eq!(task_worker_capacity(&config), 1);
+        assert_eq!(task_worker_capacity(&config), 8);
 
         // Changing file_library values must not affect capacity.
         config.file_library.ingest_concurrency = 100;
         config.file_library.url_import_concurrency = 100;
-        assert_eq!(task_worker_capacity(&config), 1);
+        assert_eq!(task_worker_capacity(&config), 8);
 
-        // Scheduler fan-out collapses to a single blocking worker.
-        config.scheduler.max_concurrency = 4;
+        config.scheduler.max_concurrency = 2;
         config.file_library.ingest_concurrency = 1;
         config.file_library.url_import_concurrency = 1;
-        assert_eq!(task_worker_capacity(&config), 1);
+        assert_eq!(task_worker_capacity(&config), 2);
     }
 
     #[test]

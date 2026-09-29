@@ -51,17 +51,22 @@ pub(super) fn start(service: &TaskService) {
 
 async fn dispatch_available(service: &TaskService) {
     let mut claimed_total = 0usize;
+    // The durable parent-task capacity is global: every replica passes the same
+    // configured `scheduler.max_concurrency`, and the database admits at most
+    // that many parents across all replicas. The local semaphore only bounds
+    // this replica's workers.
+    let capacity = i64::try_from(service.worker_capacity()).unwrap_or(i64::MAX);
     loop {
         let available_slots = service.available_worker_slots();
         if available_slots == 0 {
             break;
         }
-        let limit = i64::try_from(available_slots).unwrap_or(i64::MAX);
-        // Hot path: only the fast claim statement runs. Maintenance lives
-        // on the recovery tick so notification-driven wakes (submit,
+        // Hot path: only the admission claim statement runs (plus the
+        // admission lock that serializes it across replicas). Maintenance
+        // lives on the recovery tick so notification-driven wakes (submit,
         // retry, finish, worker release) avoid the exhausted/expired
         // UPDATE CTEs that used to run on every wake.
-        let items = match service.db().claim_items_fast(limit).await {
+        let items = match service.db().claim_items_fast(capacity).await {
             Ok(items) => items,
             Err(error) => {
                 tracing::warn!(%error, "failed to claim context69 task items");
@@ -83,6 +88,7 @@ async fn dispatch_available(service: &TaskService) {
     tracing::info!(
         target: "task_dispatch",
         claimed_total,
+        parent_capacity = service.worker_capacity(),
         inflight_count = service.worker_capacity().saturating_sub(service.available_worker_slots()),
         available_slots = service.available_worker_slots(),
         "task dispatcher state"
@@ -111,6 +117,14 @@ async fn run_maintenance(service: &TaskService) {
                     exhausted_tasks = outcome.exhausted_tasks,
                     expired_attempts = outcome.expired_attempts,
                     "task claim maintenance converged terminal state"
+                );
+            }
+            if outcome.renewed_parent_leases + outcome.revoked_parent_leases > 0 {
+                tracing::debug!(
+                    target: "task_dispatch",
+                    renewed_parent_leases = outcome.renewed_parent_leases,
+                    revoked_parent_leases = outcome.revoked_parent_leases,
+                    "task parent admission leases converged"
                 );
             }
         }

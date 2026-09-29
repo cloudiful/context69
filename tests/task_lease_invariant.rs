@@ -433,7 +433,7 @@ async fn stage_progress_resets_the_attempt_count() {
 }
 
 #[tokio::test]
-async fn multiple_items_are_claimed_independently() {
+async fn items_of_one_parent_are_claimed_one_at_a_time() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parallel claim test");
         return;
@@ -466,24 +466,65 @@ async fn multiple_items_are_claimed_independently() {
         .expect("create task");
     assert_eq!(item_ids.len(), 3);
 
-    let claimed = db.claim_items(100).await.expect("claim items");
-    let claimed_for_task = claimed
-        .iter()
+    // A parent task owns one global slot (issue 650 P2): a single claim takes
+    // exactly one item of the parent, in ordinal order, even though more items
+    // are due.
+    let first = db
+        .claim_items(100)
+        .await
+        .expect("first claim")
+        .into_iter()
         .filter(|item| item.task_id == task_id)
         .collect::<Vec<_>>();
     assert_eq!(
-        claimed_for_task.len(),
-        3,
-        "all items of the task must be claimable in one pass"
+        first.len(),
+        1,
+        "one admitted parent must claim exactly one item per claim"
     );
-    let distinct_tokens = claimed_for_task
-        .iter()
-        .map(|item| item.lease_token)
-        .collect::<std::collections::HashSet<_>>();
     assert_eq!(
-        distinct_tokens.len(),
-        3,
-        "each item must hold an independent lease"
+        first[0].id, item_ids[0],
+        "the parent advances its items in ordinal order"
+    );
+    let running: i64 = sqlx::query(
+        "SELECT count(*) FROM context69.task_items WHERE task_id = $1 AND status = 'running'",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count running items")
+    .get("count");
+    assert_eq!(running, 1, "the parent must not run several items at once");
+
+    // Finishing that item lets the same parent advance to its next item inside
+    // the same slot, with an independent lease.
+    assert!(
+        db.finish_task_item(context69::db::FinishTaskItemRequest {
+            task_id,
+            item_id: first[0].id,
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
+            lease_token: first[0].lease_token,
+            attempt_id: first[0].attempt_id,
+        })
+        .await
+        .expect("finish first item"),
+        "finishing with the current lease token must succeed"
+    );
+    let second = db
+        .claim_items(100)
+        .await
+        .expect("second claim")
+        .into_iter()
+        .filter(|item| item.task_id == task_id)
+        .collect::<Vec<_>>();
+    assert_eq!(second.len(), 1, "the parent claims its next item");
+    assert_eq!(second[0].id, item_ids[1], "items advance by ordinal");
+    assert_ne!(
+        second[0].lease_token, first[0].lease_token,
+        "each claimed item must hold an independent lease"
     );
 
     cleanup_task(&db, task_id, user_id).await;
@@ -532,33 +573,37 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
         .await
         .expect("create task b");
 
-    let claimed = db.claim_items(1).await.expect("claim one item");
-    assert_eq!(
-        claimed.len(),
-        1,
-        "a limit of one must claim exactly one item"
-    );
-    let claimed_task = claimed[0].task_id;
+    // Capacity 1 admits at most one parent: the other seeded parent must not be
+    // activated (and no parent is pre-activated when a foreign lease already
+    // holds the single slot).
+    let claimed = db.claim_items(1).await.expect("claim one parent");
     assert!(
-        claimed_task == task_a || claimed_task == task_b,
+        claimed.len() <= 1,
+        "a capacity of one must never admit more than one parent"
+    );
+    let claimed_task = claimed.first().map(|item| item.task_id);
+    assert!(
+        claimed_task.is_none() || claimed_task == Some(task_a) || claimed_task == Some(task_b),
         "the claimed item must belong to one of the two seeded tasks"
     );
-    let unclaimed_task = if claimed_task == task_a {
-        task_b
-    } else {
-        task_a
+    let unclaimed_task = match claimed_task {
+        Some(task) if task == task_a => task_b,
+        _ => task_a,
     };
 
-    let claimed_status: String = sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
-        .bind(claimed_task)
-        .fetch_one(db.pool())
-        .await
-        .expect("load claimed task status")
-        .get("status");
-    assert_eq!(
-        claimed_status, "running",
-        "claiming an item must activate only its own parent task"
-    );
+    if let Some(claimed_task) = claimed_task {
+        let claimed_status: String =
+            sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
+                .bind(claimed_task)
+                .fetch_one(db.pool())
+                .await
+                .expect("load claimed task status")
+                .get("status");
+        assert_eq!(
+            claimed_status, "running",
+            "claiming an item must activate only its own parent task"
+        );
+    }
 
     let unclaimed_status: String = sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
         .bind(unclaimed_task)

@@ -12,6 +12,12 @@ pub struct ClaimMaintenanceOutcome {
     pub exhausted_files: i64,
     pub exhausted_tasks: i64,
     pub expired_attempts: i64,
+    /// Admitted parent-task slots renewed because a worker still runs one of
+    /// their items (issue 650 P2).
+    pub renewed_parent_leases: i64,
+    /// Admitted parent-task slots released because their worker item lease
+    /// expired (issue 650 P2).
+    pub revoked_parent_leases: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
