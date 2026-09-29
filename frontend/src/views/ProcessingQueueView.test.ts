@@ -120,6 +120,61 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
+  it("renders entry task stages with localized labels instead of raw keys", async () => {
+    const stages = ["download", "storage", "sync", "delete", "translation", "indexing"];
+    listTasks.mockReset().mockResolvedValue(
+      response(stages.map((stage, index) => ({ ...row, task_id: `stage-task-${index}`, stage }))) as never,
+    );
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    for (const label of ["Download", "Storage", "Sync", "Delete", "Translation", "Indexing"]) {
+      expect(wrapper.text()).toContain(label);
+    }
+    expect(wrapper.text()).not.toContain("processingQueue.stages.");
+    wrapper.unmount();
+  });
+
+  it("falls back to Unknown for unknown task stages", async () => {
+    listTasks.mockReset().mockResolvedValue(
+      response([{ ...row, task_id: "unknown-stage-task", stage: "future_stage" }]) as never,
+    );
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Unknown");
+    expect(wrapper.text()).not.toContain("future_stage");
+    expect(wrapper.text()).not.toContain("processingQueue.stages.");
+    wrapper.unmount();
+  });
+
+  it("offers every entry stage in the stage filter popover", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="Task stage"]').trigger("click");
+    await flushPromises();
+
+    const listbox = document.body.querySelector('[role="listbox"][aria-label="Task stage"]');
+    expect(listbox).not.toBeNull();
+    const options = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')].map((el) => el.textContent?.trim());
+    for (const label of ["All stages", "Download", "Storage", "Sync", "Delete", "Translation", "Indexing", "Processing", "Finalize"]) {
+      expect(options).toContain(label);
+    }
+
+    const download = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
+      .find((el) => el.textContent?.trim() === "Download");
+    expect(download).toBeDefined();
+    (download as HTMLElement).click();
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ stage: "download" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
   it("renders the localized Qdrant label for the waiting dependency column", async () => {
     listTasks.mockReset().mockResolvedValue(response([waitingQdrantRow]) as never);
     const wrapper = await mountQueue();

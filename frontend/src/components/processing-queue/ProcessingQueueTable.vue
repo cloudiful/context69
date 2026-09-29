@@ -6,6 +6,7 @@ import TaskItemsExpanded from "../TaskItemsExpanded.vue";
 import type { SortDirection, TaskKind, TaskListView, TaskResponse, TaskSortBy, TaskStatus } from "../../services/api";
 import { formatTimestamp } from "../../utils/format";
 import { libraryDependencyLabel } from "../../utils/library-status";
+import { queueStageLabel } from "../../composables/queue-helpers";
 import QueueHeaderFilter from "./QueueHeaderFilter.vue";
 import { createQueueFilterSelects, useQueueFilterOptions, useQueueTableColumns } from "./queue-table-filters";
 
@@ -138,7 +139,7 @@ function taskStatusLabel(status: TaskStatus) {
 }
 function taskKindLabel(kind: TaskResponse["kind"]) { return t(`processingQueue.kinds.${kind}`); }
 function stageLabel(stage: string | null) {
-  return stage ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage");
+  return queueStageLabel(t, stage);
 }
 function waitingLabel(reason: string | null, dependency: string | null) {
   if (!reason) return "--";

@@ -8,6 +8,36 @@ export const TERMINAL_STATUSES: TaskStatus[] = ["succeeded", "failed", "cancelle
 // status selector at all.
 export const PROCESSING_STATUS_FILTERS: TaskStatus[] = ["queued", "running", "waiting", "failed", "cancelled"];
 
+// Task stage vocabulary (issue 635): `create.sql` seeds the task stage from the
+// kind entry stage (download/storage/sync/delete/translation/indexing), while
+// collapsed items report processing/finalize. The filter options and both
+// stage renderers share this list so locale keys never drift from valid
+// values again.
+export const QUEUE_STAGE_VALUES = [
+  "download",
+  "storage",
+  "sync",
+  "delete",
+  "translation",
+  "indexing",
+  "processing",
+  "finalize",
+] as const;
+
+export type QueueStage = (typeof QUEUE_STAGE_VALUES)[number];
+
+const QUEUE_STAGE_SET: ReadonlySet<string> = new Set(QUEUE_STAGE_VALUES);
+
+type StageTranslate = (key: string, params?: Record<string, unknown>) => string;
+
+// Unknown or missing stages fall back to the Unknown label so the UI never
+// leaks a raw `processingQueue.stages.*` key.
+export function queueStageLabel(t: StageTranslate, stage: string | null | undefined): string {
+  if (!stage) return t("processingQueue.unknownStage");
+  if (QUEUE_STAGE_SET.has(stage)) return t(`processingQueue.stages.${stage}`);
+  return t("processingQueue.unknownStage");
+}
+
 // Per-view default ordering (issue 629): processing stays stable by creation
 // time so progress updates do not move active rows, while completed surfaces
 // the most recently updated task first. Trash keeps the backend default

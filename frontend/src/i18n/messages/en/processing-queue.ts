@@ -122,6 +122,12 @@ export const processingQueue = {
     qdrant: "Qdrant",
   },
   stages: {
+    download: "Download",
+    storage: "Storage",
+    sync: "Sync",
+    delete: "Delete",
+    translation: "Translation",
+    indexing: "Indexing",
     processing: "Processing",
     finalize: "Finalize",
   },
