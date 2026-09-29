@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use scheduler::{
     ExecutionSlot, GuardedRunResult, GuardedRunner, ValkeyExecutionGuard, ValkeyLeaseConfig,
 };
-use tracing::info;
 
 use crate::services::app::Context69App;
 
@@ -65,17 +64,4 @@ pub async fn build_valkey_execution_guard(
 
 pub fn startup_execution_slot_at() -> DateTime<Utc> {
     DateTime::<Utc>::UNIX_EPOCH
-}
-
-/// Compatibility entrypoint for the removed Docling poll sweep (issue 650
-/// P3).
-///
-/// Docling submit/poll/fetch now blocks inside the task worker holding the
-/// admitted parent slot, and crash/restart/cancel fencing for the durable
-/// remote ids lives in the recovery pass (`maintenance.rs`). This function
-/// stays with its signature so `main.rs` keeps compiling; it performs no
-/// scheduling, claims nothing, and polls nothing.
-pub async fn run_docling_sweep_scheduler(_app: Arc<Context69App>) -> Result<()> {
-    info!("docling poll sweep is removed; docling conversions block inside the task worker");
-    Ok(())
 }
