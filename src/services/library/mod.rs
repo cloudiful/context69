@@ -90,6 +90,7 @@ pub use source_release::{DEFAULT_SOURCE_RELEASE_RETRY_BATCH_SIZE, SourceReleaseS
 mod docling_remote_result;
 mod docling_remote_submit;
 mod staging;
+mod staging_cleanup;
 pub(crate) mod storage;
 mod streaming;
 pub mod task_ingest;

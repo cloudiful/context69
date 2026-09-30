@@ -11,6 +11,7 @@ use uuid::Uuid;
 use super::dependency_errors::{
     is_configuration_error, is_s3_attempt_retryable, is_s3_error, is_s3_transient_error,
 };
+use super::object_storage::StagingEntry;
 use super::s3_gate_cache::cached_s3_gate;
 use super::{LibraryDependency, LibraryService};
 
@@ -253,6 +254,28 @@ impl LibraryService {
             }
             Err(error) if is_storage_gate_failure(self.storage.backend(), &error) => {
                 self.note_storage_error(&error, Some(lease_token)).await;
+                Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// List one bounded page of the `staging/` prefix through the S3 gate.
+    ///
+    /// Listing is read-only, so it takes no lease token: a gate that is not
+    /// closed fails the whole page and the next drain retries. Object-store
+    /// failures are classified exactly like the other storage operations so a
+    /// broken S3 trip the platform gate instead of silently returning nothing.
+    pub(super) async fn list_active_staging_page(
+        &self,
+        start_after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<StagingEntry>> {
+        self.ensure_active_storage_ready_for(None).await?;
+        match self.storage.list_staging_page(start_after, limit).await {
+            Ok(page) => Ok(page),
+            Err(error) if is_storage_gate_failure(self.storage.backend(), &error) => {
+                self.note_storage_error(&error, None).await;
                 Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),

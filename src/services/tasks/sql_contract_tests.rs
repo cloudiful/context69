@@ -1,6 +1,20 @@
 //! SQL-contract tests: the task list/count/items/clear queries must keep the
 //! view predicate, user scoping, and active-first ordering that the service
-//! layer relies on.
+//! layer relies on, and the issue #667 Phase 2B terminal-payload migration
+//! must strip only the planned keys under kind/status/file guards.
+
+/// Issue #667 Phase 2B migration, read verbatim so the contract test fails if
+/// a guard, kind list, or stripped key drifts from the plan.
+const TERMINAL_PAYLOAD_MIGRATION: &str =
+    include_str!("../../../migrations/20260930134806_strip_terminal_task_payloads.sql");
+
+fn terminal_payload_migration_code() -> String {
+    TERMINAL_PAYLOAD_MIGRATION
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 #[test]
 fn task_list_and_count_share_one_view_predicate() {
@@ -131,4 +145,110 @@ fn task_items_sql_filters_status_and_pins_active_first() {
         code.contains("LIMIT $2 OFFSET $3"),
         "cursor paging must stay offset-based (limit $2, offset $3)"
     );
+}
+
+#[test]
+fn terminal_payload_migration_strips_only_planned_keys_under_guards() {
+    let code = terminal_payload_migration_code();
+
+    // Exactly three payload updates, one per planned retention group, and no
+    // other statement kind.
+    assert_eq!(
+        code.matches("UPDATE ").count(),
+        3,
+        "the migration must hold exactly three UPDATE statements"
+    );
+    assert_eq!(
+        code.matches("UPDATE context69.task_items").count(),
+        3,
+        "every update must target task_items, the only payload owner"
+    );
+
+    // Succeeded URL items drop the obsolete download artifact; failed and
+    // cancelled URL items are never matched.
+    assert!(
+        code.contains("item.payload - 'download_artifact'"),
+        "succeeded URL items must strip the download artifact"
+    );
+    assert!(
+        code.contains("item.status = 'succeeded'"),
+        "the artifact strip must be guarded to succeeded items"
+    );
+    assert!(
+        code.contains("task.kind = 'url_batch'"),
+        "the artifact strip must be guarded to URL tasks"
+    );
+
+    // Terminal text/file items drop the reconstructible section checkpoint.
+    assert!(
+        code.contains("item.payload - 'section_payload' - 'indexing_checkpoint'"),
+        "terminal text/file items must strip section_payload and indexing_checkpoint"
+    );
+    assert!(
+        code.contains("item.status IN ('succeeded', 'failed', 'cancelled')"),
+        "the checkpoint strip must cover exactly the terminal statuses"
+    );
+    assert!(
+        code.contains("task.kind IN ('text_batch', 'file_batch')"),
+        "the checkpoint strip must be scoped to the text/file ingestion kinds"
+    );
+    assert!(
+        code.contains("item.payload ? 'section_payload'")
+            && code.contains("item.payload ? 'indexing_checkpoint'"),
+        "the checkpoint strip must match only rows that still carry a key"
+    );
+
+    // Succeeded text items with a durably succeeded file drop the inline body.
+    assert!(
+        code.contains("item.payload - 'content'"),
+        "succeeded text items must strip the inline content"
+    );
+    assert!(
+        code.contains("item.payload ? 'content'"),
+        "the content strip must match only rows that still carry content"
+    );
+    assert!(
+        code.contains("task.kind = 'text_batch'"),
+        "the content strip must be guarded to text tasks"
+    );
+    assert!(
+        code.contains("file.ingest_status = 'succeeded'"),
+        "the content strip must require a durably succeeded library file"
+    );
+
+    // Every update requires a durable file reference, so rows without one are
+    // left for a future retry/rerun.
+    assert_eq!(
+        code.matches("item.file_id IS NOT NULL").count(),
+        3,
+        "all three updates must require a durable file_id"
+    );
+
+    // No row or schema mutation, and no table other than the task payload is
+    // written.
+    for forbidden in [
+        "DELETE",
+        "INSERT INTO",
+        "DROP ",
+        "ALTER ",
+        "TRUNCATE",
+        "CREATE ",
+        "UPDATE context69.tasks",
+        "UPDATE context69.library_files",
+        "UPDATE context69.library_storage_objects",
+        "SET status",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "terminal-payload retention must not {forbidden}"
+        );
+    }
+
+    // Live items are never stripped: only terminal statuses appear.
+    for live in ["'running'", "'queued'", "'waiting'"] {
+        assert!(
+            !code.contains(live),
+            "the migration must not touch live item status {live}"
+        );
+    }
 }

@@ -1,7 +1,8 @@
-use std::path::Path;
+use std::{path::Path, time::SystemTime};
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
+use futures::TryStreamExt;
 use opendal::{Operator, services};
 use uuid::Uuid;
 
@@ -200,6 +201,42 @@ impl LibraryObjectStorage {
             })
             .map(|_| ())
     }
+
+    /// One bounded page of `staging/`; `start_after` continues from the last key.
+    pub(super) async fn list_staging_page(
+        &self,
+        start_after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<StagingEntry>> {
+        let list = || async {
+            let mut request = self
+                .operator
+                .lister_with(STAGING_KEY_PREFIX)
+                .recursive(true)
+                .limit(limit);
+            if let Some(start_after) = start_after {
+                request = request.start_after(start_after);
+            }
+            let mut lister = request.await?;
+            let mut page = Vec::new();
+            while page.len() < limit {
+                let Some(entry) = lister.try_next().await? else {
+                    break;
+                };
+                page.push(StagingEntry {
+                    key: entry.path().to_string(),
+                    size_bytes: entry.metadata().content_length(),
+                    modified: entry.metadata().last_modified().map(SystemTime::from),
+                });
+            }
+            Ok::<_, opendal::Error>(page)
+        };
+        if self.backend == "s3" {
+            bounded_s3_operation("list", list).await
+        } else {
+            list().await.map_err(anyhow::Error::from)
+        }
+    }
 }
 
 pub(super) fn content_object_key(group_id: i64, sha256: &str) -> String {
@@ -215,6 +252,16 @@ pub(super) fn content_object_key(group_id: i64, sha256: &str) -> String {
 /// the materializer deletes on both the success and the failure path.
 pub(super) fn staging_object_key(group_id: i64, token: Uuid) -> String {
     format!("staging/{group_id}/{token}")
+}
+
+/// Root prefix of every staging key (the rowless sweep lists it directly).
+pub(super) const STAGING_KEY_PREFIX: &str = "staging/";
+
+#[derive(Debug, Clone)]
+pub(super) struct StagingEntry {
+    pub key: String,
+    pub size_bytes: u64,
+    pub modified: Option<SystemTime>,
 }
 
 fn path_text(path: &Path) -> Result<&str> {

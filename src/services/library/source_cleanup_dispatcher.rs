@@ -291,6 +291,42 @@ impl SourceCleanupDispatcher {
                 );
             }
         }
+        // Rowless staging sweep (issue 667 Phase 2C): a streamed upload can die
+        // after the physical write and before the catalog row commits, so the
+        // catalog-derived sweep above can never see those bytes. Enumerate the
+        // `staging/` prefix directly with the same grace; a failed list or
+        // delete only logs and a later drain retries, so no audit row is needed.
+        match library.sweep_rowless_staging_objects(staged_before).await {
+            Ok(summary) if summary.deleted > 0 || summary.failed > 0 => {
+                tracing::info!(
+                    deleted_rowless_staging_objects = summary.deleted,
+                    skipped = summary.skipped,
+                    failed = summary.failed,
+                    scanned = summary.scanned,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    reason = reason_str,
+                    "rowless staging sweep completed"
+                );
+            }
+            Ok(summary) => {
+                tracing::debug!(
+                    deleted = summary.deleted,
+                    skipped = summary.skipped,
+                    failed = summary.failed,
+                    scanned = summary.scanned,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    reason = reason_str,
+                    "rowless staging sweep completed without work"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    reason = reason_str,
+                    "rowless staging sweep failed"
+                );
+            }
+        }
     }
 }
 
