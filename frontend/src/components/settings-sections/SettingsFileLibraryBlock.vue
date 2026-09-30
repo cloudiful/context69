@@ -29,11 +29,13 @@ function updateS3PathStyle(value: Record<string, boolean>) {
     <div class="grid max-w-2xl gap-3">
       <AppTextField
         input-id="runtime-file-library-root"
+        name="runtime.file_library.storage_root"
         v-model="runtimeDraft.file_library.storage_root"
         :label="t('settings.runtime.fileLibraryRoot')"
       />
       <AppNumberField
         input-id="runtime-file-library-max-upload"
+        name="runtime.file_library.max_upload_size_mb"
         v-model="runtimeDraft.file_library.max_upload_size_mb"
         :label="t('settings.runtime.fileLibraryMaxUploadSize')"
         :min="1"
@@ -41,6 +43,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       />
       <AppNumberField
         input-id="runtime-file-library-max-request"
+        name="runtime.file_library.max_upload_request_size_mb"
         v-model="runtimeDraft.file_library.max_upload_request_size_mb"
         :label="t('settings.runtime.fileLibraryMaxRequestSize')"
         :min="1"
@@ -48,6 +51,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       />
       <AppNumberField
         input-id="runtime-file-library-concurrency"
+        name="runtime.file_library.ingest_concurrency"
         v-model="runtimeDraft.file_library.ingest_concurrency"
         :label="t('settings.runtime.fileLibraryConcurrency')"
         :min="1"
@@ -55,6 +59,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       />
       <AppNumberField
         input-id="runtime-file-library-url-import-concurrency"
+        name="runtime.file_library.url_import_concurrency"
         v-model="runtimeDraft.file_library.url_import_concurrency"
         :label="t('settings.runtime.fileLibraryUrlImportConcurrency')"
         :min="1"
@@ -62,6 +67,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
       />
       <AppNumberField
         input-id="runtime-file-library-url-import-min-interval"
+        name="runtime.file_library.url_import_min_interval_ms"
         v-model="runtimeDraft.file_library.url_import_min_interval_ms"
         :label="t('settings.runtime.fileLibraryUrlImportMinInterval')"
         :min="1"
@@ -70,6 +76,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
     </div>
     <div class="mt-3 grid gap-3">
       <AppToggleGroup
+        name="runtime.file_library"
         helper-inline
         columns-class="grid max-w-2xl gap-3"
         :items="[
@@ -96,32 +103,38 @@ function updateS3PathStyle(value: Record<string, boolean>) {
         <div class="grid max-w-2xl gap-3">
           <AppTextField
             input-id="runtime-file-library-s3-endpoint"
+            name="runtime.file_library.s3.endpoint"
             v-model="runtimeDraft.file_library.s3.endpoint"
             :label="t('settings.runtime.s3Endpoint')"
             type="url"
           />
           <AppTextField
             input-id="runtime-file-library-s3-region"
+            name="runtime.file_library.s3.region"
             v-model="runtimeDraft.file_library.s3.region"
             :label="t('settings.runtime.s3Region')"
           />
           <AppTextField
             input-id="runtime-file-library-s3-bucket"
+            name="runtime.file_library.s3.bucket"
             v-model="runtimeDraft.file_library.s3.bucket"
             :label="t('settings.runtime.s3Bucket')"
           />
           <AppTextField
             input-id="runtime-file-library-s3-prefix"
+            name="runtime.file_library.s3.prefix"
             v-model="runtimeDraft.file_library.s3.prefix"
             :label="t('settings.runtime.s3Prefix')"
           />
           <AppTextField
             input-id="runtime-file-library-s3-access-key"
+            name="runtime.file_library.s3.access_key"
             v-model="runtimeDraft.file_library.s3.access_key"
             :label="t('settings.runtime.s3AccessKey')"
           />
           <AppTextField
             input-id="runtime-file-library-s3-secret-key"
+            name="runtime.file_library.s3.secret_key"
             v-model="runtimeDraft.file_library.s3.secret_key"
             :label="t('settings.runtime.s3SecretKey')"
             type="password"
@@ -130,6 +143,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
         </div>
         <div class="grid max-w-2xl gap-3">
           <AppToggleGroup
+            name="runtime.file_library.s3"
             helper-inline
             columns-class="grid max-w-2xl gap-3"
             :items="[{ inputId: 'runtime-file-library-s3-path-style', key: 'path_style', label: t('settings.runtime.s3PathStyle') }]"
@@ -141,6 +155,7 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             color="neutral"
             :disabled="s3Testing"
             :aria-busy="s3Testing"
+            data-testid="runtime-file-library-s3-test"
             @click="emit('test-s3')"
           >
             <UIcon name="i-lucide-loader-circle" v-if="s3Testing" class="h-4 w-4" />

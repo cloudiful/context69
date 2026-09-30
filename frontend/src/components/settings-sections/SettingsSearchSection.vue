@@ -47,6 +47,7 @@ const boostMargin = computed(() => {
           <div class="grid max-w-2xl gap-3">
             <AppSelectField
               input-id="search-mode"
+              name="search.mode"
               v-model="searchDraft.mode"
               :label="t('settings.search.mode')"
               test-id="search-mode"
@@ -55,6 +56,7 @@ const boostMargin = computed(() => {
 
             <AppNumberField
               input-id="search-candidate-limit"
+              name="search.candidate_limit"
               v-model="searchDraft.candidate_limit"
               :label="t('settings.search.candidateLimit')"
               test-id="search-candidate-limit"
@@ -64,6 +66,7 @@ const boostMargin = computed(() => {
 
             <AppNumberField
               input-id="search-rerank-timeout"
+              name="search.timeout_secs"
               v-model="searchDraft.timeout_secs"
               :label="t('settings.search.timeout')"
               test-id="search-rerank-timeout"
@@ -73,6 +76,7 @@ const boostMargin = computed(() => {
           </div>
 
           <AppToggleGroup
+            name="search"
             :model-value="rerankToggleModel"
             columns-class="grid max-w-2xl grid-cols-1 gap-2"
             :items="[
@@ -84,6 +88,7 @@ const boostMargin = computed(() => {
           <div class="grid max-w-2xl gap-3">
             <AppTextField
               input-id="search-rerank-base-url"
+              name="search.rerank_base_url"
               v-model="searchDraft.rerank_base_url"
               :label="t('settings.search.rerankBaseUrl')"
               test-id="search-rerank-base-url"
@@ -93,6 +98,7 @@ const boostMargin = computed(() => {
 
             <AppTextField
               input-id="search-rerank-model"
+              name="search.rerank_model"
               v-model="searchDraft.rerank_model"
               :label="t('settings.search.rerankModel')"
               test-id="search-rerank-model"
@@ -101,6 +107,7 @@ const boostMargin = computed(() => {
 
             <AppTextField
               input-id="search-rerank-api-key"
+              name="search.api_key"
               :model-value="rerankApiKeyDraft"
               :label="t('settings.search.rerankApiKey')"
               test-id="search-rerank-api-key"
@@ -112,14 +119,12 @@ const boostMargin = computed(() => {
           </div>
 
           <div class="grid max-w-2xl gap-3">
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t("settings.search.fusionWeightsHint", { margin: boostMargin }) }}
-            </p>
-
             <AppNumberField
               input-id="search-vector-weight"
+              name="search.vector_weight"
               v-model="searchDraft.vector_weight"
               :label="t('settings.search.vectorWeight')"
+              :helper="t('settings.search.fusionWeightsHint', { margin: boostMargin })"
               test-id="search-vector-weight"
               :min="0"
               :max="1"
@@ -128,6 +133,7 @@ const boostMargin = computed(() => {
 
             <AppNumberField
               input-id="search-keyword-weight"
+              name="search.keyword_weight"
               v-model="searchDraft.keyword_weight"
               :label="t('settings.search.keywordWeight')"
               test-id="search-keyword-weight"

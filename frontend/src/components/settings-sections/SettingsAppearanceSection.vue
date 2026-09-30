@@ -53,6 +53,7 @@ function updateTheme(value: unknown) {
         <AppSelectField
           :key="localeSelectKey"
           input-id="settings-locale-select"
+          name="appearance.locale"
           :model-value="selectedLocale"
           :label="t('language.label')"
           :options="localeOptions"
@@ -62,6 +63,7 @@ function updateTheme(value: unknown) {
 
         <AppSelectField
           input-id="settings-theme-select"
+          name="appearance.theme"
           :model-value="theme"
           :label="t('theme.label')"
           :options="themeOptions"

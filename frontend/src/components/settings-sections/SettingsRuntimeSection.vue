@@ -49,6 +49,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
           <div class="grid max-w-2xl gap-3">
             <AppTextField
               input-id="runtime-embedding-base-url"
+              name="runtime.embedding.base_url"
               v-model="runtimeDraft.embedding.base_url"
               :label="t('settings.runtime.embeddingBaseUrl')"
               type="url"
@@ -56,6 +57,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             />
             <AppTextField
               input-id="runtime-embedding-api-key"
+              name="runtime.embedding.api_key"
               v-model="runtimeDraft.embedding.api_key"
               :label="t('settings.runtime.embeddingApiKey')"
               type="password"
@@ -66,11 +68,13 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
           <div class="grid max-w-2xl gap-3">
             <AppTextField
               input-id="runtime-embedding-model"
+              name="runtime.embedding.model"
               v-model="runtimeDraft.embedding.model"
               :label="t('settings.runtime.embeddingModel')"
             />
             <AppNumberField
               input-id="runtime-embedding-dimensions"
+              name="runtime.embedding.dimensions"
               v-model="runtimeDraft.embedding.dimensions"
               :label="t('settings.runtime.embeddingDimensions')"
               :min="1"
@@ -78,6 +82,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             />
             <AppNumberField
               input-id="runtime-embedding-timeout"
+              name="runtime.embedding.timeout_secs"
               v-model="runtimeDraft.embedding.timeout_secs"
               :label="t('settings.runtime.embeddingTimeout')"
               :min="1"
@@ -91,16 +96,19 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <div class="grid max-w-2xl gap-3">
           <AppTextField
             input-id="runtime-qdrant-url"
+            name="runtime.qdrant.url"
             v-model="runtimeDraft.qdrant.url"
             :label="t('settings.runtime.qdrantUrl')"
             type="url"
           />
           <AppTextField
             input-id="runtime-qdrant-collection"
+            name="runtime.qdrant.collection_name"
             v-model="runtimeDraft.qdrant.collection_name"
             :label="t('settings.runtime.qdrantCollection')"
           />
           <AppToggleGroup
+            name="runtime.qdrant"
             :model-value="qdrantToggleModel"
             columns-class="grid max-w-2xl grid-cols-1 gap-2"
             :items="[
@@ -119,6 +127,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <div class="grid max-w-2xl gap-3">
           <AppNumberField
             input-id="runtime-scheduler-interval"
+            name="runtime.scheduler.interval_secs"
             v-model="runtimeDraft.scheduler.interval_secs"
             :label="t('settings.runtime.schedulerInterval')"
             :min="1"
@@ -126,6 +135,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
           />
           <AppNumberField
             input-id="runtime-scheduler-concurrency"
+            name="runtime.scheduler.max_concurrency"
             v-model="runtimeDraft.scheduler.max_concurrency"
             :label="t('settings.runtime.schedulerConcurrency')"
             :min="1"
@@ -133,11 +143,13 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
           />
           <AppTextField
             input-id="runtime-scheduler-job-id"
+            name="runtime.scheduler.job_id"
             v-model="runtimeDraft.scheduler.job_id"
             :label="t('settings.runtime.schedulerJobId')"
           />
           <AppTextField
             input-id="runtime-scheduler-valkey-url"
+            name="runtime.scheduler.valkey_url"
             v-model="runtimeDraft.scheduler.valkey_url"
             :label="t('settings.runtime.schedulerValkeyUrl')"
             :helper="t('settings.runtime.valkeyRestartRequired')"
@@ -158,6 +170,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             </UButton>
           </div>
           <AppToggleGroup
+            name="runtime.scheduler"
             :model-value="schedulerToggleModel"
             columns-class="grid max-w-2xl grid-cols-1 gap-2"
             :items="[
@@ -172,6 +185,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
         <div class="grid max-w-2xl gap-3">
           <AppNumberField
             input-id="runtime-chunking-max-chars"
+            name="runtime.chunking.max_chars"
             v-model="runtimeDraft.chunking.max_chars"
             :label="t('settings.runtime.chunkingMaxChars')"
             :min="1"
@@ -179,6 +193,7 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
           />
           <AppNumberField
             input-id="runtime-chunking-overlap"
+            name="runtime.chunking.overlap_chars"
             v-model="runtimeDraft.chunking.overlap_chars"
             :label="t('settings.runtime.chunkingOverlapChars')"
             :min="0"

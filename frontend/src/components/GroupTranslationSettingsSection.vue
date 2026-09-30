@@ -73,26 +73,29 @@ onMounted(load);
 
 <template>
   <UCard>
-    <div class="flex items-center justify-between gap-2">
-      <strong>{{ t("groups.translation.title") }}</strong>
-      <span class="text-xs text-muted-color">{{ t("groups.translation.stats", stats) }}</span>
-    </div>
-    <AppToggleGroup
-      :model-value="{ enabled }"
-      :items="[{ key: 'enabled', inputId: 'group-translation-enabled', label: t('groups.translation.enabled') }]"
-      :disabled="loading || !canManage"
-      @update:model-value="enabled = !!$event.enabled"
-    />
-    <AppTextField v-model="targets" input-id="group-translation-targets" :label="t('groups.translation.targets')" :disabled="!canManage" placeholder="zh-CN, ja-JP" />
-    <AppTextField v-model="sourceLocale" input-id="group-translation-source" :label="t('groups.translation.source')" :disabled="!canManage" placeholder="en-US" />
-    <AppFormField input-id="group-translation-glossary" :label="t('groups.translation.glossary')">
-      <UTextarea id="group-translation-glossary" v-model="glossary" rows="4" :disabled="!canManage" placeholder="stock = 股票" />
-    </AppFormField>
-    <div v-if="canManage" class="flex justify-end">
-      <UButton type="button" :disabled="loading || saving" :aria-busy="saving" @click="save">
-        <UIcon name="i-lucide-loader-circle" v-if="saving" class="h-4 w-4" />
-        <span>{{ t("common.save") }}</span>
-      </UButton>
+    <div class="grid gap-3">
+      <div class="flex items-center justify-between gap-2">
+        <strong>{{ t("groups.translation.title") }}</strong>
+        <span class="text-xs text-muted">{{ t("groups.translation.stats", stats) }}</span>
+      </div>
+      <AppToggleGroup
+        name="group_translation"
+        :model-value="{ enabled }"
+        :items="[{ key: 'enabled', inputId: 'group-translation-enabled', label: t('groups.translation.enabled') }]"
+        :disabled="loading || !canManage"
+        @update:model-value="enabled = !!$event.enabled"
+      />
+      <AppTextField v-model="targets" input-id="group-translation-targets" name="group_translation.default_target_locales" :label="t('groups.translation.targets')" :disabled="!canManage" placeholder="zh-CN, ja-JP" />
+      <AppTextField v-model="sourceLocale" input-id="group-translation-source" name="group_translation.source_locale" :label="t('groups.translation.source')" :disabled="!canManage" placeholder="en-US" />
+      <AppFormField input-id="group-translation-glossary" name="group_translation.glossary" :label="t('groups.translation.glossary')">
+        <UTextarea id="group-translation-glossary" v-model="glossary" rows="4" :disabled="!canManage" placeholder="stock = 股票" />
+      </AppFormField>
+      <div v-if="canManage" class="flex justify-end">
+        <UButton type="button" :disabled="loading || saving" :aria-busy="saving" @click="save">
+          <UIcon name="i-lucide-loader-circle" v-if="saving" class="h-4 w-4" />
+          <span>{{ t("common.save") }}</span>
+        </UButton>
+      </div>
     </div>
   </UCard>
 </template>
