@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   max?: number;
   min?: number;
   modelValue?: number | null;
+  name?: string;
   step?: number;
   testId?: string;
 }>(), {
@@ -19,6 +20,7 @@ const props = withDefaults(defineProps<{
   max: undefined,
   min: undefined,
   modelValue: null,
+  name: "",
   step: 1,
   testId: "",
 });
@@ -34,9 +36,11 @@ const emit = defineEmits<{
     :label="props.label"
     :helper="props.helper || undefined"
     :layout="props.layout"
+    :name="props.name || undefined"
   >
     <UInputNumber
       :id="props.inputId"
+      :name="props.name || props.inputId"
       :model-value="props.modelValue"
       :data-testid="props.testId || undefined"
       :disabled="props.disabled"

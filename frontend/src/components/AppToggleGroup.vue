@@ -14,10 +14,12 @@ const props = withDefaults(defineProps<{
   helperInline?: boolean;
   items: ToggleItem[];
   modelValue: Record<string, boolean>;
+  name?: string;
   disabled?: boolean;
 }>(), {
   columnsClass: "grid gap-4 lg:grid-cols-2 lg:items-start",
   helperInline: false,
+  name: "",
 });
 
 const emit = defineEmits<{
@@ -41,6 +43,7 @@ function updateItem(key: string, value: boolean) {
       :label="item.label"
       :helper="item.helper"
       :helper-inline="props.helperInline"
+      :name="props.name ? `${props.name}.${item.key}` : undefined"
       :model-value="!!props.modelValue[item.key]"
       :test-id="item.testId"
       :disabled="props.disabled"

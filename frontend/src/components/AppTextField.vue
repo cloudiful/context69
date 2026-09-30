@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
   label: string;
   layout?: "stacked" | "inline";
   modelValue?: string | null;
+  name?: string;
   placeholder?: string;
   readonly?: boolean;
   testId?: string;
@@ -19,6 +20,7 @@ const props = withDefaults(defineProps<{
   helper: "",
   modelValue: "",
   layout: "stacked",
+  name: "",
   placeholder: "",
   readonly: false,
   testId: "",
@@ -36,9 +38,11 @@ const emit = defineEmits<{
     :label="props.label"
     :helper="props.helper || undefined"
     :layout="props.layout"
+    :name="props.name || undefined"
   >
     <UInput
       :id="props.inputId"
+      :name="props.name || props.inputId"
       :model-value="props.modelValue ?? ''"
       :data-testid="props.testId || undefined"
       :type="props.type"

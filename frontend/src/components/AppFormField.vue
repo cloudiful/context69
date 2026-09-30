@@ -1,32 +1,41 @@
 <script setup lang="ts">
+import { computed } from "vue";
+
+import UFormField from "@nuxt/ui/components/FormField.vue";
+
 const props = withDefaults(defineProps<{
   inputId: string;
   label: string;
   helper?: string;
   layout?: "stacked" | "inline";
+  /** Links the field to UForm validation errors; defaults to inputId. */
+  name?: string;
 }>(), {
   helper: "",
   layout: "stacked",
+  name: "",
 });
+
+const fieldName = computed(() => props.name || props.inputId);
+const orientation = computed(() => (props.layout === "inline" ? "horizontal" : "vertical"));
+
+// The label keeps the compact uppercase settings style; the container spacing
+// mirrors the previous handwritten grid so the surrounding sections do not shift.
+const fieldUi = computed(() => ({
+  root: props.layout === "inline" ? "min-w-0" : "grid min-w-0 content-start self-start gap-2",
+  label: "text-xs font-medium uppercase tracking-[0.08em] text-muted",
+  container: "grid min-w-0 gap-2",
+}));
 </script>
 
 <template>
-  <div
-    class="grid min-w-0 content-start self-start gap-3"
-    :class="props.layout === 'inline'
-      ? 'gap-2 md:grid-cols-[11rem_minmax(0,1fr)] md:items-center md:gap-x-4'
-      : ''"
+  <UFormField
+    :name="fieldName"
+    :label="props.label"
+    :help="props.helper || undefined"
+    :orientation="orientation"
+    :ui="fieldUi"
   >
-    <label
-      class="text-xs font-medium uppercase tracking-[0.08em] text-muted-color"
-      :class="props.layout === 'inline' ? 'md:mb-0 md:self-center' : ''"
-      :for="props.inputId"
-    >
-      {{ props.label }}
-    </label>
-    <div class="grid min-w-0 gap-2">
-      <slot />
-      <p v-if="props.helper" class="text-xs leading-6 text-muted-color">{{ props.helper }}</p>
-    </div>
-  </div>
+    <slot />
+  </UFormField>
 </template>

@@ -3,7 +3,9 @@ import { computed, provide, unref } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import * as z from "zod";
 
+import UForm from "@nuxt/ui/components/Form.vue";
 import UPage from "@nuxt/ui/components/Page.vue";
 import UPageBody from "@nuxt/ui/components/PageBody.vue";
 
@@ -63,6 +65,14 @@ const sectionItems = computed(() =>
   })),
 );
 
+// The drafts in use-settings-page own dirty tracking and payload slicing; this
+// schema only anchors the UForm boundary and never rejects existing payloads.
+const settingsSchema = z.looseObject({});
+
+function submitSettings() {
+  void state.saveSettings();
+}
+
 function switchSection(to: string) {
   void router.push(to);
 }
@@ -109,7 +119,13 @@ function switchLocale(nextLocale: AppLocale) {
           :loading-title="t('settings.loadingTitle')"
           :loading-message="t('settings.loadingMessage')"
         >
-          <form class="grid min-w-0 gap-2 pb-24" @submit.prevent="state.saveSettings">
+          <UForm
+            class="grid min-w-0 gap-2 pb-24"
+            :schema="settingsSchema"
+            :state="state"
+            :loading-auto="false"
+            @submit="submitSettings"
+          >
             <div class="grid gap-4">
               <SettingsAppearancePage
                 v-if="currentSection === 'appearance'"
@@ -136,7 +152,7 @@ function switchLocale(nextLocale: AppLocale) {
                 {{ saving ? t("common.loading") : t("common.save") }}
               </UButton>
             </div>
-          </form>
+          </UForm>
         </AsyncStateBlock>
       </UPageBody>
     </UPage>

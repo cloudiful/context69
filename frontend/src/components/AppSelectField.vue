@@ -7,6 +7,7 @@ const props = withDefaults(defineProps<{
   label: string;
   layout?: "stacked" | "inline";
   modelValue?: string | number | null;
+  name?: string;
   optionLabel?: string;
   optionValue?: string;
   options: Array<Record<string, unknown>>;
@@ -16,6 +17,7 @@ const props = withDefaults(defineProps<{
   helper: "",
   layout: "stacked",
   modelValue: null,
+  name: "",
   optionLabel: "label",
   optionValue: "value",
   placeholder: "",
@@ -33,9 +35,11 @@ const emit = defineEmits<{
     :label="props.label"
     :helper="props.helper || undefined"
     :layout="props.layout"
+    :name="props.name || undefined"
   >
     <USelect
       :id="props.inputId"
+      :name="props.name || props.inputId"
       :model-value="props.modelValue ?? null"
       :data-testid="props.testId || undefined"
       :items="props.options"
