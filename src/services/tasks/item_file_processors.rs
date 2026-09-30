@@ -4,6 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use context69_contracts::{LibraryIngestStatus, UpsertLibraryTextRequest};
 use serde::Deserialize;
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::TaskService;
@@ -23,6 +24,14 @@ pub(super) async fn process_text(
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("text tasks require group_id"))?;
     if stage == "storage" {
+        // Recovery: `save_sections` stores the parsed sections back into the
+        // item payload as `section_payload`, which `UpsertLibraryTextRequest`
+        // rejects as an unknown field. A resumed item whose storage already
+        // persisted sections therefore cannot be re-parsed as the initial
+        // request; skip the duplicate upsert and index what is already stored.
+        if let Some(next) = text_storage_resume_stage(&item.payload) {
+            return Ok(ProcessResult::Progressed { next });
+        }
         let request: UpsertLibraryTextRequest = match serde_json::from_value(item.payload.clone()) {
             Ok(request) => request,
             Err(error) => return Ok(process_error(stage, error.into())),
@@ -42,6 +51,16 @@ pub(super) async fn process_text(
         return Ok(ProcessResult::Progressed { next: "indexing" });
     }
     process_file_stage(service, group.id, item, stage).await
+}
+
+/// Where a TextBatch item resumes when its storage stage already persisted the
+/// sections. `save_sections` writes them into the item payload as
+/// `section_payload`, which is not part of the canonical
+/// `UpsertLibraryTextRequest` (`deny_unknown_fields`), so re-parsing the stored
+/// request would fail with `unknown field section_payload` and loop retries.
+/// Only a non-null persisted section payload counts as completed storage.
+fn text_storage_resume_stage(payload: &Value) -> Option<&'static str> {
+    persisted_section_payload(payload).map(|_| "indexing")
 }
 
 pub(super) async fn process_file(
@@ -328,7 +347,65 @@ async fn ingest_error_result(
 
 #[cfg(test)]
 mod tests {
-    use super::StoredFileBatchItem;
+    use super::{StoredFileBatchItem, text_storage_resume_stage};
+    use context69_contracts::UpsertLibraryTextRequest;
+
+    /// Regression for issue 662: a TextBatch item that already persisted its
+    /// sections (`save_sections` wrote `section_payload`) must resume at
+    /// `indexing` instead of being re-parsed as the initial upsert request,
+    /// which rejects the extra key and looped storage retries.
+    #[test]
+    fn text_storage_resumes_at_indexing_once_sections_are_persisted() {
+        let persisted = serde_json::json!({
+            "external_id": "text-1",
+            "title": "Persisted text",
+            "content": "body",
+            "section_payload": [{ "section_key": "document" }],
+        });
+        // The stored request is no longer parseable as the canonical upsert:
+        // this is the `unknown field section_payload` failure being recovered.
+        assert!(
+            serde_json::from_value::<UpsertLibraryTextRequest>(persisted.clone()).is_err(),
+            "the persisted payload must not parse as the initial upsert request"
+        );
+        assert_eq!(text_storage_resume_stage(&persisted), Some("indexing"));
+
+        // A null section payload is not a completed storage stage.
+        let not_stored = serde_json::json!({
+            "external_id": "text-2",
+            "title": "Fresh text",
+            "content": "body",
+            "section_payload": null,
+        });
+        assert_eq!(text_storage_resume_stage(&not_stored), None);
+    }
+
+    /// The recovery guard must not weaken the initial storage contract: a
+    /// payload without persisted sections still parses as the canonical
+    /// request, and genuine unknown fields are still rejected.
+    #[test]
+    fn text_storage_keeps_the_strict_initial_parse_contract() {
+        let fresh = serde_json::json!({
+            "external_id": "text-3",
+            "title": "Fresh text",
+            "content": "body",
+        });
+        assert_eq!(text_storage_resume_stage(&fresh), None);
+        let request: UpsertLibraryTextRequest = serde_json::from_value(fresh)
+            .expect("a fresh payload still parses as the initial upsert request");
+        assert_eq!(request.external_id, "text-3");
+
+        assert!(
+            serde_json::from_value::<UpsertLibraryTextRequest>(serde_json::json!({
+                "external_id": "text-4",
+                "title": "Invalid text",
+                "content": "body",
+                "totally_unknown": true,
+            }))
+            .is_err(),
+            "unknown fields must still be rejected"
+        );
+    }
 
     #[test]
     fn stored_file_payload_requires_canonical_options_and_rejects_legacy() {
