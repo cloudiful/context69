@@ -2,6 +2,9 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import UPage from "@nuxt/ui/components/Page.vue";
+import UPageBody from "@nuxt/ui/components/PageBody.vue";
+
 import { useGroupWorkspaceContext } from "../../composables/group-workspace-context";
 import type { Visibility } from "../../services/api";
 import MetadataIndexesSection from "../../components/MetadataIndexesSection.vue";
@@ -33,73 +36,75 @@ function save() {
 </script>
 
 <template>
-  <div class="grid gap-3 xl:max-w-[28rem]">
-    <UCard>
-      <form class="grid gap-3" @submit.prevent="save">
-        <dl class="grid gap-2">
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.groupKey") }}</dt>
-          <dd class="min-w-0 text-right text-sm font-semibold text-color">{{ state.group?.group_key || state.groupKey }}</dd>
-        </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.groupPath") }}</dt>
-          <dd class="min-w-0 text-right text-sm font-semibold text-color">{{ state.group?.group_path || state.groupPath }}</dd>
-        </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.groupName") }}</dt>
-          <dd class="min-w-0">
-            <UInput
-              v-if="state.canManageGroup"
-              v-model="name"
-              class="w-48 text-right"
-              :aria-label="$t('groups.groupName')"
-            />
-            <span v-else class="block text-right text-sm font-semibold text-color">{{ state.group?.name || "--" }}</span>
-          </dd>
-        </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.visibility") }}</dt>
-          <dd class="min-w-0">
-            <USelect
-              v-if="state.canManageGroup"
-              v-model="visibility"
-              class="w-32"
-              :items="visibilityOptions"
-              label-key="label"
-              value-key="value"
-              :aria-label="$t('groups.visibility')"
-            />
-            <UBadge v-else class="justify-self-end" :label="state.group?.visibility || '--'" color="neutral" />
-          </dd>
-        </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
-          <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.kind") }}</dt>
-          <dd class="min-w-0 text-right text-sm font-semibold text-color">
-            <UBadge class="justify-self-end" :label="state.group?.kind || '--'" color="neutral" />
-          </dd>
-        </div>
-        </dl>
+  <UPage class="xl:max-w-[28rem]">
+    <UPageBody :ui="{ base: 'mt-0 space-y-3' }">
+      <UCard>
+        <form class="grid gap-3" @submit.prevent="save">
+          <dl class="grid gap-2">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
+              <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.groupKey") }}</dt>
+              <dd class="min-w-0 text-right text-sm font-semibold text-color">{{ state.group?.group_key || state.groupKey }}</dd>
+            </div>
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
+              <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.groupPath") }}</dt>
+              <dd class="min-w-0 text-right text-sm font-semibold text-color">{{ state.group?.group_path || state.groupPath }}</dd>
+            </div>
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
+              <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.groupName") }}</dt>
+              <dd class="min-w-0">
+                <UInput
+                  v-if="state.canManageGroup"
+                  v-model="name"
+                  class="w-48 text-right"
+                  :aria-label="$t('groups.groupName')"
+                />
+                <span v-else class="block text-right text-sm font-semibold text-color">{{ state.group?.name || "--" }}</span>
+              </dd>
+            </div>
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
+              <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.visibility") }}</dt>
+              <dd class="min-w-0">
+                <USelect
+                  v-if="state.canManageGroup"
+                  v-model="visibility"
+                  class="w-32"
+                  :items="visibilityOptions"
+                  label-key="label"
+                  value-key="value"
+                  :aria-label="$t('groups.visibility')"
+                />
+                <UBadge v-else class="justify-self-end" :label="state.group?.visibility || '--'" color="neutral" />
+              </dd>
+            </div>
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-surface pb-2 last:border-b-0 last:pb-0">
+              <dt class="text-xs font-medium uppercase tracking-[0.12em] text-muted-color">{{ $t("groups.kind") }}</dt>
+              <dd class="min-w-0 text-right text-sm font-semibold text-color">
+                <UBadge class="justify-self-end" :label="state.group?.kind || '--'" color="neutral" />
+              </dd>
+            </div>
+          </dl>
 
-        <div v-if="state.canManageGroup" class="flex justify-end">
-          <UButton type="submit" :disabled="state.groupDialogBusy || !name.trim() || !hasChanges">
-            {{ $t("common.save") }}
+          <div v-if="state.canManageGroup" class="flex justify-end">
+            <UButton type="submit" :disabled="state.groupDialogBusy || !name.trim() || !hasChanges">
+              {{ $t("common.save") }}
+            </UButton>
+          </div>
+        </form>
+      </UCard>
+
+      <MetadataIndexesSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
+      <GroupTranslationSettingsSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
+
+      <UCard>
+        <div class="flex flex-wrap items-center gap-2">
+          <UButton v-if="state.canManageGroup" color="neutral" variant="outline" @click="state.openMoveCurrentGroupDialog">
+            {{ $t("common.move") }}
+          </UButton>
+          <UButton v-if="state.canOwnGroup" color="error" @click="state.confirmDeleteGroup">
+            {{ $t("common.delete") }}
           </UButton>
         </div>
-      </form>
-    </UCard>
-
-    <MetadataIndexesSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
-    <GroupTranslationSettingsSection :group-path="state.groupPath" :can-manage="state.canManageGroup" />
-
-    <UCard>
-      <div class="flex flex-wrap items-center gap-2">
-        <UButton v-if="state.canManageGroup" color="neutral" variant="outline" @click="state.openMoveCurrentGroupDialog">
-          {{ $t("common.move") }}
-        </UButton>
-        <UButton v-if="state.canOwnGroup" color="error" @click="state.confirmDeleteGroup">
-          {{ $t("common.delete") }}
-        </UButton>
-      </div>
-    </UCard>
-  </div>
+      </UCard>
+    </UPageBody>
+  </UPage>
 </template>

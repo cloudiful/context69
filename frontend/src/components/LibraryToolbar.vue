@@ -30,9 +30,7 @@ const breadcrumbModel = computed<NuxtBreadcrumbItem[]>(() => [props.breadcrumbHo
 </script>
 
 <template>
-  <UDashboardToolbar
-    class="library-toolbar-shell"
-  >
+  <UDashboardToolbar>
     <div class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
       <UBreadcrumb
         v-if="breadcrumbItems.length > 0"

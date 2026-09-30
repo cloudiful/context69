@@ -16,6 +16,12 @@ const shellRoutes = [
     component: { template: "<div>queue-body</div>" },
     meta: { contentLayout: "fill" },
   },
+  {
+    path: "/search",
+    name: "search",
+    component: { template: "<div>search-body</div>" },
+    meta: { contentLayout: "fill" },
+  },
   { path: "/groups", name: "groups", component: { template: "<div>groups-body</div>" } },
   { path: "/settings", name: "settings", component: { template: "<div>settings-body</div>" } },
   { path: "/settings/:section", name: "settings-section", component: { template: "<div>settings-body</div>" } },

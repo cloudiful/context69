@@ -4,6 +4,9 @@ import { onBeforeRouteLeave } from "vue-router";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
+import UPage from "@nuxt/ui/components/Page.vue";
+import UPageBody from "@nuxt/ui/components/PageBody.vue";
+
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import { authSessionState } from "../services/auth/session";
 import { settingsPageStateKey } from "../composables/settings-page-context";
@@ -92,44 +95,48 @@ function switchLocale(nextLocale: AppLocale) {
       @update:model-value="switchSection(String($event))"
     />
 
-    <div class="flex flex-wrap justify-end gap-1.5">
-      <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
-      <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />
-    </div>
-
-    <AsyncStateBlock
-      :loading="loading"
-      :loading-title="t('settings.loadingTitle')"
-      :loading-message="t('settings.loadingMessage')"
-    >
-      <form class="grid min-w-0 gap-2 pb-24" @submit.prevent="state.saveSettings">
-        <div class="grid gap-4">
-          <SettingsAppearancePage
-            v-if="currentSection === 'appearance'"
-            :locale="currentLocale"
-            :theme="preferences.state.theme"
-            @update:locale="switchLocale"
-            @update:theme="preferences.setTheme"
-          />
-          <SettingsAccessTokensPage v-else-if="currentSection === 'access-tokens'" />
-          <SettingsSearchPage v-else-if="currentSection === 'search'" />
-          <SettingsRuntimePage v-else-if="currentSection === 'runtime'" />
-          <SettingsDoclingPage v-else-if="currentSection === 'docling'" />
-          <SettingsTranslationPage v-else-if="currentSection === 'translation'" />
-          <SettingsAdminUsersPage v-else />
+    <UPage class="min-w-0">
+      <UPageBody :ui="{ base: 'mt-0 space-y-3' }">
+        <div class="flex flex-wrap justify-end gap-1.5">
+          <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
+          <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />
         </div>
 
-        <div class="fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6">
-          <UButton
-            class="min-w-28"
-            data-testid="settings-save"
-            type="submit"
-            :disabled="saving || !hasChanges"
-          >
-            {{ saving ? t("common.loading") : t("common.save") }}
-          </UButton>
-        </div>
-      </form>
-    </AsyncStateBlock>
+        <AsyncStateBlock
+          :loading="loading"
+          :loading-title="t('settings.loadingTitle')"
+          :loading-message="t('settings.loadingMessage')"
+        >
+          <form class="grid min-w-0 gap-2 pb-24" @submit.prevent="state.saveSettings">
+            <div class="grid gap-4">
+              <SettingsAppearancePage
+                v-if="currentSection === 'appearance'"
+                :locale="currentLocale"
+                :theme="preferences.state.theme"
+                @update:locale="switchLocale"
+                @update:theme="preferences.setTheme"
+              />
+              <SettingsAccessTokensPage v-else-if="currentSection === 'access-tokens'" />
+              <SettingsSearchPage v-else-if="currentSection === 'search'" />
+              <SettingsRuntimePage v-else-if="currentSection === 'runtime'" />
+              <SettingsDoclingPage v-else-if="currentSection === 'docling'" />
+              <SettingsTranslationPage v-else-if="currentSection === 'translation'" />
+              <SettingsAdminUsersPage v-else />
+            </div>
+
+            <div class="fixed right-4 bottom-20 z-40 flex justify-end md:right-6 md:bottom-6">
+              <UButton
+                class="min-w-28"
+                data-testid="settings-save"
+                type="submit"
+                :disabled="saving || !hasChanges"
+              >
+                {{ saving ? t("common.loading") : t("common.save") }}
+              </UButton>
+            </div>
+          </form>
+        </AsyncStateBlock>
+      </UPageBody>
+    </UPage>
   </section>
 </template>

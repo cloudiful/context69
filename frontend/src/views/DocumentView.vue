@@ -3,6 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
+import UPage from "@nuxt/ui/components/Page.vue";
+import UPageAside from "@nuxt/ui/components/PageAside.vue";
+import UPageBody from "@nuxt/ui/components/PageBody.vue";
+import UPageHeader from "@nuxt/ui/components/PageHeader.vue";
+
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import MarkdownChunk from "../components/MarkdownChunk.vue";
 import { apiClient, ApiError, type DocumentResponse } from "../services/api";
@@ -124,10 +129,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <UCard>
-    <template #header>
-      <div class="flex min-w-0 items-center justify-between gap-2">
-        <h1 class="min-w-0 truncate text-base font-semibold text-color">{{ t("document.title") }}</h1>
+  <UPage :ui="{ right: 'lg:col-span-2 order-last lg:order-last' }">
+    <UPageHeader :title="t('document.title')">
+      <template #links>
         <UButton
           v-if="fromSearch"
           data-testid="document-back-to-search"
@@ -140,33 +144,32 @@ onBeforeUnmount(() => {
         >
           {{ t("document.backToSearch") }}
         </UButton>
-      </div>
-    </template>
-    <AsyncStateBlock
-      :loading="loading"
-      :error="loadError"
-      :error-title="t('document.loadFailed')"
-      loading-test-id="document-loading"
-      :loading-title="t('common.loading')"
-      :loading-message="t('document.loadingMessage')"
-    >
-      <div v-if="documentData" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <div class="grid gap-2">
+      </template>
+    </UPageHeader>
+
+    <UPageBody :ui="{ base: 'mt-6 pb-8' }">
+      <AsyncStateBlock
+        :loading="loading"
+        :error="loadError"
+        :error-title="t('document.loadFailed')"
+        loading-test-id="document-loading"
+        :loading-title="t('common.loading')"
+        :loading-message="t('document.loadingMessage')"
+      >
+        <div v-if="documentData" class="grid gap-2">
           <UCard>
-            <template #header>
-              <div class="grid gap-2">
+            <div class="grid gap-2">
               <div class="flex flex-wrap items-center gap-2">
                 <UBadge :label="documentData.source_key" color="neutral" />
                 <UBadge :label="documentData.external_id" color="neutral" />
               </div>
-                <h2 class="text-lg font-semibold text-color">{{ documentData.title }}</h2>
-                <p class="text-sm text-muted-color">{{ formatDate(documentData.published_at) }}</p>
+              <h2 class="text-lg font-semibold text-color">{{ documentData.title }}</h2>
+              <p class="text-sm text-muted-color">{{ formatDate(documentData.published_at) }}</p>
               <p v-if="documentData.library_path" class="break-words">
                 {{ documentData.library_path }}
                 <span v-if="documentData.library_section_label"> · {{ documentData.library_section_label }}</span>
               </p>
-              </div>
-            </template>
+            </div>
           </UCard>
 
           <div class="grid gap-2">
@@ -199,37 +202,39 @@ onBeforeUnmount(() => {
             class="justify-end"
           />
         </div>
+      </AsyncStateBlock>
+    </UPageBody>
 
-        <aside class="grid gap-2">
-          <UCard>
-            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.published") }}</p>
-            <p class="text-sm text-color">{{ formatDate(documentData.published_at) }}</p>
-          </UCard>
-          <UCard>
-            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.updated") }}</p>
-            <p class="text-sm text-color">{{ formatTimestamp(documentData.updated_at) }}</p>
-          </UCard>
-          <UCard>
-            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.sourceLink") }}</p>
-            <UButton
-              color="neutral"
-              variant="outline"
-              @click="openSourceTarget"
-            >
-              {{ libraryRoute ? t("document.openLibraryFile") : t("document.openOrigin") }}
-            </UButton>
-          </UCard>
-          <UCard v-if="documentData.library_path">
-            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.libraryPath") }}</p>
-            <p class="text-sm text-color">{{ documentData.library_path }}</p>
-            <p v-if="documentData.library_section_label" class="text-xs text-muted-color">{{ documentData.library_section_label }}</p>
-          </UCard>
-          <UCard>
-            <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.metadata") }}</p>
-            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
-          </UCard>
-        </aside>
-      </div>
-    </AsyncStateBlock>
-  </UCard>
+    <template v-if="documentData" #right>
+      <UPageAside :ui="{ root: 'grid gap-2' }">
+        <UCard>
+          <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.published") }}</p>
+          <p class="text-sm text-color">{{ formatDate(documentData.published_at) }}</p>
+        </UCard>
+        <UCard>
+          <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.updated") }}</p>
+          <p class="text-sm text-color">{{ formatTimestamp(documentData.updated_at) }}</p>
+        </UCard>
+        <UCard>
+          <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.sourceLink") }}</p>
+          <UButton
+            color="neutral"
+            variant="outline"
+            @click="openSourceTarget"
+          >
+            {{ libraryRoute ? t("document.openLibraryFile") : t("document.openOrigin") }}
+          </UButton>
+        </UCard>
+        <UCard v-if="documentData.library_path">
+          <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.libraryPath") }}</p>
+          <p class="text-sm text-color">{{ documentData.library_path }}</p>
+          <p v-if="documentData.library_section_label" class="text-xs text-muted-color">{{ documentData.library_section_label }}</p>
+        </UCard>
+        <UCard>
+          <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.metadata") }}</p>
+          <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-emphasis px-3 py-2 text-sm leading-6 text-muted-color">{{ formatJson(documentData.metadata_json ?? {}) }}</pre>
+        </UCard>
+      </UPageAside>
+    </template>
+  </UPage>
 </template>

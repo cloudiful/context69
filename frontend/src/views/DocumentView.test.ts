@@ -77,6 +77,14 @@ describe("DocumentView", () => {
     expect(wrapper.text()).toContain("Cyber Policy Update");
     expect(wrapper.text()).toContain("First chunk");
     expect(wrapper.text()).toContain("/Policies/Cyber");
+    expect(wrapper.find("aside").exists()).toBe(true);
+
+    // Nuxt UI's UPage right slot defaults to `order-first`; the page override
+    // must keep the metadata aside after the document content on narrow screens.
+    const rightSlot = wrapper.find('[data-slot="right"]');
+    expect(rightSlot.exists()).toBe(true);
+    expect(rightSlot.classes()).toContain("order-last");
+    expect(rightSlot.classes()).not.toContain("order-first");
   });
 
   it("paginates content blocks ten per page", async () => {
