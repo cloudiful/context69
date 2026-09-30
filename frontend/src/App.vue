@@ -26,6 +26,7 @@ const showGlobalRouteBar = computed(() => {
 });
 const isSettingsRoute = computed(() => String(route.name ?? "").startsWith("settings-"));
 const fillsRouteContent = computed(() => route.meta.contentLayout === "fill");
+const constrainsRouteContent = computed(() => isSettingsRoute.value || fillsRouteContent.value);
 
 async function retrySessionRestore() {
   if (await restoreSession()) window.location.reload();
@@ -49,43 +50,47 @@ watch(locale, (value) => {
     <UDashboardGroup v-else class="min-h-screen min-w-0 overflow-hidden">
       <AppSidebar />
       <UDashboardPanel class="min-w-0 overflow-hidden">
+        <!-- The panel's #header slot is skipped when a default slot is present, so the header renders here. -->
+        <UDashboardNavbar
+          v-if="showGlobalRouteBar"
+          :toggle="false"
+          :ui="{ left: 'flex flex-1 min-w-0 items-center gap-1.5' }"
+        >
+          <template #left>
+            <AppRouteBreadcrumbs class="flex-1" />
+          </template>
+        </UDashboardNavbar>
         <main
           :class="[
             'flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-2 py-2 pb-20 md:px-3 md:pb-3',
-            isSettingsRoute
-              ? 'h-screen overflow-hidden'
-              : fillsRouteContent
-                ? 'md:h-screen md:overflow-hidden'
-                : 'min-h-screen',
+            constrainsRouteContent ? 'overflow-hidden' : '',
           ]"
         >
-      <div
-        v-if="authSessionState.restoreError && !authSessionState.user"
-        class="grid flex-1 place-items-center px-4"
-      >
-        <div class="grid max-w-md justify-items-center gap-3 text-center">
-          <UAlert
-            color="error"
-            variant="subtle"
-            :title="$t('auth.sessionUnavailable')"
-            :description="$t('auth.sessionUnavailableMessage')"
-          />
-          <UButton size="sm" @click="retrySessionRestore">
-            <UIcon name="i-lucide-refresh-cw" />
-            <span>{{ $t("common.retry") }}</span>
-          </UButton>
-        </div>
-      </div>
-      <div
-        v-else-if="appReady"
-        class="grid min-h-0 min-w-0 flex-1 gap-2"
-        :class="showGlobalRouteBar ? 'grid-rows-[auto_minmax(0,1fr)]' : 'grid-rows-[minmax(0,1fr)]'"
-      >
-        <AppRouteBreadcrumbs v-if="showGlobalRouteBar" />
-        <div :class="fillsRouteContent ? 'h-full min-h-0 min-w-0' : 'min-w-0 self-start'">
-          <RouterView />
-        </div>
-      </div>
+          <div
+            v-if="authSessionState.restoreError && !authSessionState.user"
+            class="grid flex-1 place-items-center px-4"
+          >
+            <div class="grid max-w-md justify-items-center gap-3 text-center">
+              <UAlert
+                color="error"
+                variant="subtle"
+                :title="$t('auth.sessionUnavailable')"
+                :description="$t('auth.sessionUnavailableMessage')"
+              />
+              <UButton size="sm" @click="retrySessionRestore">
+                <UIcon name="i-lucide-refresh-cw" />
+                <span>{{ $t("common.retry") }}</span>
+              </UButton>
+            </div>
+          </div>
+          <div
+            v-else-if="appReady"
+            class="grid min-h-0 min-w-0 flex-1 gap-2 grid-rows-[minmax(0,1fr)]"
+          >
+            <div :class="fillsRouteContent ? 'h-full min-h-0 min-w-0' : 'min-w-0 self-start'">
+              <RouterView />
+            </div>
+          </div>
         </main>
         <AppMobileNav />
       </UDashboardPanel>
