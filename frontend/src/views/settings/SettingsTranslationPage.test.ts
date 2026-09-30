@@ -70,6 +70,7 @@ describe("SettingsTranslationPage", () => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
     vi.spyOn(apiClient, "listTranslationProviders").mockResolvedValue(providerPage as never);
+    vi.spyOn(apiClient, "updateTranslationSettings");
   });
 
   it("fetches the provider page and lists the returned providers", async () => {
@@ -136,5 +137,6 @@ describe("SettingsTranslationPage", () => {
 
     expect(providers.value[0].endpoint).toBe("https://llm.internal/v1");
     expect(providers.value[1].endpoint).toBe("https://api.deepl.com");
+    expect(apiClient.updateTranslationSettings).not.toHaveBeenCalled();
   });
 });

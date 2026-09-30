@@ -34,13 +34,13 @@ const progress = computed(() => {
         <span>{{ t("settings.runtime.vectorRebuild") }}</span>
       </UButton>
     </div>
-    <p v-if="running" class="m-0 text-sm text-muted-color">
+    <p v-if="running" class="m-0 text-sm text-muted">
       {{ progress || t('settings.runtime.vectorRebuilding') }}
     </p>
-    <p v-else-if="status?.status === 'succeeded'" class="m-0 text-sm text-green-500">
+    <p v-else-if="status?.status === 'succeeded'" class="m-0 text-sm text-success">
       {{ t('settings.runtime.vectorRebuildSucceeded', { count: status.progress.succeeded }) }}
     </p>
-    <p v-else-if="status?.status === 'failed'" class="m-0 text-sm text-red-500">
+    <p v-else-if="status?.status === 'failed'" class="m-0 text-sm text-error">
       {{ status.error_summary || t('settings.runtime.vectorRebuildFailed') }}
     </p>
   </div>
