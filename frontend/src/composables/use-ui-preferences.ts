@@ -50,18 +50,6 @@ function setTheme(theme: AppTheme) {
   applyTheme(theme);
 }
 
-function toggleTheme() {
-  setTheme(state.theme === "dark" ? "light" : "dark");
-}
-
-function toggleSidebar() {
-  state.sidebarCollapsed = !state.sidebarCollapsed;
-}
-
-function expandSidebar() {
-  state.sidebarCollapsed = false;
-}
-
 function getStorage(): Storage | null {
   if (typeof window === "undefined") {
     return null;
@@ -78,8 +66,5 @@ export function useUiPreferences() {
     state,
     hydrate,
     setTheme,
-    toggleTheme,
-    toggleSidebar,
-    expandSidebar,
   };
 }

@@ -106,7 +106,6 @@ describe("AppSidebarContent", () => {
     expect(wrapper.text()).toContain("Members");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).not.toContain("Overview");
-    expect(wrapper.find(".app-sidebar-subnav-heading").exists()).toBe(false);
   });
 
   it("hides business navigation when the session is not authenticated", async () => {

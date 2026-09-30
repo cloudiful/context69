@@ -79,7 +79,7 @@ async function submit(event: FormSubmitEvent<z.output<typeof schema.value>>) {
 </script>
 
 <template>
-  <div class="flex min-h-[calc(100vh-5rem)] w-full items-center justify-center px-3 py-6">
+  <div class="flex min-h-screen w-full items-center justify-center px-3 py-6">
     <UCard class="w-full max-w-[24rem]">
       <template #header><h1 class="text-base font-semibold text-color">{{ t("auth.title") }}</h1></template>
       <div v-if="authSessionState.user" class="grid gap-1 rounded-xl border border-surface bg-emphasis px-3 py-2">
