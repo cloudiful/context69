@@ -45,6 +45,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
           <AppTextField
             input-id="docling-base-url"
             v-model="doclingDraft.connection.base_url"
+            name="docling.connection.base_url"
             :label="t('settings.docling.baseUrl')"
             type="url"
             placeholder="http://127.0.0.1:5001"
@@ -52,6 +53,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
           <AppNumberField
             input-id="docling-timeout"
             v-model="doclingDraft.connection.timeout_secs"
+            name="docling.connection.timeout_secs"
             :label="t('settings.docling.timeout')"
             :min="1"
             :step="1"
@@ -59,6 +61,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
           <AppNumberField
             input-id="docling-poll-interval"
             v-model="doclingDraft.connection.poll_interval_secs"
+            name="docling.connection.poll_interval_secs"
             :label="t('settings.docling.pollInterval')"
             :min="1"
             :step="1"
@@ -66,6 +69,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
           <AppNumberField
             input-id="docling-task-timeout"
             v-model="doclingDraft.connection.task_timeout_secs"
+            name="docling.connection.task_timeout_secs"
             :label="t('settings.docling.taskTimeout')"
             :min="1"
             :step="1"
@@ -73,6 +77,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
           <AppNumberField
             input-id="docling-max-inflight"
             v-model="doclingDraft.connection.max_inflight"
+            name="docling.connection.max_inflight"
             :label="t('settings.docling.maxInflight')"
             :helper="t('settings.docling.maxInflightHelper')"
             :min="1"
@@ -88,6 +93,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
             <AppSelectField
               input-id="docling-vlm-mode"
               v-model="doclingDraft.vlm_mode"
+              name="docling.vlm_mode"
               :label="t('settings.docling.vlmModeLabel')"
               :options="vlmModeOptions"
             />
@@ -109,6 +115,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
               <AppTextField
                 input-id="docling-picture-description-preset"
                 v-model="doclingDraft.vlm.picture_description_preset"
+                name="docling.vlm.picture_description_preset"
                 :label="t('settings.docling.pictureDescriptionPreset')"
                 :placeholder="t('settings.docling.pictureDescriptionPresetPlaceholder')"
               />
@@ -120,6 +127,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
               <AppTextField
                 input-id="docling-openai-base-url"
                 v-model="doclingDraft.vlm.openai_base_url"
+                name="docling.vlm.openai_base_url"
                 :label="t('settings.docling.openAiBaseUrl')"
                 type="url"
                 placeholder="https://openrouter.ai/api/v1"
@@ -130,6 +138,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
               <AppTextField
                 input-id="docling-api-key"
                 v-model="doclingDraft.vlm.api_key"
+                name="docling.vlm.api_key"
                 :label="t('settings.docling.apiKey')"
                 type="password"
                 autocomplete="new-password"
@@ -138,6 +147,7 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
               <AppTextField
                 input-id="docling-vlm-pipeline-model"
                 v-model="doclingDraft.vlm.vlm_pipeline_model"
+                name="docling.vlm.vlm_pipeline_model"
                 :label="t('settings.docling.vlmPipelineModel')"
                 placeholder="gemini-3-flash"
               />
@@ -147,12 +157,14 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
               <AppTextField
                 input-id="docling-picture-description-model"
                 v-model="doclingDraft.vlm.picture_description_model"
+                name="docling.vlm.picture_description_model"
                 :label="t('settings.docling.pictureDescriptionModel')"
                 placeholder="gpt-4o-mini"
               />
               <AppTextField
                 input-id="docling-code-formula-model"
                 v-model="doclingDraft.vlm.code_formula_model"
+                name="docling.vlm.code_formula_model"
                 :label="t('settings.docling.codeFormulaModel')"
                 placeholder="gpt-4o-mini"
               />

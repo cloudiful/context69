@@ -369,7 +369,9 @@ describe("SettingsView", () => {
       scopes: ["search", "library"],
       expires_in_days: 30,
     });
-    expect(wrapper.get('[data-testid="personal-access-token-secret"]').text()).toContain("ctx_pat_secret");
+    const secretField = wrapper.get<HTMLTextAreaElement>('[data-testid="personal-access-token-secret"]');
+    expect(secretField.element.value).toContain("ctx_pat_secret");
+    expect(secretField.element.readOnly).toBe(true);
   });
 
   it("requires a token name before allowing personal access token creation", async () => {

@@ -210,22 +210,18 @@ function confirmEnable(loginNameValue: string) {
     >
     <template #body>
 <div class="grid gap-3">
-        <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.loginName") }}</label>
+        <UFormField :label="t('adminUsers.loginName')" name="admin_users.create.login_name">
           <UInput v-model="loginName" :placeholder="t('adminUsers.loginName')" />
-        </div>
-        <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.displayName") }}</label>
+        </UFormField>
+        <UFormField :label="t('adminUsers.displayName')" name="admin_users.create.display_name">
           <UInput v-model="displayName" :placeholder="t('adminUsers.displayName')" />
-        </div>
-        <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.password") }}</label>
+        </UFormField>
+        <UFormField :label="t('adminUsers.password')" name="admin_users.create.password">
           <UInput type="password" v-model="password" fluid :feedback="false" toggle-mask />
-        </div>
-        <label class="flex items-center gap-2 text-sm text-color">
-          <span>{{ t("adminUsers.isAdmin") }}</span>
+        </UFormField>
+        <UFormField :label="t('adminUsers.isAdmin')" name="admin_users.create.is_admin" orientation="horizontal">
           <USwitch v-model="isAdmin" />
-        </label>
+        </UFormField>
       </div>
     </template>
 
@@ -249,14 +245,12 @@ function confirmEnable(loginNameValue: string) {
     >
     <template #body>
 <div class="grid gap-3">
-        <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.displayName") }}</label>
+        <UFormField :label="t('adminUsers.displayName')" name="admin_users.edit.display_name">
           <UInput v-model="displayName" :placeholder="t('adminUsers.displayName')" />
-        </div>
-        <label class="flex items-center gap-2 text-sm text-color">
-          <span>{{ t("adminUsers.isAdmin") }}</span>
+        </UFormField>
+        <UFormField :label="t('adminUsers.isAdmin')" name="admin_users.edit.is_admin" orientation="horizontal">
           <USwitch v-model="isAdmin" />
-        </label>
+        </UFormField>
       </div>
     </template>
 
@@ -280,10 +274,9 @@ function confirmEnable(loginNameValue: string) {
     >
     <template #body>
 <div class="grid gap-3">
-        <div class="grid gap-2">
-          <label class="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("adminUsers.resetPassword") }}</label>
+        <UFormField :label="t('adminUsers.resetPassword')" name="admin_users.reset.password">
           <UInput type="password" v-model="password" fluid :feedback="false" toggle-mask />
-        </div>
+        </UFormField>
       </div>
     </template>
 

@@ -143,18 +143,20 @@ function usageLabel(provider: ProviderDraft) {
       @update:page-size="changeProviderPageSize"
     />
 
-    <UModal v-model:open="dialogVisible" :title="editing ? providerLabels[editing.provider] : ''" class="w-[38rem] max-w-[96vw]">
+    <UModal
+      v-model:open="dialogVisible"
+      :title="editing ? providerLabels[editing.provider] : ''"
+      :description="editing?.provider === 'llm' ? t('settings.translation.llmDescription') : undefined"
+      class="w-[38rem] max-w-[96vw]"
+    >
     <template #body>
 <div v-if="editing" class="grid gap-3">
-        <p v-if="editing.provider === 'llm'" class="text-sm leading-6 text-muted-color">
-          {{ t('settings.translation.llmDescription') }}
-        </p>
-        <AppTextField v-model="editing.endpoint" :input-id="`translation-${editing.provider}-endpoint`" :label="t('settings.translation.endpoint')" type="url" />
-        <AppTextField v-model="editing.api_key" :input-id="`translation-${editing.provider}-api-key`" :label="t('settings.translation.apiKey')" type="password" autocomplete="new-password" :placeholder="editing.has_api_key ? t('settings.translation.keyStored') : ''" />
-        <AppTextField v-if="editing.provider === 'llm'" v-model="editing.model" input-id="translation-llm-model" :label="t('settings.translation.model')" />
-        <AppSelectField v-if="editing.provider === 'llm'" v-model="editing.llm_api_kind" input-id="translation-llm-api-kind" :label="t('settings.translation.apiKind')" :options="llmKinds" />
-        <AppSelectField v-if="editing.provider === 'deepl'" v-model="editing.deepl_plan" input-id="translation-deepl-plan" :label="t('settings.translation.plan')" :options="deeplPlans" />
-        <AppNumberField v-if="editing.provider !== 'libretranslate'" v-model="editing.monthly_character_limit" :input-id="`translation-${editing.provider}-quota`" :label="editing.provider === 'deepl' ? t('settings.translation.lifetimeQuota') : t('settings.translation.monthlyQuota')" :min="1" :step="1000" />
+        <AppTextField v-model="editing.endpoint" :input-id="`translation-${editing.provider}-endpoint`" :name="`translation.${editing.provider}.endpoint`" :label="t('settings.translation.endpoint')" type="url" />
+        <AppTextField v-model="editing.api_key" :input-id="`translation-${editing.provider}-api-key`" :name="`translation.${editing.provider}.api_key`" :label="t('settings.translation.apiKey')" type="password" autocomplete="new-password" :placeholder="editing.has_api_key ? t('settings.translation.keyStored') : ''" />
+        <AppTextField v-if="editing.provider === 'llm'" v-model="editing.model" input-id="translation-llm-model" name="translation.llm.model" :label="t('settings.translation.model')" />
+        <AppSelectField v-if="editing.provider === 'llm'" v-model="editing.llm_api_kind" input-id="translation-llm-api-kind" name="translation.llm.llm_api_kind" :label="t('settings.translation.apiKind')" :options="llmKinds" />
+        <AppSelectField v-if="editing.provider === 'deepl'" v-model="editing.deepl_plan" input-id="translation-deepl-plan" name="translation.deepl.deepl_plan" :label="t('settings.translation.plan')" :options="deeplPlans" />
+        <AppNumberField v-if="editing.provider !== 'libretranslate'" v-model="editing.monthly_character_limit" :input-id="`translation-${editing.provider}-quota`" :name="`translation.${editing.provider}.monthly_character_limit`" :label="editing.provider === 'deepl' ? t('settings.translation.lifetimeQuota') : t('settings.translation.monthlyQuota')" :min="1" :step="1000" />
       </div>
     </template>
 

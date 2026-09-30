@@ -98,6 +98,7 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
         <div class="grid gap-3">
           <AppToggleGroup
             :model-value="personalAccessTokenScopeToggleModel"
+            name="personal_access_tokens.scopes"
             columns-class="grid max-w-2xl gap-y-2 [&_.app-toggle-field]:min-h-8 [&_.app-toggle-field]:px-2.5 [&_.app-toggle-field]:py-1.5"
             helper-inline
             :items="personalAccessTokenScopeOptions.map((scope) => ({
@@ -114,12 +115,14 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
             <AppTextField
               input-id="personal-access-token-name"
               v-model="personalAccessTokenDraft.name"
+              name="personal_access_tokens.name"
               :label="t('settings.personalAccessTokens.name')"
               test-id="personal-access-token-name"
             />
             <AppSelectField
               input-id="personal-access-token-expiry"
               v-model="personalAccessTokenDraft.expires_in_days"
+              name="personal_access_tokens.expires_in_days"
               :label="t('settings.personalAccessTokens.expiry')"
               :options="personalAccessTokenExpiryOptions"
               test-id="personal-access-token-expiry"
@@ -147,10 +150,14 @@ function updateScopeToggleModel(value: Record<string, boolean>) {
       >
         <div class="grid gap-3">
           <UAlert color="warning" variant="subtle" :description="t('settings.personalAccessTokens.revealWarning')" />
-          <pre
+          <UTextarea
             data-testid="personal-access-token-secret"
-            class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface-0 dark:bg-surface-950 p-3 font-mono text-xs text-color"
-          >{{ personalAccessTokensReveal.access_token }}</pre>
+            :model-value="personalAccessTokensReveal.access_token"
+            readonly
+            :rows="2"
+            :aria-label="t('settings.personalAccessTokens.revealTitle')"
+            :ui="{ base: 'font-mono text-xs' }"
+          />
           <div class="flex flex-wrap items-center gap-3">
             <UButton color="neutral" variant="outline" type="button" @click="copyPersonalAccessToken">
               {{ t("settings.personalAccessTokens.copyAction") }}
