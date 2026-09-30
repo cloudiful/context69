@@ -14,15 +14,6 @@ pub struct UploadedLibraryFile {
     pub staged_storage_object_id: Option<Uuid>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct DownloadedLibraryFile {
-    pub source_url: String,
-    pub filename: String,
-    pub media_type: String,
-    pub bytes: Bytes,
-    pub sha256: String,
-}
-
 pub(crate) struct UploadedLibraryFileResult {
     pub(crate) file: LibraryFileSummary,
     pub(crate) rollback: UploadedLibraryFileRollback,

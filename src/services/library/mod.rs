@@ -91,6 +91,7 @@ mod docling_remote_result;
 mod docling_remote_submit;
 mod staging;
 pub(crate) mod storage;
+mod streaming;
 pub mod task_ingest;
 mod texts;
 mod tree;
@@ -112,7 +113,6 @@ use ingest_types::{
     SourceRecordJson,
 };
 use metadata_helpers::{compose_library_metadata, library_system_metadata};
-pub(crate) use upload_types::DownloadedLibraryFile;
 pub use upload_types::UploadedLibraryFile;
 use upload_types::{UploadedLibraryFileResult, UploadedLibraryFileRollback};
 

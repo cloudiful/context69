@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use rate_limiter::RateLimiter;
 use reqwest::{StatusCode, Url, header};
 use tokio::net::lookup_host;
@@ -9,28 +9,50 @@ use crate::domain_errors::DomainError;
 
 const MAX_REDIRECTS: usize = 3;
 
-pub(super) struct DownloadedFile {
+/// An opened remote response whose body has not been consumed yet.
+///
+/// Opening performs every URL/SSRF/size/type check the buffered download used
+/// to run up front; the caller then consumes the body chunk by chunk, which is
+/// what lets source materialization stream the bytes straight into the
+/// object store instead of buffering them.
+pub(super) struct RemoteSource {
     pub url: Url,
     pub filename: String,
     pub media_type: String,
-    pub bytes: Bytes,
+    response: reqwest::Response,
 }
 
-pub(super) async fn download(
+impl RemoteSource {
+    /// Read the next body chunk; `None` marks a complete body.
+    pub(super) async fn read_chunk(&mut self) -> Result<Option<Bytes>> {
+        self.response.chunk().await.map_err(|error| {
+            DomainError::upstream_timeout(format!("remote_download_failed: {error}")).into()
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl super::streaming::ChunkSource for RemoteSource {
+    async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
+        self.read_chunk().await
+    }
+}
+
+pub(super) async fn open(
     source: &str,
     filename: Option<&str>,
     media_type: Option<&str>,
     max_bytes: usize,
     trusted_proxy_enabled: bool,
     limiter: &dyn RateLimiter,
-) -> Result<DownloadedFile> {
+) -> Result<RemoteSource> {
     let transport = RemoteTransport::new(trusted_proxy_enabled).await?;
     let mut url = validate_url(source).await?;
     for redirect_count in 0..=MAX_REDIRECTS {
         limiter.acquire(&origin_key(&url)?).await.map_err(|error| {
             DomainError::rate_limited(format!("remote_rate_limit_failed: {error}"))
         })?;
-        let mut response = transport
+        let response = transport
             .client()
             .get(url.clone())
             .send()
@@ -87,20 +109,11 @@ pub(super) async fn download(
             .or_else(|| media_type_for_filename(&filename).map(ToOwned::to_owned))
             .ok_or_else(|| DomainError::invalid_argument("remote_media_type_required"))?;
         validate_type_match(&filename, &media_type)?;
-        let mut body = BytesMut::new();
-        while let Some(chunk) = response.chunk().await.map_err(|error| {
-            DomainError::upstream_timeout(format!("remote_download_failed: {error}"))
-        })? {
-            if body.len().saturating_add(chunk.len()) > max_bytes {
-                return Err(DomainError::payload_too_large("remote_file_too_large").into());
-            }
-            body.extend_from_slice(&chunk);
-        }
-        return Ok(DownloadedFile {
+        return Ok(RemoteSource {
             url,
             filename,
             media_type,
-            bytes: body.freeze(),
+            response,
         });
     }
     unreachable!()

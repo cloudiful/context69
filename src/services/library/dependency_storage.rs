@@ -9,7 +9,7 @@ use tokio::time::timeout;
 use uuid::Uuid;
 
 use super::dependency_errors::{
-    is_configuration_error, is_s3_attempt_retryable, is_s3_transient_error,
+    is_configuration_error, is_s3_attempt_retryable, is_s3_error, is_s3_transient_error,
 };
 use super::s3_gate_cache::cached_s3_gate;
 use super::{LibraryDependency, LibraryService};
@@ -18,8 +18,51 @@ const S3_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 const S3_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 const S3_RETRY_LIMIT: usize = 2;
 
+/// Whether an error may be attributed to the S3 dependency gate.
+///
+/// Three conditions are required, and all of them are load-bearing:
+/// - the active backend is S3,
+/// - the error originated in the object store (`is_s3_error`), and
+/// - it classifies as transient or as a configuration problem.
+///
+/// The origin requirement cannot be replaced by the classification alone:
+/// remote source materialization builds its messages from user-supplied input
+/// (the URL and the upstream HTTP status), and the shared classifiers read
+/// `401`/`403` as configuration errors and `429`/`5xx` as transient ones. Without
+/// the origin check a single remote auth failure would latch the platform-wide
+/// S3 gate open for every group.
+pub(super) fn is_storage_gate_failure(backend: &str, error: &anyhow::Error) -> bool {
+    backend == "s3"
+        && is_s3_error(error)
+        && (is_s3_transient_error(error) || is_configuration_error(error))
+}
+
 impl LibraryService {
-    async fn ensure_active_storage_ready_for(&self, lease_token: Option<Uuid>) -> Result<()> {
+    /// Record an S3 gate failure for a storage operation.
+    ///
+    /// Only object-store-originated failures count; callers must not offer
+    /// remote download, SSRF, limiter, or HTTP-status errors here even when
+    /// their message text would classify as a transient/configuration failure.
+    pub(super) async fn note_storage_error(
+        &self,
+        error: &anyhow::Error,
+        lease_token: Option<Uuid>,
+    ) {
+        if !is_storage_gate_failure(self.storage.backend(), error) {
+            return;
+        }
+        self.note_dependency_failure_with_lease(
+            LibraryDependency::S3,
+            lease_token.unwrap_or_else(Uuid::nil),
+            error,
+        )
+        .await;
+    }
+
+    pub(super) async fn ensure_active_storage_ready_for(
+        &self,
+        lease_token: Option<Uuid>,
+    ) -> Result<()> {
         if self.storage.backend() != "s3" {
             return Ok(());
         }
@@ -75,16 +118,8 @@ impl LibraryService {
                 }
                 Ok(())
             }
-            Err(error)
-                if self.storage.backend() == "s3"
-                    && (is_s3_transient_error(&error) || is_configuration_error(&error)) =>
-            {
-                self.note_dependency_failure_with_lease(
-                    LibraryDependency::S3,
-                    lease_token.unwrap_or_else(Uuid::nil),
-                    &error,
-                )
-                .await;
+            Err(error) if is_storage_gate_failure(self.storage.backend(), &error) => {
+                self.note_storage_error(&error, lease_token).await;
                 Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
@@ -118,16 +153,8 @@ impl LibraryService {
                 }
                 Ok(bytes)
             }
-            Err(error)
-                if self.storage.backend() == "s3"
-                    && (is_s3_transient_error(&error) || is_configuration_error(&error)) =>
-            {
-                self.note_dependency_failure_with_lease(
-                    LibraryDependency::S3,
-                    lease_token.unwrap_or_else(Uuid::nil),
-                    &error,
-                )
-                .await;
+            Err(error) if is_storage_gate_failure(self.storage.backend(), &error) => {
+                self.note_storage_error(&error, lease_token).await;
                 Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
@@ -162,16 +189,8 @@ impl LibraryService {
                 }
                 Ok(exists)
             }
-            Err(error)
-                if self.storage.backend() == "s3"
-                    && (is_s3_transient_error(&error) || is_configuration_error(&error)) =>
-            {
-                self.note_dependency_failure_with_lease(
-                    LibraryDependency::S3,
-                    lease_token.unwrap_or_else(Uuid::nil),
-                    &error,
-                )
-                .await;
+            Err(error) if is_storage_gate_failure(self.storage.backend(), &error) => {
+                self.note_storage_error(&error, lease_token).await;
                 Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
@@ -205,16 +224,35 @@ impl LibraryService {
                 }
                 Ok(())
             }
-            Err(error)
-                if self.storage.backend() == "s3"
-                    && (is_s3_transient_error(&error) || is_configuration_error(&error)) =>
-            {
-                self.note_dependency_failure_with_lease(
-                    LibraryDependency::S3,
-                    lease_token.unwrap_or_else(Uuid::nil),
-                    &error,
-                )
-                .await;
+            Err(error) if is_storage_gate_failure(self.storage.backend(), &error) => {
+                self.note_storage_error(&error, lease_token).await;
+                Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Copy finished bytes to the content-addressed key.
+    ///
+    /// A copy is idempotent for its destination (same source bytes, same
+    /// digest), so unlike a streamed chunk write it keeps the retrying bound.
+    pub(super) async fn copy_active_storage_for_lease(
+        &self,
+        from: &str,
+        to: &str,
+        lease_token: Uuid,
+    ) -> Result<()> {
+        self.ensure_active_storage_ready_for(Some(lease_token))
+            .await?;
+        let result = self.storage.copy(from, to).await;
+        match result {
+            Ok(()) => {
+                self.note_dependency_success(LibraryDependency::S3, lease_token)
+                    .await;
+                Ok(())
+            }
+            Err(error) if is_storage_gate_failure(self.storage.backend(), &error) => {
+                self.note_storage_error(&error, Some(lease_token)).await;
                 Err(DomainError::unavailable(format!("s3 dependency unavailable: {error}")).into())
             }
             Err(error) => Err(error),
@@ -235,6 +273,28 @@ fn s3_operation_error(operation: &str, error: &opendal::Error) -> DomainError {
         ErrorKind::NotFound => DomainError::not_found(message),
         ErrorKind::AlreadyExists => DomainError::conflict(message),
         _ => DomainError::upstream_error(message),
+    }
+}
+
+/// Run one bounded S3 attempt without retrying it.
+///
+/// Streamed object writes cannot be replayed: a retried chunk would append
+/// bytes the store already accepted. The attempt keeps the same per-attempt
+/// time bound as a retried operation, so a stalled stream still fails fast and
+/// the caller can abort the incomplete staging object.
+pub(super) async fn bounded_s3_attempt<T, F, Fut>(operation: &str, action: F) -> Result<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<T, opendal::Error>>,
+{
+    match timeout(S3_ATTEMPT_TIMEOUT, action()).await {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(s3_operation_error(operation, &error).into()),
+        Err(_) => Err(DomainError::upstream_timeout(format!(
+            "s3 operation {operation} timed out after {}s",
+            S3_ATTEMPT_TIMEOUT.as_secs()
+        ))
+        .into()),
     }
 }
 
@@ -294,53 +354,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-
-    use super::bounded_s3_operation;
-
-    #[tokio::test]
-    async fn does_not_retry_permanent_s3_errors() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let result = bounded_s3_operation("write", {
-            let calls = Arc::clone(&calls);
-            move || {
-                calls.fetch_add(1, Ordering::Relaxed);
-                async {
-                    Err::<(), _>(opendal::Error::new(
-                        opendal::ErrorKind::AlreadyExists,
-                        "object already exists",
-                    ))
-                }
-            }
-        })
-        .await;
-
-        assert!(result.is_err());
-        assert_eq!(calls.load(Ordering::Relaxed), 1);
-    }
-
-    #[tokio::test]
-    async fn retries_temporary_s3_errors_within_the_attempt_budget() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let result = bounded_s3_operation("write", {
-            let calls = Arc::clone(&calls);
-            move || {
-                calls.fetch_add(1, Ordering::Relaxed);
-                async {
-                    Err::<(), _>(
-                        opendal::Error::new(opendal::ErrorKind::Unexpected, "upstream timeout")
-                            .set_temporary(),
-                    )
-                }
-            }
-        })
-        .await;
-
-        assert!(result.is_err());
-        assert_eq!(calls.load(Ordering::Relaxed), 3);
-    }
-}
+mod tests;

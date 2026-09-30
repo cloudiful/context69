@@ -55,6 +55,75 @@ impl LibraryService {
         Ok(object.id)
     }
 
+    /// Finalize streamed bytes into the content-addressed object and register
+    /// the result as this task input's staging object.
+    ///
+    /// The temporary key is only a physical staging location: after hashing,
+    /// the catalog row always points at the content-addressed key, exactly like
+    /// [`Self::stage_file_for_task_input`], so the existing
+    /// `input_storage_object_id` lease guard, group/`(sha256)` deduplication,
+    /// and guarded release semantics apply unchanged. A failure before the row
+    /// commits deletes a freshly copied key again, so no catalog row ends up
+    /// pointing at missing bytes.
+    pub(crate) async fn finalize_streamed_task_input(
+        &self,
+        group_id: i64,
+        temp_key: &str,
+        sha256: &str,
+        size_bytes: i64,
+        lease_token: Uuid,
+    ) -> Result<Uuid> {
+        let key = object_storage::content_object_key(group_id, sha256);
+        let already_stored = self.exists_active_storage(&key).await?;
+        if !already_stored {
+            self.copy_active_storage_for_lease(temp_key, &key, lease_token)
+                .await?;
+        }
+        let mut tx = self.db.pool().begin().await?;
+        self.store
+            .lock_storage_object(&mut tx, &format!("{group_id}:{sha256}"))
+            .await?;
+        let existing = self
+            .store
+            .get_storage_object_on_connection(&mut tx, group_id, sha256)
+            .await?;
+        let object = match self
+            .store
+            .upsert_staged_storage_object_on_connection(
+                &mut tx,
+                UpsertStagedStorageObjectRequest {
+                    id: Uuid::new_v4(),
+                    group_id,
+                    sha256,
+                    size_bytes,
+                    storage_backend: self.storage.backend(),
+                    object_key: &key,
+                    staging_lease_until: Utc::now() + ChronoDuration::hours(24),
+                },
+            )
+            .await
+        {
+            Ok(object) => object,
+            Err(error) => {
+                tx.rollback().await?;
+                if !already_stored
+                    && existing.is_none()
+                    && let Err(error) = self.delete_active_storage(&key).await
+                {
+                    warn!(
+                        group_id,
+                        sha256,
+                        %error,
+                        "failed to remove streamed content after object record creation failure"
+                    );
+                }
+                return Err(error);
+            }
+        };
+        tx.commit().await?;
+        Ok(object.id)
+    }
+
     pub(crate) async fn read_task_input_for_task(
         &self,
         group_id: i64,

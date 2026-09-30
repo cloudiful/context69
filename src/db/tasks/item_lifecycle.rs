@@ -111,6 +111,34 @@ impl Database {
         Ok(updated)
     }
 
+    /// Bind a streamed staged input object to a running item and persist the
+    /// matching payload in the same guarded statement.
+    ///
+    /// The object reference and the payload are one recovery unit: the worker
+    /// resumes a URL item from `input_storage_object_id`, and the payload
+    /// carries the resolved source metadata that a re-claim cannot re-derive
+    /// without re-downloading. Writing them together (single statement, same
+    /// `running` + lease-token guard) means a re-claim sees both or neither.
+    pub async fn set_task_item_input_storage_object(
+        &self,
+        item_id: Uuid,
+        lease_token: Uuid,
+        object_id: Uuid,
+        payload: &Value,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file!(
+            "src/sql/db/tasks/set_task_item_input_storage_object.sql",
+            item_id,
+            lease_token,
+            object_id,
+            payload
+        )
+        .execute(self.pool())
+        .await?
+        .rows_affected()
+            > 0)
+    }
+
     pub async fn set_task_item_payload(
         &self,
         item_id: Uuid,

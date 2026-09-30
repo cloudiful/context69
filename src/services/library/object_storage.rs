@@ -3,11 +3,13 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use opendal::{Operator, services};
+use uuid::Uuid;
 
 use crate::config::FileLibraryConfig;
 use crate::domain_errors::DomainError;
 
 use super::dependency_runtime::bounded_s3_operation;
+use super::dependency_storage::bounded_s3_attempt;
 
 #[derive(Clone)]
 pub(crate) struct LibraryObjectStorage {
@@ -98,6 +100,29 @@ impl LibraryObjectStorage {
         Ok(())
     }
 
+    /// Open an incremental writer for streamed source materialization.
+    pub(super) async fn open_stream_writer(
+        &self,
+        key: &str,
+    ) -> Result<super::streaming::StorageStreamWriter> {
+        let writer = if self.backend == "s3" {
+            let key = key.to_string();
+            bounded_s3_attempt("writer_open", || self.operator.writer(&key))
+                .await
+                .with_context(|| {
+                    DomainError::internal(format!("failed to open stored object writer {key}"))
+                })?
+        } else {
+            self.operator.writer(key).await.with_context(|| {
+                DomainError::internal(format!("failed to open stored object writer {key}"))
+            })?
+        };
+        Ok(super::streaming::StorageStreamWriter::new(
+            writer,
+            self.backend,
+        ))
+    }
+
     pub(super) async fn read(&self, key: &str) -> Result<Option<Bytes>> {
         let result = if self.backend == "s3" {
             let key = key.to_string();
@@ -151,10 +176,45 @@ impl LibraryObjectStorage {
             })
         }
     }
+
+    /// Copy one stored object to another key, overwriting the destination.
+    pub(super) async fn copy(&self, from: &str, to: &str) -> Result<()> {
+        let result = if self.backend == "s3" {
+            let from_key = from.to_string();
+            let to_key = to.to_string();
+            bounded_s3_operation("copy", || {
+                let from_key = from_key.clone();
+                let to_key = to_key.clone();
+                async move { self.operator.copy(&from_key, &to_key).await }
+            })
+            .await
+        } else {
+            self.operator
+                .copy(from, to)
+                .await
+                .map_err(anyhow::Error::from)
+        };
+        result
+            .with_context(|| {
+                DomainError::internal(format!("failed to copy stored object {from} to {to}"))
+            })
+            .map(|_| ())
+    }
 }
 
 pub(super) fn content_object_key(group_id: i64, sha256: &str) -> String {
     format!("objects/{group_id}/{sha256}")
+}
+
+/// Physical key for bytes that are still being materialized.
+///
+/// The content-addressed key needs the digest, which is only known once the
+/// whole stream has been read, so a streamed upload lands here first and is
+/// copied to [`content_object_key`] after hashing. A staging key is never
+/// recorded as a catalog `object_key`; it only ever names in-flight bytes that
+/// the materializer deletes on both the success and the failure path.
+pub(super) fn staging_object_key(group_id: i64, token: Uuid) -> String {
+    format!("staging/{group_id}/{token}")
 }
 
 fn path_text(path: &Path) -> Result<&str> {
@@ -189,7 +249,8 @@ mod tests {
 
     use crate::config::FileLibraryConfig;
 
-    use super::{LibraryObjectStorage, content_object_key};
+    use super::super::streaming::ByteSink;
+    use super::{LibraryObjectStorage, content_object_key, staging_object_key};
 
     #[tokio::test]
     async fn local_backend_round_trips_objects() {
@@ -208,6 +269,63 @@ mod tests {
         );
         storage.delete(&key).await.unwrap();
         assert!(!storage.exists(&key).await.unwrap());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Issue 667 Phase 1: the streamed writer lands the bytes, and finalizing
+    /// copies them to the content-addressed key so the temporary staging key is
+    /// never what the catalog records.
+    #[tokio::test]
+    async fn streamed_staging_writer_finalizes_into_the_content_key() {
+        let root = std::env::temp_dir().join(format!("context69-storage-{}", Uuid::new_v4()));
+        let storage = LibraryObjectStorage::from_config(&config(root.clone())).unwrap();
+        let temp_key = staging_object_key(42, Uuid::new_v4());
+        let key = content_object_key(42, &"c".repeat(64));
+        assert_ne!(temp_key, key);
+
+        let mut writer = storage.open_stream_writer(&temp_key).await.unwrap();
+        writer
+            .write_chunk(Bytes::from_static(b"stream"))
+            .await
+            .unwrap();
+        writer.write_chunk(Bytes::from_static(b"ed")).await.unwrap();
+        writer.close().await.unwrap();
+        assert_eq!(
+            storage.read(&temp_key).await.unwrap(),
+            Some(Bytes::from_static(b"streamed"))
+        );
+
+        storage.copy(&temp_key, &key).await.unwrap();
+        assert_eq!(
+            storage.read(&key).await.unwrap(),
+            Some(Bytes::from_static(b"streamed"))
+        );
+        storage.delete(&temp_key).await.unwrap();
+        assert!(!storage.exists(&temp_key).await.unwrap());
+        assert!(storage.exists(&key).await.unwrap());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A failed stream is aborted and the caller deletes the temporary key:
+    /// the local filesystem backend writes in place and cannot abort, so the
+    /// delete is what guarantees the failure path leaves no staging bytes.
+    #[tokio::test]
+    async fn aborted_streamed_write_is_reclaimed_by_the_staging_delete() {
+        let root = std::env::temp_dir().join(format!("context69-storage-{}", Uuid::new_v4()));
+        let storage = LibraryObjectStorage::from_config(&config(root.clone())).unwrap();
+        let temp_key = staging_object_key(42, Uuid::new_v4());
+
+        let mut writer = storage.open_stream_writer(&temp_key).await.unwrap();
+        writer
+            .write_chunk(Bytes::from_static(b"half"))
+            .await
+            .unwrap();
+        writer.abort(&temp_key).await;
+        drop(writer);
+        storage.delete(&temp_key).await.unwrap();
+        assert!(!storage.exists(&temp_key).await.unwrap());
 
         std::fs::remove_dir_all(root).unwrap();
     }

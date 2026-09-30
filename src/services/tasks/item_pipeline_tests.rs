@@ -1,5 +1,6 @@
 //! Issue 592 regression coverage: state propagation across the collapsed
-//! worker stages.
+//! worker stages. Issue 667 Phase 1 streamed-source coverage lives in the
+//! `source_materialization` submodule.
 //!
 //! The storage stage writes `file_id`/payload back into the worker's item
 //! snapshot; the next stage must observe it. These tests run the real stage
@@ -10,6 +11,7 @@
 //! is unset, like the other DB-backed suites.
 
 mod fixtures;
+mod source_materialization;
 mod support;
 
 use context69_contracts::TaskKind;
