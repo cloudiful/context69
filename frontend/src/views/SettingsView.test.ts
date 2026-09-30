@@ -12,6 +12,7 @@ import AppNumberField from "../components/AppNumberField.vue";
 import AppSelectField from "../components/AppSelectField.vue";
 
 import SettingsView from "./SettingsView.vue";
+import UPageBody from "@nuxt/ui/components/PageBody.vue";
 
 const runtimeResponse = {
   qdrant: {
@@ -275,6 +276,29 @@ describe("SettingsView", () => {
       "grid-rows-[auto_minmax(0,1fr)]",
       "overflow-y-auto",
     ]));
+  });
+
+  it("drops the page body theme padding without touching the scroll host", async () => {
+    const { wrapper } = await mountSettingsView("/settings/appearance");
+
+    const body = wrapper.findComponent(UPageBody);
+    expect(body.exists()).toBe(true);
+    expect(body.classes()).toContain("pb-0");
+    expect(body.classes()).not.toContain("pb-24");
+  });
+
+  it("routes between settings sections from the mobile tab bar", async () => {
+    const { router, wrapper } = await mountSettingsView("/settings/appearance");
+
+    const triggers = wrapper.findAll('[data-slot="trigger"]');
+    expect(triggers).toHaveLength(5);
+
+    const searchTrigger = triggers.find((trigger) => trigger.text() === "Search");
+    expect(searchTrigger).toBeDefined();
+    await searchTrigger!.trigger("mousedown");
+    await flushPromises();
+
+    expect(router.currentRoute.value.name).toBe("settings-search");
   });
 
   it("switches locale and theme from the settings page", async () => {

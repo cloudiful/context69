@@ -21,8 +21,8 @@ const groupPath = computed(() => String(route.params.groupPath ?? ""));
 const groupSectionItems = computed(() => {
   const basePath = `/groups/${encodeURIComponent(groupPath.value)}`;
   return [
-    { label: t("groups.overviewTitle"), to: basePath },
-    ...resolveGroupSectionNav(t, groupPath.value),
+    { label: t("groups.overviewTitle"), value: basePath },
+    ...resolveGroupSectionNav(t, groupPath.value).map((item) => ({ label: item.label, value: item.to })),
   ];
 });
 
@@ -32,16 +32,18 @@ function switchGroupSection(to: string) {
 </script>
 
 <template>
-  <div class="grid h-full min-h-0 grid-rows-[minmax(0,1fr)] gap-2">
+  <div class="flex h-full min-h-0 min-w-0 flex-col gap-2" data-testid="group-shell">
     <UTabs
       v-if="groupPath"
-      :model-value="String(route.name ?? '')"
-      class="md:hidden"
+      :model-value="route.path"
+      class="shrink-0 md:hidden"
       :items="groupSectionItems"
       @update:model-value="switchGroupSection(String($event))"
     />
 
-    <RouterView />
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="group-section-content">
+      <RouterView />
+    </div>
 
     <EntityDialog
       v-model:visible="state.groupDialogVisible"

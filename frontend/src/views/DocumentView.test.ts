@@ -77,7 +77,19 @@ describe("DocumentView", () => {
     expect(wrapper.text()).toContain("Cyber Policy Update");
     expect(wrapper.text()).toContain("First chunk");
     expect(wrapper.text()).toContain("/Policies/Cyber");
-    expect(wrapper.find("aside").exists()).toBe(true);
+    const aside = wrapper.find("aside");
+    expect(aside.exists()).toBe(true);
+    // The Nuxt UI page aside defaults to `hidden ... py-8`; the page override
+    // must keep the metadata cards visible with their 0.5rem gap at every
+    // breakpoint and without the theme's extra vertical padding.
+    expect(aside.classes()).toContain("grid");
+    expect(aside.classes()).toContain("gap-2");
+    expect(aside.classes()).toContain("lg:grid");
+    expect(aside.classes()).toContain("py-0");
+    expect(aside.classes()).not.toContain("py-8");
+
+    // Without a search return target the header renders no empty links wrapper.
+    expect(wrapper.find('[data-slot="links"]').exists()).toBe(false);
 
     // Nuxt UI's UPage right slot defaults to `order-first`; the page override
     // must keep the metadata aside after the document content on narrow screens.
@@ -85,6 +97,35 @@ describe("DocumentView", () => {
     expect(rightSlot.exists()).toBe(true);
     expect(rightSlot.classes()).toContain("order-last");
     expect(rightSlot.classes()).not.toContain("order-first");
+  });
+
+  it("renders the back-to-search action only when returning from search", async () => {
+    getDocument.mockResolvedValue({
+      document_id: 42,
+      source_key: "gov_documents",
+      group_key: "personal-admin",
+      group_path: "personal-admin/default",
+      external_id: "ext-42",
+      record_hash: "hash-42",
+      visibility: "private",
+      title: "Cyber Policy Update",
+      summary: "summary text",
+      source_uri: "https://example.com/doc",
+      published_at: "2025-01-01",
+      updated_at: "2025-01-02T00:00:00Z",
+      metadata_json: {},
+      library_path: null,
+      library_section_label: null,
+      is_library_file: false,
+      library_file_id: null,
+      chunks: [],
+    });
+
+    const wrapper = await mountView("/documents/42?from=search");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="document-back-to-search"]').exists()).toBe(true);
+    expect(wrapper.find('[data-slot="links"]').exists()).toBe(true);
   });
 
   it("paginates content blocks ten per page", async () => {

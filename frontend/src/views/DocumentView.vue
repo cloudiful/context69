@@ -131,7 +131,7 @@ onBeforeUnmount(() => {
 <template>
   <UPage :ui="{ right: 'lg:col-span-2 order-last lg:order-last' }">
     <UPageHeader :title="t('document.title')">
-      <template #links>
+      <template v-if="fromSearch" #links>
         <UButton
           v-if="fromSearch"
           data-testid="document-back-to-search"
@@ -206,7 +206,7 @@ onBeforeUnmount(() => {
     </UPageBody>
 
     <template v-if="documentData" #right>
-      <UPageAside :ui="{ root: 'grid gap-2' }">
+      <UPageAside :ui="{ root: 'grid gap-2 py-0 lg:grid' }">
         <UCard>
           <p class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-color">{{ t("document.published") }}</p>
           <p class="text-sm text-color">{{ formatDate(documentData.published_at) }}</p>

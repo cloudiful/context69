@@ -124,4 +124,12 @@ describe("router auth guards", () => {
     }
   });
 
+  it("marks only the bounded group workspace routes as fill layouts", () => {
+    expect(router.resolve("/search").meta.contentLayout).toBe("fill");
+    expect(router.resolve("/processing-queue").meta.contentLayout).toBe("fill");
+    expect(router.resolve("/groups/stock").meta.contentLayout).toBe("fill");
+    expect(router.resolve("/groups/stock/members").meta.contentLayout).toBeUndefined();
+    expect(router.resolve("/groups/stock/settings").meta.contentLayout).toBeUndefined();
+  });
+
 });

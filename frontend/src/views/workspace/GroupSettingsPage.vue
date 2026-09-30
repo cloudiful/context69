@@ -37,7 +37,7 @@ function save() {
 
 <template>
   <UPage class="xl:max-w-[28rem]">
-    <UPageBody :ui="{ base: 'mt-0 space-y-3' }">
+    <UPageBody :ui="{ base: 'mt-0 space-y-3 pb-0' }">
       <UCard>
         <form class="grid gap-3" @submit.prevent="save">
           <dl class="grid gap-2">

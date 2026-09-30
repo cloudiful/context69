@@ -59,7 +59,7 @@ const currentLocale = computed<AppLocale>(() => normalizeAppLocale(String(locale
 const sectionItems = computed(() =>
   resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true).map((section) => ({
     label: section.label,
-    to: section.to,
+    value: section.to,
   })),
 );
 
@@ -87,16 +87,18 @@ function switchLocale(nextLocale: AppLocale) {
 
 <template>
   <section class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-y-auto" data-testid="settings-page-scroll">
-    <UTabs
-      :model-value="currentSection"
-      class="md:hidden"
-      orientation="horizontal"
-      :items="sectionItems"
-      @update:model-value="switchSection(String($event))"
-    />
+    <div class="min-w-0 overflow-x-auto md:hidden">
+      <UTabs
+        :model-value="route.path"
+        class="min-w-max"
+        orientation="horizontal"
+        :items="sectionItems"
+        @update:model-value="switchSection(String($event))"
+      />
+    </div>
 
     <UPage class="min-w-0">
-      <UPageBody :ui="{ base: 'mt-0 space-y-3' }">
+      <UPageBody :ui="{ base: 'mt-0 space-y-3 pb-0' }">
         <div class="flex flex-wrap justify-end gap-1.5">
           <UBadge v-if="hasChanges" color="neutral" variant="subtle" :label="t('settings.status.pending')" />
           <UBadge v-if="saveMessage" color="success" variant="subtle" :label="saveMessage" />

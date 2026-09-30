@@ -24,9 +24,7 @@ const showGlobalRouteBar = computed(() => {
     || routeName.startsWith("settings-")
     || routeName === "processing-queue";
 });
-const isSettingsRoute = computed(() => String(route.name ?? "").startsWith("settings-"));
 const fillsRouteContent = computed(() => route.meta.contentLayout === "fill");
-const constrainsRouteContent = computed(() => isSettingsRoute.value || fillsRouteContent.value);
 
 async function retrySessionRestore() {
   if (await restoreSession()) window.location.reload();
@@ -47,7 +45,7 @@ watch(locale, (value) => {
     <RouterView />
   </main>
 
-    <UDashboardGroup v-else class="min-h-screen min-w-0 overflow-hidden">
+    <UDashboardGroup v-else class="min-w-0">
       <AppSidebar />
       <UDashboardPanel class="min-w-0 overflow-hidden">
         <!-- The panel's #header slot is skipped when a default slot is present, so the header renders here. -->
@@ -63,7 +61,7 @@ watch(locale, (value) => {
         <main
           :class="[
             'flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-2 py-2 pb-20 md:px-3 md:pb-3',
-            constrainsRouteContent ? 'overflow-hidden' : '',
+            fillsRouteContent ? 'overflow-hidden' : '',
           ]"
         >
           <div
