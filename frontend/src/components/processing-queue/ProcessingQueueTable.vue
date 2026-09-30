@@ -183,6 +183,11 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
     :loading="props.loading"
     :sorting-options="{ manualSorting: true }"
   >
+    <template #empty>
+      <div class="py-12 text-center text-sm text-muted">
+        {{ t(props.view === "completed" ? "processingQueue.tabs.noCompletedTasks" : props.view === "trash" ? "processingQueue.tabs.noTrashedTasks" : "processingQueue.noTasks") }}
+      </div>
+    </template>
     <template #kind-header>
       <div class="flex items-center gap-0.5">
         <UButton variant="ghost" color="neutral" size="xs" :label="t('processingQueue.type')" :icon="sortIcon('kind')" :aria-label="sortAriaLabel('kind', t('processingQueue.type'))" :data-sort="sortState('kind')" data-testid="queue-sort-kind" @click="cycleSort('kind')" />

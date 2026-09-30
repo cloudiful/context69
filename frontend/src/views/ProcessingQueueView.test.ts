@@ -437,13 +437,18 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("shows a top-aligned empty state instead of a table when no tasks are visible", async () => {
+  it("keeps the table and filters available when no tasks are visible", async () => {
     listTasks.mockResolvedValue(response([]) as never);
     const wrapper = await mountQueue();
     await flushPromises();
 
     expect(wrapper.text()).toContain("No tasks");
-    expect(wrapper.find("table").exists()).toBe(false);
+    expect(wrapper.find("table").exists()).toBe(true);
+
+    await wrapper.find('[aria-label="Waiting reason"]').trigger("click");
+    await flushPromises();
+    expect(document.body.querySelector('[role="listbox"][aria-label="Waiting reason"]')).not.toBeNull();
+
     wrapper.unmount();
   });
 

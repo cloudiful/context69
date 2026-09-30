@@ -92,7 +92,7 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
       </template>
 
       <div
-        v-if="queue.items.length"
+        v-if="queue.items.length || (!queue.loading && !queue.error)"
         data-testid="processing-queue-table-scroll"
         class="h-full min-h-[220px] min-w-0 overflow-auto overscroll-contain"
       >
@@ -120,9 +120,6 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
           @update:waiting-reason-filter="queue.setWaitingReasonFilter"
           @update:dependency-key-filter="queue.setDependencyKeyFilter"
         />
-      </div>
-      <div v-else-if="!queue.loading && !queue.error" class="py-12 text-sm text-muted">
-        {{ t(activeTab === "completed" ? "processingQueue.tabs.noCompletedTasks" : activeTab === "trash" ? "processingQueue.tabs.noTrashedTasks" : "processingQueue.noTasks") }}
       </div>
     </AppServerList>
   </section>
