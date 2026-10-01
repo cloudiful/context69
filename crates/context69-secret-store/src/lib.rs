@@ -14,8 +14,10 @@
 //!   site.
 //! * [`database`] — the SQL boundary. One file-backed statement per operation,
 //!   and the only place that can move a secret's bytes.
-//! * [`store`] — the typed accessor. Purpose binding, explicit lifecycle
-//!   operations, and the transition read.
+//! * [`store`] — the typed accessor. Purpose binding and explicit lifecycle
+//!   operations for one deployment, plus the transition read and, in its
+//!   `rewrap` child module, the one operation that spans two: re-sealing this
+//!   store's rows under an incoming master key.
 //!
 //! ```no_run
 //! # use context69_secret_store::{SecretDatabase, SecretPurpose, SecretStore, key_names};
@@ -53,4 +55,4 @@ pub use rows::{
     LEGACY_PLAINTEXT_VERSION, SEALED_CIPHERTEXT_VERSION, StoredSecret, StoredSecretBytes,
     StoredSecretMetadata, open_from_storage, seal_for_storage,
 };
-pub use store::{PutOutcome, SecretStore, master_key_from_config};
+pub use store::{PutOutcome, RewrapError, RewrapReport, SecretStore, master_key_from_config};

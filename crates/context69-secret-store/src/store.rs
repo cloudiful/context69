@@ -27,6 +27,13 @@
 //! installation keeps booting with the values it already has. That is the only
 //! plaintext path and the counterpart of [`SecretStore::is_encrypted`]; the
 //! reversible-secret backfill and the legacy-column removal are separate units.
+//!
+//! Every operation here is single-deployment — one database, one cipher. The one
+//! exception, [`rewrap`], needs a second deployment because it re-seals this
+//! store's rows under an incoming master key, and it lives in its own module for
+//! that reason.
+
+mod rewrap;
 
 use std::fmt;
 
@@ -39,6 +46,8 @@ use crate::{
     purpose::{SecretKeyName, SecretPurpose},
     rows::{open_from_storage, seal_for_storage},
 };
+
+pub use rewrap::{RewrapError, RewrapReport};
 
 /// The outcome of a create.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

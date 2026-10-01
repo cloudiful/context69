@@ -148,6 +148,27 @@ impl SecretDatabase {
         .await?;
         Ok(keys)
     }
+
+    /// Lists the sealed keys one purpose owns at one master-key version.
+    ///
+    /// The rewrap worklist. Two properties matter and both live in the
+    /// statement rather than in the caller: it projects the key name only, so
+    /// building the list moves no secret, and it filters on the key version, so
+    /// a row an earlier run already re-sealed is not offered a second time.
+    pub async fn list_sealed_secret_keys(
+        &self,
+        purpose: &str,
+        key_version: i32,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let keys = sqlx::query_file_scalar!(
+            "src/sql/internal_secrets/list_sealed_internal_secrets.sql",
+            purpose,
+            key_version
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(keys)
+    }
 }
 
 /// Borrowed form of the columns a write needs, so a caller can hand a

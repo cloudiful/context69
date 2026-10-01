@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Enumerates the sealed keys one purpose owns at one master-key version. This\n-- is the rewrap worklist for master-key recovery and rotation: it returns key\n-- names only, never a value, so producing the list cannot disclose a secret.\n--\n-- The key version is part of the filter, which is what makes a run resumable.\n-- A row that a previous run already re-sealed sits at the target version, so it\n-- is simply not enumerated again; a row the source key still opens is. The\n-- filter therefore also keeps every not-yet-rewrapped row readable with the\n-- outgoing key until the deployment switches over, and it never deletes\n-- anything.\n--\n-- `ciphertext_version = 1` excludes the legacy plaintext rows: those hold no\n-- frame to open, so they are the backfill's worklist, not the rewrap's.\n-- Ordering makes the run deterministic.\nSELECT key\nFROM context69.internal_secrets\nWHERE purpose = $1\n  AND key_version = $2\n  AND ciphertext_version = 1\nORDER BY key;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5e319c657cc9443906684d71d0827d500ac1d018695873974b382b996f285380"
+}
