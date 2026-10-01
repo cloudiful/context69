@@ -4,12 +4,12 @@ use tracing::warn;
 use crate::{
     config::{Config, ConnectionConfig},
     db::Database,
-    services::{app::browser_sessions, secret_store::SecretStore, settings::SettingsService},
+    services::{app::browser_sessions, secret_store, settings::SettingsService},
 };
 
 pub struct ConfigHydration {
     pub settings: SettingsService,
-    pub secrets: SecretStore,
+    pub secrets: secret_store::SecretStore,
     pub browser_sessions: browser_sessions::BrowserSessionConfig,
     pub runtime_configured: bool,
 }
@@ -23,7 +23,7 @@ pub async fn hydrate(db: &Database, config: &mut Config) -> Result<ConfigHydrati
     }
     // The secret store is built before anything reads a persisted secret, so
     // browser-session resolution already goes through the typed accessor.
-    let secrets = SecretStore::new(db.clone(), &config.secret_store)?;
+    let secrets = secret_store::build(db, &config.secret_store)?;
     let browser_sessions = browser_sessions::resolve(&secrets, config).await?;
     config.connections = db
         .list_source_connections()
