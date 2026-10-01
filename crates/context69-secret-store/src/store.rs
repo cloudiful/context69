@@ -31,7 +31,7 @@
 use std::fmt;
 
 use context69_secret_crypto::{MasterKey, SecretCipher, SecretValue};
-use tracing::warn;
+use tracing::debug;
 
 use crate::{
     database::SecretDatabase,
@@ -95,6 +95,11 @@ impl SecretStore {
     /// otherwise usable either way, and the only difference is whether it can
     /// open a sealed secret.
     ///
+    /// Several handles onto one configuration are expected — the application, a
+    /// dependent service crate, a background task — so this logs the unconfigured
+    /// state at debug rather than warning once per handle. Reporting it once per
+    /// process is the application's job.
+    ///
     /// # Errors
     ///
     /// [`SecretStoreError::MasterKeyRejected`] when a configured master key
@@ -107,9 +112,9 @@ impl SecretStore {
         let cipher = match master_key_from_config(master_key)? {
             Some(master_key) => Some(SecretCipher::new(master_key, key_version)),
             None => {
-                warn!(
-                    "secret_store.master_key is not configured; sealed secrets cannot be opened \
-                     and new secrets are stored in the legacy plaintext representation"
+                debug!(
+                    "secret store built without a master key; sealed secrets cannot be opened \
+                     and new secrets use the legacy plaintext representation"
                 );
                 None
             }
@@ -197,6 +202,35 @@ impl SecretStore {
         } else {
             PutOutcome::AlreadyPresent
         })
+    }
+
+    /// Stores one secret, creating or replacing it as needed.
+    ///
+    /// This is the operation a settings form wants: "make the stored secret be
+    /// this value" is one intent, not a create-or-update decision the caller has
+    /// to get right. It is race-safe — a create that loses to a concurrent
+    /// writer falls through to the replace rather than reporting a conflict the
+    /// caller cannot act on — and it never leaves the key absent.
+    ///
+    /// Use [`Self::put`] or [`Self::rotate`] directly when the caller *does* need
+    /// to distinguish creating from replacing.
+    ///
+    /// # Errors
+    ///
+    /// See [`seal_for_storage`], plus [`SecretStoreError::Database`].
+    pub async fn write(
+        &self,
+        purpose: SecretPurpose,
+        key_name: &str,
+        value: &[u8],
+    ) -> Result<PutOutcome, SecretStoreError> {
+        match self.put(purpose, key_name, value).await? {
+            PutOutcome::Created => Ok(PutOutcome::Created),
+            PutOutcome::AlreadyPresent => {
+                self.rotate(purpose, key_name, value).await?;
+                Ok(PutOutcome::AlreadyPresent)
+            }
+        }
     }
 
     /// Replaces the stored representation of an existing secret.

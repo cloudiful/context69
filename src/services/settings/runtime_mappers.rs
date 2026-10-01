@@ -65,8 +65,12 @@ pub(super) fn runtime_settings_from_request(
     }
 }
 
+/// `has_api_key` is passed in rather than derived from the stored value: during
+/// the transition the value may live only in the encrypted store, and presence
+/// has to be answerable without opening it.
 pub(super) fn runtime_settings_response(
     settings: StoredRuntimeSettings,
+    has_embedding_api_key: bool,
 ) -> RuntimeSettingsResponse {
     RuntimeSettingsResponse {
         qdrant: RuntimeQdrantSettings {
@@ -79,11 +83,7 @@ pub(super) fn runtime_settings_response(
             model: settings.embedding.model,
             dimensions: settings.embedding.dimensions,
             timeout_secs: settings.embedding.timeout_secs,
-            has_api_key: settings
-                .embedding
-                .api_key
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty()),
+            has_api_key: has_embedding_api_key,
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,

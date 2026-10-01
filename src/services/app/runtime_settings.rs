@@ -7,14 +7,32 @@ use crate::{
     chunking::ChunkingConfig,
     config::{Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig, SchedulerConfig},
     db::{Database, StoredDoclingSettings, StoredRuntimeSettings, StoredSourceConnection},
+    services::{
+        secret_store::SecretStore,
+        settings::secrets::{SettingsSecrets, optional_key_patch},
+    },
     source_store::SourceStore,
 };
 
-pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Result<()> {
+/// Seeds the first-boot runtime row from deployment configuration.
+///
+/// The embedding and Docling VLM API keys are also committed to the shared
+/// store, so a fresh database starts with the same "written to both" state the
+/// settings endpoints produce. The legacy columns still receive the values, so
+/// rolling back to a release that predates the store loses nothing.
+pub async fn import_legacy_runtime_if_needed(
+    db: &Database,
+    config: &Config,
+    store: &SecretStore,
+) -> Result<()> {
     if db.runtime_settings_initialized().await? {
         return Ok(());
     }
 
+    let embedding = SettingsSecrets::embedding(store.clone());
+    embedding
+        .commit(&optional_key_patch(config.embedding.api_key.clone()))
+        .await?;
     db.save_runtime_settings(&StoredRuntimeSettings {
         qdrant: crate::db::StoredRuntimeQdrantSettings {
             url: config.qdrant.url.clone(),
@@ -73,6 +91,9 @@ pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> 
     }
 
     if let Some(docling) = &config.docling {
+        SettingsSecrets::docling(store.clone())
+            .commit(&optional_key_patch(docling.vlm.api_key.clone()))
+            .await?;
         db.save_docling_settings(&StoredDoclingSettings {
             base_url: docling.connection.base_url.clone(),
             timeout_secs: docling.connection.timeout.as_secs(),
@@ -108,7 +129,17 @@ pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> 
     Ok(())
 }
 
-pub async fn load_runtime_settings(db: &Database) -> Result<Option<StoredRuntimeSettings>> {
+/// Loads the persisted runtime settings with the embedding API key resolved
+/// through the shared store.
+///
+/// The store is resolved *after* the legacy REST-to-gRPC upgrade rewrite, so the
+/// rewrite keeps saving the row exactly as it did. The resolved key then lives
+/// only in this in-memory value: it is handed to the embedding provider and
+/// never logged, persisted by this function, or returned by an API.
+pub async fn load_runtime_settings(
+    db: &Database,
+    store: &SecretStore,
+) -> Result<Option<StoredRuntimeSettings>> {
     let Some(mut runtime) = db.get_runtime_settings().await? else {
         return Ok(None);
     };
@@ -122,6 +153,13 @@ pub async fn load_runtime_settings(db: &Database) -> Result<Option<StoredRuntime
         runtime.qdrant.url = grpc_url;
         runtime = db.save_runtime_settings(&runtime).await?;
     }
+
+    // Fails closed: a sealed embedding key this deployment cannot open must not
+    // silently degrade to the legacy plaintext column.
+    let resolved = SettingsSecrets::embedding(store.clone())
+        .resolve(runtime.embedding.api_key.clone())
+        .await?;
+    runtime.embedding.api_key = resolved;
 
     Ok(Some(runtime))
 }

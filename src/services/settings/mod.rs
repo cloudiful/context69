@@ -6,41 +6,67 @@ use crate::domain_errors::DomainError;
 
 mod mappers;
 mod runtime_mappers;
+pub(crate) mod secrets;
 mod validate;
 
 use self::{
     mappers::{
         canonical_search_settings_from_request, config_from_stored, docling_settings_from_request,
         response_from_stored, search_response_from_stored, search_settings_from_request,
-        unconfigured_docling_response,
+        unconfigured_docling_response, validate_docling_vlm_shape,
     },
     runtime_mappers::{
         default_runtime_settings_response, runtime_settings_from_request, runtime_settings_response,
     },
+    secrets::{SettingsSecrets, docling_vlm_patch, optional_key_patch},
     validate as settings_validate,
 };
 
 use crate::{
     contracts::{
         CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, DoclingSettingsSource,
-        RuntimeSettingsResponse, SearchSettingsResponse, SecretPatch, UpdateDoclingSettingsRequest,
+        RuntimeSettingsResponse, SearchSettingsResponse, UpdateDoclingSettingsRequest,
         UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
-    db::{Database, StoredDoclingSettings, StoredSearchSettings, default_search_settings},
+    db::{Database, default_search_settings},
     docling::DoclingConfig,
+    services::secret_store::{self, SecretStore},
     support::normalize::normalize_optional_string,
 };
 
 #[derive(Clone)]
 pub struct SettingsService {
     db: Database,
+    search_secrets: SettingsSecrets,
+    embedding_secrets: SettingsSecrets,
+    docling_secrets: SettingsSecrets,
     docling_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl SettingsService {
+    /// Builds the service on a store with no master key.
+    ///
+    /// Every API key then round-trips through the shared store in its legacy
+    /// plaintext representation and is read back from the legacy column, which is
+    /// exactly the behaviour of a deployment that has not configured a master
+    /// key. The application path is [`Self::with_secrets`], which wires the
+    /// configured store; this constructor exists for callers that have no
+    /// deployment configuration to hand, and it uses one code path rather than a
+    /// bypass.
     pub fn new(db: Database) -> Self {
+        Self::with_secrets(db.clone(), secret_store::build_unkeyed(&db))
+    }
+
+    /// Builds the service on the configured shared store.
+    ///
+    /// The three settings API-key categories each get their own binding, so a
+    /// call site never names a secret by a string literal.
+    pub fn with_secrets(db: Database, store: SecretStore) -> Self {
         Self {
             db,
+            search_secrets: SettingsSecrets::search(store.clone()),
+            embedding_secrets: SettingsSecrets::embedding(store.clone()),
+            docling_secrets: SettingsSecrets::docling(store),
             docling_settings_observer: None,
         }
     }
@@ -52,12 +78,14 @@ impl SettingsService {
     }
 
     pub async fn get_runtime_settings(&self) -> Result<RuntimeSettingsResponse> {
-        Ok(self
-            .db
-            .get_runtime_settings()
-            .await?
-            .map(runtime_settings_response)
-            .unwrap_or_else(default_runtime_settings_response))
+        let Some(stored) = self.db.get_runtime_settings().await? else {
+            return Ok(default_runtime_settings_response());
+        };
+        let has = self
+            .embedding_secrets
+            .is_present(stored.embedding.api_key.as_deref())
+            .await?;
+        Ok(runtime_settings_response(stored, has))
     }
 
     pub async fn trusted_proxy_enabled(&self) -> Result<bool> {
@@ -75,14 +103,16 @@ impl SettingsService {
         settings_validate::runtime_settings_request(request)?;
 
         let existing = self.db.get_runtime_settings().await?;
-        let api_key =
-            if let Some(api_key) = normalize_optional_string(request.embedding.api_key.clone()) {
-                Some(api_key)
-            } else {
+        let patch = optional_key_patch(request.embedding.api_key.clone());
+        let api_key = self
+            .embedding_secrets
+            .resolve_and_merge(
+                &patch,
                 existing
                     .as_ref()
-                    .and_then(|settings| settings.embedding.api_key.clone())
-            };
+                    .and_then(|settings| settings.embedding.api_key.clone()),
+            )
+            .await?;
         let mut stored = runtime_settings_from_request(request, api_key);
         if let Some(s3) = stored.file_library.s3.as_mut()
             && s3.secret_key.is_empty()
@@ -104,8 +134,15 @@ impl SettingsService {
             .into());
         }
 
+        // Committed only once the candidate is known to be valid, so a rejected
+        // request leaves the stored key as it was.
+        self.embedding_secrets.commit(&patch).await?;
         let saved = self.db.save_runtime_settings(&stored).await?;
-        Ok(runtime_settings_response(saved))
+        let has = self
+            .embedding_secrets
+            .is_present(saved.embedding.api_key.as_deref())
+            .await?;
+        Ok(runtime_settings_response(saved, has))
     }
 
     pub async fn test_s3_connection(
@@ -165,15 +202,19 @@ impl SettingsService {
     }
 
     pub async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse> {
-        if let Some(settings) = self.db.get_docling_settings().await? {
-            return Ok(response_from_stored(
-                DoclingSettingsSource::Database,
-                true,
-                settings,
-            ));
-        }
-
-        Ok(unconfigured_docling_response())
+        let Some(settings) = self.db.get_docling_settings().await? else {
+            return Ok(unconfigured_docling_response());
+        };
+        let has = self
+            .docling_secrets
+            .is_present(settings.api_key.as_deref())
+            .await?;
+        Ok(response_from_stored(
+            DoclingSettingsSource::Database,
+            true,
+            settings,
+            has,
+        ))
     }
 
     pub async fn update_docling_settings(
@@ -183,37 +224,49 @@ impl SettingsService {
         settings_validate::docling_request(request)?;
 
         let existing = self.db.get_docling_settings().await?;
-        let openai_base_url = normalize_optional_string(request.vlm.openai_base_url.clone());
-        let merged_api_key =
-            if let Some(api_key) = normalize_optional_string(request.vlm.api_key.clone()) {
-                Some(api_key)
-            } else if openai_base_url.is_some() {
-                existing
-                    .as_ref()
-                    .and_then(|settings| settings.api_key.clone())
-            } else {
-                None
-            };
-
-        let candidate = docling_settings_from_request(request, merged_api_key);
-        validate_docling_vlm_shape(&candidate)?;
+        let patch = docling_vlm_patch(
+            request.vlm.api_key.clone(),
+            normalize_optional_string(request.vlm.openai_base_url.clone()).is_some(),
+        );
+        let candidate = self
+            .docling_secrets
+            .stage(
+                &patch,
+                existing.and_then(|s| s.api_key),
+                |api_key| docling_settings_from_request(request, api_key),
+                validate_docling_vlm_shape,
+            )
+            .await?;
 
         let settings = self.db.save_docling_settings(&candidate).await?;
         if let Some(observer) = &self.docling_settings_observer {
             observer();
         }
+        let has = self
+            .docling_secrets
+            .is_present(settings.api_key.as_deref())
+            .await?;
         Ok(response_from_stored(
             DoclingSettingsSource::Database,
             true,
             settings,
+            has,
         ))
     }
 
+    /// The Docling runtime config, with the API key resolved through the store.
+    ///
+    /// The value is handed to the provider in memory and is never logged, put in
+    /// a task payload, or returned by an API.
     pub async fn resolve_docling_config(&self) -> Result<Option<DoclingConfig>> {
         let Some(settings) = self.db.get_docling_settings().await? else {
             return Ok(None);
         };
-        Ok(Some(config_from_stored(settings)))
+        let api_key = self
+            .docling_secrets
+            .resolve(settings.api_key.clone())
+            .await?;
+        Ok(Some(config_from_stored(settings, api_key)))
     }
 
     pub async fn get_search_settings(&self) -> Result<SearchSettingsResponse> {
@@ -222,7 +275,12 @@ impl SettingsService {
             .get_search_settings()
             .await?
             .unwrap_or_else(default_search_settings);
-        Ok(search_response_from_stored(settings))
+        // Presence only: a settings projection never opens the stored key.
+        let has = self
+            .search_secrets
+            .is_present(settings.api_key.as_deref())
+            .await?;
+        Ok(search_response_from_stored(settings, has))
     }
 
     pub async fn update_search_settings(
@@ -232,18 +290,22 @@ impl SettingsService {
         settings_validate::canonical_search_request(request)?;
 
         let existing = self.db.get_search_settings().await?;
-        let merged_api_key = merge_search_api_key(
-            &request.api_key,
-            existing
-                .as_ref()
-                .and_then(|settings| settings.api_key.clone()),
-        );
-
-        let candidate = canonical_search_settings_from_request(request, merged_api_key);
-        settings_validate::stored_search_settings(&candidate)?;
+        let candidate = self
+            .search_secrets
+            .stage(
+                &request.api_key,
+                existing.and_then(|s| s.api_key),
+                |api_key| canonical_search_settings_from_request(request, api_key),
+                settings_validate::stored_search_settings,
+            )
+            .await?;
 
         let settings = self.db.save_search_settings(&candidate).await?;
-        Ok(search_response_from_stored(settings))
+        let has = self
+            .search_secrets
+            .is_present(settings.api_key.as_deref())
+            .await?;
+        Ok(search_response_from_stored(settings, has))
     }
 
     /// Legacy wire-compat entry: validates and maps through the legacy
@@ -257,127 +319,23 @@ impl SettingsService {
 
         let existing = self.db.get_search_settings().await?;
         let canonical = CanonicalUpdateSearchSettingsRequest::from(request.clone());
-        let merged_api_key = merge_search_api_key(
-            &canonical.api_key,
-            existing.as_ref().and_then(|settings| settings.api_key.clone()),
-        );
-
-        let candidate = search_settings_from_request(request, merged_api_key);
-        settings_validate::stored_search_settings(&candidate)?;
+        let candidate = self
+            .search_secrets
+            .stage(
+                &canonical.api_key,
+                existing.and_then(|s| s.api_key),
+                |api_key| search_settings_from_request(request, api_key),
+                settings_validate::stored_search_settings,
+            )
+            .await?;
 
         let settings = self.db.save_search_settings(&candidate).await?;
-        Ok(search_response_from_stored(settings))
+        let has = self
+            .search_secrets
+            .is_present(settings.api_key.as_deref())
+            .await?;
+        Ok(search_response_from_stored(settings, has))
     }
-
-    pub async fn resolve_search_settings(&self) -> Result<StoredSearchSettings> {
-        Ok(self
-            .db
-            .get_search_settings()
-            .await?
-            .unwrap_or_else(default_search_settings))
-    }
-}
-
-pub(crate) fn merge_search_api_key(
-    patch: &SecretPatch,
-    existing: Option<String>,
-) -> Option<String> {
-    match patch {
-        SecretPatch::Clear => None,
-        SecretPatch::Set(value) => normalize_optional_string(Some(value.clone())).or(existing),
-        SecretPatch::Keep => existing,
-    }
-}
-
-fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> Result<()> {
-    let openai_base_url = settings
-        .openai_base_url
-        .as_deref()
-        .filter(|value| !value.trim().is_empty());
-    let api_key = settings
-        .api_key
-        .as_deref()
-        .filter(|value| !value.trim().is_empty());
-    let vlm_pipeline_model = settings
-        .vlm_pipeline_model
-        .as_deref()
-        .filter(|value| !value.trim().is_empty());
-    let picture_description_model = settings
-        .picture_description_model
-        .as_deref()
-        .filter(|value| !value.trim().is_empty());
-    let code_formula_model = settings
-        .code_formula_model
-        .as_deref()
-        .filter(|value| !value.trim().is_empty());
-    let picture_description_preset = settings
-        .picture_description_preset
-        .as_deref()
-        .filter(|value| !value.trim().is_empty());
-
-    // Preset-only configuration: the picture-description preset is a
-    // self-contained server-side selection and must not coexist with the
-    // legacy OpenAI bundle. The ingest path forwards `picture_description_preset`
-    // to the 0.3.3 Docling converter regardless of the VLM runtime path.
-    if picture_description_preset.is_some() {
-        if openai_base_url.is_some()
-            || api_key.is_some()
-            || vlm_pipeline_model.is_some()
-            || picture_description_model.is_some()
-            || code_formula_model.is_some()
-        {
-            return Err(DomainError::invalid_argument(
-                "docling.vlm.picture_description_preset must not be combined with the legacy OpenAI VLM bundle (openai_base_url, api_key, vlm_pipeline_model, picture_description_model, code_formula_model)",
-            )
-            .into());
-        }
-        return Ok(());
-    }
-
-    let raw_auth_count = [openai_base_url, api_key]
-        .into_iter()
-        .filter(Option::is_some)
-        .count();
-    if raw_auth_count == 1 {
-        return Err(DomainError::invalid_argument(
-            "docling.vlm.openai_base_url and docling.vlm.api_key must be configured together",
-        )
-        .into());
-    }
-
-    let model_count = [
-        vlm_pipeline_model,
-        picture_description_model,
-        code_formula_model,
-    ]
-    .into_iter()
-    .filter(Option::is_some)
-    .count();
-    if model_count != 0 && model_count != 3 {
-        return Err(DomainError::invalid_argument(
-            "docling.vlm model fields must be fully configured together: vlm_pipeline_model, picture_description_model, code_formula_model",
-        )
-        .into());
-    }
-
-    let auth_configured = raw_auth_count == 2;
-    if !auth_configured && model_count == 0 {
-        return Ok(());
-    }
-    if !auth_configured {
-        return Err(DomainError::invalid_argument(
-            "docling.vlm.openai_base_url and docling.vlm.api_key are required when Docling VLM models are configured",
-        )
-        .into());
-    }
-    if model_count == 0 {
-        return Err(DomainError::invalid_argument(
-            "docling.vlm.vlm_pipeline_model, docling.vlm.picture_description_model, and docling.vlm.code_formula_model are required when Docling VLM is configured",
-        )
-        .into());
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -489,12 +447,24 @@ mod tests {
         settings.openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
         settings.api_key = Some("secret".to_string());
 
-        let response = response_from_stored(DoclingSettingsSource::Database, true, settings);
+        let response = response_from_stored(
+            DoclingSettingsSource::Database,
+            true,
+            settings.clone(),
+            settings.api_key.is_some(),
+        );
         assert_eq!(
             response.vlm.openai_base_url.as_deref(),
             Some("https://openrouter.ai/api/v1")
         );
         assert!(response.vlm.has_api_key);
+        // Presence is an input, not a fact about the value, so a response can
+        // report a key it is deliberately not holding open.
+        assert!(
+            !response_from_stored(DoclingSettingsSource::Database, true, settings, false)
+                .vlm
+                .has_api_key
+        );
     }
 
     #[test]
@@ -605,7 +575,7 @@ mod tests {
         let stored = runtime_settings_from_request(&request, None);
         assert!(stored.file_library.trusted_proxy_enabled);
         assert!(
-            runtime_settings_response(stored)
+            runtime_settings_response(stored, false)
                 .file_library
                 .trusted_proxy_enabled
         );
@@ -621,9 +591,10 @@ mod tests {
         let mut settings = default_search_settings();
         settings.api_key = Some("secret".to_string());
 
-        let response = search_response_from_stored(settings);
+        let response = search_response_from_stored(settings.clone(), settings.api_key.is_some());
 
         assert!(response.has_api_key);
+        assert!(!search_response_from_stored(settings, false).has_api_key);
     }
 
     fn sample_search_request() -> UpdateSearchSettingsRequest {
@@ -709,7 +680,7 @@ mod tests {
         assert_eq!(stored.keyword_weight, 0.2);
         validate_stored_search_settings(&stored).expect("stored weights should be valid");
 
-        let response = search_response_from_stored(stored.clone());
+        let response = search_response_from_stored(stored.clone(), false);
         assert_eq!(response.vector_weight, 0.6);
         assert_eq!(response.keyword_weight, 0.2);
 
@@ -718,82 +689,6 @@ mod tests {
         let error =
             validate_stored_search_settings(&invalid).expect_err("stored weights should fail");
         assert!(error.to_string().contains("sum above 1"));
-    }
-
-    #[test]
-    fn canonical_search_tri_state_keep_set_clear() {
-        use crate::contracts::{CanonicalUpdateSearchSettingsRequest, SecretPatch};
-
-        fn canonical(patch: SecretPatch) -> CanonicalUpdateSearchSettingsRequest {
-            CanonicalUpdateSearchSettingsRequest {
-                mode: crate::contracts::SearchMode::Hybrid,
-                rerank_enabled: true,
-                rerank_base_url: "https://openrouter.ai/api/v1".to_string(),
-                rerank_model: "cohere/rerank-4-fast".to_string(),
-                candidate_limit: 40,
-                timeout_secs: 10,
-                api_key: patch,
-                vector_weight: context69_contracts::settings::SEARCH_VECTOR_WEIGHT_DEFAULT,
-                keyword_weight: context69_contracts::settings::SEARCH_KEYWORD_WEIGHT_DEFAULT,
-            }
-        }
-
-        // Validation accepts all three tri-states.
-        for patch in [
-            SecretPatch::Keep,
-            SecretPatch::Set("new-secret".to_string()),
-            SecretPatch::Clear,
-        ] {
-            super::validate::canonical_search_request(&canonical(patch))
-                .expect("canonical tri-state validates");
-        }
-
-        // Merge preserves keep/set/clear without behavior change.
-        assert_eq!(
-            super::merge_search_api_key(&SecretPatch::Keep, Some("old".to_string())),
-            Some("old".to_string())
-        );
-        assert_eq!(
-            super::merge_search_api_key(
-                &SecretPatch::Set("new".to_string()),
-                Some("old".to_string())
-            ),
-            Some("new".to_string())
-        );
-        assert_eq!(
-            super::merge_search_api_key(&SecretPatch::Clear, Some("old".to_string())),
-            None
-        );
-        // Blank Set normalizes to Keep (legacy whitespace parity).
-        assert_eq!(
-            super::merge_search_api_key(
-                &SecretPatch::Set("  ".to_string()),
-                Some("old".to_string())
-            ),
-            Some("old".to_string())
-        );
-
-        // Legacy dual flags convert to the same tri-state.
-        let mut legacy_keep = sample_search_request();
-        legacy_keep.api_key = None;
-        legacy_keep.clear_api_key = false;
-        assert_eq!(
-            CanonicalUpdateSearchSettingsRequest::from(legacy_keep).api_key,
-            SecretPatch::Keep
-        );
-        let mut legacy_set = sample_search_request();
-        legacy_set.api_key = Some("new-secret".to_string());
-        assert_eq!(
-            CanonicalUpdateSearchSettingsRequest::from(legacy_set).api_key,
-            SecretPatch::Set("new-secret".to_string())
-        );
-        let mut legacy_clear = sample_search_request();
-        legacy_clear.clear_api_key = true;
-        legacy_clear.api_key = Some("ignored".to_string());
-        assert_eq!(
-            CanonicalUpdateSearchSettingsRequest::from(legacy_clear).api_key,
-            SecretPatch::Clear
-        );
     }
 
     #[test]
@@ -811,14 +706,14 @@ mod tests {
             "settings mapper must persist picture_description_preset from request to stored"
         );
 
-        let config = config_from_stored(stored.clone());
+        let config = config_from_stored(stored.clone(), None);
         assert_eq!(
             config.vlm.picture_description_preset.as_deref(),
             Some("smolvlm"),
             "stored -> runtime config must surface picture_description_preset"
         );
 
-        let response = response_from_stored(DoclingSettingsSource::Database, true, stored);
+        let response = response_from_stored(DoclingSettingsSource::Database, true, stored, false);
         assert_eq!(
             response.vlm.picture_description_preset.as_deref(),
             Some("smolvlm"),
@@ -950,10 +845,11 @@ mod tests {
         let stored = docling_settings_from_request(&request, None);
         assert_eq!(stored.max_inflight, 3);
 
-        let response = response_from_stored(DoclingSettingsSource::Database, true, stored.clone());
+        let response =
+            response_from_stored(DoclingSettingsSource::Database, true, stored.clone(), false);
         assert_eq!(response.connection.max_inflight, 3);
 
-        let config = config_from_stored(stored);
+        let config = config_from_stored(stored, None);
         assert_eq!(config.connection.max_inflight, 3);
     }
 

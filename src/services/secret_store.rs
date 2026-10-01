@@ -18,12 +18,17 @@ pub use context69_secret_store::{
 
 use crate::{config::SecretStoreConfig, db::Database};
 
-/// Builds the application's store over the existing pool.
+/// Builds a store handle from deployment configuration.
+///
+/// Several handles onto one configuration are expected — the application, the
+/// services that need one at construction time, a background task — so this
+/// neither warns nor allocates anything the caller cannot see. Reporting the
+/// unconfigured state once per process is
+/// [`crate::services::app::config_hydration`]'s job.
 ///
 /// The master key is a deployment input, so it is read from configuration here
 /// and handed to the cipher; it is never written to PostgreSQL, a log line, an
-/// error, or a response. The leaf's own `warn!` reports the unconfigured state
-/// once, at construction.
+/// error, or a response.
 ///
 /// # Errors
 ///
@@ -35,4 +40,16 @@ pub fn build(db: &Database, config: &SecretStoreConfig) -> Result<SecretStore, S
         config.master_key.as_deref(),
         config.key_version,
     )
+}
+
+/// A store handle with no master key, for a caller that has no deployment
+/// configuration to hand.
+///
+/// Secrets then round-trip in the legacy plaintext representation and are read
+/// back from their legacy column, which is exactly the behaviour of a
+/// deployment that has not configured a key. It is the same code path, not a
+/// bypass, so a caller that only has a pool still goes through the store.
+pub fn build_unkeyed(db: &Database) -> SecretStore {
+    build(db, &SecretStoreConfig::default())
+        .expect("a store with no master key cannot fail to build")
 }

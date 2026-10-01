@@ -12,6 +12,7 @@ use crate::{
         DEFAULT_DOCLING_TASK_TIMEOUT_SECS, DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig,
         DoclingConnectionConfig, DoclingVlmConfig,
     },
+    domain_errors::DomainError,
     support::normalize::{normalize_optional_string, normalize_string_list},
 };
 
@@ -95,8 +96,12 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
     }
 }
 
+/// `has_api_key` is passed in rather than derived from the stored value: during
+/// the transition the value may live only in the encrypted store, and presence
+/// has to be answerable without opening it.
 pub(super) fn search_response_from_stored(
     settings: StoredSearchSettings,
+    has_api_key: bool,
 ) -> SearchSettingsResponse {
     SearchSettingsResponse {
         mode: settings.mode,
@@ -105,19 +110,19 @@ pub(super) fn search_response_from_stored(
         rerank_model: settings.rerank_model,
         candidate_limit: settings.candidate_limit,
         timeout_secs: settings.timeout_secs,
-        has_api_key: settings
-            .api_key
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty()),
+        has_api_key,
         vector_weight: settings.vector_weight,
         keyword_weight: settings.keyword_weight,
     }
 }
 
+/// `has_api_key` is passed in rather than derived from the stored value, for the
+/// same reason as [`search_response_from_stored`].
 pub(super) fn response_from_stored(
     source: DoclingSettingsSource,
     configured: bool,
     settings: StoredDoclingSettings,
+    has_api_key: bool,
 ) -> DoclingSettingsResponse {
     DoclingSettingsResponse {
         configured,
@@ -131,10 +136,7 @@ pub(super) fn response_from_stored(
         },
         vlm: DoclingVlmSettingsResponse {
             openai_base_url: settings.openai_base_url,
-            has_api_key: settings
-                .api_key
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty()),
+            has_api_key,
             vlm_pipeline_model: settings.vlm_pipeline_model,
             picture_description_model: settings.picture_description_model,
             code_formula_model: settings.code_formula_model,
@@ -143,7 +145,13 @@ pub(super) fn response_from_stored(
     }
 }
 
-pub(super) fn config_from_stored(settings: StoredDoclingSettings) -> DoclingConfig {
+/// The runtime Docling config, with the API key supplied by the caller because
+/// during the transition it is resolved through the shared store rather than
+/// read from the legacy column.
+pub(super) fn config_from_stored(
+    settings: StoredDoclingSettings,
+    api_key: Option<String>,
+) -> DoclingConfig {
     DoclingConfig {
         connection: DoclingConnectionConfig {
             base_url: settings.base_url,
@@ -154,11 +162,105 @@ pub(super) fn config_from_stored(settings: StoredDoclingSettings) -> DoclingConf
         },
         vlm: DoclingVlmConfig {
             openai_base_url: settings.openai_base_url,
-            api_key: settings.api_key,
+            api_key,
             vlm_pipeline_model: settings.vlm_pipeline_model,
             picture_description_model: settings.picture_description_model,
             code_formula_model: settings.code_formula_model,
             picture_description_preset: settings.picture_description_preset,
         },
     }
+}
+
+/// A stored Docling VLM bundle must be whole: the credential pair and the model
+/// trio are each all-or-nothing, and the preset selection is exclusive with the
+/// legacy bundle.
+pub(super) fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> anyhow::Result<()> {
+    let openai_base_url = settings
+        .openai_base_url
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let api_key = settings
+        .api_key
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let vlm_pipeline_model = settings
+        .vlm_pipeline_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let picture_description_model = settings
+        .picture_description_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let code_formula_model = settings
+        .code_formula_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let picture_description_preset = settings
+        .picture_description_preset
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+
+    // Preset-only configuration: the picture-description preset is a
+    // self-contained server-side selection and must not coexist with the
+    // legacy OpenAI bundle. The ingest path forwards `picture_description_preset`
+    // to the 0.3.3 Docling converter regardless of the VLM runtime path.
+    if picture_description_preset.is_some() {
+        if openai_base_url.is_some()
+            || api_key.is_some()
+            || vlm_pipeline_model.is_some()
+            || picture_description_model.is_some()
+            || code_formula_model.is_some()
+        {
+            return Err(DomainError::invalid_argument(
+                "docling.vlm.picture_description_preset must not be combined with the legacy OpenAI VLM bundle (openai_base_url, api_key, vlm_pipeline_model, picture_description_model, code_formula_model)",
+            )
+            .into());
+        }
+        return Ok(());
+    }
+
+    let raw_auth_count = [openai_base_url, api_key]
+        .into_iter()
+        .filter(Option::is_some)
+        .count();
+    if raw_auth_count == 1 {
+        return Err(DomainError::invalid_argument(
+            "docling.vlm.openai_base_url and docling.vlm.api_key must be configured together",
+        )
+        .into());
+    }
+
+    let model_count = [
+        vlm_pipeline_model,
+        picture_description_model,
+        code_formula_model,
+    ]
+    .into_iter()
+    .filter(Option::is_some)
+    .count();
+    if model_count != 0 && model_count != 3 {
+        return Err(DomainError::invalid_argument(
+            "docling.vlm model fields must be fully configured together: vlm_pipeline_model, picture_description_model, code_formula_model",
+        )
+        .into());
+    }
+
+    let auth_configured = raw_auth_count == 2;
+    if !auth_configured && model_count == 0 {
+        return Ok(());
+    }
+    if !auth_configured {
+        return Err(DomainError::invalid_argument(
+            "docling.vlm.openai_base_url and docling.vlm.api_key are required when Docling VLM models are configured",
+        )
+        .into());
+    }
+    if model_count == 0 {
+        return Err(DomainError::invalid_argument(
+            "docling.vlm.vlm_pipeline_model, docling.vlm.picture_description_model, and docling.vlm.code_formula_model are required when Docling VLM is configured",
+        )
+        .into());
+    }
+
+    Ok(())
 }
