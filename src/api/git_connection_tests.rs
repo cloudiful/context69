@@ -42,6 +42,10 @@ fn stored_connection(
         base_url: "https://api.github.com".to_string(),
         credential_secret_key: credential_secret_key.map(str::to_string),
         webhook_secret_key: webhook_secret_key.map(str::to_string),
+        // An App key is its own purpose-bound secret. It is never projected, so
+        // the fixture carries a reference only so the projection can be shown to
+        // drop it.
+        app_private_key_secret_key: Some("github_app.private_key.g42.referenced".to_string()),
         disabled_at,
         created_at: now,
         updated_at: now,
@@ -84,7 +88,15 @@ fn connection_projection_reports_presence_not_secret_references() {
         !serialized.contains("internal/secret"),
         "secret-store references must never cross the API: {serialized}"
     );
-    for forbidden in ["credential_secret_key", "webhook_secret_key"] {
+    for forbidden in [
+        "credential_secret_key",
+        "webhook_secret_key",
+        // Purpose separation adds the App key's own reference without adding a
+        // contract field for it, so it is not projected either.
+        "app_private_key_secret_key",
+        "github_app.private_key",
+        "has_app_private_key",
+    ] {
         assert!(
             !serialized.contains(forbidden),
             "secret key name must not be projected: {forbidden}"
@@ -109,6 +121,36 @@ fn connection_projection_marks_absent_secrets_and_disabled() {
     assert!(!contract.has_read_credential);
     assert!(!contract.has_webhook_secret);
     assert!(contract.disabled);
+}
+
+#[test]
+fn a_stored_app_private_key_never_becomes_a_contract_field() {
+    // The connection carries an App key reference, and the projection still
+    // reports only the two established flags: presence of the App key is
+    // deliberately not a contract boolean in this phase.
+    let stored = stored_connection(None, None, None);
+    assert!(
+        stored.app_private_key_secret_key.is_some(),
+        "the fixture must actually carry the reference this test relies on"
+    );
+    let contract = stored.to_contract();
+    let serialized = serde_json::to_string(&contract).expect("contract serializes");
+
+    assert!(!contract.has_read_credential && !contract.has_webhook_secret);
+    assert!(
+        !serialized.contains("app_private_key") && !serialized.contains("github_app"),
+        "no App-key detail or flag may cross the API: {serialized}"
+    );
+    let object = serde_json::from_str::<Value>(&serialized)
+        .expect("valid json")
+        .as_object()
+        .expect("object")
+        .clone();
+    assert!(
+        !object.keys().any(|key| key.contains("app_private")),
+        "the contract gained no App-key field: {:?}",
+        object.keys().collect::<Vec<_>>()
+    );
 }
 
 #[test]

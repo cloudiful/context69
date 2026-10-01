@@ -1,3 +1,11 @@
+-- Registers or updates a connection's non-secret metadata and its legacy
+-- credential/webhook references.
+--
+-- `app_private_key_secret_key` is projected but deliberately absent from both
+-- the column list and the conflict clause: it is a separate secret with its own
+-- purpose, and only the narrow reference statement may move it. Leaving it out
+-- of the update is what keeps a metadata save from clearing a reference a
+-- writer has already established.
 WITH upserted AS (
     INSERT INTO context69.git_provider_connections (
         group_id,
@@ -28,6 +36,7 @@ WITH upserted AS (
         base_url,
         credential_secret_key,
         webhook_secret_key,
+        app_private_key_secret_key,
         disabled_at,
         created_at,
         updated_at
@@ -41,6 +50,7 @@ SELECT
     upserted.base_url,
     upserted.credential_secret_key,
     upserted.webhook_secret_key,
+    upserted.app_private_key_secret_key,
     upserted.disabled_at,
     upserted.created_at,
     upserted.updated_at,

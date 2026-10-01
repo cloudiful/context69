@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Narrows the GitHub App private-key reference of one group-owned connection.\n--\n-- The App key is its own secret with its own purpose and lifecycle, so it moves\n-- on its own reference column and is never carried in a broad connection\n-- update. `disabled_at` is left alone for the same reason the credential\n-- reference is: sealing a key is not a lifecycle change, and this statement\n-- must not re-enable a disabled connection.\n--\n-- The write is conditional on the owning group, so a connection of another\n-- group matches no row and the caller learns the update did not land.\nUPDATE context69.git_provider_connections\nSET app_private_key_secret_key = $3,\n    updated_at = now()\nWHERE group_id = $1\n  AND connection_key = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7eda308e05522920c5a896a3594ee1120fd16844e6aaf4905236f28bb27a1d3e"
+}

@@ -72,6 +72,52 @@ impl Database {
             .collect()
     }
 
+    /// Narrows the read-credential reference of one connection owned by
+    /// `group_id`, reporting whether a row matched.
+    ///
+    /// The broad connection upsert is not reused here: its conflict clause
+    /// clears `disabled_at`, so rotating a credential through it would re-enable
+    /// a disabled connection. This statement moves the reference alone.
+    pub async fn set_git_connection_credential_secret_key(
+        &self,
+        group_id: i64,
+        connection_key: &str,
+        secret_key: &str,
+    ) -> Result<bool> {
+        let result = sqlx::query_file!(
+            "src/sql/db/git_repositories/set_git_connection_credential_secret_key.sql",
+            group_id,
+            connection_key,
+            secret_key
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Narrows the GitHub App private-key reference of one connection owned by
+    /// `group_id`, reporting whether a row matched.
+    ///
+    /// Separate from the credential reference because the App key is a distinct
+    /// secret with a distinct purpose, and separate from the broad upsert for
+    /// the same `disabled_at` reason as the credential reference.
+    pub async fn set_git_connection_app_private_key_secret_key(
+        &self,
+        group_id: i64,
+        connection_key: &str,
+        secret_key: &str,
+    ) -> Result<bool> {
+        let result = sqlx::query_file!(
+            "src/sql/db/git_repositories/set_git_connection_app_private_key_secret_key.sql",
+            group_id,
+            connection_key,
+            secret_key
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Disables a connection owned by `group_id`, reporting whether a row
     /// matched. A connection of another group never matches.
     pub async fn disable_git_provider_connection(
@@ -87,5 +133,268 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() > 0)
+    }
+}
+
+#[cfg(test)]
+mod secret_reference_tests {
+    //! The two narrow connection statements against a disposable database.
+    //!
+    //! These drive [`crate::services::git_secrets::GitSecretWriter`] rather than
+    //! calling the statements directly, because the property under test is the
+    //! pair of them: a value is sealed under its own purpose *before* the
+    //! reference moves, so a rotation that matches no row can only orphan a
+    //! sealed row, never clear the reference already in place.
+
+    use crate::{
+        contracts::sources::{GitConnectionMode, GitProviderKind},
+        db::{Database, NewGitProviderConnection, StoredGitProviderConnection},
+        services::{
+            git_secrets::{GitSecretSlot, GitSecretTarget, GitSecretWrite, GitSecretWriter},
+            secret_store::{SecretPurpose, SecretStore, SecretStoreError},
+        },
+    };
+    use sqlx::Row;
+    use uuid::Uuid;
+
+    const CONNECTION_KEY: &str = "github-app";
+    /// Synthetic, and only ever compared against: no deployment credential.
+    const TOKEN: &[u8] = b"token-bytes";
+    const APP_KEY: &[u8] = b"pem-bytes";
+    /// A group id that owns no connection at all, so an update matches no row.
+    const UNOWNED_GROUP: i64 = 9_999_999;
+
+    /// One group, one disabled connection, and a keyed store over the scratch
+    /// pool. Skipped unless `CONTEXT69_TEST_DATABASE_URL` names a migrated
+    /// disposable database; rows use a fresh UUID each run and never collide.
+    async fn fixture() -> Option<(Database, i64, SecretStore)> {
+        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
+        let db = Database::connect(&url)
+            .await
+            .expect("connect test database");
+        let key = format!("git-secret-{}", Uuid::new_v4());
+        let group_id: i64 = sqlx::query(
+            "INSERT INTO context69.groups (group_key, name, visibility, kind, full_path) \
+             VALUES ($1, 'Git Secret Test', 'private', 'shared', $2) RETURNING id",
+        )
+        .bind(&key)
+        .bind(format!("/{key}"))
+        .fetch_one(db.pool())
+        .await
+        .expect("seed group")
+        .get("id");
+        db.upsert_git_provider_connection(
+            group_id,
+            &NewGitProviderConnection {
+                connection_key: CONNECTION_KEY.to_string(),
+                provider: GitProviderKind::GitHub,
+                mode: GitConnectionMode::Installation,
+                display_name: "GitHub App".to_string(),
+                base_url: "https://api.github.com".to_string(),
+                credential_secret_key: None,
+                webhook_secret_key: None,
+            },
+        )
+        .await
+        .expect("seed connection");
+        assert!(
+            db.disable_git_provider_connection(group_id, CONNECTION_KEY)
+                .await
+                .expect("disable connection")
+        );
+        // A per-run key, so nothing here is a credential of any deployment.
+        let master_key = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            Uuid::new_v4().into_bytes().repeat(2),
+        );
+        let store = SecretStore::new(
+            context69_secret_store::SecretDatabase::new(db.pool().clone()),
+            Some(master_key.as_str()),
+            1,
+        )
+        .expect("a store builds from any master key");
+        Some((db, group_id, store))
+    }
+
+    fn target(group_id: i64) -> GitSecretTarget {
+        GitSecretTarget::Connection {
+            group_id,
+            connection_key: CONNECTION_KEY.to_string(),
+        }
+    }
+
+    async fn read(db: &Database, group_id: i64) -> StoredGitProviderConnection {
+        db.get_git_provider_connection(group_id, CONNECTION_KEY)
+            .await
+            .expect("read the connection")
+            .expect("the connection is still there")
+    }
+
+    async fn seal(
+        writer: &GitSecretWriter,
+        group_id: i64,
+        slot: GitSecretSlot,
+        value: &[u8],
+    ) -> String {
+        match writer
+            .write(&target(group_id), slot, Some(value))
+            .await
+            .unwrap_or_else(|error| panic!("seal {slot:?}: {error}"))
+        {
+            GitSecretWrite::Stored(name) => name.as_str().to_string(),
+            GitSecretWrite::Kept => panic!("a value is stored, not kept"),
+        }
+    }
+
+    /// Both connection slots reach their own column under their own purpose, a
+    /// disabled connection stays disabled, `None` and empty bytes keep what is
+    /// there, and a no-match reference update leaves the owner's row untouched.
+    #[tokio::test]
+    async fn a_connection_rotation_moves_one_reference_and_preserves_disabled_state() {
+        let Some((db, group_id, store)) = fixture().await else {
+            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the writer round trip");
+            return;
+        };
+        let writer = GitSecretWriter::new(db.clone(), store.clone());
+        let credential = seal(&writer, group_id, GitSecretSlot::Credential, TOKEN).await;
+        let app_key = seal(&writer, group_id, GitSecretSlot::AppPrivateKey, APP_KEY).await;
+        let row = read(&db, group_id).await;
+        assert_eq!(
+            row.credential_secret_key.as_deref(),
+            Some(credential.as_str())
+        );
+        assert_eq!(
+            row.app_private_key_secret_key.as_deref(),
+            Some(app_key.as_str())
+        );
+        assert_ne!(credential, app_key, "each slot has its own key name");
+        assert!(
+            row.webhook_secret_key.is_none(),
+            "a credential or App key never reaches the legacy webhook column"
+        );
+        assert!(
+            row.disabled_at.is_some(),
+            "a rotation must not re-enable a connection an operator disabled"
+        );
+        // Each value is sealed under its own purpose.
+        for (purpose, key, value) in [
+            (SecretPurpose::GitProviderToken, &credential, TOKEN),
+            (SecretPurpose::GitHubAppPrivateKey, &app_key, APP_KEY),
+        ] {
+            assert_eq!(
+                store
+                    .get(purpose, key)
+                    .await
+                    .expect("open the sealed value")
+                    .expect("it is stored")
+                    .expose(),
+                value,
+                "the value is in the store immediately, under its own purpose"
+            );
+        }
+        // Keep: an absent value and an empty one change neither side.
+        for keep in [None, Some(&b""[..])] {
+            assert_eq!(
+                writer
+                    .write(&target(group_id), GitSecretSlot::Credential, keep)
+                    .await
+                    .expect("keep"),
+                GitSecretWrite::Kept,
+                "an absent or empty value must not clear what is stored"
+            );
+        }
+        assert_eq!(
+            read(&db, group_id).await.credential_secret_key,
+            Some(credential.clone())
+        );
+        assert_eq!(
+            store
+                .get(SecretPurpose::GitProviderToken, &credential)
+                .await
+                .expect("open the sealed value")
+                .expect("it is stored")
+                .expose(),
+            TOKEN
+        );
+
+        // A write aimed at a group that owns no such record seals that group's own
+        // key name and matches no row: the bounded failure is an orphan, never a
+        // loss, and the owner's reference and value both survive.
+        let error = writer
+            .write(
+                &target(UNOWNED_GROUP),
+                GitSecretSlot::Credential,
+                Some(b"orphan-bytes"),
+            )
+            .await
+            .expect_err("no connection of that group is updated");
+        let message = error.to_string();
+        assert!(
+            message.contains("git_provider.token") && message.contains("credential_secret_key"),
+            "{message}"
+        );
+        for forbidden in ["orphan-bytes", "token-bytes", CONNECTION_KEY, &credential] {
+            assert!(
+                !message.contains(forbidden),
+                "the failure carries no value or record key: {message}"
+            );
+        }
+        let survivor = read(&db, group_id).await;
+        assert_eq!(
+            survivor.credential_secret_key.as_deref(),
+            Some(credential.as_str()),
+            "a failed reference update never clears the reference already in place"
+        );
+        assert!(
+            survivor.disabled_at.is_some(),
+            "and it never re-enables the connection"
+        );
+
+        // Last, because it re-seals a throwaway: a row whose stored purpose is the
+        // App key is refused by a read of the same key name under the credential
+        // purpose, so the two cannot reach each other's bytes even when the
+        // names match. The frame authenticates the purpose as well as the name.
+        store
+            .write(SecretPurpose::GitProviderToken, &app_key, APP_KEY)
+            .await
+            .expect("seal App-key bytes under a credential read's key name");
+        let crossed = store
+            .get(SecretPurpose::GitHubAppPrivateKey, &app_key)
+            .await;
+        assert!(
+            matches!(crossed, Err(SecretStoreError::PurposeMismatch)),
+            "a value sealed for one purpose is refused, not answered, as another"
+        );
+    }
+
+    /// The statements are conditional on the owning group, so a reference can
+    /// only ever move inside the group that owns the connection.
+    #[tokio::test]
+    async fn a_connection_reference_move_is_group_confined() {
+        let Some((db, group_id, _)) = fixture().await else {
+            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the confinement case");
+            return;
+        };
+        for (owner, key) in [
+            (UNOWNED_GROUP, CONNECTION_KEY),
+            (group_id, "no-such-connection"),
+        ] {
+            assert!(
+                !db.set_git_connection_credential_secret_key(owner, key, "k")
+                    .await
+                    .expect("run the statement"),
+                "no row of another group and no unknown key may match: {owner}/{key}"
+            );
+        }
+        assert!(
+            !db.set_git_connection_app_private_key_secret_key(UNOWNED_GROUP, CONNECTION_KEY, "k")
+                .await
+                .expect("run the statement")
+        );
+        assert_eq!(
+            read(&db, group_id).await.credential_secret_key,
+            None,
+            "a statement that matched nothing moved nothing"
+        );
     }
 }

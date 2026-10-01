@@ -42,6 +42,8 @@ mod webhooks;
 mod file_schema_tests;
 #[cfg(test)]
 mod schema_tests;
+#[cfg(test)]
+mod secret_schema_tests;
 
 pub use file_types::{
     GitChunkReplacement, GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE,

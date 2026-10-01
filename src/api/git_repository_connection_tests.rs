@@ -52,6 +52,7 @@ fn connection(
         base_url: "https://api.github.com".to_string(),
         credential_secret_key: Some("internal/secret/read-token".to_string()),
         webhook_secret_key: Some("internal/secret/hook-signing".to_string()),
+        app_private_key_secret_key: Some("github_app.private_key.g42.app".to_string()),
         disabled_at,
         created_at: now,
         updated_at: now,
@@ -209,6 +210,10 @@ fn attach_returns_a_projection_without_connection_secrets() {
         "credential_secret_key",
         "webhook_secret_key",
         "has_read_credential",
+        // The App private key is a separate purpose with no contract field, so an
+        // attach projection cannot leak it either.
+        "app_private_key_secret_key",
+        "github_app.private_key",
     ] {
         assert!(
             !serialized.contains(forbidden),

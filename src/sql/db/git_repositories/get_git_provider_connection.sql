@@ -7,6 +7,7 @@ SELECT
     c.base_url,
     c.credential_secret_key,
     c.webhook_secret_key,
+    c.app_private_key_secret_key,
     c.disabled_at,
     c.created_at,
     c.updated_at,

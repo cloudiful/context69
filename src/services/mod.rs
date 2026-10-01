@@ -3,6 +3,7 @@ pub mod auth;
 pub mod document_store;
 pub mod extraction;
 pub mod git_repository;
+pub mod git_secrets;
 pub mod library;
 pub mod namespace;
 pub mod personal_access_tokens;
