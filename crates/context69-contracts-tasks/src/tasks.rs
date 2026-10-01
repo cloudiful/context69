@@ -23,6 +23,7 @@ pub enum TaskKind {
     DeleteBatch,
     Translation,
     VectorRebuild,
+    GitIndex,
 }
 
 impl TaskKind {
@@ -35,6 +36,7 @@ impl TaskKind {
             Self::DeleteBatch => "delete_batch",
             Self::Translation => "translation",
             Self::VectorRebuild => "vector_rebuild",
+            Self::GitIndex => "git_index",
         }
     }
 }

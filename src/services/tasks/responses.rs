@@ -20,6 +20,7 @@ pub(super) fn parse_kind(value: &str) -> Result<TaskKind> {
         "delete_batch" => Ok(TaskKind::DeleteBatch),
         "translation" => Ok(TaskKind::Translation),
         "vector_rebuild" => Ok(TaskKind::VectorRebuild),
+        "git_index" => Ok(TaskKind::GitIndex),
         other => {
             Err(DomainError::invalid_argument(format!("unsupported task kind {other}")).into())
         }
@@ -155,6 +156,7 @@ mod tests {
             TaskKind::DeleteBatch,
             TaskKind::Translation,
             TaskKind::VectorRebuild,
+            TaskKind::GitIndex,
         ] {
             assert_eq!(parse_kind(kind.as_str()).expect("kind"), kind);
         }
