@@ -179,10 +179,34 @@ pub struct StoredRuntimeS3Settings {
     pub secret_key: String,
 }
 
+/// A stored source connection, as the database records it.
+///
+/// `name` is the user-controlled API/display identifier. `connection_key` is the
+/// stable identity this application minted for the connection, and it is what a
+/// sealed database URL is keyed by — never the name, never the DSN.
+/// `database_url` is the legacy plaintext column, still written for the whole
+/// transition; `database_url_secret_key` is the `internal_secrets` row that owns
+/// the value once it has been written through the store, and is NULL until then.
 #[derive(Debug, Clone)]
 pub struct StoredSourceConnection {
     pub name: String,
+    pub connection_key: Uuid,
     pub database_url: String,
+    pub database_url_secret_key: Option<String>,
+}
+
+/// One source connection write.
+///
+/// The caller mints `connection_key` for a new connection and reuses the stored
+/// one otherwise, then seals the database URL under
+/// `database_url_secret_key` before saving, because the reference has to resolve
+/// to a store row that already exists.
+#[derive(Debug, Clone)]
+pub struct NewSourceConnection {
+    pub connection_key: Uuid,
+    pub name: String,
+    pub database_url: String,
+    pub database_url_secret_key: String,
 }
 
 #[derive(Debug, Clone)]

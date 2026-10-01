@@ -228,10 +228,17 @@ pub(super) struct RuntimeFileLibrarySettingsRow {
     pub(super) s3_secret_key: Option<String>,
 }
 
+/// One stored source connection.
+///
+/// `connection_key` is the stable identity the sealed database URL is keyed by,
+/// and `database_url_secret_key` is the `context69.internal_secrets` row that
+/// holds it — NULL while the value is still only in the legacy column.
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct SourceConnectionRow {
     pub(super) name: String,
+    pub(super) connection_key: Uuid,
     pub(super) database_url: String,
+    pub(super) database_url_secret_key: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]

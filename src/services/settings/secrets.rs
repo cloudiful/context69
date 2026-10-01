@@ -1,9 +1,10 @@
-//! Secret handling for the settings API keys.
+//! Secret handling for the settings API keys and the runtime S3 secret key.
 //!
-//! The embedding, search/rerank, and Docling VLM API keys are the first three
-//! categories routed through the shared store. This module is the whole of that
-//! routing, kept out of the settings service so the service does not grow a
-//! second responsibility.
+//! The embedding, search/rerank, and Docling VLM API keys are the categories the
+//! shared store already owns; the runtime S3 secret key joins them here because
+//! it is a settings value with the same keep/clear and presence contract. A
+//! record-scoped category — one secret per source connection — uses the shared
+//! helpers at the bottom of this module with its own key name.
 //!
 //! # The transition contract
 //!
@@ -83,43 +84,39 @@ impl SettingsSecrets {
         )
     }
 
+    /// The runtime S3 secret key.
+    ///
+    /// The access key is an identifier, not a credential, so it stays in the
+    /// settings row with its existing outward behavior.
+    pub fn runtime_s3(store: SecretStore) -> Self {
+        Self::new(
+            store,
+            SecretPurpose::RuntimeS3SecretKey,
+            key_names::RUNTIME_S3_SECRET_KEY,
+        )
+    }
+
     /// The effective value: the store when it holds one, otherwise the legacy
     /// column.
     ///
     /// Fails closed — see the module contract.
     pub async fn resolve(&self, legacy: Option<String>) -> Result<Option<String>> {
-        match self.store.get(self.purpose, self.key_name).await? {
-            Some(stored) => Ok(normalize_optional_string(Some(
-                String::from_utf8_lossy(stored.expose()).into_owned(),
-            ))),
-            None => Ok(normalize_optional_string(legacy)),
-        }
+        resolve_stored_or_legacy(&self.store, self.purpose, self.key_name, legacy).await
     }
 
     /// Whether this category is configured, without opening anything.
     ///
     /// A store row answers for itself, including a sealed row this deployment
-    /// cannot read, so a `has_api_key` response never depends on the master key.
+    /// cannot read, so presence never depends on the master key.
     pub async fn is_present(&self, legacy: Option<&str>) -> Result<bool> {
-        if self
-            .store
-            .has(self.purpose, self.key_name)
-            .await
-            .map_err(|error| self.failure(error))?
-        {
-            return Ok(true);
-        }
-        Ok(normalize_optional_string(legacy.map(str::to_string)).is_some())
+        secret_is_present(&self.store, self.purpose, self.key_name, legacy).await
     }
 
     /// Resolves the current value and folds one tri-state patch onto it.
     ///
-    /// This is the shape every settings write needs: read what is in effect,
-    /// fold the patch onto it, and keep the result. Doing it in one place is
-    /// what keeps a caller from patching a stale value and silently losing a
-    /// credential. Nothing is stored here — [`Self::commit`] does that — so a
-    /// caller can still validate the merged settings before anything is
-    /// written.
+    /// This is the shape every settings write needs: read what is in effect, fold
+    /// the patch onto it, and keep the result. Nothing is stored here — see
+    /// [`Self::stage`] — so a caller can validate the merged settings first.
     pub async fn resolve_and_merge(
         &self,
         patch: &SecretPatch,
@@ -139,8 +136,7 @@ impl SettingsSecrets {
     /// value with the merged key, validates it, and only then commits `patch`.
     ///
     /// The order is the point: a request that fails validation must not change
-    /// the stored key. Every write path shares the sequence, so no call site can
-    /// get it wrong on its own.
+    /// the stored key.
     pub async fn stage<T>(
         &self,
         patch: &SecretPatch,
@@ -198,11 +194,51 @@ pub(crate) fn optional_key_patch(requested: Option<String>) -> SecretPatch {
     }
 }
 
+/// The effective value of one secret: the store when it holds one, otherwise the
+/// legacy column.
+///
+/// The shared read for every purpose, singleton or record-scoped, so the
+/// store-first order and the fail-closed rule exist once. A category that owns no
+/// store row yet keeps its value in the legacy column and never calls this.
+pub(crate) async fn resolve_stored_or_legacy(
+    store: &SecretStore,
+    purpose: SecretPurpose,
+    key_name: &str,
+    legacy: Option<String>,
+) -> Result<Option<String>> {
+    let stored = store
+        .get(purpose, key_name)
+        .await
+        .map_err(|error| secret_error(purpose, error))?;
+    match stored {
+        Some(stored) => Ok(normalize_optional_string(Some(
+            String::from_utf8_lossy(stored.expose()).into_owned(),
+        ))),
+        None => Ok(normalize_optional_string(legacy)),
+    }
+}
+
+/// Whether one secret is stored, without opening it.
+///
+/// A store row answers for itself — including a sealed row this deployment
+/// cannot read — so a presence projection never depends on the master key.
+pub(crate) async fn secret_is_present(
+    store: &SecretStore,
+    purpose: SecretPurpose,
+    key_name: &str,
+    legacy: Option<&str>,
+) -> Result<bool> {
+    let stored = store
+        .has(purpose, key_name)
+        .await
+        .map_err(|error| secret_error(purpose, error))?;
+    Ok(stored || normalize_optional_string(legacy.map(str::to_string)).is_some())
+}
+
 /// The patch a Docling VLM update maps to.
 ///
-/// A submitted key replaces the stored one, and a request that keeps the base
-/// URL keeps the key. A request that drops the base URL drops the key with it,
-/// which is the mapping the settings contract already documents.
+/// A submitted key replaces the stored one, a request that keeps the base URL
+/// keeps the key, and a request that drops the base URL drops the key with it.
 pub(crate) fn docling_vlm_patch(requested: Option<String>, base_url_present: bool) -> SecretPatch {
     match normalize_optional_string(requested) {
         Some(api_key) => SecretPatch::Set(api_key),
@@ -213,9 +249,9 @@ pub(crate) fn docling_vlm_patch(requested: Option<String>, base_url_present: boo
 
 /// Folds a tri-state patch onto the value currently in effect.
 ///
-/// `Keep` preserves it, `Set` replaces it, and `Clear` removes it. A blank `Set`
-/// normalizes back to `Keep`, which is the legacy whitespace parity the wire
-/// contract already documents.
+/// `Keep` preserves it, `Set` replaces it, `Clear` removes it, and a blank `Set`
+/// normalizes back to `Keep` — the legacy whitespace parity the wire contract
+/// already documents.
 pub(crate) fn merged_api_key(patch: &SecretPatch, current: Option<String>) -> Option<String> {
     match patch {
         SecretPatch::Clear => None,
@@ -244,7 +280,7 @@ mod tests {
     };
     use crate::{
         contracts::SecretPatch,
-        services::secret_store::{SecretPurpose, SecretStore, SecretStoreError},
+        services::secret_store::{SecretPurpose, SecretStore, SecretStoreError, key_names},
     };
 
     /// A store over a lazily connected pool. It is never connected: the paths
@@ -258,6 +294,16 @@ mod tests {
 
     fn patch(kind: SecretPatch) -> Option<String> {
         merged_api_key(&kind, Some("old".to_string()))
+    }
+
+    #[tokio::test]
+    async fn the_runtime_s3_binding_owns_only_the_secret_key() {
+        let secrets = SettingsSecrets::runtime_s3(unkeyed_store());
+        // The access key is a non-secret identifier and is deliberately not bound
+        // here: it keeps its existing outward behavior in the settings row.
+        assert_eq!(secrets.purpose, SecretPurpose::RuntimeS3SecretKey);
+        assert_eq!(secrets.key_name, key_names::RUNTIME_S3_SECRET_KEY);
+        assert!(SecretPurpose::RuntimeS3SecretKey.is_singleton());
     }
 
     #[test]

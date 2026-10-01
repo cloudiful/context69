@@ -81,6 +81,7 @@ pub async fn initialize(
     });
     let sync = SyncService::new(
         db.clone(),
+        store.clone(),
         vector.embedding.clone(),
         vector.index.clone(),
         ChunkingConfig {

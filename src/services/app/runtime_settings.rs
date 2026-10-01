@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::{
     chunking::ChunkingConfig,
     config::{Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig, SchedulerConfig},
-    db::{Database, StoredDoclingSettings, StoredRuntimeSettings, StoredSourceConnection},
+    db::{Database, StoredDoclingSettings, StoredRuntimeSettings},
     services::{
         secret_store::SecretStore,
         settings::secrets::{SettingsSecrets, optional_key_patch},
@@ -16,10 +16,11 @@ use crate::{
 
 /// Seeds the first-boot runtime row from deployment configuration.
 ///
-/// The embedding and Docling VLM API keys are also committed to the shared
-/// store, so a fresh database starts with the same "written to both" state the
-/// settings endpoints produce. The legacy columns still receive the values, so
-/// rolling back to a release that predates the store loses nothing.
+/// The embedding, Docling VLM, and runtime S3 API keys and every source
+/// connection's database URL are also committed to the shared store, so a fresh
+/// database starts with the same "written to both" state the settings endpoints
+/// produce. The legacy columns still receive the values, so rolling back to a
+/// release that predates the store loses nothing.
 pub async fn import_legacy_runtime_if_needed(
     db: &Database,
     config: &Config,
@@ -32,6 +33,15 @@ pub async fn import_legacy_runtime_if_needed(
     let embedding = SettingsSecrets::embedding(store.clone());
     embedding
         .commit(&optional_key_patch(config.embedding.api_key.clone()))
+        .await?;
+    SettingsSecrets::runtime_s3(store.clone())
+        .commit(&optional_key_patch(
+            config
+                .file_library
+                .s3
+                .as_ref()
+                .map(|s3| s3.secret_key.clone()),
+        ))
         .await?;
     db.save_runtime_settings(&StoredRuntimeSettings {
         qdrant: crate::db::StoredRuntimeQdrantSettings {
@@ -83,10 +93,14 @@ pub async fn import_legacy_runtime_if_needed(
     .await?;
 
     for connection in &config.connections {
-        db.save_source_connection(&StoredSourceConnection {
-            name: connection.name.clone(),
-            database_url: connection.database_url.clone(),
-        })
+        // Through the same writer the API uses, so a seeded DSN is sealed and
+        // referenced exactly like an operator-supplied one.
+        crate::services::sync::save_source_connection(
+            db,
+            store,
+            &connection.name,
+            &connection.database_url,
+        )
         .await?;
     }
 
@@ -129,13 +143,15 @@ pub async fn import_legacy_runtime_if_needed(
     Ok(())
 }
 
-/// Loads the persisted runtime settings with the embedding API key resolved
+/// Loads the persisted runtime settings with the reversible keys resolved
 /// through the shared store.
 ///
 /// The store is resolved *after* the legacy REST-to-gRPC upgrade rewrite, so the
-/// rewrite keeps saving the row exactly as it did. The resolved key then lives
-/// only in this in-memory value: it is handed to the embedding provider and
-/// never logged, persisted by this function, or returned by an API.
+/// rewrite keeps saving the row exactly as it did and the resolved values are
+/// never written back. They then live only in this in-memory value: the
+/// embedding key is handed to the embedding provider and the S3 secret key to
+/// object storage, and neither is logged, persisted by this function, or
+/// returned by an API.
 pub async fn load_runtime_settings(
     db: &Database,
     store: &SecretStore,
@@ -160,6 +176,18 @@ pub async fn load_runtime_settings(
         .resolve(runtime.embedding.api_key.clone())
         .await?;
     runtime.embedding.api_key = resolved;
+
+    // The S3 secret key is read the same way, before it can reach object storage.
+    // The legacy column still receives every write, so during the transition the
+    // two agree; once the store owns the value this is the only read, and a
+    // sealed row this deployment cannot open has to fail startup rather than
+    // quietly configure object storage with a stale key.
+    if let Some(s3) = runtime.file_library.s3.as_mut() {
+        s3.secret_key = SettingsSecrets::runtime_s3(store.clone())
+            .resolve(Some(s3.secret_key.clone()))
+            .await?
+            .unwrap_or_default();
+    }
 
     Ok(Some(runtime))
 }
@@ -223,23 +251,5 @@ fn qdrant_grpc_url_from_rest_port(url: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::qdrant_grpc_url_from_rest_port;
-
-    #[test]
-    fn upgrades_qdrant_rest_port_to_grpc_port() {
-        assert_eq!(
-            qdrant_grpc_url_from_rest_port("http://qdrant:6333").as_deref(),
-            Some("http://qdrant:6334")
-        );
-        assert_eq!(
-            qdrant_grpc_url_from_rest_port("http://qdrant:6333/").as_deref(),
-            Some("http://qdrant:6334")
-        );
-    }
-
-    #[test]
-    fn keeps_qdrant_grpc_port_unchanged() {
-        assert_eq!(qdrant_grpc_url_from_rest_port("http://qdrant:6334"), None);
-    }
-}
+#[path = "runtime_settings_tests.rs"]
+mod tests;

@@ -22,6 +22,7 @@ use crate::{
     embedding::EmbeddingProvider,
     normalize::normalize_record,
     qdrant_index::QdrantIndex,
+    services::secret_store::SecretStore,
     source_store::SourceStore,
     sources::SourceConnector,
 };
@@ -34,6 +35,17 @@ pub(crate) mod project_source_folders;
 mod runtime;
 mod sources;
 
+use connections::SourceConnectionSecrets;
+
+pub(crate) use connections::save_source_connection;
+
+/// One source connection write once the caller's request has been folded onto
+/// what is stored: the trimmed name and the database URL that will be in effect.
+pub(super) struct PendingSourceConnection {
+    pub(super) name: String,
+    pub(super) database_url: String,
+}
+
 #[derive(Clone)]
 struct SyncRuntime {
     embedding: Arc<dyn EmbeddingProvider>,
@@ -43,6 +55,7 @@ struct SyncRuntime {
 #[derive(Clone)]
 pub struct SyncService {
     db: Database,
+    store: SecretStore,
     runtime: Option<SyncRuntime>,
     chunking: ChunkingConfig,
     max_concurrency: usize,
@@ -66,6 +79,7 @@ impl SyncService {
 
     pub fn new(
         db: Database,
+        store: SecretStore,
         embedding: Option<Arc<dyn EmbeddingProvider>>,
         index: Option<QdrantIndex>,
         chunking: ChunkingConfig,
@@ -77,6 +91,7 @@ impl SyncService {
             .map(|(embedding, index)| SyncRuntime { embedding, index });
         Self {
             db: db.clone(),
+            store,
             runtime,
             chunking,
             max_concurrency,
@@ -101,6 +116,11 @@ impl SyncService {
 
     fn runtime(&self) -> Result<&SyncRuntime> {
         self.runtime.as_ref().ok_or_else(sync_runtime_unavailable)
+    }
+
+    /// The store binding for the source connections' sealed database URLs.
+    fn source_secrets(&self) -> SourceConnectionSecrets {
+        SourceConnectionSecrets::new(self.store.clone())
     }
 
     pub fn runtime_configured(&self) -> bool {
@@ -149,6 +169,8 @@ impl SyncService {
     }
 
     async fn connection_names(&self) -> Result<Vec<String>> {
+        // Names only: a validation or folder view never needs a database URL, so
+        // it never opens one.
         Ok(self
             .db
             .list_source_connections()
@@ -162,11 +184,17 @@ impl SyncService {
         self.connection_names().await
     }
 
+    /// The connection a write will persist.
+    ///
+    /// A submitted database URL wins. Otherwise the one already in effect is
+    /// resolved through the store, which fails closed rather than falling back to
+    /// a stale column, and a connection that does not exist yet has nothing to
+    /// keep — so it requires one.
     async fn resolve_source_connection(
         &self,
         connection_name: &str,
         database_url: Option<String>,
-    ) -> Result<StoredSourceConnection> {
+    ) -> Result<PendingSourceConnection> {
         let name = connection_name.trim();
         if name.is_empty() {
             return Err(
@@ -175,33 +203,36 @@ impl SyncService {
         }
 
         let existing = self.db.get_source_connection(name).await?;
-        let database_url = if let Some(database_url) = database_url {
-            let trimmed = database_url.trim();
-            if trimmed.is_empty() {
-                existing
-                    .map(|connection| connection.database_url)
-                    .ok_or_else(|| {
-                        DomainError::invalid_argument(
-                            "source connection database_url is required when creating a new connection",
-                        )
-                    })
-                    .map_err(anyhow::Error::from)?
-            } else {
-                trimmed.to_string()
-            }
-        } else if let Some(existing) = existing {
-            existing.database_url
-        } else {
-            return Err(DomainError::invalid_argument(
-                "source connection database_url is required when creating a new connection",
-            )
-            .into());
+        let database_url = match database_url.as_deref().map(str::trim) {
+            Some(requested) if !requested.is_empty() => requested.to_string(),
+            _ => match existing.as_ref() {
+                Some(existing) => self
+                    .source_secrets()
+                    .resolve(existing)
+                    .await?
+                    .ok_or_else(missing_source_connection_database_url)?,
+                None => return Err(missing_source_connection_database_url().into()),
+            },
         };
 
-        Ok(StoredSourceConnection {
+        Ok(PendingSourceConnection {
             name: name.to_string(),
             database_url,
         })
+    }
+
+    /// Seals the database URL and saves the row, legacy column included.
+    async fn persist_source_connection(
+        &self,
+        pending: &PendingSourceConnection,
+    ) -> Result<StoredSourceConnection> {
+        connections::save_source_connection(
+            &self.db,
+            &self.store,
+            &pending.name,
+            &pending.database_url,
+        )
+        .await
     }
 
     pub(crate) async fn upsert_source_connection_for_source_folder(
@@ -219,57 +250,8 @@ fn sync_runtime_unavailable() -> anyhow::Error {
     .into()
 }
 
-async fn build_source_pools(
-    connections: &[StoredSourceConnection],
-) -> (
-    HashMap<String, PgPool>,
-    HashMap<String, SourceConnectionHealth>,
-) {
-    let mut pools = HashMap::new();
-    let mut statuses = HashMap::new();
-    for connection in connections {
-        let database_url = connection.database_url.trim();
-        if database_url.is_empty() {
-            statuses.insert(
-                connection.name.clone(),
-                SourceConnectionHealth {
-                    has_database_url: false,
-                    status: SourceOriginStatusKind::Misconfigured,
-                    message: Some("database_url is empty".to_string()),
-                },
-            );
-            continue;
-        }
-
-        match PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(3))
-            .connect(database_url)
-            .await
-        {
-            Ok(pool) => {
-                pools.insert(connection.name.clone(), pool);
-                statuses.insert(
-                    connection.name.clone(),
-                    SourceConnectionHealth {
-                        has_database_url: true,
-                        status: SourceOriginStatusKind::Connected,
-                        message: None,
-                    },
-                );
-            }
-            Err(error) => {
-                warn!(connection = connection.name, error = %error, "failed to connect source pool; continuing without blocking startup");
-                statuses.insert(
-                    connection.name.clone(),
-                    SourceConnectionHealth {
-                        has_database_url: true,
-                        status: SourceOriginStatusKind::Unreachable,
-                        message: Some(error.to_string()),
-                    },
-                );
-            }
-        }
-    }
-    (pools, statuses)
+fn missing_source_connection_database_url() -> DomainError {
+    DomainError::invalid_argument(
+        "source connection database_url is required when creating a new connection",
+    )
 }

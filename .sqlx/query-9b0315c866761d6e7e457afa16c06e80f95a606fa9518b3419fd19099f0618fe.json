@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Inserts a new connection under the supplied stable identity, or updates the\n-- existing one in place.\n--\n-- `connection_key` is deliberately absent from the update list: a connection\n-- keeps the identity it was created with, so the secret-store key a DSN is\n-- sealed under never moves when the connection is re-saved. The legacy\n-- `database_url` column keeps receiving the value for the whole transition, and\n-- `database_url_secret_key` records which store row now owns it.\nINSERT INTO context69.runtime_source_connections (\n    connection_key,\n    name,\n    database_url,\n    database_url_secret_key,\n    updated_at\n)\nVALUES ($1, $2, $3, $4, now())\nON CONFLICT (name) DO UPDATE\nSET database_url = EXCLUDED.database_url,\n    database_url_secret_key = EXCLUDED.database_url_secret_key,\n    updated_at = now()\nRETURNING name, connection_key, database_url, database_url_secret_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_source_connections",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "connection_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_source_connections",
+            "name": "connection_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "database_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_source_connections",
+            "name": "database_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "database_url_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_source_connections",
+            "name": "database_url_secret_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "9b0315c866761d6e7e457afa16c06e80f95a606fa9518b3419fd19099f0618fe"
+}
