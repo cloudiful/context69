@@ -516,6 +516,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_git_repository_connection"];
+        post?: never;
+        delete: operations["delete_git_repository_connection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index": {
         parameters: {
             query?: never;
@@ -2090,6 +2106,19 @@ export interface components {
          * @enum {string}
          */
         GitRefreshPolicy: "manual" | "webhook" | "reconcile";
+        /**
+         * @description Request body attaching one already-persisted provider connection to a
+         *     repository source.
+         *
+         *     The body names a connection that must already exist in the same group. It
+         *     carries no credential, token, secret-store key, provider mode, or base URL:
+         *     `deny_unknown_fields` rejects any other connection field outright, so
+         *     attaching a connection can never create, configure, or enable one.
+         */
+        GitRepositoryConnectionRequest: {
+            /** @description Key of an existing, enabled provider connection owned by the same group. */
+            connection_key: string;
+        };
         /**
          * @description Registration request for one public GitHub repository ref.
          *
@@ -4792,6 +4821,106 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Git repository source status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_git_repository_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitRepositoryConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Repository source with the connection attached */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Invalid connection key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or connection not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connection is disabled or built for another provider */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_git_repository_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository source with the connection detached */
             200: {
                 headers: {
                     [name: string]: unknown;

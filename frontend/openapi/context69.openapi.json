@@ -1882,6 +1882,124 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection": {
+      "put": {
+        "tags": [],
+        "operationId": "set_git_repository_connection",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitRepositoryConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Repository source with the connection attached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepositorySource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid connection key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group, repository, or connection not found"
+          },
+          "409": {
+            "description": "Connection is disabled or built for another provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "delete_git_repository_connection",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository source with the connection detached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepositorySource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index": {
       "post": {
         "tags": [],
@@ -7561,6 +7679,22 @@
           "webhook",
           "reconcile"
         ]
+      },
+      "GitRepositoryConnectionRequest": {
+        "type": "object",
+        "description": "Request body attaching one already-persisted provider connection to a\nrepository source.\n\nThe body names a connection that must already exist in the same group. It\ncarries no credential, token, secret-store key, provider mode, or base URL:\n`deny_unknown_fields` rejects any other connection field outright, so\nattaching a connection can never create, configure, or enable one.",
+        "required": [
+          "connection_key"
+        ],
+        "properties": {
+          "connection_key": {
+            "type": "string",
+            "description": "Key of an existing, enabled provider connection owned by the same group.",
+            "maxLength": 128,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "GitRepositoryRegistrationRequest": {
         "type": "object",

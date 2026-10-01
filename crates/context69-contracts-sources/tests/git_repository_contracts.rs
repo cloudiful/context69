@@ -1,5 +1,5 @@
-//! Provider-neutral Git source and connection contracts (issue #681 phases 2
-//! and 3B1).
+//! Provider-neutral Git source and connection contracts (issue #681 phases 2,
+//! 3B1, and 4A2).
 //!
 //! Covers the wire shape of the contract enums/structs and the shape of
 //! `migrations/20260930204952_git_repository_sources.sql`: the migration must
@@ -14,12 +14,14 @@
 use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
 use context69_contracts_sources::{
-    GitActiveGeneration, GitCommitCheckpoint, GitConnectionMode, GitGenerationStatus,
-    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderKind, GitRefreshPolicy,
-    GitRepositoryGeneration, GitRepositoryRegistrationRequest, GitRepositorySource,
-    GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus, GitWebhookOwnership,
-    GitWebhookRegistration,
+    GIT_CONNECTION_KEY_MAX_CHARS, GitActiveGeneration, GitCommitCheckpoint,
+    GitConnectionKeyRejection, GitConnectionMode, GitGenerationStatus, GitIndexProfile,
+    GitIndexStatus, GitProviderConnection, GitProviderKind, GitRefreshPolicy,
+    GitRepositoryConnectionRequest, GitRepositoryGeneration, GitRepositoryRegistrationRequest,
+    GitRepositorySource, GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus,
+    GitWebhookOwnership, GitWebhookRegistration,
 };
+use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
 use uuid::Uuid;
 
@@ -656,4 +658,144 @@ fn registration_request_omits_absent_optional_pin() {
     assert!(encoded.get("pinned_commit").is_none());
     assert_eq!(encoded["index_profile"], json!("lexical"));
     assert_eq!(encoded["refresh_policy"], json!("manual"));
+}
+
+#[test]
+fn connection_request_carries_only_the_existing_connection_key() {
+    let request = GitRepositoryConnectionRequest {
+        connection_key: "github-app-main".to_string(),
+    };
+    let encoded = to_value(&request).expect("serialize request");
+    assert_eq!(encoded, json!({ "connection_key": "github-app-main" }));
+
+    // No credential, token, secret-store key, or other connection field may ride
+    // along: attaching metadata can never configure or create a connection.
+    let object = encoded.as_object().expect("request object");
+    for forbidden in [
+        "connection_mode",
+        "mode",
+        "base_url",
+        "display_name",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "access_token",
+        "disabled",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "connection request must not carry {forbidden}"
+        );
+    }
+    for extra in [
+        json!({ "connection_key": "github-app", "access_token": "ghp_secret" }),
+        json!({ "connection_key": "github-app", "credential_secret_key": "internal/secret/read" }),
+        json!({ "connection_key": "github-app", "disabled": false }),
+    ] {
+        assert!(
+            from_value::<GitRepositoryConnectionRequest>(extra.clone()).is_err(),
+            "unknown connection fields must be rejected: {extra}"
+        );
+    }
+    assert!(
+        from_value::<GitRepositoryConnectionRequest>(json!({})).is_err(),
+        "connection_key is required"
+    );
+
+    let decoded: GitRepositoryConnectionRequest = from_value(encoded).expect("deserialize request");
+    assert_eq!(decoded, request);
+}
+
+#[test]
+fn connection_request_schema_declares_the_key_bounds() {
+    let schema = schema_for!(GitRepositoryConnectionRequest);
+    let key = schema
+        .get("properties")
+        .and_then(|properties| properties.get("connection_key"))
+        .expect("connection_key property");
+    assert_eq!(
+        key.get("type").and_then(|kind| kind.as_str()),
+        Some("string")
+    );
+    assert_eq!(key.get("minLength").and_then(|min| min.as_u64()), Some(1));
+    assert_eq!(
+        key.get("maxLength").and_then(|max| max.as_u64()),
+        Some(GIT_CONNECTION_KEY_MAX_CHARS as u64),
+    );
+    assert!(
+        schema.get("required").is_some(),
+        "the runtime validator requires connection_key, so the schema must too"
+    );
+}
+
+#[test]
+fn connection_request_validates_key_bounds_without_a_lookup() {
+    let accepted = GitRepositoryConnectionRequest {
+        connection_key: "github_app-main.1".to_string(),
+    };
+    assert_eq!(
+        accepted.validated_connection_key().expect("safe key"),
+        "github_app-main.1"
+    );
+
+    for (key, expected) in [
+        ("", GitConnectionKeyRejection::Blank),
+        ("  ", GitConnectionKeyRejection::Blank),
+    ] {
+        let request = GitRepositoryConnectionRequest {
+            connection_key: key.to_string(),
+        };
+        assert_eq!(request.validated_connection_key(), Err(expected));
+    }
+
+    let oversized = "k".repeat(GIT_CONNECTION_KEY_MAX_CHARS + 1);
+    assert_eq!(
+        GitRepositoryConnectionRequest {
+            connection_key: oversized
+        }
+        .validated_connection_key(),
+        Err(GitConnectionKeyRejection::TooLong)
+    );
+    let longest_allowed = "k".repeat(GIT_CONNECTION_KEY_MAX_CHARS);
+    assert!(
+        GitRepositoryConnectionRequest {
+            connection_key: longest_allowed
+        }
+        .validated_connection_key()
+        .is_ok()
+    );
+
+    // A secret-store reference and a path/control form are both refused: the
+    // accepted charset has no separator or whitespace, so secret material can
+    // never be submitted as a connection key.
+    for unsafe_key in [
+        "internal/secret/read-token",
+        "secret:read-token",
+        "github app",
+        "github\napp",
+        "..",
+        ".github-app",
+    ] {
+        assert_eq!(
+            GitRepositoryConnectionRequest {
+                connection_key: unsafe_key.to_string()
+            }
+            .validated_connection_key(),
+            Err(GitConnectionKeyRejection::Unsafe),
+            "unsafe key must be refused: {unsafe_key:?}"
+        );
+    }
+
+    // A token-shaped value is indistinguishable from a key by shape alone, so
+    // the charset check does not claim to be the secret guard: it is the
+    // group-scoped existence lookup that keeps such a value from ever being
+    // stored, and the projection that keeps it from ever being disclosed.
+    let token_shaped = GitRepositoryConnectionRequest {
+        connection_key: "ghp_16C7e42F292c6912E7710c838347Ae178B4a".to_string(),
+    };
+    assert_eq!(
+        token_shaped
+            .validated_connection_key()
+            .expect("well-formed key"),
+        "ghp_16C7e42F292c6912E7710c838347Ae178B4a"
+    );
 }

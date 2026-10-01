@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (118 operations, sorted by `operation_id` for deterministic diffs).
+//! (120 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -194,6 +194,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "UpsertSourceConnectionRequest",
         response_schema: "SourceConnectionResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "delete_git_repository_connection",
+        method: "DELETE",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GitRepositorySource",
         success_status: 200,
         idempotent: false,
     },
@@ -1019,6 +1030,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "array<UserDirectoryEntryResponse>",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "set_git_repository_connection",
+        method: "PUT",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "GitRepositoryConnectionRequest",
+        response_schema: "GitRepositorySource",
         success_status: 200,
         idempotent: false,
     },

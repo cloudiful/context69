@@ -27,6 +27,9 @@ use crate::api::{
         __path_get_git_repository, __path_index_git_repository, __path_list_git_repositories,
         __path_register_git_repository,
     },
+    git_repository_connections::{
+        __path_delete_git_repository_connection, __path_set_git_repository_connection,
+    },
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
         __path_delete_group_library_file, __path_delete_group_library_folder,
@@ -112,8 +115,9 @@ use crate::contracts::{
 
 use crate::contracts::sources::{
     GitCommitCheckpoint, GitConnectionMode, GitIndexProfile, GitIndexStatus, GitProviderConnection,
-    GitProviderKind, GitRefreshPolicy, GitRepositoryRegistrationRequest, GitRepositorySource,
-    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
+    GitProviderKind, GitRefreshPolicy, GitRepositoryConnectionRequest,
+    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookOwnership,
+    GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -174,6 +178,8 @@ use crate::contracts::sources::{
         index_git_repository,
         list_git_provider_connections,
         get_git_repository_webhook,
+        set_git_repository_connection,
+        delete_git_repository_connection,
         query_group_documents,
         get_group_document_by_key,
         batch_get_group_documents,
@@ -257,6 +263,7 @@ use crate::contracts::sources::{
         GitProviderConnection,
         GitWebhookOwnership,
         GitWebhookRegistration,
+        GitRepositoryConnectionRequest,
         CreateFolderRequest,
         CreateTextRequest,
         UpsertLibraryTextRequest,
@@ -437,6 +444,7 @@ mod tests {
     use serde_json::Value;
 
     use super::openapi_document;
+    use crate::contracts::sources::GIT_CONNECTION_KEY_MAX_CHARS;
 
     #[test]
     fn openapi_contains_expected_paths_and_schemas() {
@@ -469,6 +477,7 @@ mod tests {
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
             "/v1/groups/by-path/{group_path}/git-connections",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
             "/v1/groups/by-path/{group_path}/library/tree",
             "/v1/groups/by-path/{group_path}/library/folders",
             "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move",
@@ -566,6 +575,22 @@ mod tests {
         ] {
             assert!(schemas.contains_key(schema), "missing schema {schema}");
         }
+
+        // Issue 681 4A2: the attach body declares the same key bounds the
+        // runtime validator enforces, so a generated client cannot send a key
+        // the API only rejects after a group-scoped lookup.
+        let connection_key = schemas
+            .get("GitRepositoryConnectionRequest")
+            .and_then(|schema| schema.pointer("/properties/connection_key"))
+            .expect("GitRepositoryConnectionRequest.connection_key to exist");
+        assert_eq!(
+            connection_key.get("minLength").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            connection_key.get("maxLength").and_then(Value::as_u64),
+            Some(GIT_CONNECTION_KEY_MAX_CHARS as u64)
+        );
         // Issue 405 Task E2: the task SSE stream exposes snapshot-then-deltas
         // with client-side resync (no server replay), mirroring search-stream.
         let stream = paths

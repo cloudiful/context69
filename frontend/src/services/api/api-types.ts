@@ -26,6 +26,7 @@ export type GitIndexStatus = Schemas["GitIndexStatus"];
 export type GitCommitCheckpoint = Schemas["GitCommitCheckpoint"];
 export type GitRepositorySource = Schemas["GitRepositorySource"];
 export type GitRepositoryRegistrationRequest = Schemas["GitRepositoryRegistrationRequest"];
+export type GitRepositoryConnectionRequest = Schemas["GitRepositoryConnectionRequest"];
 export type GitConnectionMode = Schemas["GitConnectionMode"];
 export type GitProviderConnection = Schemas["GitProviderConnection"];
 export type GitWebhookOwnership = Schemas["GitWebhookOwnership"];

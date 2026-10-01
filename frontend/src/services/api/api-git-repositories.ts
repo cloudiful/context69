@@ -1,4 +1,5 @@
 import type {
+  GitRepositoryConnectionRequest,
   GitRepositoryRegistrationRequest,
   GitRepositorySource,
   RequestOptions,
@@ -48,6 +49,28 @@ export function createGitRepositoriesApi({ openapiClient, unwrapResponse }: Deps
           signal: options?.signal,
         }),
       ) as Promise<TaskRef>;
+    },
+    setGitRepositoryConnection(
+      groupPath: string,
+      repositoryKey: string,
+      body: GitRepositoryConnectionRequest,
+      options?: RequestOptions,
+    ) {
+      return unwrapResponse(
+        openapiClient.PUT("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection", {
+          params: { path: { group_path: groupPath, repository_key: repositoryKey } },
+          body,
+          signal: options?.signal,
+        }),
+      ) as Promise<GitRepositorySource>;
+    },
+    deleteGitRepositoryConnection(groupPath: string, repositoryKey: string, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.DELETE("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection", {
+          params: { path: { group_path: groupPath, repository_key: repositoryKey } },
+          signal: options?.signal,
+        }),
+      ) as Promise<GitRepositorySource>;
     },
   };
 }
