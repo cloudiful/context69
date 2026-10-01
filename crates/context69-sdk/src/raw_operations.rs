@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (116 operations, sorted by `operation_id` for deterministic diffs).
+//! (118 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -396,6 +396,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "get_git_repository_webhook",
+        method: "GET",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GitWebhookRegistration",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "get_group",
         method: "GET",
         path_template: "/v1/groups/by-path/{group_path}",
@@ -623,6 +634,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "array<ExtractionTemplateResponse>",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "list_git_provider_connections",
+        method: "GET",
+        path_template: "/v1/groups/by-path/{group_path}/git-connections",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "array<GitProviderConnection>",
         success_status: 200,
         idempotent: false,
     },

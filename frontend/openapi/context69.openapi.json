@@ -1698,6 +1698,44 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-connections": {
+      "get": {
+        "tags": [],
+        "operationId": "list_git_provider_connections",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Group-visible Git provider connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GitProviderConnection"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group not found"
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/git-repositories": {
       "get": {
         "tags": [],
@@ -1895,6 +1933,51 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook": {
+      "get": {
+        "tags": [],
+        "operationId": "get_git_repository_webhook",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook registration status of a group-owned repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitWebhookRegistration"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group, repository, or webhook registration not found"
           }
         }
       }
@@ -7365,6 +7448,15 @@
           }
         }
       },
+      "GitConnectionMode": {
+        "type": "string",
+        "description": "How a Git provider connection authenticates.",
+        "enum": [
+          "public",
+          "installation",
+          "token"
+        ]
+      },
       "GitIndexProfile": {
         "type": "string",
         "description": "Independent index profile for a Git source.",
@@ -7385,6 +7477,71 @@
           "failed",
           "disabled"
         ]
+      },
+      "GitProviderConnection": {
+        "type": "object",
+        "description": "Provider connection metadata owned by one group.\n\nRead credentials and webhook signing secrets live in the internal secret\nstore; this contract only reports whether each is configured.",
+        "required": [
+          "group_key",
+          "group_path",
+          "visibility",
+          "connection_key",
+          "provider",
+          "mode",
+          "display_name",
+          "base_url",
+          "has_read_credential",
+          "has_webhook_secret",
+          "disabled",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "connection_key": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "group_key": {
+            "type": "string",
+            "description": "Key of the owning group; connections have no owner-less form."
+          },
+          "group_path": {
+            "type": "string",
+            "description": "Current full path of the owning group."
+          },
+          "has_read_credential": {
+            "type": "boolean"
+          },
+          "has_webhook_secret": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/GitConnectionMode"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/GitProviderKind"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility",
+            "description": "Current visibility of the owning group."
+          }
+        }
       },
       "GitProviderKind": {
         "type": "string",
@@ -7550,6 +7707,58 @@
           },
           "ref_name": {
             "type": "string"
+          }
+        }
+      },
+      "GitWebhookOwnership": {
+        "type": "string",
+        "description": "Whether the integration owns the repository webhook it registered.",
+        "enum": [
+          "integration",
+          "external",
+          "unknown"
+        ]
+      },
+      "GitWebhookRegistration": {
+        "type": "object",
+        "description": "A webhook registration owned by (or observed for) a Git repository source.",
+        "required": [
+          "repository_key",
+          "provider",
+          "external_hook_id",
+          "ownership",
+          "active",
+          "has_signing_secret",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "external_hook_id": {
+            "type": "string"
+          },
+          "has_signing_secret": {
+            "type": "boolean"
+          },
+          "ownership": {
+            "$ref": "#/components/schemas/GitWebhookOwnership"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/GitProviderKind"
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

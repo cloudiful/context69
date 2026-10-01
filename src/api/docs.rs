@@ -22,6 +22,7 @@ use crate::api::{
         __path_list_extraction_templates, __path_rebuild_document_extractions,
         __path_upsert_extraction_template,
     },
+    git_connections::{__path_get_git_repository_webhook, __path_list_git_provider_connections},
     git_repositories::{
         __path_get_git_repository, __path_index_git_repository, __path_list_git_repositories,
         __path_register_git_repository,
@@ -110,8 +111,9 @@ use crate::contracts::{
 };
 
 use crate::contracts::sources::{
-    GitCommitCheckpoint, GitIndexProfile, GitIndexStatus, GitProviderKind, GitRefreshPolicy,
-    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy,
+    GitCommitCheckpoint, GitConnectionMode, GitIndexProfile, GitIndexStatus, GitProviderConnection,
+    GitProviderKind, GitRefreshPolicy, GitRepositoryRegistrationRequest, GitRepositorySource,
+    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -170,6 +172,8 @@ use crate::contracts::sources::{
         list_git_repositories,
         get_git_repository,
         index_git_repository,
+        list_git_provider_connections,
+        get_git_repository_webhook,
         query_group_documents,
         get_group_document_by_key,
         batch_get_group_documents,
@@ -249,6 +253,10 @@ use crate::contracts::sources::{
         GitCommitCheckpoint,
         GitRepositorySource,
         GitRepositoryRegistrationRequest,
+        GitConnectionMode,
+        GitProviderConnection,
+        GitWebhookOwnership,
+        GitWebhookRegistration,
         CreateFolderRequest,
         CreateTextRequest,
         UpsertLibraryTextRequest,
@@ -459,6 +467,8 @@ mod tests {
             "/v1/groups/by-path/{group_path}/source-folders",
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/config",
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
+            "/v1/groups/by-path/{group_path}/git-connections",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
             "/v1/groups/by-path/{group_path}/library/tree",
             "/v1/groups/by-path/{group_path}/library/folders",
             "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move",
@@ -540,6 +550,8 @@ mod tests {
             "SearchRequest",
             "SearchResponse",
             "DocumentResponse",
+            "GitProviderConnection",
+            "GitWebhookRegistration",
             "GroupResponse",
             "SyncOutcome",
             "TaskRef",

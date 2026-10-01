@@ -4,6 +4,7 @@ import { handleUnauthorized } from "../auth/session";
 import { openapiClient, resolveApiUrl } from "../openapi-client";
 import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";
+import { createGitConnectionsApi } from "./api-git-connections";
 import { createGitRepositoriesApi } from "./api-git-repositories";
 import { createNamespacesApi } from "./api-namespaces";
 import { createPersonalAccessTokensApi } from "./api-personal-access-tokens";
@@ -86,6 +87,7 @@ export const apiClient = {
     unwrapResponse,
   }),
   ...createSourcesApi({ openapiClient, unwrapResponse }),
+  ...createGitConnectionsApi({ openapiClient, unwrapResponse }),
   ...createGitRepositoriesApi({ openapiClient, unwrapResponse }),
   ...createTasksApi({ openapiClient, unwrapResponse }),
   ...createSettingsApi({ openapiClient, unwrapResponse }),

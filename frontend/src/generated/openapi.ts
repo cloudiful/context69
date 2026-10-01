@@ -468,6 +468,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_git_provider_connections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories": {
         parameters: {
             query?: never;
@@ -510,6 +526,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["index_git_repository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository_webhook"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2008,6 +2040,11 @@ export interface components {
             target_commit_sha?: string | null;
         };
         /**
+         * @description How a Git provider connection authenticates.
+         * @enum {string}
+         */
+        GitConnectionMode: "public" | "installation" | "token";
+        /**
          * @description Independent index profile for a Git source.
          * @enum {string}
          */
@@ -2017,6 +2054,32 @@ export interface components {
          * @enum {string}
          */
         GitIndexStatus: "pending" | "indexing" | "ready" | "stale" | "failed" | "disabled";
+        /**
+         * @description Provider connection metadata owned by one group.
+         *
+         *     Read credentials and webhook signing secrets live in the internal secret
+         *     store; this contract only reports whether each is configured.
+         */
+        GitProviderConnection: {
+            base_url: string;
+            connection_key: string;
+            /** Format: date-time */
+            created_at: string;
+            disabled: boolean;
+            display_name: string;
+            /** @description Key of the owning group; connections have no owner-less form. */
+            group_key: string;
+            /** @description Current full path of the owning group. */
+            group_path: string;
+            has_read_credential: boolean;
+            has_webhook_secret: boolean;
+            mode: components["schemas"]["GitConnectionMode"];
+            provider: components["schemas"]["GitProviderKind"];
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Current visibility of the owning group. */
+            visibility: components["schemas"]["Visibility"];
+        };
         /**
          * @description Provider family behind a Git source or provider connection.
          * @enum {string}
@@ -2091,6 +2154,25 @@ export interface components {
         GitVersionPolicy: {
             commit_sha?: string | null;
             ref_name: string;
+        };
+        /**
+         * @description Whether the integration owns the repository webhook it registered.
+         * @enum {string}
+         */
+        GitWebhookOwnership: "integration" | "external" | "unknown";
+        /** @description A webhook registration owned by (or observed for) a Git repository source. */
+        GitWebhookRegistration: {
+            active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            external_hook_id: string;
+            has_signing_secret: boolean;
+            ownership: components["schemas"]["GitWebhookOwnership"];
+            provider: components["schemas"]["GitProviderKind"];
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
@@ -4562,6 +4644,43 @@ export interface operations {
             };
         };
     };
+    list_git_provider_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Group-visible Git provider connections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"][];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_git_repositories: {
         parameters: {
             query?: never;
@@ -4742,6 +4861,45 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
+            };
+        };
+    };
+    get_git_repository_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Webhook registration status of a group-owned repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitWebhookRegistration"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or webhook registration not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

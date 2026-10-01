@@ -29,15 +29,16 @@ use super::{
     create_group_source_folder, create_personal_access_token, create_source,
     create_source_connection, delete_source, delete_source_connection, disable_admin_user,
     enable_admin_user, forbid_personal_access_token_middleware, get_extraction_health,
-    get_git_repository, get_translation_settings, healthz, index_git_repository, list_admin_users,
-    list_git_repositories, list_personal_access_tokens, list_source_connections, list_sources,
-    list_translation_providers, login, logout, me, openapi_json, register_git_repository,
-    require_admin_scope_middleware, require_search_scope_middleware,
-    require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
-    submit_vector_index_rebuild, sync_group_source_folder, sync_source,
-    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
-    update_source, update_source_connection, update_translation_settings,
+    get_git_repository, get_git_repository_webhook, get_translation_settings, healthz,
+    index_git_repository, list_admin_users, list_git_provider_connections, list_git_repositories,
+    list_personal_access_tokens, list_source_connections, list_sources, list_translation_providers,
+    login, logout, me, openapi_json, register_git_repository, require_admin_scope_middleware,
+    require_search_scope_middleware, require_settings_scope_middleware,
+    require_sources_scope_middleware, require_workspace_scope_middleware,
+    reset_admin_user_password, revoke_personal_access_token, submit_vector_index_rebuild,
+    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
+    update_admin_user, update_group_source_folder_config, update_source, update_source_connection,
+    update_translation_settings,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -233,6 +234,10 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
             post(sync_group_source_folder),
         )
         .route(
+            "/v1/groups/by-path/{group_path}/git-connections",
+            get(list_git_provider_connections),
+        )
+        .route(
             "/v1/groups/by-path/{group_path}/git-repositories",
             get(list_git_repositories).post(register_git_repository),
         )
@@ -243,6 +248,10 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index",
             post(index_git_repository),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
+            get(get_git_repository_webhook),
         )
         .layer(from_fn_with_state(
             api_state,
