@@ -63,7 +63,8 @@ pub async fn initialize(
             store: LibraryStore::new(db.clone()),
             configuration_fingerprint: vector_identity::configuration_fingerprint(config),
         }),
-    });
+    })
+    .with_secret_store(store.clone());
     let extraction = ExtractionService::new(ExtractionDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()
@@ -78,7 +79,8 @@ pub async fn initialize(
             store: LibraryStore::new(db.clone()),
             configuration_fingerprint: vector_identity::configuration_fingerprint(config),
         }),
-    });
+    })
+    .with_secret_store(store.clone());
     let sync = SyncService::new(
         db.clone(),
         store.clone(),

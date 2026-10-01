@@ -12,6 +12,7 @@ chrono = { workspace = true, features = ["serde"] }
 context69-contracts-core.workspace = true
 context69-contracts-extraction.workspace = true
 context69-llm-support.workspace = true
+context69-secret-store.workspace = true
 jsonschema = "0.56.0"
 reqwest = { workspace = true, features = ["json", "rustls"] }
 serde.workspace = true

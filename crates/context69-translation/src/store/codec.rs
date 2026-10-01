@@ -58,9 +58,13 @@ pub fn normalize_locales(values: &[String]) -> Result<Vec<String>> {
     Ok(result)
 }
 
+/// `has_api_key` is supplied by the caller rather than derived from the row:
+/// the shared `llm` key may live only in the encrypted store during the
+/// transition, and presence has to be answerable without opening it.
 pub(super) fn provider_response(
     mut provider: StoredTranslationProvider,
     usage: i64,
+    has_api_key: bool,
 ) -> Result<TranslationProviderResponse> {
     if provider.provider_key == "deepl" && clean(provider.endpoint.as_deref()).is_none() {
         provider.endpoint = Some(deepl_endpoint(provider.deepl_plan.as_deref()).to_string());
@@ -70,10 +74,7 @@ pub(super) fn provider_response(
         enabled: provider.enabled,
         priority: provider.priority,
         endpoint: provider.endpoint,
-        has_api_key: provider
-            .api_key
-            .as_ref()
-            .is_some_and(|value| !value.is_empty()),
+        has_api_key,
         model: provider.model,
         llm_api_kind: provider
             .llm_api_kind
@@ -147,6 +148,21 @@ pub(super) fn clean(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// The pre-phase presence rule for a provider whose API key stays in the legacy
+/// column: any present, non-empty value counts, and whitespace is deliberately
+/// not trimmed. Only the shared `llm` row uses the store-aware presence path.
+pub(super) fn legacy_has_api_key(api_key: Option<&str>) -> bool {
+    api_key.is_some_and(|value| !value.is_empty())
+}
+
+/// The pre-phase validation rule for a non-`llm` provider: a trimmed,
+/// non-empty legacy key configures it, so a whitespace-only value does not
+/// satisfy the enabled-provider check. This differs on purpose from the
+/// untrimmed [`legacy_has_api_key`] response projection.
+pub(super) fn validation_has_legacy_api_key(api_key: Option<&str>) -> bool {
+    clean(api_key).is_some()
+}
+
 pub(super) fn provider_key(value: TranslationProviderKind) -> &'static str {
     match value {
         TranslationProviderKind::Deepl => "deepl",
@@ -217,5 +233,49 @@ mod tests {
         assert_eq!(deepl_endpoint(Some("free")), "https://api-free.deepl.com");
         assert_eq!(deepl_endpoint(Some("pro")), "https://api.deepl.com");
         assert_eq!(deepl_endpoint(None), "https://api-free.deepl.com");
+    }
+
+    #[test]
+    fn provider_config_hash_excludes_the_api_key() {
+        let base = crate::store::StoredTranslationProvider {
+            provider_key: "llm".to_string(),
+            enabled: true,
+            priority: 1,
+            endpoint: None,
+            api_key: None,
+            model: Some("gpt".to_string()),
+            llm_api_kind: None,
+            deepl_plan: None,
+            monthly_character_limit: None,
+        };
+        let mut with_key = base.clone();
+        with_key.api_key = Some("placeholder-key".to_string());
+        assert_eq!(base.config_hash(), with_key.config_hash());
+    }
+
+    #[test]
+    fn blank_api_key_maps_to_keep() {
+        assert_eq!(clean(None), None);
+        assert_eq!(clean(Some("   ")), None);
+        assert_eq!(clean(Some("  key  ")), Some("key".to_string()));
+    }
+
+    #[test]
+    fn non_llm_presence_keeps_the_pre_phase_non_empty_rule() {
+        assert!(!legacy_has_api_key(None));
+        assert!(!legacy_has_api_key(Some("")));
+        // Whitespace-only is a present value for the legacy providers: the
+        // projection stays `!value.is_empty()` and is not trimmed.
+        assert!(legacy_has_api_key(Some("   ")));
+        assert!(legacy_has_api_key(Some("key")));
+    }
+
+    #[test]
+    fn non_llm_validation_rejects_a_whitespace_only_legacy_key() {
+        assert!(!validation_has_legacy_api_key(None));
+        assert!(!validation_has_legacy_api_key(Some("")));
+        // The enabled-provider check uses the pre-phase trimmed rule.
+        assert!(!validation_has_legacy_api_key(Some("   ")));
+        assert!(validation_has_legacy_api_key(Some("key")));
     }
 }

@@ -4,6 +4,7 @@ use context69_contracts_extraction::{
     ExtractionFailureClass, ExtractionJobResponse, ExtractionJobStatus, ExtractionResultResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse,
 };
+use context69_secret_store::{SecretDatabase, SecretPurpose, SecretStore, key_names};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
@@ -188,14 +189,72 @@ pub struct ExtractionVersionInput<'a> {
     pub result_json: &'a Value,
 }
 
+/// The shared `provider_key = 'llm'` API key that translation writes and
+/// extraction reads.
+///
+/// Both crates bind the row to the singleton
+/// [`SecretPurpose::TranslationProviderApiKey`]. Extraction only reads it, and
+/// prefers the store over the legacy column.
+#[derive(Debug, Clone)]
+struct ProviderApiKey {
+    store: SecretStore,
+}
+
+impl ProviderApiKey {
+    fn new(store: SecretStore) -> Self {
+        Self { store }
+    }
+
+    const KEY_NAME: &'static str = key_names::TRANSLATION_PROVIDER_API_KEY;
+
+    /// Store first, legacy second. A stored row that cannot be opened fails
+    /// instead of silently serving a stale legacy value.
+    async fn resolve(&self, legacy: Option<String>) -> Result<Option<String>> {
+        let stored = self
+            .store
+            .get(SecretPurpose::TranslationProviderApiKey, Self::KEY_NAME)
+            .await?;
+        match stored {
+            Some(value) => Ok(normalize_api_key(Some(
+                String::from_utf8_lossy(value.expose()).as_ref(),
+            ))),
+            None => Ok(normalize_api_key(legacy.as_deref())),
+        }
+    }
+}
+
+fn normalize_api_key(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 #[derive(Debug, Clone)]
 pub struct ExtractionStore {
     pool: PgPool,
+    secrets: ProviderApiKey,
 }
 
 impl ExtractionStore {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        let store = SecretStore::new(SecretDatabase::new(pool.clone()), None, 1)
+            .expect("a store without a master key cannot fail to build");
+        Self {
+            pool,
+            secrets: ProviderApiKey::new(store),
+        }
+    }
+
+    /// Binds the shared encrypted store this deployment configured.
+    ///
+    /// Until this is called the store is unkeyed — the same transition state a
+    /// deployment without a master key runs in — so a caller that only has a
+    /// pool still reads the legacy value and still fails closed on a sealed row.
+    #[must_use]
+    pub fn with_secret_store(mut self, store: SecretStore) -> Self {
+        self.secrets = ProviderApiKey::new(store);
+        self
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -246,12 +305,17 @@ impl ExtractionStore {
         Ok(codec::template_response(template))
     }
 
+    /// The shared `llm` provider row with its API key resolved store-first.
     pub async fn provider(&self) -> Result<Option<StoredExtractionProvider>> {
-        Ok(
+        let Some(mut provider) =
             sqlx::query_file_as!(StoredExtractionProvider, "sql/provider/get_llm.sql")
                 .fetch_optional(&self.pool)
-                .await?,
-        )
+                .await?
+        else {
+            return Ok(None);
+        };
+        provider.api_key = self.secrets.resolve(provider.api_key.take()).await?;
+        Ok(Some(provider))
     }
 
     pub async fn document(&self, document_id: i64) -> Result<ExtractionDocument> {
@@ -280,4 +344,42 @@ fn validate_template_input(input: &ExtractionTemplateInput) -> Result<()> {
 
 fn hex_digest(value: &[u8]) -> String {
     value.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shared_provider_key_is_a_singleton_purpose() {
+        assert_eq!(
+            SecretPurpose::TranslationProviderApiKey.singleton_key_name(),
+            Some(key_names::TRANSLATION_PROVIDER_API_KEY)
+        );
+        assert_eq!(
+            ProviderApiKey::KEY_NAME,
+            key_names::TRANSLATION_PROVIDER_API_KEY
+        );
+    }
+
+    #[test]
+    fn extraction_config_hash_excludes_the_api_key() {
+        let base = StoredExtractionProvider {
+            enabled: true,
+            endpoint: None,
+            api_key: None,
+            model: Some("gpt".to_string()),
+            llm_api_kind: None,
+        };
+        let mut with_key = base.clone();
+        with_key.api_key = Some("placeholder-key".to_string());
+        assert_eq!(base.config_hash(), with_key.config_hash());
+    }
+
+    #[test]
+    fn blank_and_whitespace_keys_normalize_to_absent() {
+        assert_eq!(normalize_api_key(None), None);
+        assert_eq!(normalize_api_key(Some("  ")), None);
+        assert_eq!(normalize_api_key(Some("  key  ")), Some("key".to_string()));
+    }
 }
