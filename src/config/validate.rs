@@ -2,13 +2,16 @@ use std::collections::HashSet;
 
 use anyhow::{Result, anyhow};
 
+use context69_secret_crypto::MasterKey;
+
 use crate::{
     chunking::ChunkingConfig,
     docling::{DoclingConfig, resolve_vlm_runtime_config},
 };
 
 use super::types::{
-    AuthConfig, ConnectionConfig, FileLibraryConfig, SchedulerConfig, SourceConfig,
+    AuthConfig, ConnectionConfig, FileLibraryConfig, SchedulerConfig, SecretStoreConfig,
+    SourceConfig,
 };
 
 pub(super) fn validate_scheduler_config(config: &SchedulerConfig) -> Result<()> {
@@ -188,5 +191,24 @@ pub(super) fn validate_auth_config(config: &AuthConfig) -> Result<()> {
             "auth.bootstrap_admin.password must be at least 8 characters"
         ));
     }
+    Ok(())
+}
+
+pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result<()> {
+    if config.key_version == 0 {
+        return Err(anyhow!("secret_store.key_version must be greater than 0"));
+    }
+    let Some(master_key) = config
+        .master_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    // Parsing proves the deployment value really is a 32-byte key. The error
+    // never carries the rejected value, so this is safe to surface.
+    MasterKey::from_base64(master_key)
+        .map_err(|_| anyhow!("secret_store.master_key must be a base64-encoded 32-byte key"))?;
     Ok(())
 }

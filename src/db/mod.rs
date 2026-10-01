@@ -43,6 +43,7 @@ pub use git_repositories::{
     StoredGitRepositoryGeneration, StoredGitRepositorySource, StoredGitWebhookDelivery,
     StoredGitWebhookRegistration,
 };
+pub use internal_secrets::StoredInternalSecret;
 pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};

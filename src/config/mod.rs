@@ -6,13 +6,15 @@ mod validate;
 
 pub use defaults::{
     DATABASE_URL_ENV_VAR, DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
-    DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, DEFAULT_SESSION_VALKEY_URL,
+    DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, DEFAULT_SECRET_STORE_KEY_VERSION,
+    DEFAULT_SESSION_VALKEY_URL,
 };
 pub use load::load_app_db_url;
 pub use types::{
     ApiConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, Config, ConnectionConfig,
     EmbeddingConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig, QdrantConfig,
-    S3StorageConfig, SchedulerConfig, SourceConfig, SyncStrategy, parse_sync_strategy,
+    S3StorageConfig, SchedulerConfig, SecretStoreConfig, SourceConfig, SyncStrategy,
+    parse_sync_strategy,
 };
 
 #[cfg(test)]
@@ -24,7 +26,7 @@ mod tests {
 
     use super::{
         DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
-        DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, SourceConfig,
+        DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, DEFAULT_SECRET_STORE_KEY_VERSION, SourceConfig,
         normalize::normalize_source_config, types::FileConfig,
     };
 
@@ -109,6 +111,174 @@ enabled = true
         let config = FileConfig::default();
 
         assert_eq!(config.scheduler.max_concurrency, 1);
+    }
+
+    #[test]
+    fn secret_store_defaults_to_no_master_key() {
+        let config = FileConfig::default();
+
+        assert!(config.secret_store.master_key.is_none());
+        assert_eq!(
+            config.secret_store.key_version,
+            DEFAULT_SECRET_STORE_KEY_VERSION
+        );
+        let bare = super::SecretStoreConfig::default();
+        assert!(bare.master_key.is_none());
+        assert_eq!(bare.key_version, DEFAULT_SECRET_STORE_KEY_VERSION);
+    }
+
+    #[test]
+    fn an_absent_secret_store_section_keeps_the_defaults() {
+        let parsed: FileConfig = toml::from_str(
+            r#"
+[app_db]
+url = "postgres://postgres:postgres@127.0.0.1:5432/context69"
+"#,
+        )
+        .expect("config should parse without a secret store section");
+
+        assert!(parsed.secret_store.master_key.is_none());
+        assert_eq!(
+            parsed.secret_store.key_version,
+            DEFAULT_SECRET_STORE_KEY_VERSION
+        );
+    }
+
+    /// Reviewer finding (note 10937): a present `[secret_store]` section that
+    /// omits `key_version` must land on the documented default, not on zero.
+    /// The container default is what a *missing* section uses; once the section
+    /// is present, only the field default applies, and zero fails validation —
+    /// so a configured deployment that set nothing but its master key could not
+    /// start.
+    #[test]
+    fn a_present_secret_store_section_without_a_key_version_uses_the_default() {
+        let parsed: FileConfig = toml::from_str(
+            r#"
+[secret_store]
+master_key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+"#,
+        )
+        .expect("config should parse a secret store section without a key version");
+
+        assert_eq!(
+            parsed.secret_store.master_key.as_deref(),
+            Some("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=")
+        );
+        assert_eq!(
+            parsed.secret_store.key_version, DEFAULT_SECRET_STORE_KEY_VERSION,
+            "an omitted key_version must not become zero"
+        );
+        super::load::validate_loaded_config(&parsed)
+            .expect("a section that only sets a valid master key must validate");
+    }
+
+    #[test]
+    fn a_present_but_empty_secret_store_section_uses_the_defaults() {
+        let parsed: FileConfig = toml::from_str(
+            r#"
+[secret_store]
+"#,
+        )
+        .expect("config should parse an empty secret store section");
+
+        assert!(parsed.secret_store.master_key.is_none());
+        assert_eq!(
+            parsed.secret_store.key_version,
+            DEFAULT_SECRET_STORE_KEY_VERSION
+        );
+        super::load::validate_loaded_config(&parsed)
+            .expect("an empty section is still a valid unconfigured store");
+    }
+
+    #[test]
+    fn an_explicit_zero_key_version_is_still_rejected() {
+        // The field default must not weaken validation: an operator who wrote
+        // `key_version = 0` has configured something unusable, not nothing.
+        let parsed: FileConfig = toml::from_str(
+            r#"
+[secret_store]
+key_version = 0
+"#,
+        )
+        .expect("config should parse an explicit zero key version");
+
+        assert_eq!(parsed.secret_store.key_version, 0);
+        let error = super::load::validate_loaded_config(&parsed).expect_err("zero key version");
+        assert!(
+            error.to_string().contains("secret_store.key_version"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn the_master_key_is_read_from_configuration_and_never_rendered() {
+        let parsed: FileConfig = toml::from_str(
+            r#"
+[secret_store]
+master_key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+key_version = 4
+"#,
+        )
+        .expect("config should parse a secret store section");
+
+        assert_eq!(
+            parsed.secret_store.master_key.as_deref(),
+            Some("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=")
+        );
+        assert_eq!(parsed.secret_store.key_version, 4);
+
+        // The whole configuration is `Debug`, so the key must be redacted
+        // there and not only at the point of use.
+        let rendered = format!("{:?}", parsed.secret_store);
+        assert!(rendered.contains("<redacted>"), "{rendered}");
+        assert!(!rendered.contains("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="));
+    }
+
+    #[test]
+    fn a_master_key_that_is_not_a_32_byte_base64_value_is_rejected() {
+        let mut config = FileConfig::default();
+
+        config.secret_store.key_version = 0;
+        let error = super::load::validate_loaded_config(&config).expect_err("zero key version");
+        assert!(
+            error.to_string().contains("secret_store.key_version"),
+            "{error}"
+        );
+
+        let mut config = FileConfig::default();
+        config.secret_store.master_key = Some("AAECAwQ=".to_string());
+        let error = super::load::validate_loaded_config(&config).expect_err("short key");
+        assert!(
+            error.to_string().contains("secret_store.master_key"),
+            "{error}"
+        );
+        assert!(!error.to_string().contains("AAECAwQ="));
+
+        let mut config = FileConfig::default();
+        config.secret_store.master_key = Some("not base64 !!".to_string());
+        let error = super::load::validate_loaded_config(&config).expect_err("not base64");
+        assert!(
+            error.to_string().contains("secret_store.master_key"),
+            "{error}"
+        );
+        assert!(!error.to_string().contains("not base64"));
+    }
+
+    #[test]
+    fn a_blank_master_key_is_treated_as_unconfigured() {
+        let mut config = FileConfig::default();
+        config.secret_store.master_key = Some("   ".to_string());
+
+        super::load::validate_loaded_config(&config).expect("blank key is unconfigured");
+    }
+
+    #[test]
+    fn a_valid_master_key_passes_validation() {
+        let mut config = FileConfig::default();
+        config.secret_store.master_key =
+            Some("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=".to_string());
+
+        super::load::validate_loaded_config(&config).expect("valid key");
     }
 
     #[test]

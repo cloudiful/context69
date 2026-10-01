@@ -8,6 +8,7 @@ pub mod namespace;
 pub mod personal_access_tokens;
 pub mod query;
 pub mod scheduler;
+pub mod secret_store;
 pub mod settings;
 pub mod source_folders;
 pub mod source_registry;

@@ -17,6 +17,7 @@
 - `scheduler`: sync scheduling defaults
 - `mcp`: MCP server configuration
 - `api`: HTTP API server configuration
+- `secret_store`: deployment-supplied master key for the encrypted secret store
 - `connections[]`: bootstrap source connections imported into the app database on first startup
 - `sources[]`: bootstrap source definitions imported into the app database on first startup
 
@@ -106,6 +107,27 @@ cargo run
 If you prefer bootstrap-by-config instead of using the frontend, runtime-related overrides
 such as `CONTEXT69_QDRANT__URL`, `CONTEXT69_EMBEDDING__API_KEY`, or Docling fields still work
 and will be imported into the database on first startup.
+
+## Secret Store
+
+`secret_store` configures the master key used to seal persisted reversible
+runtime secrets in the application database:
+
+- `master_key`: optional base64-encoded 32-byte key. Padding is optional.
+- `key_version`: the version new ciphertext is written under, default `1`. Must
+  be greater than `0`.
+
+The key is a deployment input. It is read from configuration, handed to the
+cipher, and never written to PostgreSQL, a log line, an error, or a response.
+Supply it as `CONTEXT69_SECRET_STORE__MASTER_KEY` rather than in a config file
+committed to source control.
+
+Without `master_key` the service still starts and still reads secrets that are
+stored in the legacy plaintext representation, and any secret it creates is
+stored the same way. A configured but unusable key is a startup configuration
+failure and never degrades to that state. When the key is present, a stored
+sealed secret is either opened or reported as unconfigured; there is no
+plaintext fallback for it.
 
 ## Trusted URL Import Proxy
 

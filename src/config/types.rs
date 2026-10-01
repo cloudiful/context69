@@ -10,8 +10,9 @@ use crate::serde_helpers;
 use super::{
     defaults::{
         DEFAULT_MCP_BIND_ADDR, default_scheduler_execution_guard_renew_interval,
-        default_scheduler_execution_guard_ttl, default_session_idle_ttl,
-        default_url_import_concurrency, default_url_import_min_interval_ms,
+        default_scheduler_execution_guard_ttl, default_secret_store_key_version,
+        default_session_idle_ttl, default_url_import_concurrency,
+        default_url_import_min_interval_ms,
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
@@ -28,6 +29,7 @@ pub struct Config {
     pub scheduler: SchedulerConfig,
     pub api: ApiConfig,
     pub mcp: McpConfig,
+    pub secret_store: SecretStoreConfig,
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
     pub chunking: ChunkingConfig,
@@ -157,6 +159,54 @@ pub(super) fn default_mcp_bind_addr() -> String {
     DEFAULT_MCP_BIND_ADDR.to_string()
 }
 
+/// Deployment-supplied inputs for the encrypted secret store.
+///
+/// The master key is a deployment input and nothing else: it is read from
+/// configuration, handed to the cipher, and never written to PostgreSQL, a log
+/// line, an error, or a response. Leaving it unset keeps the store in the
+/// transition state where it can still read and create legacy plaintext rows,
+/// which is what an existing deployment without the key needs until the
+/// migration to sealed rows is performed.
+///
+/// Every default here comes from `default_secret_store_key_version`, not from
+/// zero. A missing `[secret_store]` section is filled from `FileConfig::default`
+/// by the container default, but a *present* section is filled from this type's
+/// own `Default` — so leaving `key_version` out of a configured section used to
+/// deserialise to zero, which validation rejects.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretStoreConfig {
+    /// Base64 master key. Padding is optional; it must decode to 32 bytes.
+    pub master_key: Option<String>,
+    /// Version new ciphertext is written under, so a rotated key is detected.
+    #[serde(default = "default_secret_store_key_version")]
+    pub key_version: u32,
+}
+
+impl Default for SecretStoreConfig {
+    fn default() -> Self {
+        Self {
+            master_key: None,
+            key_version: default_secret_store_key_version(),
+        }
+    }
+}
+
+/// `Debug` redacts the master key so the configuration can be traced like any
+/// other without ever rendering key material.
+impl std::fmt::Debug for SecretStoreConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SecretStoreConfig")
+            .field(
+                "master_key",
+                &self.master_key.as_ref().map(|_| "<redacted>"),
+            )
+            .field("key_version", &self.key_version)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
     pub name: String,
@@ -226,6 +276,7 @@ pub(super) struct FileConfig {
     pub scheduler: SchedulerConfig,
     pub api: ApiConfig,
     pub mcp: McpConfig,
+    pub secret_store: SecretStoreConfig,
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
     pub chunking: ChunkingConfig,
@@ -260,6 +311,7 @@ impl TryFrom<FileConfig> for Config {
             scheduler: normalize_scheduler_config(file_config.scheduler),
             api: file_config.api,
             mcp: file_config.mcp,
+            secret_store: file_config.secret_store,
             connections: file_config
                 .connections
                 .into_iter()

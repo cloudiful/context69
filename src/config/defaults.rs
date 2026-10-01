@@ -4,8 +4,8 @@ use crate::chunking::ChunkingConfig;
 
 use super::types::{
     ApiConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ConnectionConfig, EmbeddingConfig,
-    FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, SchedulerConfig, SourceConfig,
-    default_mcp_bind_addr,
+    FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, SchedulerConfig, SecretStoreConfig,
+    SourceConfig, default_mcp_bind_addr,
 };
 
 pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
@@ -22,6 +22,7 @@ pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
 pub const DEFAULT_URL_IMPORT_CONCURRENCY: usize = 1;
 pub const DEFAULT_URL_IMPORT_MIN_INTERVAL_MS: u64 = 1000;
+pub const DEFAULT_SECRET_STORE_KEY_VERSION: u32 = 1;
 
 pub(super) fn default_max_upload_request_size_mb() -> usize {
     256
@@ -45,6 +46,10 @@ pub(super) fn default_url_import_concurrency() -> usize {
 
 pub(super) fn default_url_import_min_interval_ms() -> u64 {
     DEFAULT_URL_IMPORT_MIN_INTERVAL_MS
+}
+
+pub(super) fn default_secret_store_key_version() -> u32 {
+    DEFAULT_SECRET_STORE_KEY_VERSION
 }
 
 impl Default for FileConfig {
@@ -103,6 +108,10 @@ impl Default for FileConfig {
             mcp: McpConfig {
                 enabled: true,
                 bind_addr: default_mcp_bind_addr(),
+            },
+            secret_store: SecretStoreConfig {
+                master_key: None,
+                key_version: default_secret_store_key_version(),
             },
             connections: Vec::<ConnectionConfig>::new(),
             sources: Vec::<SourceConfig>::new(),

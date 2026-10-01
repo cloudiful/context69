@@ -1,7 +1,10 @@
 use anyhow::Result;
 use sha2::{Digest, Sha512};
 
-use crate::{config::Config, db::Database};
+use crate::{
+    config::Config,
+    services::secret_store::{SecretPurpose, SecretStore},
+};
 
 #[derive(Clone)]
 pub struct BrowserSessionConfig {
@@ -10,8 +13,9 @@ pub struct BrowserSessionConfig {
 }
 
 const SIGNING_KEY_NAME: &str = "browser_session_signing_key_v2";
+const SIGNING_KEY_LEN: usize = 64;
 
-pub async fn resolve(db: &Database, config: &Config) -> Result<BrowserSessionConfig> {
+pub async fn resolve(store: &SecretStore, config: &Config) -> Result<BrowserSessionConfig> {
     let valkey_url = resolve_valkey_url(config);
     let signing_key = if let Some(secret) = config
         .auth
@@ -22,18 +26,26 @@ pub async fn resolve(db: &Database, config: &Config) -> Result<BrowserSessionCon
     {
         Sha512::digest(secret.as_bytes()).into()
     } else {
-        let mut candidate = [0_u8; 64];
+        let mut candidate = [0_u8; SIGNING_KEY_LEN];
         getrandom::fill(&mut candidate)
             .map_err(|error| anyhow::anyhow!("failed to generate browser session key: {error}"))?;
-        let stored = db
-            .get_or_create_internal_secret(SIGNING_KEY_NAME, &candidate)
+        let stored = store
+            .get_or_create(
+                SecretPurpose::BrowserSessionSigningKey,
+                SIGNING_KEY_NAME,
+                &candidate,
+            )
             .await?;
-        stored.try_into().map_err(|stored: Vec<u8>| {
+        // The store owns the bytes; this layer only has to know they are a
+        // signing key. The length is reported, never the value.
+        let stored = stored.expose();
+        let signing_key: [u8; SIGNING_KEY_LEN] = stored.try_into().map_err(|_| {
             anyhow::anyhow!(
-                "internal browser session signing key has invalid length {}; expected 64",
+                "internal browser session signing key has invalid length {}; expected {SIGNING_KEY_LEN}",
                 stored.len()
             )
-        })?
+        })?;
+        signing_key
     };
 
     Ok(BrowserSessionConfig {
@@ -56,8 +68,8 @@ fn resolve_valkey_url(config: &Config) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_valkey_url;
-    use crate::config::Config;
+    use super::{SIGNING_KEY_NAME, resolve_valkey_url};
+    use crate::{config::Config, services::secret_store::SecretPurpose};
 
     #[test]
     fn valkey_prefers_override_then_runtime_then_default() {
@@ -69,5 +81,16 @@ mod tests {
 
         config.auth.session_valkey_url = Some(" redis://override:6379/1 ".to_string());
         assert_eq!(resolve_valkey_url(&config), "redis://override:6379/1");
+    }
+
+    #[test]
+    fn the_signing_key_row_keeps_its_historical_name() {
+        // The stored key is the identity existing deployments already resolved
+        // against; renaming it would orphan every installed signing key.
+        assert_eq!(SIGNING_KEY_NAME, "browser_session_signing_key_v2");
+        assert_eq!(
+            SecretPurpose::BrowserSessionSigningKey.as_str(),
+            "browser_session.signing_key"
+        );
     }
 }
