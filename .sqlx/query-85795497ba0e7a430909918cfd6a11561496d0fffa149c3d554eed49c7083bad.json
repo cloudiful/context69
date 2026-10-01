@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Completes a generation and makes it the repository's active generation in a\n-- single statement, so the completion, the supersession of the previously\n-- active generation, and the active-generation pointer move together: no window\n-- exists where a generation is ready but not active, active but not ready, or\n-- lost after a crash mid-statement.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key,\n-- $4 file_count, $5 excluded_file_count, $6 total_bytes.\nWITH scoped_repository AS (\n    SELECT s.repository_key\n    FROM context69.git_repository_sources s\n    WHERE s.group_id = $1\n      AND s.repository_key = $2\n),\ncompleted AS (\n    UPDATE context69.git_repository_generations g\n    SET status = 'ready',\n        file_count = $4,\n        excluded_file_count = $5,\n        total_bytes = $6,\n        completed_at = now(),\n        updated_at = now()\n    FROM scoped_repository r\n    WHERE g.repository_key = r.repository_key\n      AND g.generation_key = $3\n      AND g.status = 'building'\n    RETURNING g.repository_key, g.generation_key\n),\nsuperseded AS (\n    UPDATE context69.git_repository_generations g\n    SET status = 'superseded',\n        completed_at = COALESCE(g.completed_at, now()),\n        updated_at = now()\n    FROM context69.git_repository_active_generations ag\n    WHERE ag.repository_key = (SELECT repository_key FROM completed)\n      AND ag.generation_key <> (SELECT generation_key FROM completed)\n      AND g.generation_key = ag.generation_key\n      AND g.status = 'ready'\n    RETURNING g.generation_key\n)\nINSERT INTO context69.git_repository_active_generations (repository_key, generation_key)\nSELECT repository_key, generation_key\nFROM completed\nON CONFLICT (repository_key) DO UPDATE\nSET generation_key = EXCLUDED.generation_key,\n    activated_at = now()\nRETURNING\n    repository_key,\n    generation_key,\n    activated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "activated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "activated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "85795497ba0e7a430909918cfd6a11561496d0fffa149c3d554eed49c7083bad"
+}

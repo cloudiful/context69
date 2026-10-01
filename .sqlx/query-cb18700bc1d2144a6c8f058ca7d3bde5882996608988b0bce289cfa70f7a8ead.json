@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Marks a still-building generation failed with a bounded error code. A\n-- generation is never activated by this path, and an already completed\n-- generation is left untouched.\nUPDATE context69.git_repository_generations g\nSET status = 'failed',\n    error_code = $4,\n    completed_at = now(),\n    updated_at = now()\nFROM context69.git_repository_sources s\nWHERE s.group_id = $1\n  AND s.repository_key = $2\n  AND g.repository_key = s.repository_key\n  AND g.generation_key = $3\n  AND g.status = 'building'\nRETURNING g.generation_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cb18700bc1d2144a6c8f058ca7d3bde5882996608988b0bce289cfa70f7a8ead"
+}

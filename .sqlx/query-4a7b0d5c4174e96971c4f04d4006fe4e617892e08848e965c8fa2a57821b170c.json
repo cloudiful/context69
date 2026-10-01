@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.git_provider_connections\nSET disabled_at = COALESCE(disabled_at, now()),\n    updated_at = now()\nWHERE group_id = $1\n  AND connection_key = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a7b0d5c4174e96971c4f04d4006fe4e617892e08848e965c8fa2a57821b170c"
+}

@@ -1,0 +1,191 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH upserted AS (\n    INSERT INTO context69.git_provider_connections (\n        group_id,\n        connection_key,\n        provider_kind,\n        connection_mode,\n        display_name,\n        base_url,\n        credential_secret_key,\n        webhook_secret_key\n    )\n    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n    ON CONFLICT (group_id, connection_key) DO UPDATE\n    SET provider_kind = EXCLUDED.provider_kind,\n        connection_mode = EXCLUDED.connection_mode,\n        display_name = EXCLUDED.display_name,\n        base_url = EXCLUDED.base_url,\n        credential_secret_key = EXCLUDED.credential_secret_key,\n        webhook_secret_key = EXCLUDED.webhook_secret_key,\n        disabled_at = NULL,\n        updated_at = now()\n    RETURNING\n        group_id,\n        connection_key,\n        provider_kind,\n        connection_mode,\n        display_name,\n        base_url,\n        credential_secret_key,\n        webhook_secret_key,\n        disabled_at,\n        created_at,\n        updated_at\n)\nSELECT\n    upserted.group_id,\n    upserted.connection_key,\n    upserted.provider_kind,\n    upserted.connection_mode,\n    upserted.display_name,\n    upserted.base_url,\n    upserted.credential_secret_key,\n    upserted.webhook_secret_key,\n    upserted.disabled_at,\n    upserted.created_at,\n    upserted.updated_at,\n    g.group_key,\n    g.full_path AS group_path,\n    g.visibility AS group_visibility\nFROM upserted\nJOIN context69.groups g ON g.id = upserted.group_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "connection_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "connection_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "provider_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "provider_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "connection_mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "connection_mode"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "credential_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "credential_secret_key"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "webhook_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "webhook_secret_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "disabled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "disabled_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "group_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "group_visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "visibility"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2de037968584eb8aab308c8c865dbf09574de14394d9839f803abf63f0c3988e"
+}

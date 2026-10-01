@@ -15,7 +15,7 @@ const MAX_REDIRECTS: usize = 3;
 /// to run up front; the caller then consumes the body chunk by chunk, which is
 /// what lets source materialization stream the bytes straight into the
 /// object store instead of buffering them.
-pub(super) struct RemoteSource {
+pub(crate) struct RemoteSource {
     pub url: Url,
     pub filename: String,
     pub media_type: String,
@@ -24,7 +24,7 @@ pub(super) struct RemoteSource {
 
 impl RemoteSource {
     /// Read the next body chunk; `None` marks a complete body.
-    pub(super) async fn read_chunk(&mut self) -> Result<Option<Bytes>> {
+    pub(crate) async fn read_chunk(&mut self) -> Result<Option<Bytes>> {
         self.response.chunk().await.map_err(|error| {
             DomainError::upstream_timeout(format!("remote_download_failed: {error}")).into()
         })
@@ -38,7 +38,7 @@ impl super::streaming::ChunkSource for RemoteSource {
     }
 }
 
-pub(super) async fn open(
+pub(crate) async fn open(
     source: &str,
     filename: Option<&str>,
     media_type: Option<&str>,
@@ -134,7 +134,7 @@ fn origin_key(url: &Url) -> Result<String> {
     Ok(format!("{}://{host}:{port}", url.scheme()))
 }
 
-pub(super) async fn validate_url(source: &str) -> Result<Url> {
+pub(crate) async fn validate_url(source: &str) -> Result<Url> {
     let url = normalize_url(source)?;
     let host = url
         .host_str()
@@ -158,7 +158,7 @@ pub(super) async fn validate_url(source: &str) -> Result<Url> {
     Ok(url)
 }
 
-pub(super) fn normalize_url(source: &str) -> Result<Url> {
+pub(crate) fn normalize_url(source: &str) -> Result<Url> {
     let url = Url::parse(source.trim())
         .map_err(|error| DomainError::invalid_argument(format!("invalid_remote_url: {error}")))?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {

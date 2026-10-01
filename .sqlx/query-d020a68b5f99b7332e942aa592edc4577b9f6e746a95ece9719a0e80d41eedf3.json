@@ -1,0 +1,117 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lists one page of a file's chunks in source order.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key, $4 file_key, $5 limit,\n-- $6 offset.\nSELECT\n    c.chunk_key,\n    c.generation_key,\n    c.file_key,\n    c.chunk_index,\n    c.start_line,\n    c.end_line,\n    c.chunk_text,\n    c.created_at\nFROM context69.git_generation_chunks c\nJOIN context69.git_generation_files f\n    ON f.generation_key = c.generation_key\n   AND f.file_key = c.file_key\nJOIN context69.git_repository_generations g ON g.generation_key = c.generation_key\nJOIN context69.git_repository_sources s ON s.repository_key = g.repository_key\nWHERE s.group_id = $1\n  AND g.repository_key = $2\n  AND c.generation_key = $3\n  AND c.file_key = $4\nORDER BY c.chunk_index ASC\nLIMIT $5 OFFSET $6\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chunk_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "file_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "file_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "start_line",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "start_line"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "end_line",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "end_line"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "chunk_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_text"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d020a68b5f99b7332e942aa592edc4577b9f6e746a95ece9719a0e80d41eedf3"
+}

@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    ag.repository_key,\n    ag.generation_key,\n    ag.activated_at\nFROM context69.git_repository_active_generations ag\nJOIN context69.git_repository_sources s ON s.repository_key = ag.repository_key\nWHERE s.group_id = $1\n  AND ag.repository_key = $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "activated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "activated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f36fcda04ac34818b09954abeb863d153d3e39bd6edc94b612fb91b89746e217"
+}

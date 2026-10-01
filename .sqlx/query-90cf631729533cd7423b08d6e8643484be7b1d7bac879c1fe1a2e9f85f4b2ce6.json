@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Replaces the whole path manifest of one building generation together with the\n-- raw bytes it needs, in a single statement.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key, $4 path text[],\n-- $5 language text[], $6 provider_blob_sha text[], $7 content bytea[],\n-- $8 line_count bigint[].\n--\n-- The manifest is complete rather than incremental: a stored file the arrays do\n-- not describe is retired, its chunks leave with it, and bytes no described file\n-- needs are removed with it. A stored file the arrays describe identically (same\n-- path, bytes, language, and line count) keeps its key and its chunks, so\n-- re-sending unchanged content costs nothing and the deduplicated bytes are\n-- stored once per (generation, blob id).\n--\n-- Every write is scoped to a building generation of a repository owned by $1: a\n-- repository of another group, an unknown generation, or a generation that is no\n-- longer building matches no row, so the statement reports an empty scope and\n-- writes nothing.\nWITH scoped_generation AS (\n    SELECT g.generation_key\n    FROM context69.git_repository_generations g\n    JOIN context69.git_repository_sources s ON s.repository_key = g.repository_key\n    WHERE s.group_id = $1\n      AND g.repository_key = $2\n      AND g.generation_key = $3\n      AND g.status = 'building'\n),\nincoming_files AS (\n    SELECT\n        scoped_generation.generation_key,\n        incoming.path,\n        incoming.language,\n        incoming.provider_blob_sha,\n        incoming.content,\n        incoming.line_count\n    FROM scoped_generation\n    CROSS JOIN LATERAL unnest(\n        $4::text[], $5::text[], $6::text[], $7::bytea[], $8::bigint[]\n    ) AS incoming(path, language, provider_blob_sha, content, line_count)\n),\n-- Stored files the incoming manifest describes exactly: same path, bytes,\n-- language, and line count. They are left untouched.\nretained_files AS (\n    SELECT f.file_key, f.path\n    FROM context69.git_generation_files f\n    JOIN scoped_generation g ON g.generation_key = f.generation_key\n    WHERE EXISTS (\n        SELECT 1\n        FROM incoming_files incoming\n        WHERE incoming.path = f.path\n          AND incoming.provider_blob_sha = f.provider_blob_sha\n          AND incoming.language = f.language\n          AND incoming.line_count = f.line_count\n    )\n),\n-- One row per blob id, so identical bytes are stored once per generation.\nincoming_blobs AS (\n    SELECT DISTINCT ON (provider_blob_sha)\n        generation_key,\n        provider_blob_sha,\n        content\n    FROM incoming_files\n    ORDER BY provider_blob_sha, octet_length(content)\n),\n-- A manifest that cannot describe one snapshot is refused whole: two different\n-- byte strings for one content-addressed id is a provider inconsistency rather\n-- than deduplication, and the same path twice would leave the manifest\n-- ambiguous. Every write below is skipped while a conflict is reported.\nmanifest_conflicts AS (\n    SELECT 'blob_bytes'::TEXT AS kind\n    FROM incoming_files\n    GROUP BY provider_blob_sha\n    HAVING count(DISTINCT content) > 1\n    UNION ALL\n    SELECT 'duplicate_path'::TEXT\n    FROM incoming_files\n    GROUP BY path\n    HAVING count(*) > 1\n),\nstored_blobs AS (\n    INSERT INTO context69.git_generation_blobs (\n        generation_key,\n        provider_blob_sha,\n        byte_count,\n        content\n    )\n    SELECT\n        generation_key,\n        provider_blob_sha,\n        octet_length(content),\n        content\n    FROM incoming_blobs\n    WHERE NOT EXISTS (SELECT 1 FROM manifest_conflicts)\n    ON CONFLICT (generation_key, provider_blob_sha) DO NOTHING\n    RETURNING 1\n),\n-- A file the manifest no longer describes, or describes with different content\n-- or classification, is retired; its chunks leave with it, so text of a\n-- superseded revision can never outlive the bytes it was cut from.\nretired_files AS (\n    DELETE FROM context69.git_generation_files f\n    USING scoped_generation g\n    WHERE f.generation_key = g.generation_key\n      AND NOT EXISTS (SELECT 1 FROM manifest_conflicts)\n      AND NOT EXISTS (\n          SELECT 1\n          FROM retained_files kept\n          WHERE kept.file_key = f.file_key\n      )\n    RETURNING f.generation_key, f.provider_blob_sha\n),\n-- Bytes the manifest no longer references leave with the files that referenced\n-- them. A blob the manifest still needs is never deleted, so the file rows\n-- inserted below always resolve their bytes.\nretired_blobs AS (\n    DELETE FROM context69.git_generation_blobs b\n    USING scoped_generation g, retired_files removed\n    WHERE b.generation_key = g.generation_key\n      AND b.generation_key = removed.generation_key\n      AND b.provider_blob_sha = removed.provider_blob_sha\n      AND NOT EXISTS (SELECT 1 FROM manifest_conflicts)\n      AND NOT EXISTS (\n          SELECT 1\n          FROM incoming_files incoming\n          WHERE incoming.provider_blob_sha = b.provider_blob_sha\n      )\n    RETURNING 1\n),\nstored_files AS (\n    INSERT INTO context69.git_generation_files (\n        generation_key,\n        repository_key,\n        provider_blob_sha,\n        path,\n        language,\n        byte_count,\n        line_count\n    )\n    SELECT\n        incoming.generation_key,\n        $2,\n        incoming.provider_blob_sha,\n        incoming.path,\n        incoming.language,\n        octet_length(incoming.content),\n        incoming.line_count\n    FROM incoming_files incoming\n    WHERE NOT EXISTS (SELECT 1 FROM manifest_conflicts)\n      AND NOT EXISTS (\n          SELECT 1\n          FROM retained_files kept\n          WHERE kept.path = incoming.path\n      )\n    RETURNING 1\n)\nSELECT\n    (SELECT count(*) FROM scoped_generation) AS \"scoped_generation_count!\",\n    (SELECT count(*) FROM manifest_conflicts WHERE kind = 'blob_bytes')\n        AS \"conflicting_blob_count!\",\n    (SELECT count(*) FROM manifest_conflicts WHERE kind = 'duplicate_path')\n        AS \"duplicate_path_count!\",\n    (SELECT count(*) FROM stored_blobs) AS \"stored_blob_count!\",\n    (SELECT count(*) FROM retired_files) AS \"retired_file_count!\",\n    (SELECT count(*) FROM retired_blobs) AS \"retired_blob_count!\",\n    (SELECT count(*) FROM stored_files) AS \"stored_file_count!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scoped_generation_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "conflicting_blob_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "duplicate_path_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "stored_blob_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "retired_file_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "retired_blob_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "stored_file_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "ByteaArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "90cf631729533cd7423b08d6e8643484be7b1d7bac879c1fe1a2e9f85f4b2ce6"
+}

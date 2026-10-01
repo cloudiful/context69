@@ -74,8 +74,8 @@ pub use missing_source_cleanup::{
 };
 mod named_text_upserts;
 pub(crate) mod object_storage;
-mod remote_download;
-mod remote_proxy;
+pub(crate) mod remote_download;
+pub(crate) mod remote_proxy;
 mod resources;
 mod s3_gate_cache;
 mod source_cleanup_dispatcher;

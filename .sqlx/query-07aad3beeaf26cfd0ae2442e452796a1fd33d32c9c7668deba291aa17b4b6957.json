@@ -1,0 +1,128 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lists one page of a generation's path manifest, ordered by path so paging is\n-- stable while a snapshot is being built.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key, $4 limit, $5 offset.\nSELECT\n    f.file_key,\n    f.generation_key,\n    f.repository_key,\n    f.provider_blob_sha,\n    f.path,\n    f.language,\n    f.byte_count,\n    f.line_count,\n    f.created_at\nFROM context69.git_generation_files f\nJOIN context69.git_repository_generations g ON g.generation_key = f.generation_key\nJOIN context69.git_repository_sources s ON s.repository_key = g.repository_key\nWHERE s.group_id = $1\n  AND g.repository_key = $2\n  AND f.generation_key = $3\nORDER BY f.path ASC\nLIMIT $4 OFFSET $5\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "file_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "provider_blob_sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "provider_blob_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "language",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "language"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "byte_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "byte_count"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "line_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "line_count"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "07aad3beeaf26cfd0ae2442e452796a1fd33d32c9c7668deba291aa17b4b6957"
+}

@@ -12,13 +12,13 @@ use tokio::net::lookup_host;
 
 const TRUSTED_PROXY_ENV_VARS: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"];
 
-pub(super) struct RemoteTransport {
+pub(crate) struct RemoteTransport {
     client: Client,
     trusted_proxy_addresses: HashSet<SocketAddr>,
 }
 
 impl RemoteTransport {
-    pub(super) async fn new(trusted_proxy_enabled: bool) -> Result<Self> {
+    pub(crate) async fn new(trusted_proxy_enabled: bool) -> Result<Self> {
         let mut builder = Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(120))
@@ -47,11 +47,11 @@ impl RemoteTransport {
         })
     }
 
-    pub(super) fn client(&self) -> &Client {
+    pub(crate) fn client(&self) -> &Client {
         &self.client
     }
 
-    pub(super) fn validate_peer(&self, address: Option<SocketAddr>) -> Result<()> {
+    pub(crate) fn validate_peer(&self, address: Option<SocketAddr>) -> Result<()> {
         if address.is_some_and(|address| {
             is_public_ip(address.ip()) || self.trusted_proxy_addresses.contains(&address)
         }) {
@@ -98,7 +98,7 @@ async fn resolve_proxy_addresses(url: &Url) -> Result<HashSet<SocketAddr>> {
     Ok(addresses)
 }
 
-pub(super) fn is_public_ip(ip: IpAddr) -> bool {
+pub(crate) fn is_public_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let [a, b, c, _] = ip.octets();

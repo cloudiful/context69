@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    r.repository_key,\n    r.provider_kind,\n    r.external_hook_id,\n    r.ownership,\n    r.active,\n    r.signing_secret_key,\n    r.created_at,\n    r.updated_at\nFROM context69.git_webhook_registrations r\nJOIN context69.git_repository_sources s ON s.repository_key = r.repository_key\nWHERE s.group_id = $1\n  AND r.repository_key = $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "provider_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "provider_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "external_hook_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "external_hook_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ownership",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "ownership"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "active"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "signing_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "signing_secret_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b9c9aa4b9221658e8108dc8b9e34e7043ab5e2abf983101b09fa8ff35a767c7e"
+}

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Replaces the whole chunk list of one file of a building generation, in a\n-- single statement: the previous chunks of that file leave and the new ones\n-- land together, so a file is never readable with a mix of two revisions.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key, $4 file_key,\n-- $5 chunk_index int[], $6 start_line int[], $7 end_line int[], $8 text text[].\n--\n-- The file must be one of $3's own files, and that generation must still be\n-- building; otherwise the statement reports an empty scope and writes nothing.\n-- Chunk text is stored verbatim and anchored to inclusive 1-based lines, so\n-- whitespace, line endings, and punctuation survive the round trip.\nWITH scoped_file AS (\n    SELECT f.file_key, f.generation_key\n    FROM context69.git_generation_files f\n    JOIN context69.git_repository_generations g ON g.generation_key = f.generation_key\n    JOIN context69.git_repository_sources s ON s.repository_key = g.repository_key\n    WHERE s.group_id = $1\n      AND g.repository_key = $2\n      AND f.generation_key = $3\n      AND f.file_key = $4\n      AND g.status = 'building'\n),\nincoming_chunks AS (\n    SELECT\n        scoped_file.generation_key,\n        scoped_file.file_key,\n        chunk.chunk_index,\n        chunk.start_line,\n        chunk.end_line,\n        chunk.chunk_text\n    FROM scoped_file\n    CROSS JOIN LATERAL unnest($5::int[], $6::int[], $7::int[], $8::text[])\n        AS chunk(chunk_index, start_line, end_line, chunk_text)\n),\nretired_chunks AS (\n    DELETE FROM context69.git_generation_chunks c\n    USING scoped_file\n    WHERE c.file_key = scoped_file.file_key\n    RETURNING 1\n),\nstored_chunks AS (\n    INSERT INTO context69.git_generation_chunks (\n        generation_key,\n        file_key,\n        chunk_index,\n        start_line,\n        end_line,\n        chunk_text\n    )\n    SELECT\n        generation_key,\n        file_key,\n        chunk_index,\n        start_line,\n        end_line,\n        chunk_text\n    FROM incoming_chunks\n    RETURNING 1\n)\nSELECT\n    (SELECT count(*) FROM scoped_file) AS \"scoped_file_count!\",\n    (SELECT count(*) FROM retired_chunks) AS \"retired_chunk_count!\",\n    (SELECT count(*) FROM stored_chunks) AS \"stored_chunk_count!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scoped_file_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "retired_chunk_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "stored_chunk_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4Array",
+        "Int4Array",
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "3d03abcdd84f8487b729e177e18f06a761a606263b201fcf9bf7f4d36598f136"
+}

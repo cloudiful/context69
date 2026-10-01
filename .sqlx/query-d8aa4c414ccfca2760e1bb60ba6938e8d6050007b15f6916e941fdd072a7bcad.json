@@ -1,0 +1,206 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Bounded lexical search over the code chunks of one repository's active\n-- generation.\n--\n-- $1 group_id (owning group), $2 repository_key, $3 phrase (lowercased query\n-- text, used only for the exact path comparison), $4 phrase pattern (LIKE\n-- pattern built from the same query with `\\`, `%`, and `_` escaped), $5 terms\n-- text[] (code-aware tokens, already pattern-escaped), $6 path prefix pattern\n-- or NULL, $7 language or NULL, $8 visible_group_ids bigint[], $9 limit.\n--\n-- Only the activated generation is searched, and only while it is the ready one:\n-- a building, failed, or superseded snapshot never answers, so results always\n-- describe the snapshot a reader would get from the repository itself. The\n-- group join reads the owner's current visibility on every call instead of a\n-- stored copy, and a repository of another group matches no row.\n--\n-- The caller's text is matched whole and case-insensitively, and the token\n-- filter keeps identifier characters (`_`, `.`, `:`, `/`, `-`, `$`) inside a\n-- token, so `parse_ref` and `SafeRef::parse` are never shredded into prose\n-- terms. Every LIKE pattern here is the escaped $4, in the path branch as well\n-- as the chunk branch: a query of `100%` looks for a literal percent sign and a\n-- query of only metacharacters cannot widen to every path. The raw $3 is used\n-- only for `=` in the score and the match kind. Matching uses ILIKE, which is\n-- correct on a sequential scan: the trigram index is only an accelerator, and\n-- the same rows are returned without the extension. Callers bound the result\n-- with $9.\nWITH repository_scope AS (\n    SELECT s.repository_key, s.group_id, g.visibility AS group_visibility\n    FROM context69.git_repository_sources s\n    JOIN context69.groups g ON g.id = s.group_id\n    WHERE s.group_id = $1\n      AND s.repository_key = $2\n),\nactive_generation AS (\n    SELECT gen.generation_key, gen.generation_number, gen.ref_name, gen.commit_sha\n    FROM context69.git_repository_active_generations ag\n    JOIN context69.git_repository_generations gen ON gen.generation_key = ag.generation_key\n    JOIN repository_scope r ON r.repository_key = ag.repository_key\n    WHERE ag.repository_key = r.repository_key\n      AND gen.status = 'ready'\n),\nmatched AS (\n    SELECT\n        gen.generation_key,\n        gen.generation_number,\n        gen.ref_name,\n        gen.commit_sha,\n        r.repository_key,\n        r.group_visibility,\n        f.file_key,\n        f.path,\n        f.language,\n        c.chunk_key,\n        c.chunk_index,\n        c.start_line,\n        c.end_line,\n        c.chunk_text\n    FROM context69.git_generation_chunks c\n    JOIN context69.git_generation_files f\n        ON f.generation_key = c.generation_key\n       AND f.file_key = c.file_key\n    JOIN active_generation gen ON gen.generation_key = c.generation_key\n    JOIN repository_scope r ON TRUE\n    WHERE ($6::text IS NULL OR f.path LIKE $6 ESCAPE '\\')\n      AND ($7::text IS NULL OR f.language = $7)\n      AND (r.group_visibility = 'public' OR r.group_id = ANY($8::bigint[]))\n      AND (\n          lower(c.chunk_text) LIKE $4 ESCAPE '\\'\n          OR lower(f.path) LIKE $4 ESCAPE '\\'\n          OR (\n              cardinality($5::text[]) > 0\n              AND NOT EXISTS (\n                  SELECT 1\n                  FROM unnest($5::text[]) AS term(value)\n                  WHERE lower(c.chunk_text) NOT LIKE ('%' || term.value || '%') ESCAPE '\\'\n              )\n          )\n      )\n),\nscored AS (\n    SELECT\n        matched.*,\n        -- The raw phrase is used only for equality; every LIKE pattern is the\n        -- escaped one, so a `%`, `_`, or `\\` in the query stays a literal\n        -- character instead of widening the path branch.\n        (CASE WHEN lower(matched.path) = $3 THEN 1.20\n              WHEN lower(matched.path) LIKE $4 ESCAPE '\\' THEN 0.90\n              ELSE 0.00\n          END\n         + CASE WHEN lower(matched.chunk_text) LIKE $4 ESCAPE '\\' THEN 0.82 ELSE 0.00 END\n         + CASE WHEN cardinality($5::text[]) > 0 THEN 0.30 ELSE 0.00 END)::real AS score\n    FROM matched\n)\nSELECT\n    repository_key AS \"repository_key!\",\n    generation_key AS \"generation_key!\",\n    generation_number AS \"generation_number!\",\n    ref_name AS \"ref_name!\",\n    commit_sha AS \"commit_sha!\",\n    group_visibility AS \"group_visibility!\",\n    file_key AS \"file_key!\",\n    path AS \"path!\",\n    language AS \"language!\",\n    chunk_key AS \"chunk_key!\",\n    chunk_index AS \"chunk_index!\",\n    start_line AS \"start_line!\",\n    end_line AS \"end_line!\",\n    chunk_text AS \"chunk_text!\",\n    score AS \"score!\",\n    CASE WHEN lower(path) = $3 THEN 'path_exact'\n         WHEN lower(path) LIKE $4 ESCAPE '\\' THEN 'path_phrase'\n         WHEN lower(chunk_text) LIKE $4 ESCAPE '\\' THEN 'chunk_phrase'\n         ELSE 'chunk_terms'\n    END AS \"matched!\"\nFROM scored\nORDER BY \"score!\" DESC, path ASC, chunk_index ASC\nLIMIT $9\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "generation_number!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ref_name!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "ref_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "commit_sha!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "commit_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "group_visibility!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "file_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "file_key"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "path!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "language!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "language"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "chunk_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_key"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "chunk_index!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "start_line!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "start_line"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "end_line!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "end_line"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "chunk_text!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_text"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "score!",
+        "type_info": "Float4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "matched!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray",
+        "Text",
+        "Text",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "d8aa4c414ccfca2760e1bb60ba6938e8d6050007b15f6916e941fdd072a7bcad"
+}

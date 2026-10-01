@@ -1,0 +1,200 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Starts the next generation of a repository owned by $1.\n--\n-- The number is allocated by incrementing the repository's own counter and\n-- inserting with the value that increment returned, in one statement. The\n-- increment re-reads the row version the lock holder committed, so two\n-- concurrent starts take consecutive numbers instead of the same one, and\n-- there is no aggregate over the generations table whose snapshot could\n-- predate the lock. Allocation and insertion share a transaction, so a start\n-- that fails consumes no number.\nWITH allocated AS (\n    UPDATE context69.git_repository_sources\n    SET generation_counter = generation_counter + 1,\n        updated_at = now()\n    WHERE group_id = $1\n      AND repository_key = $2\n    RETURNING repository_key, generation_counter\n)\nINSERT INTO context69.git_repository_generations (\n    repository_key,\n    generation_number,\n    ref_name,\n    commit_sha,\n    index_profile\n)\nSELECT\n    allocated.repository_key,\n    allocated.generation_counter,\n    $3,\n    $4,\n    $5\nFROM allocated\nRETURNING\n    repository_key,\n    generation_key,\n    generation_number,\n    ref_name,\n    commit_sha,\n    index_profile,\n    status,\n    file_count,\n    excluded_file_count,\n    total_bytes,\n    error_code,\n    started_at,\n    completed_at,\n    created_at,\n    updated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "generation_number",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ref_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "ref_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "commit_sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "commit_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "index_profile",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "index_profile"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "file_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "file_count"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "excluded_file_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "excluded_file_count"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "total_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "total_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "error_code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "error_code"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "completed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "completed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "fbac0105191689b34f129165147ab2014fa0cfa8c45d87a4934c337bd119e434"
+}

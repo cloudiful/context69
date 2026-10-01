@@ -1,0 +1,118 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Upserts the registration only when the repository is owned by $1, so one\n-- group can never write a hook onto another group's repository source.\nINSERT INTO context69.git_webhook_registrations (\n    repository_key,\n    provider_kind,\n    external_hook_id,\n    ownership,\n    active,\n    signing_secret_key\n)\nSELECT\n    s.repository_key,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7\nFROM context69.git_repository_sources s\nWHERE s.repository_key = $1\n  AND s.group_id = $2\nON CONFLICT (repository_key) DO UPDATE\nSET provider_kind = EXCLUDED.provider_kind,\n    external_hook_id = EXCLUDED.external_hook_id,\n    ownership = EXCLUDED.ownership,\n    active = EXCLUDED.active,\n    signing_secret_key = EXCLUDED.signing_secret_key,\n    updated_at = now()\nRETURNING\n    repository_key,\n    provider_kind,\n    external_hook_id,\n    ownership,\n    active,\n    signing_secret_key,\n    created_at,\n    updated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "provider_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "provider_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "external_hook_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "external_hook_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ownership",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "ownership"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "active"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "signing_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "signing_secret_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_registrations",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a44033d2e96165399a7f951deb178a4905470f4d1aa128f62ebae4f4860442ff"
+}

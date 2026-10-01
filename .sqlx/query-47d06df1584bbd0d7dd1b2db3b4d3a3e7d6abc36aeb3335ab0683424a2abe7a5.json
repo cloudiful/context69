@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.git_webhook_deliveries\nSET status = $2,\n    target_commit_sha = COALESCE($3, target_commit_sha),\n    processed_at = now()\nWHERE delivery_id = $1\nRETURNING delivery_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "delivery_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_webhook_deliveries",
+            "name": "delivery_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "47d06df1584bbd0d7dd1b2db3b4d3a3e7d6abc36aeb3335ab0683424a2abe7a5"
+}

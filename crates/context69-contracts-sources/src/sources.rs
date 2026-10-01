@@ -161,3 +161,9 @@ pub struct SourceFolderResponse {
     pub records_folder_id: Uuid,
     pub path: String,
 }
+
+/// Git repository, connection, generation, and webhook contracts.
+pub use crate::git_repositories::*;
+
+/// Exact code content contracts: manifest entries, chunks, and lexical hits.
+pub use crate::git_files::*;
