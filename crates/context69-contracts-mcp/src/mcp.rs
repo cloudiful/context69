@@ -7,7 +7,8 @@
 //! continuation cursor (`next_cursor` / `next_chunk_cursor`) by construction.
 //!
 //! Frozen tool names: `search_documents`, `get_document`, `query_documents`,
-//! `get_document_by_external_id`, `get_documents`, `list_sources`.
+//! `get_document_by_external_id`, `get_documents`, `list_sources`, and the
+//! separate code tool `search_code`.
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -22,13 +23,14 @@ use crate::projections::{
 };
 
 /// Frozen MCP tool names. The registry in `src/mcp` must expose exactly these.
-pub const MCP_TOOL_NAMES: [&str; 6] = [
+pub const MCP_TOOL_NAMES: [&str; 7] = [
     "search_documents",
     "get_document",
     "query_documents",
     "get_document_by_external_id",
     "get_documents",
     "list_sources",
+    "search_code",
 ];
 
 /// MCP-local default result window for `query_documents` when the nested

@@ -1,6 +1,6 @@
 //! MCP tool-shape tests (Redmine 362 Task 5 / mcp-boundary).
 //!
-//! These tests pin the six frozen tool input/output shapes, the progressive
+//! These tests pin the seven frozen tool input/output shapes, the progressive
 //! search -> detail flow, anonymous/public source behavior, and invalid
 //! cursor/limit handling — all without a database.
 
@@ -113,6 +113,7 @@ fn frozen_tool_names_are_stable() {
             "get_document_by_external_id",
             "get_documents",
             "list_sources",
+            "search_code",
         ]
     );
     let mut sorted = MCP_TOOL_NAMES.to_vec();

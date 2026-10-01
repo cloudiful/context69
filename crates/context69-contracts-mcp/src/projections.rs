@@ -52,6 +52,31 @@ pub const MCP_CURSOR_MAX_CHARS: usize = 256;
 pub const MCP_DISPLAY_NAME_MAX_CHARS: usize = 256;
 pub const MCP_DESCRIPTION_MAX_CHARS: usize = 2_000;
 
+/// Default result count for `search_code`.
+pub const MCP_CODE_LIMIT_DEFAULT: u8 = 20;
+/// Hard cap for `search_code` results per call. The lexical query is asked for
+/// `limit + 1` hits so the response can report truncation truthfully; the cap
+/// stays below the storage ceiling of 200.
+pub const MCP_CODE_LIMIT_MAX: u8 = 50;
+/// Minimum result count for `search_code`.
+pub const MCP_CODE_LIMIT_MIN: u8 = 1;
+/// Longest accepted `query` value for `search_code` (matches the stored
+/// lexical search-term ceiling).
+pub const MCP_CODE_QUERY_MAX_CHARS: usize = 200;
+/// Longest accepted `path_prefix` filter for `search_code`.
+pub const MCP_CODE_PATH_PREFIX_MAX_CHARS: usize = 512;
+/// Longest accepted `language` token for `search_code` (matches the classified
+/// language token shape).
+pub const MCP_CODE_LANGUAGE_MAX_CHARS: usize = 32;
+/// Longest repository path kept in a code hit projection.
+pub const MCP_CODE_PATH_MAX_CHARS: usize = 512;
+/// Longest ref name kept in a code hit/response projection.
+pub const MCP_CODE_REF_MAX_CHARS: usize = 256;
+/// Longest commit sha kept in a code hit/response projection.
+pub const MCP_CODE_COMMIT_MAX_CHARS: usize = 64;
+/// Code chunk text budget per hit (matches runtime truncation).
+pub const MCP_CODE_TEXT_MAX_CHARS: usize = 4_000;
+
 /// Truncate a string to at most `max` characters (never panics on boundaries).
 pub fn truncate_chars(value: &str, max: usize) -> String {
     if value.chars().count() <= max {

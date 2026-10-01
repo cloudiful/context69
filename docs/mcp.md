@@ -31,6 +31,15 @@ Use this sequence for most retrieval workflows:
    `group_path`, `source_key`, `display_name`, `description`, `visibility`,
    and `origin_status` only — connection names, base queries, origin messages,
    and database state are never disclosed over MCP.
+7. `search_code` for lexical search across one registered Git repository's
+   active index generation. It accepts `group_path`, a UUID `repository_key`,
+   `query` (1-200 characters), optional `path_prefix` and `language` filters,
+   and `limit` (1-50, default 20). It returns bounded hits carrying
+   repository/generation/file/chunk identifiers, the pinned ref and commit,
+   path, language, inclusive 1-based line range, score, match kind, and
+   verbatim chunk text, together with the generation's coverage/freshness
+   metadata and a truthful `truncated` flag. It is separate from document
+   search and never reads provider or credential material.
 
 `search` is not an alias. Use `search_documents` as the single search tool.
 Metadata and full body text are intentionally absent from search results.
@@ -51,6 +60,13 @@ Metadata and full body text are intentionally absent from search results.
   detail item.
 - Source listing and resource enumeration return at most 100 entries per
   `list_sources` call and 50 entries per `list_resources` page.
+- `search_code` accepts at most 50 hits per call (default 20) and a query of at
+  most 200 characters; code chunk text is capped at 4,000 characters. The
+  active generation must exist and be ready, and a missing, foreign, or
+  not-yet-indexed repository is an error rather than an empty match.
+- `search_code` has no cursor: `truncated: true` means more
+  active-generation hits matched than `limit`. Raise `limit` (up to 50) to see
+  more.
 
 Every `has_more: true` response carries a continuation token (`next_cursor`
 or `next_chunk_cursor`). Resource listing honors the incoming
@@ -141,6 +157,19 @@ List sources with cursor pagination:
 {
   "limit": 50,
   "cursor": "50"
+}
+```
+
+Search code in one registered repository's active generation:
+
+```json
+{
+  "group_path": "research/context69",
+  "repository_key": "00000000-0000-0000-0000-000000000000",
+  "query": "search_code",
+  "path_prefix": "src/mcp/",
+  "language": "rust",
+  "limit": 10
 }
 ```
 
