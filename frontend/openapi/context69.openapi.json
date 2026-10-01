@@ -1698,6 +1698,207 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-repositories": {
+      "get": {
+        "tags": [],
+        "operationId": "list_git_repositories",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Group-visible Git repository sources",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GitRepositorySource"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group not found"
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "register_git_repository",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitRepositoryRegistrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Git index task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid repository registration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group not found"
+          },
+          "409": {
+            "description": "Idempotency key reuse conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_git_repository",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Git repository source status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepositorySource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index": {
+      "post": {
+        "tags": [],
+        "operationId": "index_git_repository",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Git index task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          },
+          "409": {
+            "description": "Idempotency key reuse conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/library/files/import-url": {
       "post": {
         "tags": [],
@@ -7130,6 +7331,228 @@
           }
         }
       },
+      "GitCommitCheckpoint": {
+        "type": "object",
+        "description": "Incremental-sync checkpoint between the target and indexed commits.\n\n`indexed_commit_sha` is the last fully indexed commit, so the next sync\ndiffs `indexed_commit_sha..target_commit_sha` instead of re-reading the ref.",
+        "properties": {
+          "checkpoint_updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When either side of the checkpoint last changed."
+          },
+          "indexed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the indexed commit last advanced."
+          },
+          "indexed_commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "GitIndexProfile": {
+        "type": "string",
+        "description": "Independent index profile for a Git source.",
+        "enum": [
+          "lexical",
+          "hybrid",
+          "full_semantic"
+        ]
+      },
+      "GitIndexStatus": {
+        "type": "string",
+        "description": "Index lifecycle state of a Git source.",
+        "enum": [
+          "pending",
+          "indexing",
+          "ready",
+          "stale",
+          "failed",
+          "disabled"
+        ]
+      },
+      "GitProviderKind": {
+        "type": "string",
+        "description": "Provider family behind a Git source or provider connection.",
+        "enum": [
+          "github",
+          "forgejo",
+          "gitlab",
+          "generic"
+        ]
+      },
+      "GitRefreshPolicy": {
+        "type": "string",
+        "description": "Refresh policy for a tracked Git source.",
+        "enum": [
+          "manual",
+          "webhook",
+          "reconcile"
+        ]
+      },
+      "GitRepositoryRegistrationRequest": {
+        "type": "object",
+        "description": "Registration request for one public GitHub repository ref.\n\n`canonical_url` must be exactly `https://github.com/{owner}/{name}` (a\ntrailing slash and a single `.git` suffix are tolerated by the validator).\n`target_ref` is a full ref (`refs/heads/main`, `refs/tags/v1`) or `HEAD`,\nand when it names a branch it must match `default_branch`.",
+        "required": [
+          "canonical_url",
+          "default_branch",
+          "target_ref"
+        ],
+        "properties": {
+          "canonical_url": {
+            "type": "string",
+            "description": "Canonical public GitHub HTTPS repository URL."
+          },
+          "default_branch": {
+            "type": "string",
+            "description": "Default branch name of the repository."
+          },
+          "index_profile": {
+            "$ref": "#/components/schemas/GitIndexProfile",
+            "description": "Independent index profile; defaults to cheap lexical indexing."
+          },
+          "pinned_commit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional pinned commit SHA the target ref must resolve to."
+          },
+          "refresh_policy": {
+            "$ref": "#/components/schemas/GitRefreshPolicy",
+            "description": "Refresh policy; defaults to manual one-off snapshots."
+          },
+          "target_ref": {
+            "type": "string",
+            "description": "Full target ref to index, or `HEAD`."
+          }
+        }
+      },
+      "GitRepositorySource": {
+        "type": "object",
+        "description": "A registered Git repository source with its owning group, identity,\npolicies, and checkpoint.\n\n`group_key`, `group_path`, and `visibility` are read from the owning\n`groups` row on every query, so a visibility change is reflected instead of\nbeing served from a stored snapshot. Ownership is always a real group.",
+        "required": [
+          "group_key",
+          "group_path",
+          "visibility",
+          "repository_key",
+          "provider",
+          "canonical_url",
+          "owner",
+          "name",
+          "default_branch",
+          "version",
+          "refresh",
+          "index_profile",
+          "index_status",
+          "checkpoint",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "active_generation_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Generation currently activated for this repository, when one is."
+          },
+          "canonical_url": {
+            "type": "string"
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/GitCommitCheckpoint"
+          },
+          "connection_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "group_key": {
+            "type": "string",
+            "description": "Key of the owning group; sources have no owner-less form."
+          },
+          "group_path": {
+            "type": "string",
+            "description": "Current full path of the owning group."
+          },
+          "index_profile": {
+            "$ref": "#/components/schemas/GitIndexProfile"
+          },
+          "index_status": {
+            "$ref": "#/components/schemas/GitIndexStatus"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/GitProviderKind"
+          },
+          "refresh": {
+            "$ref": "#/components/schemas/GitRefreshPolicy"
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "$ref": "#/components/schemas/GitVersionPolicy"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility",
+            "description": "Current visibility of the owning group."
+          }
+        }
+      },
+      "GitVersionPolicy": {
+        "type": "object",
+        "description": "Version policy: the ref to read plus an optional pinned commit.",
+        "required": [
+          "ref_name"
+        ],
+        "properties": {
+          "commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ref_name": {
+            "type": "string"
+          }
+        }
+      },
       "GroupKind": {
         "type": "string",
         "enum": [
@@ -9953,7 +10376,8 @@
           "url_batch",
           "delete_batch",
           "translation",
-          "vector_rebuild"
+          "vector_rebuild",
+          "git_index"
         ]
       },
       "TaskListQuery": {

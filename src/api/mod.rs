@@ -20,6 +20,7 @@ mod documents;
 mod error_mapping;
 mod errors;
 mod extractions;
+mod git_repositories;
 mod group_access;
 mod group_library;
 mod group_source_folders;
@@ -110,6 +111,9 @@ pub(crate) use documents::{
 pub(crate) use extractions::{
     get_extraction_health, list_document_extraction_jobs, list_extraction_templates,
     rebuild_document_extractions, upsert_extraction_template,
+};
+pub(crate) use git_repositories::{
+    get_git_repository, index_git_repository, list_git_repositories, register_git_repository,
 };
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,

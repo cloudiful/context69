@@ -468,6 +468,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_git_repositories"];
+        put?: never;
+        post: operations["register_git_repository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["index_git_repository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/import-url": {
         parameters: {
             query?: never;
@@ -1939,6 +1987,111 @@ export interface components {
             /** Format: uuid */
             file_id: string;
         };
+        /**
+         * @description Incremental-sync checkpoint between the target and indexed commits.
+         *
+         *     `indexed_commit_sha` is the last fully indexed commit, so the next sync
+         *     diffs `indexed_commit_sha..target_commit_sha` instead of re-reading the ref.
+         */
+        GitCommitCheckpoint: {
+            /**
+             * Format: date-time
+             * @description When either side of the checkpoint last changed.
+             */
+            checkpoint_updated_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the indexed commit last advanced.
+             */
+            indexed_at?: string | null;
+            indexed_commit_sha?: string | null;
+            target_commit_sha?: string | null;
+        };
+        /**
+         * @description Independent index profile for a Git source.
+         * @enum {string}
+         */
+        GitIndexProfile: "lexical" | "hybrid" | "full_semantic";
+        /**
+         * @description Index lifecycle state of a Git source.
+         * @enum {string}
+         */
+        GitIndexStatus: "pending" | "indexing" | "ready" | "stale" | "failed" | "disabled";
+        /**
+         * @description Provider family behind a Git source or provider connection.
+         * @enum {string}
+         */
+        GitProviderKind: "github" | "forgejo" | "gitlab" | "generic";
+        /**
+         * @description Refresh policy for a tracked Git source.
+         * @enum {string}
+         */
+        GitRefreshPolicy: "manual" | "webhook" | "reconcile";
+        /**
+         * @description Registration request for one public GitHub repository ref.
+         *
+         *     `canonical_url` must be exactly `https://github.com/{owner}/{name}` (a
+         *     trailing slash and a single `.git` suffix are tolerated by the validator).
+         *     `target_ref` is a full ref (`refs/heads/main`, `refs/tags/v1`) or `HEAD`,
+         *     and when it names a branch it must match `default_branch`.
+         */
+        GitRepositoryRegistrationRequest: {
+            /** @description Canonical public GitHub HTTPS repository URL. */
+            canonical_url: string;
+            /** @description Default branch name of the repository. */
+            default_branch: string;
+            /** @description Independent index profile; defaults to cheap lexical indexing. */
+            index_profile?: components["schemas"]["GitIndexProfile"];
+            /** @description Optional pinned commit SHA the target ref must resolve to. */
+            pinned_commit?: string | null;
+            /** @description Refresh policy; defaults to manual one-off snapshots. */
+            refresh_policy?: components["schemas"]["GitRefreshPolicy"];
+            /** @description Full target ref to index, or `HEAD`. */
+            target_ref: string;
+        };
+        /**
+         * @description A registered Git repository source with its owning group, identity,
+         *     policies, and checkpoint.
+         *
+         *     `group_key`, `group_path`, and `visibility` are read from the owning
+         *     `groups` row on every query, so a visibility change is reflected instead of
+         *     being served from a stored snapshot. Ownership is always a real group.
+         */
+        GitRepositorySource: {
+            /**
+             * Format: uuid
+             * @description Generation currently activated for this repository, when one is.
+             */
+            active_generation_key?: string | null;
+            canonical_url: string;
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            connection_key?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            default_branch: string;
+            /** @description Key of the owning group; sources have no owner-less form. */
+            group_key: string;
+            /** @description Current full path of the owning group. */
+            group_path: string;
+            index_profile: components["schemas"]["GitIndexProfile"];
+            index_status: components["schemas"]["GitIndexStatus"];
+            name: string;
+            owner: string;
+            provider: components["schemas"]["GitProviderKind"];
+            refresh: components["schemas"]["GitRefreshPolicy"];
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: components["schemas"]["GitVersionPolicy"];
+            /** @description Current visibility of the owning group. */
+            visibility: components["schemas"]["Visibility"];
+        };
+        /** @description Version policy: the ref to read plus an optional pinned commit. */
+        GitVersionPolicy: {
+            commit_sha?: string | null;
+            ref_name: string;
+        };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
         GroupMemberPageResponse: {
@@ -2803,7 +2956,7 @@ export interface components {
             next_cursor?: string | null;
         };
         /** @enum {string} */
-        TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild";
+        TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild" | "git_index";
         /**
          * @description v0.18 task list query: typed `view` owns the trash predicate and the
          *     legacy `trashed` flag is gone. Unknown fields (including `trashed`) are
@@ -4405,6 +4558,189 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractionTemplateResponse"];
+                };
+            };
+        };
+    };
+    list_git_repositories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Group-visible Git repository sources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"][];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    register_git_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitRepositoryRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Git index task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            /** @description Invalid repository registration */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Idempotency key reuse conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_git_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Git repository source status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    index_git_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Git index task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Idempotency key reuse conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };

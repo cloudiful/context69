@@ -37,7 +37,7 @@ mod resolve;
 // unused import.
 pub(crate) use github_client::{GitHubAcquirer, RepositoryAcquirer};
 pub(crate) use github_transport::{GitHttpTransport, GitHubApiTransport, TransportResponse};
-pub(crate) use github_url::GitHubRepoCoordinates;
+pub(crate) use github_url::{GitHubRepoCoordinates, parse_canonical_github_url};
 pub(crate) use model::{BlobContent, GitAcquisitionLimits, TreeFileEntry, TreeListing};
 pub(crate) use ref_path_safety::{SafeRef, SafeSha, SafeTreePath};
 

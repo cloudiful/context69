@@ -16,8 +16,9 @@ use context69_contracts_core::Visibility;
 use context69_contracts_sources::{
     GitActiveGeneration, GitCommitCheckpoint, GitConnectionMode, GitGenerationStatus,
     GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderKind, GitRefreshPolicy,
-    GitRepositoryGeneration, GitRepositorySource, GitVersionPolicy, GitWebhookDelivery,
-    GitWebhookDeliveryStatus, GitWebhookOwnership, GitWebhookRegistration,
+    GitRepositoryGeneration, GitRepositoryRegistrationRequest, GitRepositorySource,
+    GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus, GitWebhookOwnership,
+    GitWebhookRegistration,
 };
 use serde_json::{from_value, json, to_value};
 use uuid::Uuid;
@@ -588,4 +589,71 @@ fn generation_contract_tolerates_absent_optional_fields() {
     assert_eq!(generation.status, GitGenerationStatus::Building);
     assert_eq!(generation.error_code, None);
     assert_eq!(generation.completed_at, None);
+}
+
+#[test]
+fn registration_request_defaults_policies_without_optional_fields() {
+    let request: GitRepositoryRegistrationRequest = from_value(json!({
+        "canonical_url": "https://github.com/cloudiful/context69",
+        "default_branch": "main",
+        "target_ref": "refs/heads/main"
+    }))
+    .expect("minimal registration request");
+
+    assert_eq!(request.index_profile, GitIndexProfile::Lexical);
+    assert_eq!(request.refresh_policy, GitRefreshPolicy::Manual);
+    assert_eq!(request.pinned_commit, None);
+}
+
+#[test]
+fn registration_request_round_trips_pin_and_policies_without_secret_fields() {
+    let request = GitRepositoryRegistrationRequest {
+        canonical_url: "https://github.com/cloudiful/context69".to_string(),
+        default_branch: "main".to_string(),
+        target_ref: "refs/tags/v1.2.3".to_string(),
+        pinned_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+        index_profile: GitIndexProfile::Hybrid,
+        refresh_policy: GitRefreshPolicy::Webhook,
+    };
+    let encoded = to_value(&request).expect("serialize request");
+    assert_eq!(encoded["index_profile"], json!("hybrid"));
+    assert_eq!(encoded["refresh_policy"], json!("webhook"));
+    assert_eq!(
+        encoded["pinned_commit"],
+        json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+
+    // Registration carries no credential or provider-connection material.
+    let object = encoded.as_object().expect("request object");
+    for forbidden in [
+        "connection_key",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "access_token",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "registration request must not carry {forbidden}"
+        );
+    }
+
+    let decoded: GitRepositoryRegistrationRequest =
+        from_value(encoded).expect("deserialize request");
+    assert_eq!(decoded, request);
+}
+
+#[test]
+fn registration_request_omits_absent_optional_pin() {
+    let request = GitRepositoryRegistrationRequest {
+        canonical_url: "https://github.com/cloudiful/context69".to_string(),
+        default_branch: "main".to_string(),
+        target_ref: "HEAD".to_string(),
+        pinned_commit: None,
+        index_profile: GitIndexProfile::Lexical,
+        refresh_policy: GitRefreshPolicy::Manual,
+    };
+    let encoded = to_value(&request).expect("serialize request");
+    assert!(encoded.get("pinned_commit").is_none());
+    assert_eq!(encoded["index_profile"], json!("lexical"));
+    assert_eq!(encoded["refresh_policy"], json!("manual"));
 }
