@@ -104,9 +104,9 @@ impl TranslationStore {
 
     /// Binds the shared encrypted store this deployment configured.
     ///
-    /// Until this is called the store is unkeyed — the same transition state a
-    /// deployment without a master key runs in — so a caller that only has a
-    /// pool still reads legacy values and still fails closed on a sealed row.
+    /// Until this is called the store is unkeyed, so a caller that only has a pool
+    /// cannot open a sealed shared key and still fails closed on one — which is
+    /// what a deployment without a master secret runs in.
     #[must_use]
     pub fn with_secret_store(mut self, store: SecretStore) -> Self {
         self.secrets = ProviderApiKey::new(store);
@@ -117,27 +117,27 @@ impl TranslationStore {
         &self.pool
     }
 
-    /// Every provider row with the shared `llm` API key resolved store-first.
+    /// Every provider row, with the shared `llm` API key resolved from the store.
     ///
     /// The translation runner consumes this, so the key it sends is the
     /// effective one; a sealed row this deployment cannot open fails here
-    /// rather than falling back to a stale legacy value. Only an enabled
+    /// rather than being reported as an absent credential. Only an enabled
     /// provider is resolved, so a disabled category's row never blocks another
     /// provider's attempt.
     pub async fn providers(&self) -> Result<Vec<StoredTranslationProvider>> {
         let mut providers = self.provider_rows().await?;
         for provider in &mut providers {
             if provider.enabled && provider.provider_key == "llm" {
-                provider.api_key = self.secrets.resolve(provider.api_key.take()).await?;
+                provider.api_key = self.secrets.resolve().await?;
             }
         }
         Ok(providers)
     }
 
-    /// Every provider row exactly as the legacy table holds it.
-    ///
-    /// Settings reads use this so `has_api_key` can be answered metadata-only,
-    /// without opening the shared store row.
+    /// Every provider row as the table holds it, with nothing opened: the shared
+    /// `llm` row's `api_key` column is never written, and the sibling rows keep
+    /// their own credentials there. Settings reads use this so `has_api_key` can
+    /// be answered metadata-only, without opening the shared store row.
     async fn provider_rows(&self) -> Result<Vec<StoredTranslationProvider>> {
         Ok(
             sqlx::query_file_as!(StoredTranslationProvider, "sql/providers/list.sql")
@@ -148,7 +148,7 @@ impl TranslationStore {
 
     async fn provider_has_key(&self, provider: &StoredTranslationProvider) -> Result<bool> {
         if provider.provider_key == "llm" {
-            self.secrets.present(provider.api_key.as_deref()).await
+            self.secrets.present().await
         } else {
             Ok(legacy_has_api_key(provider.api_key.as_deref()))
         }
@@ -204,17 +204,17 @@ impl TranslationStore {
         for provider in &request.providers {
             let key = provider_key(provider.provider);
             let requested = clean(provider.api_key.as_deref());
-            let existing_key = existing
-                .iter()
-                .find(|item| item.provider_key == key)
-                .map(|item| item.api_key.as_deref());
             let has_key = if requested.is_some() {
                 true
             } else if key == "llm" {
-                // Only the shared row's presence is store-aware; a whitespace-only
-                // legacy value does not configure it.
-                self.secrets.present(existing_key.flatten()).await?
+                // Only the shared row's presence is store-aware, and it is
+                // answered from the store's own metadata.
+                self.secrets.present().await?
             } else {
+                let existing_key = existing
+                    .iter()
+                    .find(|item| item.provider_key == key)
+                    .map(|item| item.api_key.as_deref());
                 validation_has_legacy_api_key(existing_key.flatten())
             };
             if provider.enabled
@@ -227,9 +227,9 @@ impl TranslationStore {
                 )
                 .into());
             }
-            // The shared `llm` key is written to the store first, then the
-            // legacy column, so a rollback still finds the value while the
-            // store-first read already serves the new one.
+            // The shared `llm` key is owned by the store alone: it is sealed there
+            // and the statement refuses to write the column, so the table can
+            // never hold a second plaintext copy of it.
             if key == "llm" {
                 self.secrets.write(requested.as_deref()).await?;
             }
@@ -239,7 +239,7 @@ impl TranslationStore {
                 provider.enabled,
                 provider.priority,
                 provider_endpoint(provider),
-                requested,
+                if key == "llm" { None } else { requested },
                 clean(provider.model.as_deref()),
                 provider.llm_api_kind.map(llm_api_kind),
                 provider.deepl_plan.map(deepl_plan),

@@ -100,10 +100,39 @@ pub struct StoredExtractionTemplate {
     pub updated_at: DateTime<Utc>,
 }
 
+/// The shared `llm` provider row exactly as the table holds it.
+///
+/// The API key is not one of its fields: the store owns that credential, so the
+/// projection this row is read from never carries it and this type cannot hand a
+/// caller a plaintext copy of one.
 #[derive(Debug, Clone, FromRow)]
+struct StoredExtractionProviderRow {
+    enabled: bool,
+    endpoint: Option<String>,
+    model: Option<String>,
+    llm_api_kind: Option<String>,
+}
+
+impl StoredExtractionProviderRow {
+    /// The provider a caller consumes, with the shared key the store resolved.
+    fn with_api_key(self, api_key: Option<String>) -> StoredExtractionProvider {
+        StoredExtractionProvider {
+            enabled: self.enabled,
+            endpoint: self.endpoint,
+            api_key,
+            model: self.model,
+            llm_api_kind: self.llm_api_kind,
+        }
+    }
+}
+
+/// The shared `llm` provider with its API key resolved from the encrypted store.
+#[derive(Debug, Clone)]
 pub struct StoredExtractionProvider {
     pub enabled: bool,
     pub endpoint: Option<String>,
+    /// The shared key, or `None` when the provider has none configured. It is an
+    /// in-memory value the store filled in, never one the row carried.
     pub api_key: Option<String>,
     pub model: Option<String>,
     pub llm_api_kind: Option<String>,
@@ -193,8 +222,8 @@ pub struct ExtractionVersionInput<'a> {
 /// extraction reads.
 ///
 /// Both crates bind the row to the singleton
-/// [`SecretPurpose::TranslationProviderApiKey`]. Extraction only reads it, and
-/// prefers the store over the legacy column.
+/// [`SecretPurpose::TranslationProviderApiKey`]. The store is the only
+/// representation of that key, so extraction only ever opens it there.
 #[derive(Debug, Clone)]
 struct ProviderApiKey {
     store: SecretStore,
@@ -207,19 +236,19 @@ impl ProviderApiKey {
 
     const KEY_NAME: &'static str = key_names::TRANSLATION_PROVIDER_API_KEY;
 
-    /// Store first, legacy second. A stored row that cannot be opened fails
-    /// instead of silently serving a stale legacy value.
-    async fn resolve(&self, legacy: Option<String>) -> Result<Option<String>> {
-        let stored = self
+    /// The shared key, or nothing when it is not configured. A stored row this
+    /// deployment cannot open fails instead of reporting an absent credential.
+    async fn resolve(&self) -> Result<Option<String>> {
+        let Some(stored) = self
             .store
             .get(SecretPurpose::TranslationProviderApiKey, Self::KEY_NAME)
-            .await?;
-        match stored {
-            Some(value) => Ok(normalize_api_key(Some(
-                String::from_utf8_lossy(value.expose()).as_ref(),
-            ))),
-            None => Ok(normalize_api_key(legacy.as_deref())),
-        }
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(normalize_api_key(Some(
+            String::from_utf8_lossy(stored.expose()).as_ref(),
+        )))
     }
 }
 
@@ -248,9 +277,9 @@ impl ExtractionStore {
 
     /// Binds the shared encrypted store this deployment configured.
     ///
-    /// Until this is called the store is unkeyed — the same transition state a
-    /// deployment without a master key runs in — so a caller that only has a
-    /// pool still reads the legacy value and still fails closed on a sealed row.
+    /// Until this is called the store is unkeyed, so a caller that only has a pool
+    /// cannot open a sealed shared key and still fails closed on one — which is
+    /// what a deployment without a master secret runs in.
     #[must_use]
     pub fn with_secret_store(mut self, store: SecretStore) -> Self {
         self.secrets = ProviderApiKey::new(store);
@@ -305,17 +334,17 @@ impl ExtractionStore {
         Ok(codec::template_response(template))
     }
 
-    /// The shared `llm` provider row with its API key resolved store-first.
+    /// The shared `llm` provider row, with its API key resolved from the store.
     pub async fn provider(&self) -> Result<Option<StoredExtractionProvider>> {
-        let Some(mut provider) =
-            sqlx::query_file_as!(StoredExtractionProvider, "sql/provider/get_llm.sql")
+        let Some(row) =
+            sqlx::query_file_as!(StoredExtractionProviderRow, "sql/provider/get_llm.sql")
                 .fetch_optional(&self.pool)
                 .await?
         else {
             return Ok(None);
         };
-        provider.api_key = self.secrets.resolve(provider.api_key.take()).await?;
-        Ok(Some(provider))
+        let api_key = self.secrets.resolve().await?;
+        Ok(Some(row.with_api_key(api_key)))
     }
 
     pub async fn document(&self, document_id: i64) -> Result<ExtractionDocument> {
@@ -374,6 +403,36 @@ mod tests {
         let mut with_key = base.clone();
         with_key.api_key = Some("placeholder-key".to_string());
         assert_eq!(base.config_hash(), with_key.config_hash());
+    }
+
+    /// The row the shared statement projects carries no credential at all, so the
+    /// provider a caller receives can only have a key the store put there.
+    #[test]
+    fn the_projected_row_cannot_carry_a_key_and_the_provider_takes_the_stores() {
+        let row = || StoredExtractionProviderRow {
+            enabled: true,
+            endpoint: None,
+            model: Some("gpt".to_string()),
+            llm_api_kind: None,
+        };
+        assert_eq!(
+            row().with_api_key(None).api_key,
+            None,
+            "an unconfigured shared key stays absent"
+        );
+        assert_eq!(
+            row()
+                .with_api_key(Some("key".to_string()))
+                .api_key
+                .as_deref(),
+            Some("key"),
+            "the provider carries exactly the value the store resolved"
+        );
+        // The rest of the row reaches the provider untouched, so nothing about the
+        // settings was lost to the split.
+        let provider = row().with_api_key(Some("key".to_string()));
+        assert!(provider.enabled);
+        assert_eq!(provider.model.as_deref(), Some("gpt"));
     }
 
     #[test]

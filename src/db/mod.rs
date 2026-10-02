@@ -18,7 +18,6 @@ mod rows;
 mod runtime_settings;
 mod search_cache;
 mod search_settings;
-mod secret_backfill;
 mod source_connections;
 mod sync_runs;
 mod task_file_dedup;
@@ -47,7 +46,6 @@ pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
-pub use secret_backfill::LegacySecretColumn;
 pub use tasks::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow,
     DoclingRecoverySummary, FinishTaskItemRequest, InsertTaskItemRequest, StoredDoclingRemoteJob,
@@ -90,6 +88,9 @@ pub struct StoredDoclingSettings {
     pub do_formula_enrichment: bool,
     pub do_picture_description: bool,
     pub openai_base_url: Option<String>,
+    /// The VLM API key the settings service resolved from the shared store. It is
+    /// an in-memory value for the shape checks and the provider config, never a
+    /// persisted one: a stored row always reports `None` here.
     pub api_key: Option<String>,
     pub vlm_pipeline_model: Option<String>,
     pub picture_description_model: Option<String>,
@@ -105,6 +106,9 @@ pub struct StoredSearchSettings {
     pub rerank_model: String,
     pub candidate_limit: usize,
     pub timeout_secs: u64,
+    /// The rerank API key the settings service resolved from the shared store. It
+    /// is an in-memory value for the candidate the request folds onto, never a
+    /// persisted one: a stored row always reports `None` here.
     pub api_key: Option<String>,
     /// Hybrid fusion weight for the vector channel; boost is the residual
     /// margin (1 - vector - keyword).
@@ -137,6 +141,9 @@ pub struct StoredRuntimeQdrantSettings {
 #[derive(Debug, Clone)]
 pub struct StoredRuntimeEmbeddingSettings {
     pub base_url: String,
+    /// The provider API key resolved from the shared store for the process that
+    /// loaded these settings. It is an in-memory value, never a persisted one: a
+    /// stored row always reports `None` here.
     pub api_key: Option<String>,
     pub model: String,
     pub dimensions: usize,
@@ -177,8 +184,12 @@ pub struct StoredRuntimeS3Settings {
     pub bucket: String,
     pub prefix: String,
     pub path_style: bool,
+    /// An identifier, not a credential, so it stays in the settings row.
     pub access_key: String,
-    pub secret_key: String,
+    /// The secret key resolved from the shared store for the process that loaded
+    /// these settings. It is an in-memory value, never a persisted one: a stored
+    /// row always reports `None` here.
+    pub secret_key: Option<String>,
 }
 
 /// A stored source connection, as the database records it.
@@ -186,14 +197,13 @@ pub struct StoredRuntimeS3Settings {
 /// `name` is the user-controlled API/display identifier. `connection_key` is the
 /// stable identity this application minted for the connection, and it is what a
 /// sealed database URL is keyed by — never the name, never the DSN.
-/// `database_url` is the legacy plaintext column, still written for the whole
-/// transition; `database_url_secret_key` is the `internal_secrets` row that owns
-/// the value once it has been written through the store, and is NULL until then.
+/// `database_url_secret_key` is the `internal_secrets` row that holds the DSN, and
+/// the only place it exists: a connection that has no reference is one whose
+/// store row does not exist either.
 #[derive(Debug, Clone)]
 pub struct StoredSourceConnection {
     pub name: String,
     pub connection_key: Uuid,
-    pub database_url: String,
     pub database_url_secret_key: Option<String>,
 }
 
@@ -202,12 +212,12 @@ pub struct StoredSourceConnection {
 /// The caller mints `connection_key` for a new connection and reuses the stored
 /// one otherwise, then seals the database URL under
 /// `database_url_secret_key` before saving, because the reference has to resolve
-/// to a store row that already exists.
+/// to a store row that already exists. The DSN is not part of the write: this
+/// layer never sees it.
 #[derive(Debug, Clone)]
 pub struct NewSourceConnection {
     pub connection_key: Uuid,
     pub name: String,
-    pub database_url: String,
     pub database_url_secret_key: String,
 }
 

@@ -1,3 +1,5 @@
+-- The Docling VLM provider API key is not projected: the shared encrypted store
+-- owns it, and the settings service resolves it through that store alone.
 SELECT
     base_url,
     timeout_secs,
@@ -15,7 +17,6 @@ SELECT
     do_formula_enrichment,
     do_picture_description,
     openai_base_url,
-    api_key,
     vlm_pipeline_model,
     picture_description_model,
     code_formula_model,

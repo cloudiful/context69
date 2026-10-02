@@ -17,10 +17,10 @@ use crate::{
 /// Seeds the first-boot runtime row from deployment configuration.
 ///
 /// The embedding, Docling VLM, and runtime S3 API keys and every source
-/// connection's database URL are also committed to the shared store, so a fresh
-/// database starts with the same "written to both" state the settings endpoints
-/// produce. The legacy columns still receive the values, so rolling back to a
-/// release that predates the store loses nothing.
+/// connection's database URL are committed to the shared store, so a fresh
+/// database starts with every credential sealed under its purpose. They are not
+/// also written to a settings row: the store is the only representation, so the
+/// seeded row holds no plaintext copy of a key.
 pub async fn import_legacy_runtime_if_needed(
     db: &Database,
     config: &Config,
@@ -51,7 +51,7 @@ pub async fn import_legacy_runtime_if_needed(
         },
         embedding: crate::db::StoredRuntimeEmbeddingSettings {
             base_url: config.embedding.base_url.clone(),
-            api_key: config.embedding.api_key.clone(),
+            api_key: None,
             model: config.embedding.model.clone(),
             dimensions: config.embedding.dimensions,
             timeout_secs: config.embedding.timeout.as_secs(),
@@ -86,7 +86,7 @@ pub async fn import_legacy_runtime_if_needed(
                     prefix: s3.prefix.clone(),
                     path_style: s3.path_style,
                     access_key: s3.access_key.clone(),
-                    secret_key: s3.secret_key.clone(),
+                    secret_key: None,
                 }),
         },
     })
@@ -128,7 +128,7 @@ pub async fn import_legacy_runtime_if_needed(
             do_formula_enrichment: true,
             do_picture_description: true,
             openai_base_url: docling.vlm.openai_base_url.clone(),
-            api_key: docling.vlm.api_key.clone(),
+            api_key: None,
             vlm_pipeline_model: docling.vlm.vlm_pipeline_model.clone(),
             picture_description_model: docling.vlm.picture_description_model.clone(),
             code_formula_model: docling.vlm.code_formula_model.clone(),
@@ -171,22 +171,15 @@ pub async fn load_runtime_settings(
     }
 
     // Fails closed: a sealed embedding key this deployment cannot open must not
-    // silently degrade to the legacy plaintext column.
-    let resolved = SettingsSecrets::embedding(store.clone())
-        .resolve(runtime.embedding.api_key.clone())
-        .await?;
-    runtime.embedding.api_key = resolved;
+    // be reported as no credential, which would silently start the process
+    // without one.
+    runtime.embedding.api_key = SettingsSecrets::embedding(store.clone()).resolve().await?;
 
-    // The S3 secret key is read the same way, before it can reach object storage.
-    // The legacy column still receives every write, so during the transition the
-    // two agree; once the store owns the value this is the only read, and a
-    // sealed row this deployment cannot open has to fail startup rather than
-    // quietly configure object storage with a stale key.
+    // The S3 secret key is read the same way, before it can reach object storage,
+    // for the same reason: a sealed row this deployment cannot open has to fail
+    // startup rather than quietly configure object storage without a key.
     if let Some(s3) = runtime.file_library.s3.as_mut() {
-        s3.secret_key = SettingsSecrets::runtime_s3(store.clone())
-            .resolve(Some(s3.secret_key.clone()))
-            .await?
-            .unwrap_or_default();
+        s3.secret_key = SettingsSecrets::runtime_s3(store.clone()).resolve().await?;
     }
 
     Ok(Some(runtime))
@@ -237,7 +230,11 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
                 prefix: s3.prefix.clone(),
                 path_style: s3.path_style,
                 access_key: s3.access_key.clone(),
-                secret_key: s3.secret_key.clone(),
+                // An S3 block whose secret key is not configured stays in the
+                // effective configuration with an empty key, so the failure is
+                // S3 rejecting the request rather than the service silently
+                // falling back to local storage.
+                secret_key: s3.secret_key.clone().unwrap_or_default(),
             }),
     };
 }

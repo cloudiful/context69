@@ -29,8 +29,6 @@ pub(super) fn s3_secret_patch(requested: Option<&UpdateRuntimeS3Settings>) -> Se
 
 pub(super) fn runtime_settings_from_request(
     request: &UpdateRuntimeSettingsRequest,
-    api_key: Option<String>,
-    s3_secret_key: Option<String>,
 ) -> StoredRuntimeSettings {
     StoredRuntimeSettings {
         qdrant: StoredRuntimeQdrantSettings {
@@ -40,7 +38,9 @@ pub(super) fn runtime_settings_from_request(
         },
         embedding: StoredRuntimeEmbeddingSettings {
             base_url: request.embedding.base_url.trim().to_string(),
-            api_key,
+            // The provider API key is not a runtime setting: the shared store owns
+            // it, so the row never carries a plaintext copy of it.
+            api_key: None,
             model: request.embedding.model.trim().to_string(),
             dimensions: request.embedding.dimensions,
             timeout_secs: request.embedding.timeout_secs,
@@ -75,18 +75,18 @@ pub(super) fn runtime_settings_from_request(
                     prefix: s3.prefix.trim_matches('/').to_string(),
                     path_style: s3.path_style,
                     access_key: s3.access_key.trim().to_string(),
-                    // The caller passes the value already resolved through the
-                    // shared store, so a request that omits the key keeps the
-                    // stored one instead of clearing it.
-                    secret_key: s3_secret_key.unwrap_or_default(),
+                    // The secret key is not a runtime setting either: the shared
+                    // store owns it, so the row keeps only the identifiers and
+                    // whoever needs a usable configuration resolves the key.
+                    secret_key: None,
                 }),
         },
     }
 }
 
 /// `has_api_key` and `has_secret_key` are passed in rather than derived from the
-/// stored values: during the transition a value may live only in the encrypted
-/// store, and presence has to be answerable without opening it.
+/// stored values: a credential is answered from the shared store's metadata, so
+/// presence has to be answerable without opening it.
 pub(super) fn runtime_settings_response(
     settings: StoredRuntimeSettings,
     has_embedding_api_key: bool,

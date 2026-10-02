@@ -37,12 +37,21 @@ pub const OWNED_STORE_KEYS: [&str; 4] = [
     key_names::RUNTIME_S3_SECRET_KEY,
 ];
 
+/// The columns that used to hold these four credentials in the clear, as
+/// `table.column`. The store is the only representation, so none of them may come
+/// back — including a read projection that would reintroduce one.
+pub const RETIRED_COLUMNS: [(&str, &str); 4] = [
+    ("runtime_embedding_settings", "api_key"),
+    ("search_settings", "api_key"),
+    ("docling_settings", "api_key"),
+    ("runtime_file_library_settings", "s3_secret_key"),
+];
+
 /// Held for the length of every case.
 ///
-/// Every category here is a singleton: one store row and one legacy settings row
-/// for the whole deployment. Two cases running at the same time would reset each
-/// other's rows out from under a save, so the cases are serialized instead of
-/// being isolated by key name.
+/// Every category here is a singleton: one store row for the whole deployment.
+/// Two cases running at the same time would reset each other's rows out from
+/// under a save, so the cases are serialized instead of being isolated by key name.
 static SETTINGS_ROWS: Mutex<()> = Mutex::new(());
 
 /// Runs one case against a fresh connection to the scratch database, or reports
@@ -125,6 +134,30 @@ pub async fn reset(db: &Database) {
             .execute(db.pool())
             .await
             .expect("clear the singleton settings row");
+    }
+}
+
+/// Asserts that none of the retired plaintext credential columns is in the
+/// schema.
+///
+/// Metadata only, and the property a future projection could silently undo: a
+/// column that came back would be a second place a credential lives, whatever
+/// the application currently reads.
+pub async fn assert_retired_columns_absent(db: &Database) {
+    for (table, column) in RETIRED_COLUMNS {
+        let present: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_schema = 'context69' AND table_name = $1 AND column_name = $2",
+        )
+        .bind(table)
+        .bind(column)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the settings schema");
+        assert_eq!(
+            present, 0,
+            "context69.{table}.{column} must not exist: the store is the only representation"
+        );
     }
 }
 

@@ -1,13 +1,14 @@
 //! The application's manual maintenance modes (issue #681 secret-store work).
 //!
-//! Both modes here run over the application database *before* the application is
-//! built, which is what keeps them out of every serving path: a maintenance run
-//! opens no Valkey, no Qdrant, no API, and no MCP server, and it resolves no runtime
-//! credential to do its work. `main` dispatches them from argv and owns nothing else.
+//! The mode here runs over the application database *before* the application is
+//! built, which is what keeps it out of every serving path: a maintenance run
+//! opens no Valkey, no Qdrant, no API, and no MCP server, and it resolves no
+//! runtime credential to do its work. `main` dispatches it from argv and owns
+//! nothing else.
 //!
-//! Neither mode is reached automatically. There is no scheduler job, no startup
-//! hook, and no HTTP or MCP route here: an operator asks for them by name, and the
-//! runbooks that drive them live in `docs/configuration.md`.
+//! It is not reached automatically. There is no scheduler job, no startup hook,
+//! and no HTTP or MCP route here: an operator asks for it by name, and the
+//! runbook that drives it lives in `docs/configuration.md`.
 
 use std::env;
 
@@ -15,11 +16,7 @@ use anyhow::{Context, Result};
 use context69_secret_store::{SecretDatabase, SecretStore};
 use tracing::info;
 
-use crate::{
-    config::Config,
-    db::Database,
-    services::{secret_backfill, secret_backfill::BackfillOptions, secret_store},
-};
+use crate::{config::Config, db::Database, services::secret_store};
 
 /// The master secret a `rewrap-secrets` run seals into.
 ///
@@ -74,41 +71,6 @@ pub async fn rewrap_secrets() -> Result<()> {
         "secret rewrap finished"
     );
     Ok(())
-}
-
-/// Seals the deployment's legacy reversible credentials and clears what the backfill
-/// phase may clear.
-///
-/// A maintenance run over the application database, so it starts no service and
-/// resolves no runtime credential: it reads legacy columns and writes sealed rows. It
-/// is read-only unless `--apply` is passed, bounded by `--limit`, and refuses to write
-/// without a configured master key. Only counts reach the log — no value, no key name,
-/// no DSN — and the runbook that drives this is in `docs/configuration.md`.
-pub async fn backfill_secrets() -> Result<()> {
-    let config = Config::load()?;
-    let options = BackfillOptions::parse(env::args().skip(2))?;
-    let db = Database::connect(&config.app_db.url).await?;
-    let store = secret_store::build(&db, &config)?;
-    let dry_run = !options.apply;
-    info!(
-        dry_run,
-        limit = options.limit,
-        encrypted = store.is_encrypted(),
-        "secret backfill started"
-    );
-    match secret_backfill::run(&db, &store, &options).await {
-        Ok(report) => {
-            info!(dry_run, "secret backfill finished: {report}");
-            Ok(())
-        }
-        Err(failure) => {
-            info!(
-                dry_run,
-                "secret backfill finished before it stopped: {}", failure.report
-            );
-            Err(failure.into())
-        }
-    }
 }
 
 /// Reads one deployment input that the rewrap cannot run without.

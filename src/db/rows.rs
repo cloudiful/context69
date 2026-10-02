@@ -137,7 +137,6 @@ pub(super) struct DoclingSettingsRow {
     pub(super) do_formula_enrichment: bool,
     pub(super) do_picture_description: bool,
     pub(super) openai_base_url: Option<String>,
-    pub(super) api_key: Option<String>,
     pub(super) vlm_pipeline_model: Option<String>,
     pub(super) picture_description_model: Option<String>,
     pub(super) code_formula_model: Option<String>,
@@ -152,7 +151,6 @@ pub(super) struct SearchSettingsRow {
     pub(super) rerank_model: String,
     pub(super) candidate_limit: i64,
     pub(super) timeout_secs: i64,
-    pub(super) api_key: Option<String>,
     pub(super) vector_weight: f32,
     pub(super) keyword_weight: f32,
 }
@@ -189,7 +187,6 @@ pub(super) struct RuntimeQdrantSettingsRow {
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct RuntimeEmbeddingSettingsRow {
     pub(super) base_url: String,
-    pub(super) api_key: Option<String>,
     pub(super) model: String,
     pub(super) dimensions: i64,
     pub(super) timeout_secs: i64,
@@ -225,19 +222,18 @@ pub(super) struct RuntimeFileLibrarySettingsRow {
     pub(super) s3_prefix: Option<String>,
     pub(super) s3_path_style: bool,
     pub(super) s3_access_key: Option<String>,
-    pub(super) s3_secret_key: Option<String>,
 }
 
 /// One stored source connection.
 ///
-/// `connection_key` is the stable identity the sealed database URL is keyed by,
-/// and `database_url_secret_key` is the `context69.internal_secrets` row that
-/// holds it — NULL while the value is still only in the legacy column.
+/// `name` is the user-controlled API/display identifier, `connection_key` the
+/// stable identity this application minted, and `database_url_secret_key` the
+/// `context69.internal_secrets` row that holds the sealed database URL. The URL
+/// itself is only ever in that row, never in this table.
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct SourceConnectionRow {
     pub(super) name: String,
     pub(super) connection_key: Uuid,
-    pub(super) database_url: String,
     pub(super) database_url_secret_key: Option<String>,
 }
 
@@ -272,7 +268,9 @@ pub(super) fn search_settings_from_row(row: SearchSettingsRow) -> Result<StoredS
             .context("search candidate_limit must be non-negative")?,
         timeout_secs: u64::try_from(row.timeout_secs)
             .context("search timeout_secs must be non-negative")?,
-        api_key: row.api_key,
+        // The rerank key is not stored with the settings; the store owns it and
+        // the service resolves it when a caller needs the value.
+        api_key: None,
         vector_weight: row.vector_weight,
         keyword_weight: row.keyword_weight,
     })

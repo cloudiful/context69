@@ -1,28 +1,20 @@
 //! The embedding provider API key singleton, round-tripped on a real database.
 
 use super::support::{
-    assert_fails_closed, assert_sealed_under, assert_stored_bytes_exclude, keyed, reset, run,
-    runtime_request, service, store_metadata, unkeyed,
+    assert_fails_closed, assert_retired_columns_absent, assert_sealed_under,
+    assert_stored_bytes_exclude, keyed, reset, run, runtime_request, service, store_metadata,
+    unkeyed,
 };
 use context69::services::secret_store::key_names;
-use sqlx::Row;
 
 const SYNTHETIC_KEY: &str = "synthetic-embedding-key";
 const PURPOSE: &str = "embedding.api_key";
 
-async fn legacy_column(db: &context69::db::Database) -> Option<String> {
-    let row =
-        sqlx::query("SELECT api_key FROM context69.runtime_embedding_settings WHERE singleton")
-            .fetch_optional(db.pool())
-            .await
-            .expect("read the legacy column");
-    row.map(|row| row.get::<Option<String>, _>("api_key").unwrap_or_default())
-}
-
 #[test]
-fn the_embedding_api_key_round_trips_sealed_and_mirrors_the_legacy_column() {
+fn the_embedding_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
     run(async |db| {
         reset(db).await;
+        assert_retired_columns_absent(db).await;
 
         let settings = service(db, keyed(db));
         let saved = settings
@@ -33,18 +25,10 @@ fn the_embedding_api_key_round_trips_sealed_and_mirrors_the_legacy_column() {
 
         assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, PURPOSE).await;
         assert_stored_bytes_exclude(db.pool(), key_names::EMBEDDING_API_KEY, SYNTHETIC_KEY).await;
-        // The legacy mirror is what makes the transition rollback-safe: a deployment
-        // rolled back to the previous release still resolves the same value.
-        assert_eq!(legacy_column(db).await.as_deref(), Some(SYNTHETIC_KEY));
 
-        // Store-first: the value the settings service resolves comes from the sealed
-        // row, not from the mirror. Clearing the mirror alone must not change it.
-        sqlx::query(
-            "UPDATE context69.runtime_embedding_settings SET api_key = NULL WHERE singleton",
-        )
-        .execute(db.pool())
-        .await
-        .expect("blank the mirror");
+        // The store is the whole value: the settings row cannot hold a second
+        // copy, so the redacted projection stays truthful on its own.
+        assert_retired_columns_absent(db).await;
         assert!(
             settings
                 .get_runtime_settings()
@@ -68,8 +52,8 @@ fn a_sealed_embedding_key_fails_closed_and_still_reports_presence() {
             .await
             .expect("seed the sealed row");
 
-        // A deployment that cannot open the row must be told so, and must not be
-        // served the legacy value as if it were the current one.
+        // A deployment that cannot open the row must be told so, not served an
+        // absent credential as if the operator had never configured one.
         let unkeyed_service = service(db, unkeyed(db));
         assert_fails_closed(
             unkeyed_service
@@ -114,7 +98,15 @@ fn an_absent_embedding_key_keeps_the_stored_one() {
             .await
             .expect("save without a key");
         assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, PURPOSE).await;
-        assert_eq!(legacy_column(db).await.as_deref(), Some(SYNTHETIC_KEY));
+        assert!(
+            settings
+                .get_runtime_settings()
+                .await
+                .expect("read after the keep")
+                .embedding
+                .has_api_key,
+            "a save that omits the key must not drop the stored one"
+        );
 
         reset(db).await;
     });

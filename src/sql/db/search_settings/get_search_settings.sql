@@ -1,3 +1,5 @@
+-- The search / rerank provider API key is not projected: the shared encrypted
+-- store owns it, and the settings service resolves it through that store alone.
 SELECT
     mode,
     rerank_enabled,
@@ -5,7 +7,6 @@ SELECT
     rerank_model,
     candidate_limit,
     timeout_secs,
-    api_key,
     vector_weight,
     keyword_weight
 FROM context69.search_settings

@@ -2,10 +2,11 @@
 //!
 //! The row carries two things a caller must not confuse: the `name`, which is a
 //! user-controlled API/display identifier, and `connection_key`, the stable UUID
-//! the sealed database URL is keyed by in the shared secret store. Reads project
-//! both plus the `internal_secrets` reference, so a consumer can answer presence
-//! from metadata and resolve the value through the store without this layer
-//! knowing anything about encryption.
+//! the sealed database URL is keyed by in the shared secret store. The row also
+//! records the `internal_secrets` key that owns the value. Reads project those
+//! three, so a consumer can answer presence from metadata and resolve the value
+//! through the store without this layer knowing anything about encryption — and
+//! without the DSN ever being written here.
 
 use anyhow::Result;
 
@@ -16,7 +17,6 @@ impl From<SourceConnectionRow> for StoredSourceConnection {
         Self {
             name: row.name,
             connection_key: row.connection_key,
-            database_url: row.database_url,
             database_url_secret_key: row.database_url_secret_key,
         }
     }
@@ -67,7 +67,6 @@ impl Database {
             "src/sql/db/source_connections/save_source_connection.sql",
             connection.connection_key,
             connection.name,
-            connection.database_url,
             connection.database_url_secret_key
         )
         .fetch_one(&self.pool)
@@ -76,7 +75,7 @@ impl Database {
         Ok(StoredSourceConnection::from(row))
     }
 
-    /// Removes the legacy record, reporting whether a connection existed.
+    /// Removes the connection record, reporting whether one existed.
     ///
     /// Clearing the connection's sealed database URL is the caller's step and
     /// happens before this call, so a store row is never orphaned by a delete
@@ -98,8 +97,10 @@ mod tests {
     use crate::db::{Database, NewSourceConnection, StoredSourceConnection};
     use uuid::Uuid;
 
-    const MIGRATION_SQL: &str =
+    const GET_MIGRATION_SQL: &str =
         include_str!("../../migrations/20261002010450_source_connection_secret_key.sql");
+    const DROP_MIGRATION_SQL: &str =
+        include_str!("../../migrations/20261002094933_drop_legacy_reversible_secret_columns.sql");
     const GET_SQL: &str = include_str!("../sql/db/source_connections/get_source_connection.sql");
     const LIST_SQL: &str = include_str!("../sql/db/source_connections/list_source_connections.sql");
     const SAVE_SQL: &str = include_str!("../sql/db/source_connections/save_source_connection.sql");
@@ -110,30 +111,29 @@ mod tests {
         SourceConnectionRow {
             name: "primary".to_string(),
             connection_key: Uuid::new_v4(),
-            database_url: "postgres://user:pass@host/db".to_string(),
             database_url_secret_key: Some("source_connection.database_url.key".to_string()),
         }
     }
 
     #[test]
-    fn the_migration_is_additive_and_keeps_the_legacy_column() {
+    fn the_identity_migration_is_additive_and_keeps_the_legacy_column() {
         assert!(
-            MIGRATION_SQL
+            GET_MIGRATION_SQL
                 .contains("ADD COLUMN connection_key UUID NOT NULL DEFAULT gen_random_uuid()"),
             "each connection gets a stable identity this application mints"
         );
         assert!(
-            MIGRATION_SQL.contains("ADD COLUMN database_url_secret_key TEXT")
-                && MIGRATION_SQL
+            GET_MIGRATION_SQL.contains("ADD COLUMN database_url_secret_key TEXT")
+                && GET_MIGRATION_SQL
                     .contains("REFERENCES context69.internal_secrets(key) ON DELETE SET NULL"),
             "the sealed value is referenced from the store, optionally"
         );
         assert!(
-            MIGRATION_SQL.contains("UNIQUE (connection_key)"),
+            GET_MIGRATION_SQL.contains("UNIQUE (connection_key)"),
             "the identity is unique so it can identify a connection"
         );
 
-        let lower = MIGRATION_SQL.to_ascii_lowercase();
+        let lower = GET_MIGRATION_SQL.to_ascii_lowercase();
         for forbidden in [
             "drop column",
             "update context69.runtime_source_connections set database_url",
@@ -145,21 +145,53 @@ mod tests {
                 "the migration must not rewrite or clear a legacy value: found {forbidden}"
             );
         }
-        // The legacy column keeps its own column definition; nothing here
-        // reinterprets or re-encodes what is already stored.
+    }
+
+    /// The cleanup migration removes the plaintext column and the constraint that
+    /// required it, and nothing else about the connection survives it.
+    #[test]
+    fn the_cleanup_migration_drops_the_plaintext_column_and_its_check() {
         assert!(
-            !lower.contains("alter column database_url"),
-            "the legacy database_url column must not be re-typed or re-constrained"
+            DROP_MIGRATION_SQL.contains(
+                "ALTER TABLE context69.runtime_source_connections\n    DROP CONSTRAINT \
+                 runtime_source_connections_database_url_check,\n    DROP COLUMN database_url;"
+            ),
+            "the derived non-blank check goes with the column it guarded: {DROP_MIGRATION_SQL}"
         );
+        // Only the statements are inspected: the header comments are allowed to name
+        // what the migration deliberately leaves alone.
+        let statements = DROP_MIGRATION_SQL
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .to_ascii_lowercase();
+        for forbidden in [
+            "update ",
+            "insert ",
+            "delete from",
+            "translation_provider_settings",
+            "connection_key",
+            "database_url_secret_key",
+        ] {
+            assert!(
+                !statements.contains(forbidden),
+                "the cleanup migration only drops columns: found {forbidden}"
+            );
+        }
     }
 
     #[test]
     fn every_read_projects_the_identity_and_the_store_reference() {
         for query in [GET_SQL, LIST_SQL] {
             assert!(
-                query.contains("name, connection_key, database_url, database_url_secret_key"),
-                "a read must project the name, the stable identity, the legacy value, and the \
-                 store reference: {query}"
+                query.contains("SELECT name, connection_key, database_url_secret_key"),
+                "a read must project the name, the stable identity, and the store reference: \
+                 {query}"
+            );
+            assert!(
+                !query.contains("database_url,"),
+                "a read must never project the database URL: {query}"
             );
         }
         assert!(
@@ -169,26 +201,29 @@ mod tests {
     }
 
     #[test]
-    fn saving_never_moves_a_connection_onto_a_new_identity() {
+    fn saving_never_moves_a_connection_onto_a_new_identity_or_writes_the_dsn() {
         assert!(
             SAVE_SQL.contains("ON CONFLICT (name) DO UPDATE")
                 && !SAVE_SQL.contains("connection_key = EXCLUDED.connection_key"),
             "an update must keep the identity the connection was created with"
         );
         assert!(
-            SAVE_SQL
-                .contains("RETURNING name, connection_key, database_url, database_url_secret_key"),
+            SAVE_SQL.contains("RETURNING name, connection_key, database_url_secret_key"),
             "the saved row reports the identity that is now in effect"
         );
         assert!(
-            SAVE_SQL.contains("database_url = EXCLUDED.database_url")
-                && SAVE_SQL.contains("database_url_secret_key = EXCLUDED.database_url_secret_key"),
-            "the legacy column and the store reference are both written for the transition"
+            SAVE_SQL.contains("database_url_secret_key = EXCLUDED.database_url_secret_key"),
+            "the store reference is what the save writes"
+        );
+        let lower = SAVE_SQL.to_ascii_lowercase();
+        assert!(
+            !lower.contains("database_url =") && !lower.contains("database_url,"),
+            "the plaintext DSN is never written by the connection row: {SAVE_SQL}"
         );
     }
 
     #[test]
-    fn deleting_a_connection_removes_only_the_legacy_record() {
+    fn deleting_a_connection_removes_only_its_own_record() {
         assert!(
             DELETE_SQL.contains("DELETE FROM context69.runtime_source_connections")
                 && DELETE_SQL.contains("WHERE name = $1"),
@@ -246,7 +281,6 @@ mod tests {
             .save_source_connection(&NewSourceConnection {
                 connection_key,
                 name: name.clone(),
-                database_url: "postgres://one/db".to_string(),
                 database_url_secret_key: secret_key.clone(),
             })
             .await
@@ -259,7 +293,6 @@ mod tests {
             .save_source_connection(&NewSourceConnection {
                 connection_key: Uuid::new_v4(),
                 name: name.clone(),
-                database_url: "postgres://two/db".to_string(),
                 database_url_secret_key: secret_key.clone(),
             })
             .await
@@ -268,7 +301,6 @@ mod tests {
             resaved.connection_key, connection_key,
             "an update keeps the identity the connection was created with"
         );
-        assert_eq!(resaved.database_url, "postgres://two/db");
 
         let fetched = db
             .get_source_connection(&name)

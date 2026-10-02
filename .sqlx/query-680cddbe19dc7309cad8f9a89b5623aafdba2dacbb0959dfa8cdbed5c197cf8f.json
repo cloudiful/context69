@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "-- Every stored source connection, with the identity each sealed DSN is keyed by.\nSELECT name, connection_key, database_url, database_url_secret_key\nFROM context69.runtime_source_connections\nORDER BY name\n",
+  "query": "-- Every stored source connection, with the identity each sealed DSN is keyed by\n-- and the store row that owns it. The DSN itself is never projected.\nSELECT name, connection_key, database_url_secret_key\nFROM context69.runtime_source_connections\nORDER BY name\n",
   "describe": {
     "columns": [
       {
@@ -27,17 +27,6 @@
       },
       {
         "ordinal": 2,
-        "name": "database_url",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "context69.runtime_source_connections",
-            "name": "database_url"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "database_url_secret_key",
         "type_info": "Text",
         "origin": {
@@ -54,9 +43,8 @@
     "nullable": [
       false,
       false,
-      false,
       true
     ]
   },
-  "hash": "c7e475f62cb141e0d06f6c10d0e157ba6a4563a5886b920003e1d3e39d6eec09"
+  "hash": "680cddbe19dc7309cad8f9a89b5623aafdba2dacbb0959dfa8cdbed5c197cf8f"
 }

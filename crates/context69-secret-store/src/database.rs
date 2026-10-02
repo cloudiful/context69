@@ -136,19 +136,6 @@ impl SecretDatabase {
         Ok(key.is_some())
     }
 
-    /// Lists the keys still stored in the legacy plaintext representation.
-    ///
-    /// Only key names come back: the transition worklist is produced without
-    /// reading a single value.
-    pub async fn list_unversioned_secret_keys(&self) -> Result<Vec<String>, sqlx::Error> {
-        let keys = sqlx::query_file_scalar!(
-            "src/sql/internal_secrets/list_unversioned_internal_secrets.sql"
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(keys)
-    }
-
     /// Lists the sealed keys one purpose owns at one master-key version.
     ///
     /// The rewrap worklist. Two properties matter and both live in the

@@ -1,8 +1,8 @@
 //! The Docling VLM provider API key singleton, round-tripped on a real database.
 
 use super::support::{
-    assert_fails_closed, assert_sealed_under, assert_stored_bytes_exclude, keyed, reset, run,
-    service, unkeyed,
+    assert_fails_closed, assert_retired_columns_absent, assert_sealed_under,
+    assert_stored_bytes_exclude, keyed, reset, run, service, unkeyed,
 };
 use context69::{
     contracts::{
@@ -10,7 +10,6 @@ use context69::{
     },
     services::secret_store::key_names,
 };
-use sqlx::Row;
 
 const SYNTHETIC_KEY: &str = "synthetic-docling-vlm-key";
 const PURPOSE: &str = "docling.vlm_api_key";
@@ -37,18 +36,11 @@ fn request(openai_base_url: Option<&str>, api_key: Option<&str>) -> UpdateDoclin
     }
 }
 
-async fn legacy_column(db: &context69::db::Database) -> Option<String> {
-    let row = sqlx::query("SELECT api_key FROM context69.docling_settings WHERE singleton")
-        .fetch_optional(db.pool())
-        .await
-        .expect("read the legacy column");
-    row.map(|row| row.get::<Option<String>, _>("api_key").unwrap_or_default())
-}
-
 #[test]
-fn the_docling_vlm_api_key_round_trips_sealed_and_mirrors_the_legacy_column() {
+fn the_docling_vlm_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
     run(async |db| {
         reset(db).await;
+        assert_retired_columns_absent(db).await;
 
         let settings = service(db, keyed(db));
         let saved = settings
@@ -59,15 +51,11 @@ fn the_docling_vlm_api_key_round_trips_sealed_and_mirrors_the_legacy_column() {
 
         assert_sealed_under(db.pool(), key_names::DOCLING_VLM_API_KEY, PURPOSE).await;
         assert_stored_bytes_exclude(db.pool(), key_names::DOCLING_VLM_API_KEY, SYNTHETIC_KEY).await;
-        assert_eq!(legacy_column(db).await.as_deref(), Some(SYNTHETIC_KEY));
+        assert_retired_columns_absent(db).await;
 
-        // The provider config is where the key actually has to arrive, and it is
-        // resolved store-first: the key reaches the provider in memory and appears in
-        // no response, log, or task payload.
-        sqlx::query("UPDATE context69.docling_settings SET api_key = NULL WHERE singleton")
-            .execute(db.pool())
-            .await
-            .expect("blank the mirror");
+        // The provider config is where the key actually has to arrive, and the store
+        // is the only place it comes from: the key reaches the provider in memory and
+        // appears in no response, log, or task payload.
         let config = settings
             .resolve_docling_config()
             .await
@@ -141,7 +129,17 @@ fn keeping_the_vlm_base_url_keeps_the_stored_docling_key() {
             .await
             .expect("save with a Keep");
         assert_sealed_under(db.pool(), key_names::DOCLING_VLM_API_KEY, PURPOSE).await;
-        assert_eq!(legacy_column(db).await.as_deref(), Some(SYNTHETIC_KEY));
+        assert_eq!(
+            settings
+                .resolve_docling_config()
+                .await
+                .expect("resolve the provider config")
+                .expect("the docling row is stored")
+                .vlm
+                .api_key
+                .as_deref(),
+            Some(SYNTHETIC_KEY)
+        );
 
         reset(db).await;
     });

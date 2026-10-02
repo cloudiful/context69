@@ -1,32 +1,30 @@
 //! Secret handling for the settings API keys and the runtime S3 secret key.
 //!
 //! The embedding, search/rerank, and Docling VLM API keys are the categories the
-//! shared store already owns; the runtime S3 secret key joins them here because
-//! it is a settings value with the same keep/clear and presence contract. A
-//! record-scoped category — one secret per source connection — uses the shared
-//! helpers at the bottom of this module with its own key name.
+//! shared store owns; the runtime S3 secret key joins them here because it is a
+//! settings value with the same keep/clear and presence contract. A record-scoped
+//! category — one secret per source connection — uses the shared helpers at the
+//! bottom of this module with its own key name.
 //!
-//! # The transition contract
+//! # The one-representation contract
 //!
-//! The legacy plaintext columns still exist and are still written, so a
-//! rollback to the previous release loses nothing. Reads are therefore ordered:
+//! The encrypted store is the only place a credential in this module exists, and
+//! every read and write goes through it:
 //!
-//! 1. **store first** — a value in the store wins, sealed and purpose-bound;
-//! 2. **legacy second** — a key that has not been migrated yet is still read
-//!    from its plaintext column, so no deployment breaks before the backfill;
-//! 3. **fail closed** — if a store row *exists* and cannot be opened (a sealed
+//! 1. **store first, and only** — the value in effect is whatever the store
+//!    holds under this category's purpose and key name;
+//! 2. **fail closed** — if a store row *exists* and cannot be opened (a sealed
 //!    row with no usable master key, a wrong key version, a tampered row), the
-//!    call fails. It never falls back to the legacy column, because doing so
-//!    would silently serve a stale credential as if it were the current one.
+//!    call fails rather than reporting the category as unconfigured, which
+//!    would silently drop a credential the operator configured;
+//! 3. **presence is metadata-only** — a `has_api_key` response must stay
+//!    truthful on a deployment that cannot decrypt, so it asks the store whether
+//!    a row exists without ever opening it. That is why presence is a separate
+//!    call rather than a byproduct of a read.
 //!
-//! Presence is answered separately, and metadata-only: a `has_api_key` response
-//! must stay truthful on a deployment that cannot decrypt, so it asks the store
-//! whether a row exists without ever opening it, and only then considers the
-//! legacy column.
-//!
-//! Writes go to both places, which is what makes the transition rollback-safe:
-//! the store gets the sealed value it will own after the backfill, and the
-//! legacy column keeps receiving it until the columns are removed.
+//! Writes are the same tri-state patch the wire contract already had: `Keep`
+//! leaves the stored value alone, `Set` replaces it, and `Clear` removes it. A
+//! blank `Set` normalizes to `Keep`.
 
 use anyhow::Result;
 
@@ -96,20 +94,19 @@ impl SettingsSecrets {
         )
     }
 
-    /// The effective value: the store when it holds one, otherwise the legacy
-    /// column.
+    /// The effective value: whatever the store holds for this category.
     ///
     /// Fails closed — see the module contract.
-    pub async fn resolve(&self, legacy: Option<String>) -> Result<Option<String>> {
-        resolve_stored_or_legacy(&self.store, self.purpose, self.key_name, legacy).await
+    pub async fn resolve(&self) -> Result<Option<String>> {
+        resolve_stored(&self.store, self.purpose, self.key_name).await
     }
 
     /// Whether this category is configured, without opening anything.
     ///
     /// A store row answers for itself, including a sealed row this deployment
     /// cannot read, so presence never depends on the master key.
-    pub async fn is_present(&self, legacy: Option<&str>) -> Result<bool> {
-        secret_is_present(&self.store, self.purpose, self.key_name, legacy).await
+    pub async fn is_present(&self) -> Result<bool> {
+        secret_is_present(&self.store, self.purpose, self.key_name).await
     }
 
     /// Resolves the current value and folds one tri-state patch onto it.
@@ -117,18 +114,14 @@ impl SettingsSecrets {
     /// This is the shape every settings write needs: read what is in effect, fold
     /// the patch onto it, and keep the result. Nothing is stored here — see
     /// [`Self::stage`] — so a caller can validate the merged settings first.
-    pub async fn resolve_and_merge(
-        &self,
-        patch: &SecretPatch,
-        legacy: Option<String>,
-    ) -> Result<Option<String>> {
+    pub async fn resolve_and_merge(&self, patch: &SecretPatch) -> Result<Option<String>> {
         if matches!(patch, SecretPatch::Clear) {
             // A clear removes the value whatever it currently is, so nothing has
             // to be resolved — and a sealed key this deployment cannot open must
             // not be the thing that prevents it from being removed.
             return Ok(None);
         }
-        let current = self.resolve(legacy).await?;
+        let current = self.resolve().await?;
         Ok(merged_api_key(patch, current))
     }
 
@@ -140,11 +133,10 @@ impl SettingsSecrets {
     pub async fn stage<T>(
         &self,
         patch: &SecretPatch,
-        legacy: Option<String>,
         build: impl FnOnce(Option<String>) -> T,
         validate: impl FnOnce(&T) -> Result<()>,
     ) -> Result<T> {
-        let merged = self.resolve_and_merge(patch, legacy).await?;
+        let merged = self.resolve_and_merge(patch).await?;
         let candidate = build(merged);
         validate(&candidate)?;
         self.commit(patch).await?;
@@ -194,28 +186,23 @@ pub(crate) fn optional_key_patch(requested: Option<String>) -> SecretPatch {
     }
 }
 
-/// The effective value of one secret: the store when it holds one, otherwise the
-/// legacy column.
+/// The effective value of one secret: whatever the store holds for it.
 ///
 /// The shared read for every purpose, singleton or record-scoped, so the
-/// store-first order and the fail-closed rule exist once. A category that owns no
-/// store row yet keeps its value in the legacy column and never calls this.
-pub(crate) async fn resolve_stored_or_legacy(
+/// fail-closed rule exists once. A category with no store row is simply not
+/// configured.
+pub(crate) async fn resolve_stored(
     store: &SecretStore,
     purpose: SecretPurpose,
     key_name: &str,
-    legacy: Option<String>,
 ) -> Result<Option<String>> {
     let stored = store
         .get(purpose, key_name)
         .await
         .map_err(|error| secret_error(purpose, error))?;
-    match stored {
-        Some(stored) => Ok(normalize_optional_string(Some(
-            String::from_utf8_lossy(stored.expose()).into_owned(),
-        ))),
-        None => Ok(normalize_optional_string(legacy)),
-    }
+    Ok(stored.and_then(|stored| {
+        normalize_optional_string(Some(String::from_utf8_lossy(stored.expose()).into_owned()))
+    }))
 }
 
 /// Whether one secret is stored, without opening it.
@@ -226,13 +213,11 @@ pub(crate) async fn secret_is_present(
     store: &SecretStore,
     purpose: SecretPurpose,
     key_name: &str,
-    legacy: Option<&str>,
 ) -> Result<bool> {
-    let stored = store
+    store
         .has(purpose, key_name)
         .await
-        .map_err(|error| secret_error(purpose, error))?;
-    Ok(stored || normalize_optional_string(legacy.map(str::to_string)).is_some())
+        .map_err(|error| secret_error(purpose, error))
 }
 
 /// The patch a Docling VLM update maps to.
@@ -368,7 +353,7 @@ mod tests {
         let secrets = SettingsSecrets::docling(unkeyed_store());
         assert_eq!(
             secrets
-                .resolve_and_merge(&SecretPatch::Clear, Some("legacy".to_string()))
+                .resolve_and_merge(&SecretPatch::Clear)
                 .await
                 .expect("a clear resolves without a database"),
             None

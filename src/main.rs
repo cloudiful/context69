@@ -39,12 +39,6 @@ async fn main() -> Result<()> {
     if mode == "rewrap-secrets" {
         return maintenance::rewrap_secrets().await;
     }
-    // The reversible-secret backfill is a manual maintenance run for the same
-    // reason, and it additionally never resolves a runtime credential: it reads
-    // legacy columns and writes sealed rows, nothing else.
-    if mode == "backfill-secrets" {
-        return maintenance::backfill_secrets().await;
-    }
 
     let config = Config::load()?;
     let app = Arc::new(Context69App::new(config.clone()).await?);
@@ -89,7 +83,7 @@ async fn main() -> Result<()> {
         "serve" => serve(app).await?,
         other => {
             return Err(anyhow::anyhow!(
-                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, rewrap-secrets, backfill-secrets, migrate-library-storage, or export-openapi"
+                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, rewrap-secrets, migrate-library-storage, or export-openapi"
             ));
         }
     }

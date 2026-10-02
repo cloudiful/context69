@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    storage_root,\n    max_upload_size_mb,\n    max_upload_request_size_mb,\n    ingest_concurrency,\n    url_import_concurrency,\n    url_import_min_interval_ms,\n    trusted_proxy_enabled,\n    s3_endpoint,\n    s3_region,\n    s3_bucket,\n    s3_prefix,\n    s3_path_style,\n    s3_access_key,\n    s3_secret_key\nFROM context69.runtime_file_library_settings\nWHERE singleton = TRUE\n",
+  "query": "-- The S3 access key stays in the settings row because it is an identifier, not a\n-- credential. The secret key is not projected: the shared encrypted store owns\n-- it, and the service resolves it through that store alone.\nSELECT\n    storage_root,\n    max_upload_size_mb,\n    max_upload_request_size_mb,\n    ingest_concurrency,\n    url_import_concurrency,\n    url_import_min_interval_ms,\n    trusted_proxy_enabled,\n    s3_endpoint,\n    s3_region,\n    s3_bucket,\n    s3_prefix,\n    s3_path_style,\n    s3_access_key\nFROM context69.runtime_file_library_settings\nWHERE singleton = TRUE\n",
   "describe": {
     "columns": [
       {
@@ -145,17 +145,6 @@
             "name": "s3_access_key"
           }
         }
-      },
-      {
-        "ordinal": 13,
-        "name": "s3_secret_key",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "context69.runtime_file_library_settings",
-            "name": "s3_secret_key"
-          }
-        }
       }
     ],
     "parameters": {
@@ -174,9 +163,8 @@
       true,
       true,
       false,
-      true,
       true
     ]
   },
-  "hash": "c102c1f9e591d60b3fb34dcb95b66c4d586453f14954b3cdd4b0991319b8f300"
+  "hash": "16e6107e3aca959263c7e88647c2b9b710684618a05eadbf233140374ac2d1a0"
 }

@@ -323,16 +323,4 @@ impl SecretStore {
                 .ok_or(SecretStoreError::SecretNotFound),
         }
     }
-
-    /// Lists the keys still stored in the legacy plaintext representation.
-    ///
-    /// The transition worklist for the reversible-secret backfill. Only key
-    /// names come back, so listing what is left to seal discloses nothing.
-    ///
-    /// # Errors
-    ///
-    /// [`SecretStoreError::Database`].
-    pub async fn list_unversioned_keys(&self) -> Result<Vec<String>, SecretStoreError> {
-        Ok(self.db.list_unversioned_secret_keys().await?)
-    }
 }

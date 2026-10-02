@@ -8,9 +8,10 @@ use super::codec::clean;
 ///
 /// Both crates bind the row to the singleton
 /// [`SecretPurpose::TranslationProviderApiKey`], so the value written here is
-/// the one extraction reads. The legacy `translation_provider_settings.api_key`
-/// column is still written for rollback; reads prefer the store and fall back
-/// to that column only when no store row exists.
+/// the one extraction reads. The store is the only representation: the
+/// `translation_provider_settings.api_key` column belongs to the sibling
+/// providers, whose credentials no purpose owns, and the shared row never writes
+/// it.
 #[derive(Debug, Clone)]
 pub(super) struct ProviderApiKey {
     store: SecretStore,
@@ -23,33 +24,28 @@ impl ProviderApiKey {
 
     const KEY_NAME: &'static str = key_names::TRANSLATION_PROVIDER_API_KEY;
 
-    /// Store first, legacy second. A stored row that cannot be opened fails
-    /// instead of silently serving the legacy column.
-    pub(super) async fn resolve(&self, legacy: Option<String>) -> Result<Option<String>> {
-        let stored = self
+    /// The shared key, or nothing when it is not configured. A stored row that
+    /// cannot be opened fails instead of reporting an empty credential.
+    pub(super) async fn resolve(&self) -> Result<Option<String>> {
+        let Some(stored) = self
             .store
             .get(SecretPurpose::TranslationProviderApiKey, Self::KEY_NAME)
-            .await?;
-        match stored {
-            Some(value) => Ok(clean(Some(
-                String::from_utf8_lossy(value.expose()).as_ref(),
-            ))),
-            None => Ok(clean(legacy.as_deref())),
-        }
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(clean(Some(
+            String::from_utf8_lossy(stored.expose()).as_ref(),
+        )))
     }
 
     /// Metadata-only presence: a stored row answers for itself, so this never
-    /// needs a master key, and the legacy column is consulted only when no row
-    /// exists.
-    pub(super) async fn present(&self, legacy: Option<&str>) -> Result<bool> {
-        if self
+    /// needs a master key.
+    pub(super) async fn present(&self) -> Result<bool> {
+        Ok(self
             .store
             .has(SecretPurpose::TranslationProviderApiKey, Self::KEY_NAME)
-            .await?
-        {
-            return Ok(true);
-        }
-        Ok(clean(legacy).is_some())
+            .await?)
     }
 
     /// Writes a non-blank value. `None` or a blank value is a Keep: nothing is

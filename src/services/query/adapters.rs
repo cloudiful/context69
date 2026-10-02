@@ -98,7 +98,7 @@ fn to_root_scope(scope: &SearchAccessScope) -> AccessScope {
 }
 
 /// The key is supplied by the caller because it is resolved through the shared
-/// store rather than read from the legacy column.
+/// store, which is its only representation.
 fn to_search_settings(
     settings: crate::db::StoredSearchSettings,
     api_key: Option<String>,
@@ -123,7 +123,7 @@ impl SearchRepository for DbSearchRepository {
             return Ok(None);
         };
         // Resolved through the store per read, in memory only; opaque seals fail here.
-        let api_key = self.secrets.resolve(settings.api_key.clone()).await?;
+        let api_key = self.secrets.resolve().await?;
         Ok(Some(to_search_settings(settings, api_key)))
     }
 

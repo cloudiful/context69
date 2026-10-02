@@ -2,10 +2,9 @@
 //!
 //! The `context69.translation_provider_settings` row with `provider_key = 'llm'`
 //! is one logical secret written by translation and read by extraction. These
-//! cases cover the transition contract for that row: store-first reads with a
-//! legacy fallback, fail-closed behaviour for a sealed row this deployment
-//! cannot open, metadata-only presence, the write-through dual-write, and
-//! `None`/blank Keep semantics.
+//! cases cover the contract for that row: the store is its only representation,
+//! reads fail closed on a sealed row this deployment cannot open, presence is
+//! metadata-only, and `None`/blank is a Keep.
 //!
 //! The tests run only when `CONTEXT69_TEST_DATABASE_URL` points at a scratch
 //! database; they are skipped otherwise and never print a stored value. No
@@ -86,6 +85,17 @@ fn llm_provider_input(api_key: Option<String>) -> TranslationProviderInput {
     }
 }
 
+/// The value the `llm` row's own `api_key` column holds, which the shared store
+/// owns outright and never writes.
+async fn shared_row_column(db: &Database) -> Option<String> {
+    sqlx::query_scalar(
+        "SELECT api_key FROM context69.translation_provider_settings WHERE provider_key = 'llm'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the llm row")
+}
+
 async fn reset_shared_llm_row(db: &Database) {
     sqlx::query("DELETE FROM context69.internal_secrets WHERE key = $1")
         .bind(key_names::TRANSLATION_PROVIDER_API_KEY)
@@ -101,7 +111,7 @@ async fn reset_shared_llm_row(db: &Database) {
     )
     .execute(db.pool())
     .await
-    .expect("clear legacy column");
+    .expect("reset the llm row");
 }
 
 /// The `provider_key = 'llm'` row is one logical secret consumed by both
@@ -124,24 +134,20 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
         .expect("an unkeyed store cannot fail to build");
     reset_shared_llm_row(&db).await;
 
-    // Legacy-only row: no store row exists, so extraction falls back to the
-    // plaintext column.
-    sqlx::query(
-        "UPDATE context69.translation_provider_settings SET api_key = 'legacy-key' \
-         WHERE provider_key = 'llm'",
-    )
-    .execute(db.pool())
-    .await
-    .expect("seed legacy key");
-    let legacy = ExtractionStore::new(db.pool().clone())
-        .with_secret_store(unkeyed.clone())
-        .provider()
-        .await
-        .expect("legacy read")
-        .expect("llm row exists");
-    assert_eq!(legacy.api_key.as_deref(), Some("legacy-key"));
+    // With no store row the shared provider is simply not configured.
+    assert_eq!(shared_row_column(&db).await, None);
+    assert!(
+        ExtractionStore::new(db.pool().clone())
+            .with_secret_store(unkeyed.clone())
+            .provider()
+            .await
+            .expect("an unconfigured shared provider is readable")
+            .is_none_or(|provider| provider.api_key.is_none()),
+        "no store row means no shared credential"
+    );
 
-    // The writer dual-writes: the sealed store row and the legacy column agree.
+    // The writer seals the key and leaves the row's own column empty: the store is
+    // the only representation, so there is no second plaintext copy to keep in step.
     let translation = shared_translation_service(&db, keyed.clone());
     let settings = translation
         .update_settings(&UpdateTranslationSettingsRequest {
@@ -152,13 +158,11 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
     assert!(settings.providers.iter().any(|provider| {
         matches!(provider.provider, TranslationProviderKind::Llm) && provider.has_api_key
     }));
-    let legacy_key: Option<String> = sqlx::query_scalar(
-        "SELECT api_key FROM context69.translation_provider_settings WHERE provider_key = 'llm'",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("read legacy column");
-    assert_eq!(legacy_key.as_deref(), Some("sealed-key"));
+    assert_eq!(
+        shared_row_column(&db).await,
+        None,
+        "the shared row must never hold a plaintext copy of its own key"
+    );
     let (purpose, ciphertext_version): (Option<String>, i32) = sqlx::query_as(
         "SELECT purpose, ciphertext_version FROM context69.internal_secrets WHERE key = $1",
     )
@@ -197,10 +201,10 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
             .provider()
             .await
             .is_err(),
-        "a sealed row with no master key must fail instead of falling back"
+        "a sealed row with no master key must fail instead of reporting no credential"
     );
 
-    // None/blank is a Keep: neither the store nor the legacy column changes.
+    // None/blank is a Keep: the store keeps the value and the row stays empty.
     translation
         .update_settings(&UpdateTranslationSettingsRequest {
             providers: vec![llm_provider_input(None)],
@@ -214,13 +218,7 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
         .expect("kept read")
         .expect("llm row exists");
     assert_eq!(kept.api_key.as_deref(), Some("sealed-key"));
-    let kept_legacy: Option<String> = sqlx::query_scalar(
-        "SELECT api_key FROM context69.translation_provider_settings WHERE provider_key = 'llm'",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("read legacy column");
-    assert_eq!(kept_legacy.as_deref(), Some("sealed-key"));
+    assert_eq!(shared_row_column(&db).await, None);
 
     reset_shared_llm_row(&db).await;
 }

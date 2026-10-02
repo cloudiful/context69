@@ -84,12 +84,11 @@ impl SettingsService {
         let Some(stored) = self.db.get_runtime_settings().await? else {
             return Ok(default_runtime_settings_response());
         };
-        let has = self
-            .embedding_secrets
-            .is_present(stored.embedding.api_key.as_deref())
-            .await?;
+        // Presence only: a settings projection never opens a stored key, so it
+        // stays truthful on a deployment that cannot decrypt.
+        let has = self.embedding_secrets.is_present().await?;
         let has_s3_secret_key = match stored.file_library.s3.as_ref() {
-            Some(s3) => self.s3_secrets.is_present(Some(&s3.secret_key)).await?,
+            Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
         Ok(runtime_settings_response(stored, has, has_s3_secret_key))
@@ -109,40 +108,20 @@ impl SettingsService {
     ) -> Result<RuntimeSettingsResponse> {
         settings_validate::runtime_settings_request(request)?;
 
-        let existing = self.db.get_runtime_settings().await?;
         let patch = optional_key_patch(request.embedding.api_key.clone());
-        let api_key = self
-            .embedding_secrets
-            .resolve_and_merge(
-                &patch,
-                existing
-                    .as_ref()
-                    .and_then(|settings| settings.embedding.api_key.clone()),
-            )
-            .await?;
+        // Resolved before anything is written even though the value is not part
+        // of the row: a save must fail closed on a sealed key this deployment
+        // cannot open, exactly as a read does.
+        self.embedding_secrets.resolve_and_merge(&patch).await?;
 
-        // The S3 secret key follows the same transition as the API keys: the
-        // mapper writes the value the store reports, so an absent or blank key
-        // keeps the stored one instead of blanking the row.
+        // The S3 secret key follows the same contract as the API keys, and it is
+        // the only way this request learns whether a key is in effect: a supplied
+        // one replaces it, an absent or blank one keeps the stored one.
         let s3_patch = s3_secret_patch(request.file_library.s3.as_ref());
-        let s3_secret_key = self
-            .s3_secrets
-            .resolve_and_merge(
-                &s3_patch,
-                existing
-                    .as_ref()
-                    .and_then(|settings| settings.file_library.s3.as_ref())
-                    .map(|s3| s3.secret_key.clone()),
-            )
-            .await?;
+        let s3_secret_key = self.s3_secrets.resolve_and_merge(&s3_patch).await?;
 
-        let stored = runtime_settings_from_request(request, api_key, s3_secret_key);
-        if stored
-            .file_library
-            .s3
-            .as_ref()
-            .is_some_and(|s3| s3.secret_key.is_empty())
-        {
+        let stored = runtime_settings_from_request(request);
+        if stored.file_library.s3.is_some() && s3_secret_key.is_none() {
             return Err(DomainError::invalid_argument(
                 "runtime.file_library.s3.secret_key must not be empty",
             )
@@ -154,12 +133,9 @@ impl SettingsService {
         self.embedding_secrets.commit(&patch).await?;
         self.s3_secrets.commit(&s3_patch).await?;
         let saved = self.db.save_runtime_settings(&stored).await?;
-        let has = self
-            .embedding_secrets
-            .is_present(saved.embedding.api_key.as_deref())
-            .await?;
+        let has = self.embedding_secrets.is_present().await?;
         let has_s3_secret_key = match saved.file_library.s3.as_ref() {
-            Some(s3) => self.s3_secrets.is_present(Some(&s3.secret_key)).await?,
+            Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
         Ok(runtime_settings_response(saved, has, has_s3_secret_key))
@@ -171,25 +147,19 @@ impl SettingsService {
     ) -> Result<()> {
         // A probe never writes. A supplied key is used as given, and otherwise
         // the stored one is resolved through the store, which fails closed
-        // rather than falling back to a stale column.
+        // rather than reporting no credential.
         let secret_key = match normalize_optional_string(request.secret_key.clone()) {
             Some(supplied) => supplied,
-            None => {
-                let existing = self.db.get_runtime_settings().await?;
-                self.s3_secrets
-                    .resolve(
-                        existing
-                            .and_then(|settings| settings.file_library.s3)
-                            .map(|s3| s3.secret_key),
+            None => self
+                .s3_secrets
+                .resolve()
+                .await?
+                .ok_or_else(|| {
+                    DomainError::invalid_argument(
+                        "runtime.file_library.s3.secret_key must not be empty",
                     )
-                    .await?
-                    .ok_or_else(|| {
-                        DomainError::invalid_argument(
-                            "runtime.file_library.s3.secret_key must not be empty",
-                        )
-                    })
-                    .map_err(anyhow::Error::from)?
-            }
+                })
+                .map_err(anyhow::Error::from)?,
         };
         let config = crate::config::S3StorageConfig {
             endpoint: request.endpoint.trim().to_string(),
@@ -234,10 +204,7 @@ impl SettingsService {
         let Some(settings) = self.db.get_docling_settings().await? else {
             return Ok(unconfigured_docling_response());
         };
-        let has = self
-            .docling_secrets
-            .is_present(settings.api_key.as_deref())
-            .await?;
+        let has = self.docling_secrets.is_present().await?;
         Ok(response_from_stored(
             DoclingSettingsSource::Database,
             true,
@@ -252,7 +219,6 @@ impl SettingsService {
     ) -> Result<DoclingSettingsResponse> {
         settings_validate::docling_request(request)?;
 
-        let existing = self.db.get_docling_settings().await?;
         let patch = docling_vlm_patch(
             request.vlm.api_key.clone(),
             normalize_optional_string(request.vlm.openai_base_url.clone()).is_some(),
@@ -261,7 +227,6 @@ impl SettingsService {
             .docling_secrets
             .stage(
                 &patch,
-                existing.and_then(|s| s.api_key),
                 |api_key| docling_settings_from_request(request, api_key),
                 validate_docling_vlm_shape,
             )
@@ -271,10 +236,7 @@ impl SettingsService {
         if let Some(observer) = &self.docling_settings_observer {
             observer();
         }
-        let has = self
-            .docling_secrets
-            .is_present(settings.api_key.as_deref())
-            .await?;
+        let has = self.docling_secrets.is_present().await?;
         Ok(response_from_stored(
             DoclingSettingsSource::Database,
             true,
@@ -291,10 +253,7 @@ impl SettingsService {
         let Some(settings) = self.db.get_docling_settings().await? else {
             return Ok(None);
         };
-        let api_key = self
-            .docling_secrets
-            .resolve(settings.api_key.clone())
-            .await?;
+        let api_key = self.docling_secrets.resolve().await?;
         Ok(Some(config_from_stored(settings, api_key)))
     }
 
@@ -305,10 +264,7 @@ impl SettingsService {
             .await?
             .unwrap_or_else(default_search_settings);
         // Presence only: a settings projection never opens the stored key.
-        let has = self
-            .search_secrets
-            .is_present(settings.api_key.as_deref())
-            .await?;
+        let has = self.search_secrets.is_present().await?;
         Ok(search_response_from_stored(settings, has))
     }
 
@@ -318,22 +274,17 @@ impl SettingsService {
     ) -> Result<SearchSettingsResponse> {
         settings_validate::canonical_search_request(request)?;
 
-        let existing = self.db.get_search_settings().await?;
         let candidate = self
             .search_secrets
             .stage(
                 &request.api_key,
-                existing.and_then(|s| s.api_key),
                 |api_key| canonical_search_settings_from_request(request, api_key),
                 settings_validate::stored_search_settings,
             )
             .await?;
 
         let settings = self.db.save_search_settings(&candidate).await?;
-        let has = self
-            .search_secrets
-            .is_present(settings.api_key.as_deref())
-            .await?;
+        let has = self.search_secrets.is_present().await?;
         Ok(search_response_from_stored(settings, has))
     }
 
@@ -346,23 +297,18 @@ impl SettingsService {
     ) -> Result<SearchSettingsResponse> {
         settings_validate::search_request(request)?;
 
-        let existing = self.db.get_search_settings().await?;
         let canonical = CanonicalUpdateSearchSettingsRequest::from(request.clone());
         let candidate = self
             .search_secrets
             .stage(
                 &canonical.api_key,
-                existing.and_then(|s| s.api_key),
                 |api_key| search_settings_from_request(request, api_key),
                 settings_validate::stored_search_settings,
             )
             .await?;
 
         let settings = self.db.save_search_settings(&candidate).await?;
-        let has = self
-            .search_secrets
-            .is_present(settings.api_key.as_deref())
-            .await?;
+        let has = self.search_secrets.is_present().await?;
         Ok(search_response_from_stored(settings, has))
     }
 }
@@ -601,7 +547,7 @@ mod tests {
         let mut request = sample_runtime_request();
         request.file_library.trusted_proxy_enabled = true;
 
-        let stored = runtime_settings_from_request(&request, None, None);
+        let stored = runtime_settings_from_request(&request);
         assert!(stored.file_library.trusted_proxy_enabled);
         assert!(
             runtime_settings_response(stored, false, false)
@@ -616,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn the_s3_secret_key_is_written_from_the_resolved_value_and_reported_from_presence() {
+    fn the_s3_secret_key_is_never_persisted_and_is_reported_from_presence() {
         let mut request = sample_runtime_request();
         request.file_library.s3 = Some(crate::contracts::UpdateRuntimeS3Settings {
             endpoint: "https://objects.internal".to_string(),
@@ -628,15 +574,20 @@ mod tests {
             secret_key: None,
         });
 
-        // The key the store reported is what the row receives, so a request that
-        // omits the key keeps the stored one instead of blanking it.
-        let stored = runtime_settings_from_request(&request, None, Some("resolved".to_string()));
+        // The access key and the rest of the block are stored settings; the secret
+        // key is not one of them, so the mapper leaves it unresolved and the store
+        // remains its only representation.
+        let stored = runtime_settings_from_request(&request);
         let s3 = stored
             .file_library
             .s3
             .clone()
             .expect("requested s3 settings are stored");
-        assert_eq!(s3.secret_key, "resolved");
+        assert_eq!(
+            s3.secret_key, None,
+            "the settings row must not carry the secret key"
+        );
+        assert_eq!(stored.embedding.api_key, None);
         assert_eq!(s3.access_key, "AKIA", "the access key is not a secret");
         assert_eq!(s3.prefix, "staging");
 
@@ -658,11 +609,11 @@ mod tests {
 
     #[test]
     fn search_response_hides_api_key() {
-        let mut settings = default_search_settings();
-        settings.api_key = Some("secret".to_string());
+        let settings = default_search_settings();
 
-        let response = search_response_from_stored(settings.clone(), settings.api_key.is_some());
-
+        // `has_api_key` is an input, never a fact about the stored value: the
+        // response can report a sealed key it is deliberately not holding open.
+        let response = search_response_from_stored(settings.clone(), true);
         assert!(response.has_api_key);
         assert!(!search_response_from_stored(settings, false).has_api_key);
     }

@@ -55,7 +55,7 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
                 prefix: "staging".to_string(),
                 path_style: true,
                 access_key: "AKIA-EXAMPLE".to_string(),
-                secret_key: "resolved-s3-secret".to_string(),
+                secret_key: Some("resolved-s3-secret".to_string()),
             }),
         },
     }
@@ -123,7 +123,9 @@ async fn startup_reads_the_s3_secret_key_from_the_store_and_fails_closed() {
         "this case owns the runtime settings row; give it a scratch database that has none"
     );
 
-    let (sealed, legacy) = ("sealed-s3-secret", "stale-legacy-s3-secret");
+    // The settings row carries the identifiers only; the store is the sole
+    // representation of the secret key, so the row is seeded without one.
+    let sealed = "sealed-s3-secret";
     let mut settings = stored_runtime_settings();
     settings.embedding.api_key = None;
     settings
@@ -131,7 +133,7 @@ async fn startup_reads_the_s3_secret_key_from_the_store_and_fails_closed() {
         .s3
         .as_mut()
         .expect("the fixture")
-        .secret_key = legacy.to_string();
+        .secret_key = None;
     db.save_runtime_settings(&settings)
         .await
         .expect("seed the runtime settings row");
@@ -146,8 +148,8 @@ async fn startup_reads_the_s3_secret_key_from_the_store_and_fails_closed() {
         .await
         .expect("seal the s3 secret key");
 
-    // The store owns the value at startup: the sealed one wins over the legacy
-    // column, and it is the value object storage is configured from.
+    // The store owns the value at startup, and it is the value object storage is
+    // configured from.
     let mut config = crate::config::Config::default();
     apply_runtime_settings(
         &mut config,
@@ -166,15 +168,14 @@ async fn startup_reads_the_s3_secret_key_from_the_store_and_fails_closed() {
         "startup must configure object storage from the sealed value"
     );
 
-    // Fails closed: a deployment that cannot open the sealed row is an error,
-    // not a silent return to the plaintext column.
+    // Fails closed: a deployment that cannot open the sealed row is an error, not
+    // a startup that continues without a credential.
     let failure = load_runtime_settings(&db, &store(&db, None))
         .await
-        .expect_err("startup must not fall back to the legacy column");
+        .expect_err("startup must not proceed without a readable credential");
     assert!(
         failure.to_string().contains("runtime_s3.secret_key")
-            && !failure.to_string().contains(sealed)
-            && !failure.to_string().contains(legacy),
+            && !failure.to_string().contains(sealed),
         "the failure names the credential and carries no value: {failure}"
     );
 

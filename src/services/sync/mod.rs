@@ -38,12 +38,10 @@ mod sources;
 
 use connections::SourceConnectionSecrets;
 
-pub(crate) use secret_keys::source_connection_database_url_key;
-
 pub(crate) use connections::save_source_connection;
 
 /// One source connection write once the caller's request has been folded onto
-/// what is stored: the trimmed name and the database URL that will be in effect.
+/// what is stored: the trimmed name and the database URL that will be sealed for it.
 pub(super) struct PendingSourceConnection {
     pub(super) name: String,
     pub(super) database_url: String,
@@ -224,7 +222,7 @@ impl SyncService {
         })
     }
 
-    /// Seals the database URL and saves the row, legacy column included.
+    /// Seals one database URL and saves the reference to it.
     async fn persist_source_connection(
         &self,
         pending: &PendingSourceConnection,

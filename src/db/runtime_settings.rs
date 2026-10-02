@@ -63,7 +63,7 @@ impl Database {
             },
             embedding: StoredRuntimeEmbeddingSettings {
                 base_url: embedding.base_url,
-                api_key: embedding.api_key,
+                api_key: None,
                 model: embedding.model,
                 dimensions: usize::try_from(embedding.dimensions)
                     .context("runtime embedding dimensions must be non-negative")?,
@@ -102,28 +102,26 @@ impl Database {
                         "runtime file_library url_import_min_interval_ms must be non-negative",
                     )?,
                 trusted_proxy_enabled: file_library.trusted_proxy_enabled,
+                // The S3 block is projected from the identifiers alone. Its secret
+                // key is not in this row, so it is resolved from the shared store by
+                // whoever needs a usable configuration.
                 s3: match (
                     file_library.s3_endpoint,
                     file_library.s3_region,
                     file_library.s3_bucket,
                     file_library.s3_access_key,
-                    file_library.s3_secret_key,
                 ) {
-                    (
-                        Some(endpoint),
-                        Some(region),
-                        Some(bucket),
-                        Some(access_key),
-                        Some(secret_key),
-                    ) => Some(StoredRuntimeS3Settings {
-                        endpoint,
-                        region,
-                        bucket,
-                        prefix: file_library.s3_prefix.unwrap_or_default(),
-                        path_style: file_library.s3_path_style,
-                        access_key,
-                        secret_key,
-                    }),
+                    (Some(endpoint), Some(region), Some(bucket), Some(access_key)) => {
+                        Some(StoredRuntimeS3Settings {
+                            endpoint,
+                            region,
+                            bucket,
+                            prefix: file_library.s3_prefix.unwrap_or_default(),
+                            path_style: file_library.s3_path_style,
+                            access_key,
+                            secret_key: None,
+                        })
+                    }
                     _ => None,
                 },
             },
@@ -175,7 +173,6 @@ impl Database {
         sqlx::query_file!(
             "src/sql/db/runtime_settings/save_runtime_embedding_settings.sql",
             settings.embedding.base_url,
-            settings.embedding.api_key,
             settings.embedding.model,
             embedding_dimensions,
             embedding_timeout_secs
@@ -240,12 +237,7 @@ impl Database {
                 .file_library
                 .s3
                 .as_ref()
-                .map(|value| value.access_key.as_str()),
-            settings
-                .file_library
-                .s3
-                .as_ref()
-                .map(|value| value.secret_key.as_str())
+                .map(|value| value.access_key.as_str())
         )
         .execute(&mut *tx)
         .await?;

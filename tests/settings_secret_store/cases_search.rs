@@ -2,14 +2,13 @@
 //! database.
 
 use super::support::{
-    assert_fails_closed, assert_sealed_under, assert_stored_bytes_exclude, keyed, reset, run,
-    service, unkeyed,
+    assert_fails_closed, assert_retired_columns_absent, assert_sealed_under,
+    assert_stored_bytes_exclude, keyed, reset, run, service, unkeyed,
 };
 use context69::{
     contracts::{CanonicalUpdateSearchSettingsRequest, SearchMode, SecretPatch},
     services::secret_store::key_names,
 };
-use sqlx::Row;
 
 const SYNTHETIC_KEY: &str = "synthetic-search-key";
 const PURPOSE: &str = "search.api_key";
@@ -28,18 +27,11 @@ fn request(api_key: SecretPatch) -> CanonicalUpdateSearchSettingsRequest {
     }
 }
 
-async fn legacy_column(db: &context69::db::Database) -> Option<String> {
-    let row = sqlx::query("SELECT api_key FROM context69.search_settings WHERE singleton")
-        .fetch_optional(db.pool())
-        .await
-        .expect("read the legacy column");
-    row.map(|row| row.get::<Option<String>, _>("api_key").unwrap_or_default())
-}
-
 #[test]
-fn the_search_api_key_round_trips_sealed_and_mirrors_the_legacy_column() {
+fn the_search_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
     run(async |db| {
         reset(db).await;
+        assert_retired_columns_absent(db).await;
 
         let settings = service(db, keyed(db));
         let saved = settings
@@ -50,14 +42,10 @@ fn the_search_api_key_round_trips_sealed_and_mirrors_the_legacy_column() {
 
         assert_sealed_under(db.pool(), key_names::SEARCH_API_KEY, PURPOSE).await;
         assert_stored_bytes_exclude(db.pool(), key_names::SEARCH_API_KEY, SYNTHETIC_KEY).await;
-        assert_eq!(legacy_column(db).await.as_deref(), Some(SYNTHETIC_KEY));
+        assert_retired_columns_absent(db).await;
 
-        // Store-first: the redacted projection stays truthful from the sealed row
-        // alone, and the response never carries the value back.
-        sqlx::query("UPDATE context69.search_settings SET api_key = NULL WHERE singleton")
-            .execute(db.pool())
-            .await
-            .expect("blank the mirror");
+        // The redacted projection is answered from the sealed row alone, and the
+        // response never carries the value back.
         let read = settings.get_search_settings().await.expect("read");
         assert!(read.has_api_key);
         assert!(
@@ -114,7 +102,7 @@ fn a_sealed_search_key_fails_closed_and_still_reports_presence() {
 }
 
 #[test]
-fn keeping_the_search_api_key_leaves_both_stores_untouched() {
+fn keeping_the_search_api_key_leaves_the_stored_one_untouched() {
     run(async |db| {
         reset(db).await;
         let settings = service(db, keyed(db));
@@ -128,15 +116,21 @@ fn keeping_the_search_api_key_leaves_both_stores_untouched() {
             .await
             .expect("save with a Keep");
         assert_sealed_under(db.pool(), key_names::SEARCH_API_KEY, PURPOSE).await;
-        assert_eq!(legacy_column(db).await.as_deref(), Some(SYNTHETIC_KEY));
 
         // A blank value normalizes to a Keep too: whitespace parity with the legacy
-        // wire, and it must not blank the row.
+        // wire, and it must not drop the stored key.
         settings
             .update_search_settings(&request(SecretPatch::Set("   ".to_string())))
             .await
             .expect("save with a blank value");
-        assert_eq!(legacy_column(db).await.as_deref(), Some(SYNTHETIC_KEY));
+        assert_sealed_under(db.pool(), key_names::SEARCH_API_KEY, PURPOSE).await;
+        assert!(
+            service(db, keyed(db))
+                .get_search_settings()
+                .await
+                .expect("read after the keeps")
+                .has_api_key
+        );
 
         reset(db).await;
     });

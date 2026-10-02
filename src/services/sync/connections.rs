@@ -5,9 +5,8 @@ use crate::{
     domain_errors::DomainError,
     services::{
         secret_store::{SecretKeyName, SecretPurpose, SecretStore},
-        settings::secrets::{resolve_stored_or_legacy, secret_error, secret_is_present},
+        settings::secrets::{resolve_stored, secret_error, secret_is_present},
     },
-    support::normalize::normalize_optional_string,
 };
 use uuid::Uuid;
 
@@ -47,10 +46,13 @@ impl SyncService {
             .resolve_source_connection(&input.name, input.database_url.clone())
             .await?;
         let saved = self.persist_source_connection(&pending).await?;
+        // The store was written before the row, so the saved reference resolves to
+        // a credential this deployment is configured with.
+        let has_database_url = self.source_secrets().is_present(&saved).await?;
         self.reload_sources().await?;
         Ok(SourceConnectionResponse {
             name: saved.name,
-            has_database_url: !saved.database_url.trim().is_empty(),
+            has_database_url,
             origin_status: SourceOriginStatusKind::Unknown,
             origin_message: None,
         })
@@ -108,36 +110,33 @@ impl SourceConnectionSecrets {
         source_connection_database_url_key(connection_key)
     }
 
-    /// The store row a stored connection points at, if it has one yet.
+    /// The store row a stored connection points at.
     ///
-    /// A NULL reference is the transition state: the connection has not been
-    /// written through the store, so its database URL is still the legacy
-    /// column's and nothing is stored to be opened.
+    /// The row that carries it is the only representation of a connection's
+    /// database URL, so a NULL reference means there is nothing to open and the
+    /// connection is not configured.
     fn stored_key(connection: &StoredSourceConnection) -> Option<&str> {
         connection.database_url_secret_key.as_deref()
     }
 
-    /// The database URL in effect: the sealed value when the store holds one,
-    /// otherwise the legacy column.
+    /// The database URL in effect: the sealed value the reference points at.
     ///
     /// Fails closed — a store row that exists and cannot be opened is an error,
-    /// never a silent return to the legacy column.
+    /// never a report that the connection has no credential.
     pub(super) async fn resolve(
         &self,
         connection: &StoredSourceConnection,
     ) -> Result<Option<String>> {
-        let legacy = connection.database_url.clone();
         match Self::stored_key(connection) {
             Some(secret_key) => {
-                resolve_stored_or_legacy(
+                resolve_stored(
                     &self.store,
                     SecretPurpose::SourceConnectionDatabaseUrl,
                     secret_key,
-                    Some(legacy),
                 )
                 .await
             }
-            None => Ok(normalize_optional_string(Some(legacy))),
+            None => Ok(None),
         }
     }
 
@@ -149,11 +148,10 @@ impl SourceConnectionSecrets {
                     &self.store,
                     SecretPurpose::SourceConnectionDatabaseUrl,
                     secret_key,
-                    Some(&connection.database_url),
                 )
                 .await
             }
-            None => Ok(normalize_optional_string(Some(connection.database_url.clone())).is_some()),
+            None => Ok(false),
         }
     }
 
@@ -185,8 +183,8 @@ impl SourceConnectionSecrets {
 ///
 /// The identity is read back first so a re-save keeps the key an existing sealed
 /// value is stored under. The store is written before the row, because a
-/// reference has to resolve to a row that exists, and because a failed seal must
-/// not leave the legacy column holding a value the store would never serve.
+/// reference has to resolve to a row that exists — and because a failed seal must
+/// not leave a connection that points at a credential nobody stored.
 pub(crate) async fn save_source_connection(
     db: &Database,
     store: &SecretStore,
@@ -204,7 +202,6 @@ pub(crate) async fn save_source_connection(
     db.save_source_connection(&NewSourceConnection {
         connection_key,
         name: name.to_string(),
-        database_url: database_url.to_string(),
         database_url_secret_key: secret_key.as_str().to_string(),
     })
     .await
@@ -232,38 +229,33 @@ mod tests {
             .expect("an unkeyed store cannot fail to build")
     }
 
-    fn stored(
-        name: &str,
-        database_url: &str,
-        database_url_secret_key: Option<&str>,
-    ) -> StoredSourceConnection {
+    fn stored(name: &str, database_url_secret_key: Option<&str>) -> StoredSourceConnection {
         StoredSourceConnection {
             name: name.to_string(),
             connection_key: Uuid::nil(),
-            database_url: database_url.to_string(),
             database_url_secret_key: database_url_secret_key.map(str::to_string),
         }
     }
 
     #[tokio::test]
-    async fn a_connection_without_a_reference_is_read_from_its_legacy_column() {
-        // The store is never reached: there is no reference, so there is no row
-        // to open, and the legacy column is the whole value.
+    async fn a_connection_without_a_reference_has_no_credential() {
+        // The store is never reached: there is no reference, so there is no row to
+        // open, and the store is the only place a DSN exists.
         let secrets = SourceConnectionSecrets::new(unreached_store());
-        let connection = stored("primary", "postgres://legacy/one", None);
+        let connection = stored("primary", None);
         assert_eq!(SourceConnectionSecrets::stored_key(&connection), None);
         assert_eq!(
             secrets
                 .resolve(&connection)
                 .await
-                .expect("an unmigrated connection needs no store access"),
-            Some("postgres://legacy/one".to_string())
+                .expect("a connection without a reference needs no store access"),
+            None
         );
         assert!(
-            secrets
+            !secrets
                 .is_present(&connection)
                 .await
-                .expect("an unmigrated connection needs no store access")
+                .expect("a connection without a reference needs no store access")
         );
     }
 
@@ -272,7 +264,7 @@ mod tests {
         let connection_key = Uuid::new_v4();
         let expected = SourceConnectionSecrets::key_name(connection_key)
             .expect("a connection key is a valid store key");
-        let mut connection = stored("primary", "postgres://legacy/one", Some(expected.as_str()));
+        let mut connection = stored("primary", Some(expected.as_str()));
         connection.connection_key = connection_key;
         assert_eq!(
             SourceConnectionSecrets::stored_key(&connection),
@@ -294,16 +286,16 @@ mod tests {
         );
     }
 
-    /// The whole transition for one connection, against a migrated scratch
-    /// database: the writer seals the DSN and mirrors it into the legacy column,
-    /// the configured store opens it, a store without the master key fails
-    /// closed instead of serving the plaintext column, presence stays answerable
-    /// on that deployment, and clearing removes the sealed value.
+    /// The whole lifecycle for one connection, against a migrated scratch
+    /// database: the writer seals the DSN and records the reference, the
+    /// configured store opens it, a store without the master key fails closed
+    /// instead of reporting no credential, presence stays answerable on that
+    /// deployment, and clearing removes the sealed value.
     ///
     /// Skipped unless `CONTEXT69_TEST_DATABASE_URL` names one. Every row it
     /// writes is keyed by a fresh UUID and removed again.
     #[tokio::test]
-    async fn a_saved_connection_is_sealed_mirrored_and_fail_closed() {
+    async fn a_saved_connection_is_sealed_referenced_and_fail_closed() {
         let Ok(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL") else {
             eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the store round trip");
             return;
@@ -331,10 +323,6 @@ mod tests {
             .clone()
             .expect("a saved connection references its store row");
         assert_eq!(
-            saved.database_url, database_url,
-            "the legacy column keeps receiving the value for the whole transition"
-        );
-        assert_eq!(
             SourceConnectionSecrets::new(keyed.clone())
                 .resolve(&saved)
                 .await
@@ -346,7 +334,7 @@ mod tests {
         let failure = SourceConnectionSecrets::new(unkeyed.clone())
             .resolve(&saved)
             .await
-            .expect_err("a sealed value must not fall back to the legacy column");
+            .expect_err("a sealed value this deployment cannot open must fail");
         assert!(
             failure.to_string().contains("app.master_secret"),
             "the failure is a configuration failure an operator can act on: {failure}"
