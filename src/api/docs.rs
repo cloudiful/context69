@@ -30,6 +30,7 @@ use crate::api::{
     git_repository_connections::{
         __path_delete_git_repository_connection, __path_set_git_repository_connection,
     },
+    git_webhook_ingress::__path_receive_git_webhook,
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
         __path_delete_group_library_file, __path_delete_group_library_folder,
@@ -180,6 +181,7 @@ use crate::contracts::sources::{
         get_git_repository_webhook,
         set_git_repository_connection,
         delete_git_repository_connection,
+        receive_git_webhook,
         query_group_documents,
         get_group_document_by_key,
         batch_get_group_documents,

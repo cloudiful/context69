@@ -73,6 +73,7 @@ context69-translation = { path = "crates/context69-translation", version = "0.1.
 docling-convert = { package = "cloudiful-docling-convert", version = "0.3.6" }
 futures = "0.3.34"
 getrandom = "0.4.3"
+hmac = "0.13.0"
 qdrant-client = "1.19.0"
 rate-limiter = { package = "cloudiful-rate-limiter", version = "0.1.0", features = ["valkey"] }
 opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3", "http-transport-reqwest", "executors-tokio"] }
@@ -147,6 +148,7 @@ db-init.workspace = true
 docling-convert.workspace = true
 futures.workspace = true
 getrandom.workspace = true
+hmac.workspace = true
 qdrant-client.workspace = true
 rate-limiter.workspace = true
 opendal.workspace = true

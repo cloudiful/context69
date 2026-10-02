@@ -23,6 +23,7 @@ mod extractions;
 mod git_connections;
 mod git_repositories;
 mod git_repository_connections;
+mod git_webhook_ingress;
 mod group_access;
 mod group_library;
 mod group_source_folders;
@@ -121,6 +122,7 @@ pub(crate) use git_repositories::{
 pub(crate) use git_repository_connections::{
     delete_git_repository_connection, set_git_repository_connection,
 };
+pub(crate) use git_webhook_ingress::receive_git_webhook;
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
     delete_group_library_folder, get_group_library_file, get_group_library_resources,

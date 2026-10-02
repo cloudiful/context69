@@ -5894,6 +5894,50 @@
           }
         }
       }
+    },
+    "/v1/webhooks/{provider}/{external_hook_id}": {
+      "post": {
+        "tags": [],
+        "operationId": "receive_git_webhook",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Git provider kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "external_hook_id",
+            "in": "path",
+            "description": "Provider-issued webhook hook id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Delivery recorded"
+          },
+          "401": {
+            "description": "Unknown hook or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Webhook body exceeds the accepted bound"
+          }
+        }
+      }
     }
   },
   "components": {

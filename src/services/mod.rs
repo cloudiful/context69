@@ -4,6 +4,7 @@ pub mod document_store;
 pub mod extraction;
 pub mod git_repository;
 pub mod git_secrets;
+pub mod git_webhook_signature;
 pub mod library;
 pub mod maintenance;
 pub mod namespace;

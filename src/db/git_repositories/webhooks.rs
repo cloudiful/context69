@@ -5,8 +5,14 @@
 //! through that join. Deliveries are keyed by the provider delivery id and are
 //! recorded before a repository is necessarily known, so they stay
 //! provider-scoped; group resolution happens when a delivery is dispatched.
+//!
+//! An unauthenticated provider ingress knows only the provider and the hook id,
+//! so one read resolves a registration by that unique pair and returns the
+//! owning group id beside it — the minimum an ingress needs to derive the
+//! record-scoped signing-secret name without trusting a caller-supplied group.
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::rows::{GitWebhookDeliveryRow, GitWebhookRegistrationRow};
@@ -14,8 +20,26 @@ use super::types::{
     NewGitWebhookDelivery, NewGitWebhookRegistration, StoredGitWebhookDelivery,
     StoredGitWebhookRegistration,
 };
-use crate::contracts::sources::GitWebhookDeliveryStatus;
+use crate::contracts::sources::{GitProviderKind, GitWebhookDeliveryStatus};
 use crate::db::Database;
+
+/// The columns of a registration read by provider and external hook id, plus
+/// the owning group id. The group id is not part of
+/// [`StoredGitWebhookRegistration`] because a group-scoped caller already knows
+/// it; an ingress that resolves the hook from its provider-facing id does not,
+/// and needs it to derive the record-scoped signing-secret name.
+#[derive(Debug, sqlx::FromRow)]
+struct GitWebhookRegistrationByHookRow {
+    group_id: i64,
+    repository_key: Uuid,
+    provider_kind: String,
+    external_hook_id: String,
+    ownership: String,
+    active: bool,
+    signing_secret_key: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
 
 impl Database {
     /// Registers or updates the webhook of a repository source owned by
@@ -60,6 +84,42 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
         row.map(StoredGitWebhookRegistration::from_row).transpose()
+    }
+
+    /// Resolves a webhook registration by its provider-facing identity, plus
+    /// the owning group id.
+    ///
+    /// The unique `(provider_kind, external_hook_id)` index makes this zero or
+    /// one row, and no group is part of the lookup: a caller that only holds the
+    /// provider's hook id cannot learn which group owns it except by presenting
+    /// the signature the record's secret verifies.
+    pub async fn get_git_webhook_registration_by_hook(
+        &self,
+        provider: GitProviderKind,
+        external_hook_id: &str,
+    ) -> Result<Option<(i64, StoredGitWebhookRegistration)>> {
+        let row = sqlx::query_file_as!(
+            GitWebhookRegistrationByHookRow,
+            "src/sql/db/git_repositories/get_git_webhook_registration_by_hook.sql",
+            provider.as_str(),
+            external_hook_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| {
+            let registration = StoredGitWebhookRegistration::from_row(GitWebhookRegistrationRow {
+                repository_key: row.repository_key,
+                provider_kind: row.provider_kind,
+                external_hook_id: row.external_hook_id,
+                ownership: row.ownership,
+                active: row.active,
+                signing_secret_key: row.signing_secret_key,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            })?;
+            Ok((row.group_id, registration))
+        })
+        .transpose()
     }
 
     /// Narrows the signing-secret reference of one webhook registration owned by

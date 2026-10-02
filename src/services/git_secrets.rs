@@ -30,9 +30,12 @@
 //! write appears in an error. `None` and empty bytes are Keep, so a caller with
 //! no new value cannot clear one by omission.
 //!
-//! An internal seam: no provider call, no network, no token transport, and no
-//! HTTP or MCP route reaches it.
+//! An internal seam: no provider call, no network, and no token transport. The
+//! writer is reached only by internal setup; the reader half is reached by the
+//! provider webhook ingress, which opens one registration's signing secret to
+//! verify a signature and never logs or returns the value.
 use anyhow::{Result, anyhow};
+use context69_secret_crypto::SecretValue;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -257,6 +260,44 @@ impl GitSecretWriter {
                 slot.reference()
             )),
         }
+    }
+}
+
+/// The internal reader for the Git provider secrets the writer seals.
+///
+/// It derives the record-scoped key name through the same
+/// [`GitSecretTarget::bind`] the writer uses, so a reader cannot look up a
+/// different name than a writer stored, and it opens the value under the slot's
+/// own purpose. A missing row is `None`; a sealed row that cannot be opened is
+/// the store's error and is never downgraded to a plaintext fallback.
+#[derive(Clone)]
+pub struct GitSecretReader {
+    store: SecretStore,
+}
+
+impl GitSecretReader {
+    pub fn new(store: SecretStore) -> Self {
+        Self { store }
+    }
+
+    /// Opens the value `target` owns for `slot`, or `None` when nothing is
+    /// stored under the derived name.
+    ///
+    /// # Errors
+    ///
+    /// A refused slot/record pairing, or a store failure — including a sealed
+    /// row that this deployment cannot open. The error names the purpose, never
+    /// the value.
+    pub async fn read(
+        &self,
+        target: &GitSecretTarget,
+        slot: GitSecretSlot,
+    ) -> Result<Option<SecretValue>> {
+        let (purpose, key_name) = target.bind(slot)?;
+        self.store
+            .get(purpose, key_name.as_str())
+            .await
+            .map_err(|error| secret_error(purpose, error))
     }
 }
 

@@ -33,13 +33,14 @@ use super::{
     get_git_repository_webhook, get_translation_settings, healthz, index_git_repository,
     list_admin_users, list_git_provider_connections, list_git_repositories,
     list_personal_access_tokens, list_source_connections, list_sources, list_translation_providers,
-    login, logout, me, openapi_json, register_git_repository, require_admin_scope_middleware,
-    require_search_scope_middleware, require_settings_scope_middleware,
-    require_sources_scope_middleware, require_workspace_scope_middleware,
-    reset_admin_user_password, revoke_personal_access_token, set_git_repository_connection,
-    submit_vector_index_rebuild, sync_group_source_folder, sync_source,
-    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
-    update_source, update_source_connection, update_translation_settings,
+    login, logout, me, openapi_json, receive_git_webhook, register_git_repository,
+    require_admin_scope_middleware, require_search_scope_middleware,
+    require_settings_scope_middleware, require_sources_scope_middleware,
+    require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
+    set_git_repository_connection, submit_vector_index_rebuild, sync_group_source_folder,
+    sync_source, touch_personal_access_token_middleware, update_admin_user,
+    update_group_source_folder_config, update_source, update_source_connection,
+    update_translation_settings,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -116,10 +117,23 @@ fn build_router_with_session_store<S: SessionStore + Clone + Send + Sync + 'stat
         .route("/healthz", get(healthz))
         .route("/v1/auth/login", post(login))
         .route("/v1/auth/logout", post(logout))
+        .merge(webhook_routes())
         .merge(protected_v1)
         .with_state(api_state)
         .layer(cors_layer())
         .layer(auth_layer))
+}
+
+/// The unauthenticated provider-facing webhook ingress.
+///
+/// It is mounted before the protected router so no auth middleware or scope
+/// gate ever runs on it; the HMAC signature over the raw body is its
+/// authentication, and the handler applies its own explicit body bound.
+fn webhook_routes() -> Router<ApiState> {
+    Router::new().route(
+        "/v1/webhooks/{provider}/{external_hook_id}",
+        post(receive_git_webhook),
+    )
 }
 
 fn protected_routes(upload_body_limit: usize, api_state: ApiState) -> Router<ApiState> {
