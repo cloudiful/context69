@@ -1850,6 +1850,55 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "disable_git_connection",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connection_key",
+            "in": "path",
+            "description": "Git provider connection key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection, taken out of service",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitProviderConnection"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or connection not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/groups/by-path/{group_path}/git-repositories": {

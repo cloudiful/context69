@@ -219,6 +219,22 @@ polling, and metadata-index workers remain server-side.
   other Git reads return, a generation that cannot be resolved is `409`, and a
   pair whose `from_generation` is newer than its `to_generation` is `409` rather
   than an empty comparison. An identical pair compares to an empty page.
+- `DELETE /v1/groups/by-path/{group_path}/git-connections/{connection_key}` takes
+  an existing group-owned provider connection out of service. It needs the same
+  Maintainer role as creating a connection, so a Viewer or a non-member is refused
+  with `403` before the connection is even read, and it answers with the existing
+  `GitProviderConnection` projection: the same fields a create returns, with
+  `disabled: true` read back from storage after the update.
+- The action is idempotent by construction: the stored `COALESCE(disabled_at,
+  now())` sets the timestamp once, so a repeated disable is a second `200` with
+  the same projection rather than a conflict, and the *first* disable timestamp is
+  the one that survives. There is no enable, re-enable, delete, metadata edit, or
+  credential rotation here, and the route never opens the secret store, reads a
+  credential, signing value, or App private key, or calls a provider — the
+  projection reports only *whether* a read credential and a webhook secret are
+  configured. An unknown or foreign connection key is the same bounded `404` the
+  other connection routes return, so the route cannot be used to probe which keys
+  exist.
 
 ## Contract bounds and errors
 

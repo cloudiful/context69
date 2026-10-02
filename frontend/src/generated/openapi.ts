@@ -494,7 +494,7 @@ export interface paths {
         get: operations["get_git_connection_readiness"];
         put: operations["create_git_connection"];
         post?: never;
-        delete?: never;
+        delete: operations["disable_git_connection"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5525,6 +5525,47 @@ export interface operations {
             };
             /** @description Connection key already exists */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    disable_git_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection, taken out of service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or connection not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

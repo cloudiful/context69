@@ -363,6 +363,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "disable_git_connection",
+        method: "DELETE",
+        path_template: "/v1/groups/by-path/{group_path}/git-connections/{connection_key}",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GitProviderConnection",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "enable_admin_user",
         method: "POST",
         path_template: "/v1/admin/users/{login_name}/enable",
