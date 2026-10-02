@@ -22,6 +22,7 @@ use crate::api::{
         __path_list_extraction_templates, __path_rebuild_document_extractions,
         __path_upsert_extraction_template,
     },
+    git_connection_readiness::__path_get_git_connection_readiness,
     git_connections::{__path_get_git_repository_webhook, __path_list_git_provider_connections},
     git_repositories::{
         __path_get_git_repository, __path_index_git_repository, __path_list_git_repositories,
@@ -115,10 +116,10 @@ use crate::contracts::{
 };
 
 use crate::contracts::sources::{
-    GitCommitCheckpoint, GitConnectionMode, GitIndexProfile, GitIndexStatus, GitProviderConnection,
-    GitProviderKind, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookOwnership,
-    GitWebhookRegistration,
+    GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
+    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderKind, GitRefreshPolicy,
+    GitRepositoryConnectionRequest, GitRepositoryRegistrationRequest, GitRepositorySource,
+    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -178,6 +179,7 @@ use crate::contracts::sources::{
         get_git_repository,
         index_git_repository,
         list_git_provider_connections,
+        get_git_connection_readiness,
         get_git_repository_webhook,
         set_git_repository_connection,
         delete_git_repository_connection,
@@ -262,6 +264,8 @@ use crate::contracts::sources::{
         GitRepositorySource,
         GitRepositoryRegistrationRequest,
         GitConnectionMode,
+        GitConnectionReadiness,
+        GitConnectionReadinessResponse,
         GitProviderConnection,
         GitWebhookOwnership,
         GitWebhookRegistration,

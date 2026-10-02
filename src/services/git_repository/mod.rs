@@ -22,6 +22,7 @@
 mod bounds;
 mod classify;
 mod code_text;
+pub(crate) mod connection_readiness;
 mod github_client;
 mod github_schemas;
 mod github_transport;

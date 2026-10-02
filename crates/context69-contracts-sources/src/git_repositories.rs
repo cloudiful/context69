@@ -221,6 +221,55 @@ pub struct GitProviderConnection {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Offline readiness of one Git provider connection.
+///
+/// Readiness is a projection of persisted, non-secret metadata only. It never
+/// reflects a provider call, an installation identity, secret-store access, or
+/// a secret value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GitConnectionReadiness {
+    /// Public connections read without a credential.
+    Public,
+    /// Token connections with a stored read-credential reference.
+    Token,
+    /// Installation connections whose identity is available. Reserved for the
+    /// installation phase; installation connections report `Incomplete` until
+    /// an installation identity is persisted.
+    Installation,
+    /// The connection is missing the state its mode requires.
+    Incomplete,
+    /// The connection is disabled.
+    Disabled,
+}
+
+impl GitConnectionReadiness {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Token => "token",
+            Self::Installation => "installation",
+            Self::Incomplete => "incomplete",
+            Self::Disabled => "disabled",
+        }
+    }
+}
+
+/// Readiness projection of one group-owned Git provider connection.
+///
+/// It reports only the non-secret readiness of the connection: the key, its
+/// mode, the derived readiness, and the two raw facts the derivation consumes.
+/// Provider identity, App private keys, secret-store keys, and secret values
+/// are never part of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct GitConnectionReadinessResponse {
+    pub connection_key: String,
+    pub mode: GitConnectionMode,
+    pub readiness: GitConnectionReadiness,
+    pub has_read_credential: bool,
+    pub disabled: bool,
+}
+
 /// Durable metadata for one index generation of a repository source.
 ///
 /// A generation is metadata only: counts and provenance, never file, blob, or

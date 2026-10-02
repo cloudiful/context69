@@ -1736,6 +1736,50 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-connections/{connection_key}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_git_connection_readiness",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connection_key",
+            "in": "path",
+            "description": "Git provider connection key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Offline readiness of a group-owned Git provider connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitConnectionReadinessResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or connection not found"
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/git-repositories": {
       "get": {
         "tags": [],
@@ -7618,6 +7662,45 @@
           "installation",
           "token"
         ]
+      },
+      "GitConnectionReadiness": {
+        "type": "string",
+        "description": "Offline readiness of one Git provider connection.\n\nReadiness is a projection of persisted, non-secret metadata only. It never\nreflects a provider call, an installation identity, secret-store access, or\na secret value.",
+        "enum": [
+          "public",
+          "token",
+          "installation",
+          "incomplete",
+          "disabled"
+        ]
+      },
+      "GitConnectionReadinessResponse": {
+        "type": "object",
+        "description": "Readiness projection of one group-owned Git provider connection.\n\nIt reports only the non-secret readiness of the connection: the key, its\nmode, the derived readiness, and the two raw facts the derivation consumes.\nProvider identity, App private keys, secret-store keys, and secret values\nare never part of it.",
+        "required": [
+          "connection_key",
+          "mode",
+          "readiness",
+          "has_read_credential",
+          "disabled"
+        ],
+        "properties": {
+          "connection_key": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "has_read_credential": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/GitConnectionMode"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/GitConnectionReadiness"
+          }
+        }
       },
       "GitIndexProfile": {
         "type": "string",

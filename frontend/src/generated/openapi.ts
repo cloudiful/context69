@@ -484,6 +484,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-connections/{connection_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_connection_readiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories": {
         parameters: {
             query?: never;
@@ -2076,6 +2092,30 @@ export interface components {
          * @enum {string}
          */
         GitConnectionMode: "public" | "installation" | "token";
+        /**
+         * @description Offline readiness of one Git provider connection.
+         *
+         *     Readiness is a projection of persisted, non-secret metadata only. It never
+         *     reflects a provider call, an installation identity, secret-store access, or
+         *     a secret value.
+         * @enum {string}
+         */
+        GitConnectionReadiness: "public" | "token" | "installation" | "incomplete" | "disabled";
+        /**
+         * @description Readiness projection of one group-owned Git provider connection.
+         *
+         *     It reports only the non-secret readiness of the connection: the key, its
+         *     mode, the derived readiness, and the two raw facts the derivation consumes.
+         *     Provider identity, App private keys, secret-store keys, and secret values
+         *     are never part of it.
+         */
+        GitConnectionReadinessResponse: {
+            connection_key: string;
+            disabled: boolean;
+            has_read_credential: boolean;
+            mode: components["schemas"]["GitConnectionMode"];
+            readiness: components["schemas"]["GitConnectionReadiness"];
+        };
         /**
          * @description Independent index profile for a Git source.
          * @enum {string}
@@ -4718,6 +4758,45 @@ export interface operations {
                 content?: never;
             };
             /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_git_connection_readiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Offline readiness of a group-owned Git provider connection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitConnectionReadinessResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or connection not found */
             404: {
                 headers: {
                     [name: string]: unknown;

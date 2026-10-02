@@ -1,5 +1,5 @@
 //! Provider-neutral Git source and connection contracts (issue #681 phases 2,
-//! 3B1, and 4A2).
+//! 3B1, 4A2, and 4B2).
 //!
 //! Covers the wire shape of the contract enums/structs and the shape of
 //! `migrations/20260930204952_git_repository_sources.sql`: the migration must
@@ -15,11 +15,12 @@ use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
 use context69_contracts_sources::{
     GIT_CONNECTION_KEY_MAX_CHARS, GitActiveGeneration, GitCommitCheckpoint,
-    GitConnectionKeyRejection, GitConnectionMode, GitGenerationStatus, GitIndexProfile,
-    GitIndexStatus, GitProviderConnection, GitProviderKind, GitRefreshPolicy,
-    GitRepositoryConnectionRequest, GitRepositoryGeneration, GitRepositoryRegistrationRequest,
-    GitRepositorySource, GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus,
-    GitWebhookOwnership, GitWebhookRegistration,
+    GitConnectionKeyRejection, GitConnectionMode, GitConnectionReadiness,
+    GitConnectionReadinessResponse, GitGenerationStatus, GitIndexProfile, GitIndexStatus,
+    GitProviderConnection, GitProviderKind, GitRefreshPolicy, GitRepositoryConnectionRequest,
+    GitRepositoryGeneration, GitRepositoryRegistrationRequest, GitRepositorySource,
+    GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus, GitWebhookOwnership,
+    GitWebhookRegistration,
 };
 use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
@@ -276,6 +277,80 @@ fn connection_contract_exposes_only_secret_presence() {
 
     let decoded: GitProviderConnection = from_value(encoded).expect("deserialize connection");
     assert_eq!(decoded, connection);
+}
+
+#[test]
+fn connection_readiness_wire_names_are_stable() {
+    assert_eq!(
+        to_value([
+            GitConnectionReadiness::Public,
+            GitConnectionReadiness::Token,
+            GitConnectionReadiness::Installation,
+            GitConnectionReadiness::Incomplete,
+            GitConnectionReadiness::Disabled,
+        ])
+        .expect("serialize readiness"),
+        json!(["public", "token", "installation", "incomplete", "disabled"])
+    );
+    for (value, name) in [
+        (GitConnectionReadiness::Public, "public"),
+        (GitConnectionReadiness::Token, "token"),
+        (GitConnectionReadiness::Installation, "installation"),
+        (GitConnectionReadiness::Incomplete, "incomplete"),
+        (GitConnectionReadiness::Disabled, "disabled"),
+    ] {
+        assert_eq!(value.as_str(), name);
+    }
+}
+
+#[test]
+fn readiness_response_exposes_only_the_planned_non_secret_fields() {
+    let response = GitConnectionReadinessResponse {
+        connection_key: "github-app-main".to_string(),
+        mode: GitConnectionMode::Token,
+        readiness: GitConnectionReadiness::Token,
+        has_read_credential: true,
+        disabled: false,
+    };
+    let encoded = to_value(&response).expect("serialize readiness response");
+    let object = encoded.as_object().expect("readiness object");
+    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "connection_key",
+            "disabled",
+            "has_read_credential",
+            "mode",
+            "readiness",
+        ],
+        "readiness must expose exactly the planned non-secret fields"
+    );
+    assert_eq!(object["mode"], json!("token"));
+    assert_eq!(object["readiness"], json!("token"));
+    assert_eq!(object["has_read_credential"], json!(true));
+    assert_eq!(object["disabled"], json!(false));
+    for forbidden in [
+        "app_id",
+        "app_private_key",
+        "installation_id",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "base_url",
+        "display_name",
+        "provider",
+        "group_path",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "readiness must not carry {forbidden}"
+        );
+    }
+
+    let decoded: GitConnectionReadinessResponse =
+        from_value(encoded).expect("deserialize readiness response");
+    assert_eq!(decoded, response);
 }
 
 #[test]
