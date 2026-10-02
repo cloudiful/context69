@@ -32,6 +32,7 @@ use crate::api::{
     git_repository_connections::{
         __path_delete_git_repository_connection, __path_set_git_repository_connection,
     },
+    git_repository_files::__path_list_git_repository_files,
     git_webhook_ingress::__path_receive_git_webhook,
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
@@ -86,12 +87,12 @@ use crate::contracts::{
     ClearTaskHistoryResponse, ClearTaskHistoryView, CreateAdminUserRequest, CreateFolderRequest,
     CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
     CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest,
-    CursorPageQuery, DeeplPlan, DeleteBatchRequest, DocumentKey, DocumentLookupQuery,
-    DocumentQueryRequest, DocumentQueryResponse, DocumentSort, DocumentSortField,
-    EnsureScopeResponse, ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse,
-    ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse,
-    ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
-    GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
+    CursorPageQuery, CursorPagination, DeeplPlan, DeleteBatchRequest, DocumentKey,
+    DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentSort,
+    DocumentSortField, EnsureScopeResponse, ExtractionDirective, ExtractionFailureClass,
+    ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse,
+    ExtractionResultResponse, ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem,
+    FileBatchRequest, GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
     ImportLibraryFileFromUrlRequest, IngestOptions, LibraryFileDetailResponse,
     LibraryFolderResponse, LibraryIngestFailureStage, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, MemberPageQuery,
@@ -120,8 +121,8 @@ use crate::contracts::sources::{
     GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
     GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
     GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookOwnership,
-    GitWebhookRegistration,
+    GitRepositoryFile, GitRepositoryFileListResponse, GitRepositoryRegistrationRequest,
+    GitRepositorySource, GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -180,6 +181,7 @@ use crate::contracts::sources::{
         list_git_repositories,
         get_git_repository,
         index_git_repository,
+        list_git_repository_files,
         list_git_provider_connections,
         create_git_connection,
         get_git_connection_readiness,
@@ -266,6 +268,8 @@ use crate::contracts::sources::{
         GitCommitCheckpoint,
         GitRepositorySource,
         GitRepositoryRegistrationRequest,
+        GitRepositoryFile,
+        GitRepositoryFileListResponse,
         GitConnectionMode,
         GitConnectionReadiness,
         GitConnectionReadinessResponse,
@@ -346,6 +350,7 @@ use crate::contracts::sources::{
         CanonicalApiErrorResponse,
         OffsetPageQuery,
         CursorPageQuery,
+        CursorPagination,
         CanonicalSearchRequest,
         CanonicalTaskListQuery,
         CanonicalUpdateSearchSettingsRequest,
@@ -487,6 +492,7 @@ mod tests {
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/config",
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
             "/v1/groups/by-path/{group_path}/git-connections",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
             "/v1/groups/by-path/{group_path}/library/tree",
@@ -690,6 +696,51 @@ mod tests {
                 .unwrap_or(false),
             "the existing connection projection must stay free of an App-key field"
         );
+
+        // Issue 681 5A: the manifest page is the only HTTP read of generation
+        // content, and it stays metadata: the documented response names the
+        // page schema, whose entries point at stored bytes without carrying
+        // them.
+        let manifest_page = paths
+            .get("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files")
+            .and_then(|path| path.get("get"))
+            .expect("manifest page GET to exist");
+        assert_eq!(
+            manifest_page.get("operationId").and_then(Value::as_str),
+            Some("list_git_repository_files")
+        );
+        assert_eq!(
+            manifest_page
+                .pointer("/responses/200/content/application~1json/schema/$ref")
+                .and_then(Value::as_str),
+            Some("#/components/schemas/GitRepositoryFileListResponse")
+        );
+        let manifest_schema = schemas
+            .get("GitRepositoryFileListResponse")
+            .and_then(Value::as_object)
+            .expect("GitRepositoryFileListResponse schema to exist");
+        let manifest_properties = manifest_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("manifest page properties");
+        for field in [
+            "files",
+            "pagination",
+            "checkpoint",
+            "commit_sha",
+            "file_count",
+        ] {
+            assert!(
+                manifest_properties.contains_key(field),
+                "the manifest page must expose {field}"
+            );
+        }
+        for forbidden in ["content", "text", "chunk", "provider_blob_sha", "secret"] {
+            assert!(
+                !manifest_properties.contains_key(forbidden),
+                "the manifest page must not expose {forbidden}"
+            );
+        }
 
         // Issue 405 Task E2: the task SSE stream exposes snapshot-then-deltas
         // with client-side resync (no server replay), mirroring search-stream.

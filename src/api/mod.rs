@@ -25,6 +25,8 @@ mod git_connection_readiness;
 mod git_connections;
 mod git_repositories;
 mod git_repository_connections;
+mod git_repository_file_paging;
+mod git_repository_files;
 mod git_webhook_ingress;
 mod group_access;
 mod group_library;
@@ -126,6 +128,7 @@ pub(crate) use git_repositories::{
 pub(crate) use git_repository_connections::{
     delete_git_repository_connection, set_git_repository_connection,
 };
+pub(crate) use git_repository_files::list_git_repository_files;
 pub(crate) use git_webhook_ingress::receive_git_webhook;
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,

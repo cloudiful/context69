@@ -105,6 +105,26 @@ polling, and metadata-index workers remain server-side.
 - `context69-sdk` exposes `release_file_source(group_path, file_id)` and carries
   the upload policy through `IngestOptions` / `FileBatchItem.options`.
 
+## Git repository file manifest
+
+- `GET /v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files`
+  returns one bounded page of the path manifest the repository's active index
+  generation serves, ordered by path. It takes the shared cursor query
+  (`limit` 1..=100, default 50, plus `cursor`) and answers with
+  `GitRepositoryFileListResponse`: the manifest entries plus the serving
+  generation's key, number, ref, and pinned commit, the repository's index
+  status and target/indexed commit checkpoint, and the generation's coverage
+  counts.
+- Continuation is the shared cursor shape: `next_cursor` is present exactly when
+  `has_more` is true, and passing it back as `cursor` returns the next page. A
+  continuation this API did not issue, or a `limit` outside the bound, is a
+  `400 invalid_argument`.
+- The page is metadata only: file bytes, chunk text, secret references, and
+  provider connection state never cross it. An unknown or foreign repository is
+  a `404`, and a repository with no active ready generation is a `409` rather
+  than an empty page. Read access needs the `sources` scope and at least Viewer
+  in the group.
+
 ## Contract bounds and errors
 
 - `GET /v1/tasks` requires typed `view` (`processing` | `completed` |

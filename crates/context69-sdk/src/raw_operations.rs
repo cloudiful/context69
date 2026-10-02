@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (123 operations, sorted by `operation_id` for deterministic diffs).
+//! (124 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -689,6 +689,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "array<GitRepositorySource>",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "list_git_repository_files",
+        method: "GET",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GitRepositoryFileListResponse",
         success_status: 200,
         idempotent: false,
     },

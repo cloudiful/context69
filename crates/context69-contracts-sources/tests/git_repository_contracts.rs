@@ -13,6 +13,7 @@
 
 use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
+use context69_contracts_core::pagination::{CursorPageQuery, CursorPagination};
 use context69_contracts_sources::{
     GIT_CONNECTION_BASE_URL_MAX_CHARS, GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS,
     GIT_CONNECTION_KEY_MAX_CHARS, GitActiveGeneration, GitCommitCheckpoint,
@@ -20,9 +21,10 @@ use context69_contracts_sources::{
     GitConnectionReadinessResponse, GitConnectionRequestRejection, GitGenerationStatus,
     GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
     GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryGeneration, GitRepositoryRegistrationRequest, GitRepositorySource,
-    GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus, GitWebhookOwnership,
-    GitWebhookRegistration, validate_git_connection_key,
+    GitRepositoryFile, GitRepositoryFileListResponse, GitRepositoryGeneration,
+    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookDelivery,
+    GitWebhookDeliveryStatus, GitWebhookOwnership, GitWebhookRegistration,
+    validate_git_connection_key,
 };
 use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
@@ -1166,4 +1168,193 @@ fn connection_create_request_schema_declares_metadata_and_the_patch() {
             .and_then(|max| max.as_u64()),
         Some(GIT_CONNECTION_BASE_URL_MAX_CHARS as u64)
     );
+}
+
+#[test]
+fn manifest_page_exposes_only_provenance_coverage_and_pagination() {
+    let page = sample_manifest_page(false);
+    let encoded = to_value(&page).expect("serialize manifest page");
+    let object = encoded.as_object().expect("manifest page object");
+    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "checkpoint",
+            "commit_sha",
+            "excluded_file_count",
+            "file_count",
+            "files",
+            "generation_key",
+            "generation_number",
+            "index_status",
+            "pagination",
+            "ref_name",
+            "repository_key",
+            "total_bytes",
+        ],
+        "the manifest page exposes exactly the planned fields: no bytes, chunks, \
+         or connection state travel with a manifest entry"
+    );
+    assert_eq!(object["generation_number"], json!(4));
+    assert_eq!(object["ref_name"], json!("refs/heads/main"));
+    assert_eq!(object["commit_sha"], json!(page.commit_sha));
+    assert_eq!(object["index_status"], json!("stale"));
+    assert_eq!(object["file_count"], json!(120));
+    assert_eq!(object["excluded_file_count"], json!(3));
+    assert_eq!(object["total_bytes"], json!(4096));
+    assert_eq!(
+        object["checkpoint"]["indexed_commit_sha"],
+        json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "a page states which commit is indexed, not only which one it serves"
+    );
+    assert_eq!(object["files"][0]["path"], json!("src/main.rs"));
+    let serialized = serde_json::to_string(&page).expect("serialize manifest page");
+    for forbidden in [
+        "internal/secret",
+        "credential_secret_key",
+        "provider_blob_sha",
+        "chunk",
+        "text",
+        "canonical_url",
+        "connection_key",
+    ] {
+        assert!(
+            !serialized.contains(forbidden),
+            "the manifest page must not project {forbidden}: {serialized}"
+        );
+    }
+
+    let decoded: GitRepositoryFileListResponse = from_value(encoded).expect("deserialize page");
+    assert_eq!(decoded.files, page.files);
+    assert_eq!(
+        to_value(&decoded.pagination).expect("serialize pagination"),
+        to_value(&page.pagination).expect("serialize pagination")
+    );
+    assert_eq!(decoded.commit_sha, page.commit_sha);
+    assert_eq!(decoded.checkpoint, page.checkpoint);
+}
+
+#[test]
+fn manifest_page_carries_the_shared_cursor_continuation() {
+    // A continued page hands back the shared cursor token, and a terminal page
+    // omits it instead of sending an empty string a client could replay.
+    let continued = sample_manifest_page(true);
+    let encoded = to_value(&continued).expect("serialize continued page");
+    assert_eq!(encoded["pagination"]["has_more"], json!(true));
+    assert_eq!(encoded["pagination"]["next_cursor"], json!("10"));
+    continued
+        .pagination
+        .validate_continuation()
+        .expect("has_more must carry its continuation token");
+
+    let terminal = sample_manifest_page(false);
+    let encoded = to_value(&terminal).expect("serialize terminal page");
+    assert_eq!(encoded["pagination"]["has_more"], json!(false));
+    assert!(
+        encoded["pagination"]
+            .as_object()
+            .expect("pagination object")
+            .get("next_cursor")
+            .is_none(),
+        "a terminal page must omit next_cursor"
+    );
+    assert!(terminal.pagination.is_terminal());
+}
+
+#[test]
+fn manifest_page_schema_pins_the_bounded_query_and_response() {
+    let page_schema = schema_for!(GitRepositoryFileListResponse);
+    let properties = page_schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("manifest page properties");
+    for field in ["files", "pagination", "checkpoint", "index_status"] {
+        assert!(properties.contains_key(field), "page schema needs {field}");
+    }
+    let files = properties
+        .get("files")
+        .and_then(|files| files.get("items"))
+        .expect("files items");
+    assert_eq!(
+        files.get("$ref").and_then(|reference| reference.as_str()),
+        Some("#/$defs/GitRepositoryFile"),
+        "the page reuses the existing manifest entry projection unchanged"
+    );
+    let entry_properties = schema_for!(GitRepositoryFile)
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("manifest entry properties")
+        .clone();
+    let mut entry_keys = entry_properties
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    entry_keys.sort_unstable();
+    assert_eq!(
+        entry_keys,
+        vec![
+            "byte_count",
+            "created_at",
+            "file_key",
+            "generation_key",
+            "language",
+            "line_count",
+            "path",
+            "repository_key",
+        ],
+        "a manifest entry stays identity plus counters; bytes and chunks are read elsewhere"
+    );
+
+    // The read path pages with the shared cursor query, so its bounds are the
+    // same ones every other cursor consumer is held to.
+    let query = schema_for!(CursorPageQuery);
+    let limit = query.pointer("/properties/limit").expect("limit property");
+    assert_eq!(
+        limit.get("minimum").and_then(|value| value.as_u64()),
+        Some(1)
+    );
+    assert_eq!(
+        limit.get("maximum").and_then(|value| value.as_u64()),
+        Some(100)
+    );
+    assert!(
+        query
+            .get("properties")
+            .and_then(|properties| properties.as_object())
+            .expect("query properties")
+            .contains_key("cursor"),
+        "the manifest page continues with an opaque cursor"
+    );
+}
+
+fn sample_manifest_page(has_more: bool) -> GitRepositoryFileListResponse {
+    GitRepositoryFileListResponse {
+        repository_key: repository_key(),
+        generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+        generation_number: 4,
+        ref_name: "refs/heads/main".to_string(),
+        commit_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        index_status: GitIndexStatus::Stale,
+        checkpoint: GitCommitCheckpoint {
+            target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+            indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+            indexed_at: Some(timestamp()),
+            checkpoint_updated_at: Some(timestamp()),
+        },
+        file_count: 120,
+        excluded_file_count: 3,
+        total_bytes: 4096,
+        files: vec![GitRepositoryFile {
+            file_key: Uuid::parse_str("018f9f40-1111-7000-8000-0000000000c1").expect("uuid"),
+            generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+            repository_key: repository_key(),
+            path: "src/main.rs".to_string(),
+            language: "rust".to_string(),
+            byte_count: 512,
+            line_count: 20,
+            created_at: timestamp(),
+        }],
+        pagination: CursorPagination::new(has_more.then(|| "10".to_string()), has_more),
+    }
 }

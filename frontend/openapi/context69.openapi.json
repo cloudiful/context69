@@ -2116,6 +2116,90 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files": {
+      "get": {
+        "tags": [],
+        "operationId": "list_git_repository_files",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of the active generation's path manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepositoryFileListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid page limit or continuation cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          },
+          "409": {
+            "description": "No active ready index generation to read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index": {
       "post": {
         "tags": [],
@@ -6854,6 +6938,23 @@
           }
         }
       },
+      "CursorPagination": {
+        "type": "object",
+        "required": [
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "DeeplPlan": {
         "type": "string",
         "enum": [
@@ -7982,6 +8083,130 @@
           }
         },
         "additionalProperties": false
+      },
+      "GitRepositoryFile": {
+        "type": "object",
+        "description": "One manifest entry: a safe repository path mapped to a stored blob.\n\nThe manifest is scoped to a single index generation, so the same path can\nhold different content in two snapshots and a superseded snapshot keeps\nserving its own bytes. `line_count` counts the source lines the chunker\nwalked, so an empty file is `0` and a file ending in a newline does not gain\na phantom last line.",
+        "required": [
+          "file_key",
+          "generation_key",
+          "repository_key",
+          "path",
+          "language",
+          "byte_count",
+          "line_count",
+          "created_at"
+        ],
+        "properties": {
+          "byte_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Raw byte length of the stored blob."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "file_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "language": {
+            "type": "string",
+            "description": "Classified language token (`rust`, `python`, `unknown`, …) derived from\nthe path alone."
+          },
+          "line_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository-relative path, already checked for traversal, absolute, and\ncontrol-character hazards before storage."
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GitRepositoryFileListResponse": {
+        "type": "object",
+        "description": "One bounded page of the active generation's path manifest.\n\nThe page answers from the generation the repository currently serves, so\nevery entry belongs to the same pinned commit and `generation_number`\nreported here. The source's own index status and target/indexed checkpoint\ntravel with the page so freshness and coverage gaps stay visible without a\nsecond request. File bytes, chunk text, secret references, and provider\ntransport state never cross this response.",
+        "required": [
+          "repository_key",
+          "generation_key",
+          "generation_number",
+          "ref_name",
+          "commit_sha",
+          "index_status",
+          "checkpoint",
+          "file_count",
+          "excluded_file_count",
+          "total_bytes",
+          "files",
+          "pagination"
+        ],
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/GitCommitCheckpoint",
+            "description": "Target/indexed commit checkpoint of the source, so the caller can tell a\nfresh generation from one the ref has already moved past."
+          },
+          "commit_sha": {
+            "type": "string",
+            "description": "Pinned snapshot commit the serving generation covers."
+          },
+          "excluded_file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "File entries acquisition excluded, so coverage gaps stay visible."
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Manifest entries the serving generation covers."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitRepositoryFile"
+            },
+            "description": "One page of the manifest, ordered by path."
+          },
+          "generation_key": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Generation the manifest entries below belong to."
+          },
+          "generation_number": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-repository monotonic sequence of the serving generation."
+          },
+          "index_status": {
+            "$ref": "#/components/schemas/GitIndexStatus",
+            "description": "Index lifecycle state of the repository source, read at query time."
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/CursorPagination",
+            "description": "Cursor continuation: `has_more = true` always carries `next_cursor`."
+          },
+          "ref_name": {
+            "type": "string"
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Raw bytes the serving generation covers."
+          }
+        }
       },
       "GitRepositoryRegistrationRequest": {
         "type": "object",

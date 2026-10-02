@@ -548,6 +548,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_git_repository_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index": {
         parameters: {
             query?: never;
@@ -1845,6 +1861,10 @@ export interface components {
             /** Format: int32 */
             limit?: number;
         };
+        CursorPagination: {
+            has_more: boolean;
+            next_cursor?: string | null;
+        };
         /** @enum {string} */
         DeeplPlan: "free" | "pro";
         DeleteBatchRequest: {
@@ -2214,6 +2234,95 @@ export interface components {
         GitRepositoryConnectionRequest: {
             /** @description Key of an existing, enabled provider connection owned by the same group. */
             connection_key: string;
+        };
+        /**
+         * @description One manifest entry: a safe repository path mapped to a stored blob.
+         *
+         *     The manifest is scoped to a single index generation, so the same path can
+         *     hold different content in two snapshots and a superseded snapshot keeps
+         *     serving its own bytes. `line_count` counts the source lines the chunker
+         *     walked, so an empty file is `0` and a file ending in a newline does not gain
+         *     a phantom last line.
+         */
+        GitRepositoryFile: {
+            /**
+             * Format: int64
+             * @description Raw byte length of the stored blob.
+             */
+            byte_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            file_key: string;
+            /** Format: uuid */
+            generation_key: string;
+            /**
+             * @description Classified language token (`rust`, `python`, `unknown`, …) derived from
+             *     the path alone.
+             */
+            language: string;
+            /** Format: int64 */
+            line_count: number;
+            /**
+             * @description Repository-relative path, already checked for traversal, absolute, and
+             *     control-character hazards before storage.
+             */
+            path: string;
+            /** Format: uuid */
+            repository_key: string;
+        };
+        /**
+         * @description One bounded page of the active generation's path manifest.
+         *
+         *     The page answers from the generation the repository currently serves, so
+         *     every entry belongs to the same pinned commit and `generation_number`
+         *     reported here. The source's own index status and target/indexed checkpoint
+         *     travel with the page so freshness and coverage gaps stay visible without a
+         *     second request. File bytes, chunk text, secret references, and provider
+         *     transport state never cross this response.
+         */
+        GitRepositoryFileListResponse: {
+            /**
+             * @description Target/indexed commit checkpoint of the source, so the caller can tell a
+             *     fresh generation from one the ref has already moved past.
+             */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /** @description One page of the manifest, ordered by path. */
+            files: components["schemas"]["GitRepositoryFile"][];
+            /**
+             * Format: uuid
+             * @description Generation the manifest entries below belong to.
+             */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            /** @description Cursor continuation: `has_more = true` always carries `next_cursor`. */
+            pagination: components["schemas"]["CursorPagination"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the serving generation covers.
+             */
+            total_bytes: number;
         };
         /**
          * @description Registration request for one public GitHub repository ref.
@@ -5138,6 +5247,66 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_git_repository_files: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the active generation's path manifest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileListResponse"];
+                };
+            };
+            /** @description Invalid page limit or continuation cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

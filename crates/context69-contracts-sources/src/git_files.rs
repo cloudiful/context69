@@ -5,6 +5,9 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use context69_contracts_core::Visibility;
+use context69_contracts_core::pagination::CursorPagination;
+
+use super::git_repositories::{GitCommitCheckpoint, GitIndexStatus};
 
 /// Why one chunk was returned by a lexical code query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -101,4 +104,39 @@ pub struct GitCodeLexicalHit {
     pub text: String,
     pub score: f32,
     pub matched: GitCodeMatchKind,
+}
+
+/// One bounded page of the active generation's path manifest.
+///
+/// The page answers from the generation the repository currently serves, so
+/// every entry belongs to the same pinned commit and `generation_number`
+/// reported here. The source's own index status and target/indexed checkpoint
+/// travel with the page so freshness and coverage gaps stay visible without a
+/// second request. File bytes, chunk text, secret references, and provider
+/// transport state never cross this response.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct GitRepositoryFileListResponse {
+    pub repository_key: Uuid,
+    /// Generation the manifest entries below belong to.
+    pub generation_key: Uuid,
+    /// Per-repository monotonic sequence of the serving generation.
+    pub generation_number: i64,
+    pub ref_name: String,
+    /// Pinned snapshot commit the serving generation covers.
+    pub commit_sha: String,
+    /// Index lifecycle state of the repository source, read at query time.
+    pub index_status: GitIndexStatus,
+    /// Target/indexed commit checkpoint of the source, so the caller can tell a
+    /// fresh generation from one the ref has already moved past.
+    pub checkpoint: GitCommitCheckpoint,
+    /// Manifest entries the serving generation covers.
+    pub file_count: i64,
+    /// File entries acquisition excluded, so coverage gaps stay visible.
+    pub excluded_file_count: i64,
+    /// Raw bytes the serving generation covers.
+    pub total_bytes: i64,
+    /// One page of the manifest, ordered by path.
+    pub files: Vec<GitRepositoryFile>,
+    /// Cursor continuation: `has_more = true` always carries `next_cursor`.
+    pub pagination: CursorPagination,
 }
