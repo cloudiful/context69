@@ -397,6 +397,7 @@ fn inventory_covers_sdk_facade_and_mcp_surfaces() {
         "get_documents",
         "list_sources",
         "search_code",
+        "get_code",
     ] {
         assert!(
             INVENTORY.contains(tool),

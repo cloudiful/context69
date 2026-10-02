@@ -26,15 +26,15 @@ use crate::{
     contracts::{
         McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpCodeSearchRequest,
         McpCodeSearchResponse, McpDocumentArgs, McpDocumentKeyArgs, McpDocumentQueryArgs,
-        McpDocumentQueryResponse, McpSearchRequest, McpSearchResponse, McpSourceListArgs,
-        McpSourceListResponse,
+        McpDocumentQueryResponse, McpGetCodeRequest, McpGetCodeResponse, McpSearchRequest,
+        McpSearchResponse, McpSourceListArgs, McpSourceListResponse,
     },
     domain::AccessScope,
     services::app::Context69App,
 };
 use tools::{
-    code as code_tools, documents as document_tools, search as search_tools,
-    sources as source_tools,
+    code as code_tools, code_get as code_get_tools, documents as document_tools,
+    search as search_tools, sources as source_tools,
 };
 
 #[derive(Clone)]
@@ -308,6 +308,33 @@ impl Context69McpServer {
             .scope_from_context(&context, Some(request.group_path.clone()))
             .await?;
         let response = code_tools::search(&self.app.db, group.id, &scope, &request).await?;
+        Ok(Json(response))
+    }
+
+    #[tool(
+        name = "get_code",
+        description = "Read one bounded, commit-pinned line window of a file in one Git repository's active index generation. Accepts group_path, repository_key, a safe repository-relative path, inclusive start_line/end_line, and an optional chunk_limit; returns the verbatim stored UTF-8 text with generation provenance, coverage, the exact byte count, and a truthful truncated flag."
+    )]
+    async fn get_code(
+        &self,
+        Parameters(request): Parameters<McpGetCodeRequest>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<McpGetCodeResponse>, McpError> {
+        code_get_tools::checked_get_args(&request)?;
+        let user_id = self
+            .user_id_from_context(&context)?
+            .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
+        let group = self
+            .app
+            .namespace
+            .get_group_for_user(user_id, &request.group_path)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        let scope = self
+            .scope_from_context(&context, Some(request.group_path.clone()))
+            .await?;
+        let response = code_get_tools::get(&self.app.db, group.id, &scope, &request).await?;
         Ok(Json(response))
     }
 

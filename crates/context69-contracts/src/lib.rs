@@ -47,7 +47,9 @@ pub use context69_contracts_library::library::{
     PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
 pub use context69_contracts_mcp::code::{
-    McpCodeCoverage, McpCodeGeneration, McpCodeHit, McpCodeSearchRequest, McpCodeSearchResponse,
+    MCP_CODE_GET_CHUNK_LIMIT_DEFAULT, MCP_CODE_GET_CHUNK_LIMIT_MAX, MCP_CODE_GET_CHUNK_LIMIT_MIN,
+    McpCodeCoverage, McpCodeFile, McpCodeGeneration, McpCodeHit, McpCodeSearchRequest,
+    McpCodeSearchResponse, McpGetCodeRequest, McpGetCodeResponse,
 };
 pub use context69_contracts_mcp::mcp::{
     MCP_QUERY_LIMIT_DEFAULT, MCP_TOOL_NAMES, McpBatchDocumentArgs, McpBatchDocumentItem,
@@ -110,8 +112,8 @@ pub use context69_contracts_tasks::tasks::{
     FileBatchItem, FileBatchRequest, FileRetryItem, RerunTaskResponse, ScopeMetadataIndex,
     ScopeSpec, TASK_STREAM_IDS_MAX, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin, TaskPageResponse,
-    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
-    TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate,
-    TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
+    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone,
+    TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest,
+    TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
 };
 pub use context69_contracts_translation::translation::*;

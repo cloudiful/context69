@@ -1,7 +1,8 @@
-//! MCP-only code-search inputs and bounded results.
+//! MCP-only code-search and code-window inputs and bounded results.
 //!
 //! `search_code` is a distinct code tool over one Git repository's activated
-//! index generation. The stored provenance type
+//! index generation, and `get_code` exposes one bounded, commit-pinned line
+//! window of a stored file from that same generation. The stored provenance type
 //! [`context69_contracts_sources::sources::GitCodeLexicalHit`] is only an input
 //! to the bounded projections below: no blob, connection, or secret material is
 //! ever serialized, and every array and free-form string declares the same cap
@@ -13,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use context69_contracts_core::Visibility;
-use context69_contracts_sources::sources::{GitCodeLexicalHit, GitCodeMatchKind};
+use context69_contracts_sources::sources::{
+    GIT_REPOSITORY_FILE_PATH_MAX_CHARS, GitCodeLexicalHit, GitCodeMatchKind,
+    MAX_GIT_CONTENT_WINDOW_LINES,
+};
 
 use crate::projections::{
     MCP_CODE_COMMIT_MAX_CHARS, MCP_CODE_LANGUAGE_MAX_CHARS, MCP_CODE_LIMIT_DEFAULT,
@@ -230,4 +234,146 @@ impl McpCodeSearchResponse {
             truncated,
         }
     }
+}
+
+/// Default stored-chunk window for `get_code`.
+///
+/// Mirrors the HTTP content route's chunk-page row bound: one page ends before
+/// the chunk that would cross the shared byte cap, so this row bound keeps a
+/// page a single bounded statement result.
+pub const MCP_CODE_GET_CHUNK_LIMIT_DEFAULT: u8 = 64;
+/// Hard cap for chunks returned by one `get_code` call.
+pub const MCP_CODE_GET_CHUNK_LIMIT_MAX: u8 = 64;
+/// Minimum stored-chunk window for `get_code`.
+pub const MCP_CODE_GET_CHUNK_LIMIT_MIN: u8 = 1;
+
+fn default_mcp_get_code_chunk_limit() -> u8 {
+    MCP_CODE_GET_CHUNK_LIMIT_DEFAULT
+}
+
+/// MCP-only input for `get_code`.
+///
+/// One committed file window: group path plus UUID repository key, a safe
+/// repository-relative path, an inclusive 1-based line window, and an optional
+/// bounded stored-chunk limit. The window is served only from the repository's
+/// active, ready index generation, and the path is validated again against the
+/// acquisition tree-path rules before any storage lookup.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct McpGetCodeRequest {
+    #[schemars(length(min = 1, max = 1024))]
+    pub group_path: String,
+    pub repository_key: Uuid,
+    /// Repository-relative path, as stored in the serving generation's manifest.
+    #[schemars(length(min = 1, max = 512))]
+    pub path: String,
+    /// First source line of the window, inclusive and 1-based.
+    #[schemars(range(min = 1))]
+    pub start_line: i32,
+    /// Last source line of the window, inclusive and at least `start_line`.
+    #[schemars(range(min = 1))]
+    pub end_line: i32,
+    /// At most this many stored chunks are read for the window; the byte cap
+    /// always applies first. Defaults to [`MCP_CODE_GET_CHUNK_LIMIT_DEFAULT`].
+    #[serde(default = "default_mcp_get_code_chunk_limit")]
+    #[schemars(range(min = 1, max = 64))]
+    pub chunk_limit: u8,
+}
+
+impl McpGetCodeRequest {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.group_path.trim().is_empty()
+            || self.group_path.chars().count() > MCP_GROUP_PATH_MAX_CHARS
+        {
+            return Err(anyhow::anyhow!("group_path must be 1..=1024 characters"));
+        }
+        validate_repository_path(&self.path)?;
+        if self.start_line < 1 || self.end_line < 1 {
+            return Err(anyhow::anyhow!(
+                "start_line and end_line must be positive 1-based lines"
+            ));
+        }
+        if self.end_line < self.start_line {
+            return Err(anyhow::anyhow!(
+                "end_line must be greater than or equal to start_line"
+            ));
+        }
+        if (self.end_line - self.start_line) as u64 + 1 > MAX_GIT_CONTENT_WINDOW_LINES as u64 {
+            return Err(anyhow::anyhow!(
+                "the requested line window must be at most {MAX_GIT_CONTENT_WINDOW_LINES} lines"
+            ));
+        }
+        if !(MCP_CODE_GET_CHUNK_LIMIT_MIN..=MCP_CODE_GET_CHUNK_LIMIT_MAX)
+            .contains(&self.chunk_limit)
+        {
+            return Err(anyhow::anyhow!(
+                "chunk_limit must be between {MCP_CODE_GET_CHUNK_LIMIT_MIN} and {MCP_CODE_GET_CHUNK_LIMIT_MAX}"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Shape-check one repository-relative path.
+///
+/// Mirrors the acquisition-side tree-path rules: non-blank, bounded, relative,
+/// and free of control bytes and `.`/`..`/empty/backslash segments. The service
+/// parses the value into the validated path type again before storage, so this
+/// is the MCP boundary's actionable refusal rather than the last line of defense.
+fn validate_repository_path(path: &str) -> anyhow::Result<()> {
+    if path.trim().is_empty() || path.chars().count() > GIT_REPOSITORY_FILE_PATH_MAX_CHARS {
+        return Err(anyhow::anyhow!(
+            "path must be 1..={GIT_REPOSITORY_FILE_PATH_MAX_CHARS} characters"
+        ));
+    }
+    if path.chars().any(char::is_control) {
+        return Err(anyhow::anyhow!("path must not contain control characters"));
+    }
+    if path.starts_with('/') {
+        return Err(anyhow::anyhow!("path must be repository-relative"));
+    }
+    for segment in path.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." || segment.contains('\\') {
+            return Err(anyhow::anyhow!(
+                "path must be a safe repository-relative path"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The manifest entry one `get_code` window was read from.
+///
+/// Only the safe manifest projection crosses the boundary: its identifier, the
+/// repository-relative path, and the classified language. The provider blob id,
+/// raw acquisition content, and storage bookkeeping never do.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct McpCodeFile {
+    pub file_key: Uuid,
+    #[schemars(length(max = 512))]
+    pub path: String,
+    #[schemars(length(max = 32))]
+    pub language: String,
+}
+
+/// Bounded `get_code` output.
+///
+/// Carries active-generation provenance, the safe manifest entry, the requested
+/// line bounds, the verbatim stored UTF-8 window text, its exact byte count, and
+/// a truthful `truncated` flag instead of a cursor. The text cap mirrors the
+/// shared HTTP content byte cap.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct McpGetCodeResponse {
+    pub generation: McpCodeGeneration,
+    pub file: McpCodeFile,
+    /// First requested source line, inclusive.
+    pub start_line: i32,
+    /// Last requested source line, inclusive.
+    pub end_line: i32,
+    #[schemars(length(max = 65536))]
+    pub text: String,
+    /// Exact UTF-8 byte length of `text`.
+    pub byte_count: i64,
+    /// Whether more window text existed than this response returns.
+    pub truncated: bool,
 }

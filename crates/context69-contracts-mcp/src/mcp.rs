@@ -6,9 +6,9 @@
 //! [`crate::projections`]. Every `has_more = true` response carries a
 //! continuation cursor (`next_cursor` / `next_chunk_cursor`) by construction.
 //!
-//! Frozen tool names: `search_documents`, `get_document`, `query_documents`,
+//! Current tool names: `search_documents`, `get_document`, `query_documents`,
 //! `get_document_by_external_id`, `get_documents`, `list_sources`, and the
-//! separate code tool `search_code`.
+//! separate code tools `search_code` and `get_code`.
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -22,8 +22,9 @@ use crate::projections::{
     McpDocumentSummary, McpSearchHit, McpSourceSummary, truncate_chars,
 };
 
-/// Frozen MCP tool names. The registry in `src/mcp` must expose exactly these.
-pub const MCP_TOOL_NAMES: [&str; 7] = [
+/// The MCP tool-name registry. The registry in `src/mcp` must expose exactly
+/// these names, in this order; a change here is a deliberate registry update.
+pub const MCP_TOOL_NAMES: [&str; 8] = [
     "search_documents",
     "get_document",
     "query_documents",
@@ -31,6 +32,7 @@ pub const MCP_TOOL_NAMES: [&str; 7] = [
     "get_documents",
     "list_sources",
     "search_code",
+    "get_code",
 ];
 
 /// MCP-local default result window for `query_documents` when the nested
