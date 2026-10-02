@@ -207,8 +207,9 @@ async fn execute(
 ) -> Result<()> {
     if !store.is_encrypted() {
         return Err(anyhow::anyhow!(
-            "the reversible-secret backfill needs secret_store.master_key: an unencrypted store \
-             cannot open what it is asked to inventory, and could not seal a legacy value anyway"
+            "the reversible-secret backfill needs a configured master_key (app.master_secret): an \
+             unencrypted store cannot open what it is asked to inventory, and could not seal a \
+             legacy value anyway"
         ));
     }
     // One fixed order — the store's own legacy rows, then the singleton columns,

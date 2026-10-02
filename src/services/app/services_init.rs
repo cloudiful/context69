@@ -44,7 +44,7 @@ pub async fn initialize(
     // it gets a handle onto the same configuration the application already
     // built. Building a handle is just a cipher over the existing pool; the
     // unconfigured state was reported once during config hydration.
-    let store = secret_store::build(db, &config.secret_store)?;
+    let store = secret_store::build(db, config)?;
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()

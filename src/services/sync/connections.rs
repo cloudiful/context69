@@ -348,7 +348,7 @@ mod tests {
             .await
             .expect_err("a sealed value must not fall back to the legacy column");
         assert!(
-            failure.to_string().contains("secret_store.master_key"),
+            failure.to_string().contains("app.master_secret"),
             "the failure is a configuration failure an operator can act on: {failure}"
         );
         assert!(

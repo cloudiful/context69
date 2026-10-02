@@ -17,7 +17,8 @@
 - `scheduler`: sync scheduling defaults
 - `mcp`: MCP server configuration
 - `api`: HTTP API server configuration
-- `secret_store`: deployment-supplied master key for the encrypted secret store
+- `app`: deployment-supplied application master secret
+- `secret_store`: ciphertext key versioning for the encrypted secret store
 - `connections[]`: bootstrap source connections imported into the app database on first startup
 - `sources[]`: bootstrap source definitions imported into the app database on first startup
 
@@ -108,30 +109,35 @@ If you prefer bootstrap-by-config instead of using the frontend, runtime-related
 such as `CONTEXT69_QDRANT__URL`, `CONTEXT69_EMBEDDING__API_KEY`, or Docling fields still work
 and will be imported into the database on first startup.
 
-## Secret Store
+## Application Master Secret
 
-`secret_store` configures the master key used to seal persisted reversible
-runtime secrets in the application database:
+`app.master_secret` is the application-scoped deployment input that seals the
+persisted reversible runtime secrets in the application database:
 
-- `master_key`: optional base64-encoded 32-byte key. Padding is optional.
+- `master_secret`: optional base64-encoded 32-byte key. Padding is optional.
+
+It is one application-wide key that every encrypted application feature can use,
+not a secret-store setting, so it is configured once under `[app]`. Supply it as
+`CONTEXT69_APP__MASTER_SECRET` rather than in a config file committed to source
+control. It is read from configuration, handed to the cipher, and never written
+to PostgreSQL, a log line, an error, or a response.
+
+`secret_store.key_version` stays where it is, because it describes the
+ciphertext the store writes rather than naming a secret:
+
 - `key_version`: the version new ciphertext is written under, default `1`. Must
   be greater than `0`.
 
-The key is a deployment input. It is read from configuration, handed to the
-cipher, and never written to PostgreSQL, a log line, an error, or a response.
-Supply it as `CONTEXT69_SECRET_STORE__MASTER_KEY` rather than in a config file
-committed to source control.
-
-Without `master_key` the service still starts and still reads secrets that are
+Without `master_secret` the service still starts and still reads secrets that are
 stored in the legacy plaintext representation, and any secret it creates is
 stored the same way. A configured but unusable key is a startup configuration
-failure and never degrades to that state. When the key is present, a stored
+failure and never degrades to that state. When the secret is present, a stored
 sealed secret is either opened or reported as unconfigured; there is no
 plaintext fallback for it.
 
 ### Master-key recovery
 
-The master key is not in the database. A PostgreSQL dump of the application
+The master secret is not in the database. A PostgreSQL dump of the application
 database therefore cannot recover a sealed value by itself: without the key every
 sealed row is indistinguishable ciphertext, and there is no second copy anywhere
 to fall back on. The dump and the key are two halves of one recovery plan and
@@ -164,9 +170,9 @@ written to a config file, a command line, or the database:
 
 | Variable | Role |
 | --- | --- |
-| `CONTEXT69_SECRET_STORE__MASTER_KEY` | outgoing key (existing input) |
-| `CONTEXT69_SECRET_STORE__KEY_VERSION` | outgoing key version (existing input) |
-| `CONTEXT69_SECRET_STORE__NEXT_MASTER_KEY` | incoming key, rewrap only |
+| `CONTEXT69_APP__MASTER_SECRET` | outgoing key |
+| `CONTEXT69_SECRET_STORE__KEY_VERSION` | outgoing key version |
+| `CONTEXT69_APP__NEXT_MASTER_SECRET` | incoming key, rewrap only |
 | `CONTEXT69_SECRET_STORE__NEXT_KEY_VERSION` | incoming key version, rewrap only, strictly greater than the outgoing version |
 
 ### Rotation and recovery runbook
@@ -224,7 +230,7 @@ every placeholder; nothing below is a real credential or a real value.
 
    ```bash
    umask 077 && openssl rand -base64 32
-   export CONTEXT69_SECRET_STORE__NEXT_MASTER_KEY='<INCOMING_BASE64_KEY>'
+   export CONTEXT69_APP__NEXT_MASTER_SECRET='<INCOMING_BASE64_KEY>'
    export CONTEXT69_SECRET_STORE__NEXT_KEY_VERSION='<INCOMING_VERSION>'
    ```
 
@@ -261,7 +267,7 @@ every placeholder; nothing below is a real credential or a real value.
 
    Every sealed row must now be at the incoming version and none may remain at the
    outgoing one. Then confirm the round trips on the service itself: deploy the
-   same release with `CONTEXT69_SECRET_STORE__MASTER_KEY` set to the incoming key
+   same release with `CONTEXT69_APP__MASTER_SECRET` set to the incoming key
    and `CONTEXT69_SECRET_STORE__KEY_VERSION` set to the incoming version, and check
    that the settings projections still report `has_api_key`, `has_secret_key`, and
    `has_database_url`, that a search needing the rerank key still works, and that a
@@ -288,7 +294,7 @@ It is a manual maintenance mode with no automatic startup path.
 | `--apply` | commit the migration; still the only write path |
 | `--limit <count>` | how many changes one run may make; defaults to 500 and must be greater than `0` |
 
-Both modes need `secret_store.master_key`: without it a run is refused before the first
+Both modes need `app.master_secret`: without it a run is refused before the first
 row is read, because an unencrypted store cannot open the rows it would inventory.
 
 The mode runs before the application starts, so it opens no Valkey, no Qdrant, no
@@ -322,7 +328,7 @@ nothing rewrites a legacy column while it runs:
 1. **Take and verify a backup** as in the rotation runbook above, and rehearse the
    restore into a disposable database.
 2. **Rehearse on the disposable copy**, with the deployment's own
-   `secret_store.master_key` still configured, and run the mode with no flags: the
+   `app.master_secret` still configured, and run the mode with no flags: the
    counts are the work the apply run would perform. The rehearsal must use the key the
    deployment seals under; another valid key also writes ciphertext, but opens none of
    the copy's rows, so a green run under it proves nothing about reading them back.
@@ -349,7 +355,7 @@ nothing rewrites a legacy column while it runs:
    Every credential this phase owns must be sealed, and no source connection may be
    left without a reference.
 
-### Restoring a database after a lost master key
+### Restoring a database after a lost master secret
 
 If the outgoing key is gone and no rewrap has run, the sealed rows in a restored
 database are unrecoverable: the dump holds ciphertext and the key is not in it.

@@ -242,7 +242,7 @@ pub fn assert_fails_closed(result: Result<impl std::fmt::Debug>) {
     let error = result.expect_err("a sealed row this deployment cannot open must fail");
     let message = error.to_string();
     assert!(
-        message.contains("secret_store.master_key"),
+        message.contains("app.master_secret"),
         "a missing master key must be reported as a configuration failure: {message}"
     );
 }

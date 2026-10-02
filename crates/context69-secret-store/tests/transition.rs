@@ -162,7 +162,7 @@ fn a_sealed_row_never_degrades_to_its_ciphertext_or_a_default() {
 
     let error = open(None, &sealed).expect_err("no configured key");
     assert!(matches!(error, SecretStoreError::MasterKeyNotConfigured));
-    assert!(error.to_string().contains("secret_store.master_key"));
+    assert!(error.to_string().contains("app.master_secret"));
 }
 
 #[test]

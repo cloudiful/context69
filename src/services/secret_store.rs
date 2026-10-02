@@ -16,9 +16,14 @@ pub use context69_secret_store::{
     SecretStoreError, key_names,
 };
 
-use crate::{config::SecretStoreConfig, db::Database};
+use crate::{config::Config, db::Database};
 
 /// Builds a store handle from deployment configuration.
+///
+/// The master secret is an application-scoped input, so it is read from
+/// [`Config::app`] and the ciphertext version from the store's own section; both
+/// are resolved here, once, and the secret never appears at a call site. It is
+/// never written to PostgreSQL, a log line, an error, or a response.
 ///
 /// Several handles onto one configuration are expected — the application, the
 /// services that need one at construction time, a background task — so this
@@ -26,30 +31,31 @@ use crate::{config::SecretStoreConfig, db::Database};
 /// unconfigured state once per process is
 /// [`crate::services::app::config_hydration`]'s job.
 ///
-/// The master key is a deployment input, so it is read from configuration here
-/// and handed to the cipher; it is never written to PostgreSQL, a log line, an
-/// error, or a response.
-///
 /// # Errors
 ///
-/// [`SecretStoreError::MasterKeyRejected`] when a configured master key cannot be
-/// used. A blank or absent key is the transition state, not an error.
-pub fn build(db: &Database, config: &SecretStoreConfig) -> Result<SecretStore, SecretStoreError> {
+/// [`SecretStoreError::MasterKeyRejected`] when a configured master secret cannot
+/// be used. A blank or absent secret is the transition state, not an error.
+pub fn build(db: &Database, config: &Config) -> Result<SecretStore, SecretStoreError> {
     SecretStore::new(
         context69_secret_store::SecretDatabase::new(db.pool().clone()),
-        config.master_key.as_deref(),
-        config.key_version,
+        config.app.master_secret.as_deref(),
+        config.secret_store.key_version,
     )
 }
 
-/// A store handle with no master key, for a caller that has no deployment
+/// A store handle with no master secret, for a caller that has no deployment
 /// configuration to hand.
 ///
 /// Secrets then round-trip in the legacy plaintext representation and are read
 /// back from their legacy column, which is exactly the behaviour of a
-/// deployment that has not configured a key. It is the same code path, not a
-/// bypass, so a caller that only has a pool still goes through the store.
+/// deployment that has not configured a secret. It is the same code path, not a
+/// bypass, so a caller that only has a pool still goes through the store. With no
+/// secret there is nothing to version, so it uses the documented default.
 pub fn build_unkeyed(db: &Database) -> SecretStore {
-    build(db, &SecretStoreConfig::default())
-        .expect("a store with no master key cannot fail to build")
+    SecretStore::new(
+        context69_secret_store::SecretDatabase::new(db.pool().clone()),
+        None,
+        crate::config::DEFAULT_SECRET_STORE_KEY_VERSION,
+    )
+    .expect("a store with no master secret cannot fail to build")
 }

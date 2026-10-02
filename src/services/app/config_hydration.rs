@@ -18,12 +18,12 @@ pub async fn hydrate(db: &Database, config: &mut Config) -> Result<ConfigHydrati
     // The store is built first, so every read below can resolve a secret through
     // it: the legacy bootstrap import, the persisted settings load, and
     // browser-session resolution all see the same accessor.
-    let secrets = secret_store::build(db, &config.secret_store)?;
+    let secrets = secret_store::build(db, config)?;
     if !secrets.is_encrypted() {
         // Reported once per process, here, rather than by every handle built onto
         // the same configuration.
         warn!(
-            "secret_store.master_key is not configured; sealed secrets cannot be opened and new \
+            "app.master_secret is not configured; sealed secrets cannot be opened and new \
              secrets are stored in the legacy plaintext representation"
         );
     }

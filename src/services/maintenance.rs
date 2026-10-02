@@ -21,19 +21,20 @@ use crate::{
     services::{secret_backfill, secret_backfill::BackfillOptions, secret_store},
 };
 
-/// The master key a `rewrap-secrets` run seals into.
+/// The master secret a `rewrap-secrets` run seals into.
 ///
-/// Deliberately a different variable from `CONTEXT69_SECRET_STORE__MASTER_KEY`: the
+/// Deliberately a different variable from `CONTEXT69_APP__MASTER_SECRET`: the
 /// incoming key must never be able to reach a config file, and a command-line
 /// argument would put it in the process table and the shell history. It is read
 /// once, held in the cipher's zeroizing buffer, and never persisted or logged.
-const REWRAP_TARGET_MASTER_KEY_ENV_VAR: &str = "CONTEXT69_SECRET_STORE__NEXT_MASTER_KEY";
-/// The key version that master key is registered under, and the version every
+const REWRAP_TARGET_MASTER_SECRET_ENV_VAR: &str = "CONTEXT69_APP__NEXT_MASTER_SECRET";
+/// The key version that master secret is registered under, and the version every
 /// re-sealed row moves to. It has to be strictly above the source version, which the
-/// store refuses if it is not.
+/// store refuses if it is not. It stays in the store's own scope because it
+/// versions ciphertext rather than naming a secret.
 const REWRAP_TARGET_KEY_VERSION_ENV_VAR: &str = "CONTEXT69_SECRET_STORE__NEXT_KEY_VERSION";
 
-/// Re-seals every sealed secret from the configured master key to the next one.
+/// Re-seals every sealed secret from the configured master secret to the next one.
 ///
 /// The outgoing deployment is read from the ordinary configuration, exactly as a
 /// serving process reads it, so the run always opens rows with the key that actually
@@ -47,7 +48,7 @@ const REWRAP_TARGET_KEY_VERSION_ENV_VAR: &str = "CONTEXT69_SECRET_STORE__NEXT_KE
 /// metadata-only verification, and the cutover, none of which this mode performs.
 pub async fn rewrap_secrets() -> Result<()> {
     let config = Config::load()?;
-    let target_master_key = required_env(REWRAP_TARGET_MASTER_KEY_ENV_VAR)?;
+    let target_master_secret = required_env(REWRAP_TARGET_MASTER_SECRET_ENV_VAR)?;
     let target_key_version = required_env(REWRAP_TARGET_KEY_VERSION_ENV_VAR)?
         .parse::<u32>()
         .context("rewrap target key version must be a positive integer")?;
@@ -58,10 +59,10 @@ pub async fn rewrap_secrets() -> Result<()> {
     }
 
     let db = Database::connect(&config.app_db.url).await?;
-    let source = secret_store::build(&db, &config.secret_store)?;
+    let source = secret_store::build(&db, &config)?;
     let target = SecretStore::new(
         SecretDatabase::new(db.pool().clone()),
-        Some(&target_master_key),
+        Some(&target_master_secret),
         target_key_version,
     )?;
     let report = target.rewrap_secrets_from(&source).await?;
@@ -87,7 +88,7 @@ pub async fn backfill_secrets() -> Result<()> {
     let config = Config::load()?;
     let options = BackfillOptions::parse(env::args().skip(2))?;
     let db = Database::connect(&config.app_db.url).await?;
-    let store = secret_store::build(&db, &config.secret_store)?;
+    let store = secret_store::build(&db, &config)?;
     let dry_run = !options.apply;
     info!(
         dry_run,

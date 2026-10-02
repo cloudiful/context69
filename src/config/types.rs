@@ -20,6 +20,7 @@ use super::{
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    pub app: AppConfig,
     pub app_db: AppDbConfig,
     pub qdrant: QdrantConfig,
     pub embedding: EmbeddingConfig,
@@ -38,6 +39,36 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppDbConfig {
     pub url: String,
+}
+
+/// Deployment-scoped application inputs.
+///
+/// The master secret is one application-wide input rather than a per-feature
+/// setting, so it is configured once here and every encrypted application
+/// feature can draw on it. It is a deployment input and nothing else: it is read
+/// from configuration, handed to a cipher, and never written to PostgreSQL, a
+/// log line, an error, or a response. Leaving it unset is the transition state in
+/// which a deployment can still read and create legacy plaintext secrets, which
+/// is what a deployment that has not migrated yet needs.
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppConfig {
+    /// Base64 master secret. Padding is optional; it must decode to 32 bytes.
+    pub master_secret: Option<String>,
+}
+
+/// `Debug` redacts the master secret so the configuration can be traced like any
+/// other without ever rendering key material.
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppConfig")
+            .field(
+                "master_secret",
+                &self.master_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,25 +190,22 @@ pub(super) fn default_mcp_bind_addr() -> String {
     DEFAULT_MCP_BIND_ADDR.to_string()
 }
 
-/// Deployment-supplied inputs for the encrypted secret store.
+/// Configuration that describes the stored ciphertext rather than holding a
+/// secret of its own.
 ///
-/// The master key is a deployment input and nothing else: it is read from
-/// configuration, handed to the cipher, and never written to PostgreSQL, a log
-/// line, an error, or a response. Leaving it unset keeps the store in the
-/// transition state where it can still read and create legacy plaintext rows,
-/// which is what an existing deployment without the key needs until the
-/// migration to sealed rows is performed.
+/// `key_version` belongs here because it versions the ciphertext the store
+/// writes, not because it is a credential. The key that ciphertext is sealed
+/// under is [`AppConfig::master_secret`], which is application-scoped and shared
+/// with every encrypted application feature.
 ///
 /// Every default here comes from `default_secret_store_key_version`, not from
 /// zero. A missing `[secret_store]` section is filled from `FileConfig::default`
 /// by the container default, but a *present* section is filled from this type's
 /// own `Default` — so leaving `key_version` out of a configured section used to
 /// deserialise to zero, which validation rejects.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecretStoreConfig {
-    /// Base64 master key. Padding is optional; it must decode to 32 bytes.
-    pub master_key: Option<String>,
     /// Version new ciphertext is written under, so a rotated key is detected.
     #[serde(default = "default_secret_store_key_version")]
     pub key_version: u32,
@@ -186,24 +214,8 @@ pub struct SecretStoreConfig {
 impl Default for SecretStoreConfig {
     fn default() -> Self {
         Self {
-            master_key: None,
             key_version: default_secret_store_key_version(),
         }
-    }
-}
-
-/// `Debug` redacts the master key so the configuration can be traced like any
-/// other without ever rendering key material.
-impl std::fmt::Debug for SecretStoreConfig {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("SecretStoreConfig")
-            .field(
-                "master_key",
-                &self.master_key.as_ref().map(|_| "<redacted>"),
-            )
-            .field("key_version", &self.key_version)
-            .finish()
     }
 }
 
@@ -266,6 +278,7 @@ pub struct PostgresSqlConnectorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(super) struct FileConfig {
+    pub app: AppConfig,
     pub app_db: AppDbConfig,
     pub qdrant: QdrantConfig,
     pub embedding: EmbeddingConfig,
@@ -302,6 +315,7 @@ impl TryFrom<FileConfig> for Config {
     fn try_from(file_config: FileConfig) -> Result<Self> {
         validate_loaded_config(&file_config)?;
         Ok(Self {
+            app: file_config.app,
             app_db: file_config.app_db,
             qdrant: file_config.qdrant,
             embedding: file_config.embedding,

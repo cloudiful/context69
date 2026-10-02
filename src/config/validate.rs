@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::types::{
-    AuthConfig, ConnectionConfig, FileLibraryConfig, SchedulerConfig, SecretStoreConfig,
+    AppConfig, AuthConfig, ConnectionConfig, FileLibraryConfig, SchedulerConfig, SecretStoreConfig,
     SourceConfig,
 };
 
@@ -194,12 +194,9 @@ pub(super) fn validate_auth_config(config: &AuthConfig) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result<()> {
-    if config.key_version == 0 {
-        return Err(anyhow!("secret_store.key_version must be greater than 0"));
-    }
-    let Some(master_key) = config
-        .master_key
+pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
+    let Some(master_secret) = config
+        .master_secret
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -208,7 +205,14 @@ pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result
     };
     // Parsing proves the deployment value really is a 32-byte key. The error
     // never carries the rejected value, so this is safe to surface.
-    MasterKey::from_base64(master_key)
-        .map_err(|_| anyhow!("secret_store.master_key must be a base64-encoded 32-byte key"))?;
+    MasterKey::from_base64(master_secret)
+        .map_err(|_| anyhow!("app.master_secret must be a base64-encoded 32-byte key"))?;
+    Ok(())
+}
+
+pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result<()> {
+    if config.key_version == 0 {
+        return Err(anyhow!("secret_store.key_version must be greater than 0"));
+    }
     Ok(())
 }

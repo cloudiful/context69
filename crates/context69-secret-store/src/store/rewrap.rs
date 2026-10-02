@@ -76,7 +76,7 @@ impl fmt::Display for RewrapError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SourceMasterKeyMissing => formatter.write_str(
-                "rewrap needs the source deployment's master key; set secret_store.master_key",
+                "rewrap needs the source deployment's master secret; set app.master_secret",
             ),
             Self::TargetMasterKeyMissing => formatter
                 .write_str("rewrap needs a target master key from the deployment environment"),

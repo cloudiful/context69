@@ -220,7 +220,7 @@ fn the_signing_key_is_sealed_and_leaks_neither_its_bytes_nor_its_presence() {
             .await
             .expect_err("a sealed signing key must not be readable without a master key");
         let message = format!("{refused} {refused:?}");
-        assert!(message.contains("secret_store.master_key"), "{message}");
+        assert!(message.contains("app.master_secret"), "{message}");
         assert!(!message.contains(MASTER_KEY_B64), "{message}");
 
         cleanup_created_row(db, existed_before).await;

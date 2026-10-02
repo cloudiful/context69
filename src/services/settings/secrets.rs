@@ -267,7 +267,7 @@ pub(crate) fn merged_api_key(patch: &SecretPatch, current: Option<String>) -> Op
 pub(crate) fn secret_error(purpose: SecretPurpose, error: SecretStoreError) -> anyhow::Error {
     match error {
         SecretStoreError::MasterKeyNotConfigured => anyhow::anyhow!(
-            "{purpose} credential is stored encrypted but no secret_store.master_key is configured"
+            "{purpose} credential is stored encrypted but no app.master_secret is configured"
         ),
         other => anyhow::anyhow!("{purpose} credential is unavailable: {other}"),
     }
@@ -383,7 +383,7 @@ mod tests {
         );
         let message = error.to_string();
         assert!(message.contains("search.api_key"), "{message}");
-        assert!(message.contains("secret_store.master_key"), "{message}");
+        assert!(message.contains("app.master_secret"), "{message}");
 
         // Every other store failure keeps the store's own reason, still naming
         // the purpose and never a value.

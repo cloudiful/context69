@@ -47,14 +47,12 @@ impl fmt::Display for SecretStoreError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MasterKeyNotConfigured => formatter.write_str(
-                "secret store is not configured: set secret_store.master_key to open sealed secrets",
+                "secret store is not configured: set app.master_secret to open sealed secrets",
             ),
             Self::MasterKeyRejected(error) | Self::Cipher(error) => write!(formatter, "{error}"),
             Self::InvalidKeyName => formatter.write_str(KEY_NAME_BOUNDS),
             Self::InvalidPurpose => formatter.write_str(PURPOSE_BOUNDS),
-            Self::PurposeMismatch => {
-                formatter.write_str("secret is owned by a different purpose")
-            }
+            Self::PurposeMismatch => formatter.write_str("secret is owned by a different purpose"),
             Self::SecretNotFound => formatter.write_str("secret is not stored"),
             Self::Database(error) => write!(formatter, "{error}"),
         }

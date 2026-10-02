@@ -3,9 +3,9 @@ use std::{path::PathBuf, time::Duration};
 use crate::chunking::ChunkingConfig;
 
 use super::types::{
-    ApiConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ConnectionConfig, EmbeddingConfig,
-    FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, SchedulerConfig, SecretStoreConfig,
-    SourceConfig, default_mcp_bind_addr,
+    ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ConnectionConfig,
+    EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, SchedulerConfig,
+    SecretStoreConfig, SourceConfig, default_mcp_bind_addr,
 };
 
 pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
@@ -55,6 +55,7 @@ pub(super) fn default_secret_store_key_version() -> u32 {
 impl Default for FileConfig {
     fn default() -> Self {
         Self {
+            app: AppConfig::default(),
             app_db: AppDbConfig {
                 url: DEFAULT_APP_DB_URL.to_string(),
             },
@@ -110,7 +111,6 @@ impl Default for FileConfig {
                 bind_addr: default_mcp_bind_addr(),
             },
             secret_store: SecretStoreConfig {
-                master_key: None,
                 key_version: default_secret_store_key_version(),
             },
             connections: Vec::<ConnectionConfig>::new(),
