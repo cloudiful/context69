@@ -30,6 +30,15 @@
 //! write appears in an error. `None` and empty bytes are Keep, so a caller with
 //! no new value cannot clear one by omission.
 //!
+//! [`GitSecretWriter::seal`] is the seal-only half: it writes the value and
+//! returns the reference it was stored under without moving any column, so a
+//! path that is *creating* the record — where there is no row to attach to yet —
+//! can obtain the deterministic reference first and insert the metadata and the
+//! reference together in one statement. The create path never inserts an
+//! uncredentialed row and then repoints it, and a failed seal leaves no row at
+//! all. [`GitSecretWriter::write`] remains the attach-and-repoint operation for
+//! a record that already exists.
+//!
 //! An internal seam: no provider call, no network, and no token transport. The
 //! writer is reached only by internal setup; the reader half is reached by the
 //! provider webhook ingress, which opens one registration's signing secret to
@@ -152,7 +161,10 @@ impl GitSecretTarget {
 pub enum GitSecretWrite {
     /// No value was supplied, so neither the store nor the reference changed.
     Kept,
-    /// The value was sealed and the record's reference now names it.
+    /// The value was sealed under this key name. [`GitSecretWriter::seal`]
+    /// stops there, leaving the name for a creating caller to insert with the
+    /// row; [`GitSecretWriter::write`] also moves the existing record's
+    /// reference to it.
     Stored(SecretKeyName),
 }
 
@@ -169,12 +181,53 @@ impl GitSecretWriter {
         Self { db, store }
     }
 
+    /// Seals one Git secret and returns the reference it was stored under,
+    /// without moving any record's column.
+    ///
+    /// `None` and empty bytes are Keep: nothing is written and the caller gets
+    /// [`GitSecretWrite::Kept`]. A non-empty value is sealed under the slot's
+    /// purpose at the exact key name [`GitSecretTarget::bind`] derives, so a
+    /// caller that is creating a record can obtain the reference *before* the
+    /// row exists and insert the two together — the create path never writes an
+    /// uncredentialed row and then repoints it. No reference column is touched.
+    ///
+    /// # Errors
+    ///
+    /// A refused group id, record key, or slot/record pairing, or a store
+    /// failure. The error names the purpose, never the value or the key name.
+    pub async fn seal(
+        &self,
+        target: &GitSecretTarget,
+        slot: GitSecretSlot,
+        value: Option<&[u8]>,
+    ) -> Result<GitSecretWrite> {
+        let (purpose, key_name) = target.bind(slot)?;
+        let Some(value) = value.filter(|bytes| !bytes.is_empty()) else {
+            return Ok(GitSecretWrite::Kept);
+        };
+        self.seal_value(purpose, key_name.as_str(), value).await?;
+        Ok(GitSecretWrite::Stored(key_name))
+    }
+
+    /// Writes a bound value to the store, mapping a failure to the purpose
+    /// both public methods report through.
+    async fn seal_value(&self, purpose: SecretPurpose, key_name: &str, value: &[u8]) -> Result<()> {
+        self.store
+            .write(purpose, key_name, value)
+            .await
+            .map_err(|error| secret_error(purpose, error))?;
+        Ok(())
+    }
+
     /// Seals one Git secret and points the record at it.
     ///
-    /// `None` and empty bytes are Keep. A non-empty value is written to the store
-    /// immediately, then one narrow reference update moves only that column,
-    /// preserving `disabled_at` on a connection and `active` on a registration.
-    /// An update that matches no row is an error naming the purpose and column.
+    /// Delegates the seal to [`GitSecretWriter::seal`] first, so a value is
+    /// always written before any reference moves — a reference has to resolve
+    /// to a row that exists. `None` and empty bytes are Keep. A non-empty value
+    /// is written to the store immediately, then one narrow reference update
+    /// moves only that column, preserving `disabled_at` on a connection and
+    /// `active` on a registration. An update that matches no row is an error
+    /// naming the purpose and column.
     ///
     /// # Errors
     ///
@@ -186,18 +239,13 @@ impl GitSecretWriter {
         slot: GitSecretSlot,
         value: Option<&[u8]>,
     ) -> Result<GitSecretWrite> {
-        let (purpose, key_name) = target.bind(slot)?;
-        let Some(value) = value.filter(|bytes| !bytes.is_empty()) else {
+        let GitSecretWrite::Stored(key_name) = self.seal(target, slot, value).await? else {
             return Ok(GitSecretWrite::Kept);
         };
-        self.store
-            .write(purpose, key_name.as_str(), value)
-            .await
-            .map_err(|error| secret_error(purpose, error))?;
         if !self.repoint(slot, target, key_name.as_str()).await? {
             return Err(anyhow!(
                 "{} was sealed but no {} of this group was updated",
-                purpose,
+                slot.purpose(),
                 slot.reference()
             ));
         }

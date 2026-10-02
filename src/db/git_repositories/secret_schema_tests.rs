@@ -25,6 +25,8 @@ const UPSERT_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_provider_connection.sql");
 const GET_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/get_git_provider_connection.sql");
+const INSERT_CONNECTION_SQL: &str =
+    include_str!("../../sql/db/git_repositories/insert_git_provider_connection.sql");
 const LIST_CONNECTIONS_SQL: &str =
     include_str!("../../sql/db/git_repositories/list_git_provider_connections.sql");
 const SET_CONNECTION_CREDENTIAL_SQL: &str =
@@ -124,6 +126,7 @@ fn the_app_private_key_reference_is_additive_nullable_and_detaching() {
         UPSERT_CONNECTION_SQL,
         GET_CONNECTION_SQL,
         LIST_CONNECTIONS_SQL,
+        INSERT_CONNECTION_SQL,
     ] {
         assert!(
             query.contains("app_private_key_secret_key"),
@@ -189,6 +192,37 @@ fn secret_rotation_moves_one_reference_and_never_a_lifecycle_column() {
     assert!(
         upsert.contains("upserted.app_private_key_secret_key"),
         "the upsert still projects the reference a writer established"
+    );
+}
+
+#[test]
+fn the_create_insert_projects_the_app_key_without_assigning_it() {
+    let body = executable(INSERT_CONNECTION_SQL);
+    assert_eq!(
+        statement_count(INSERT_CONNECTION_SQL),
+        1,
+        "a create is one atomic statement"
+    );
+    assert!(
+        !body.contains("ON CONFLICT"),
+        "the create path must not reuse the re-enabling conflict upsert"
+    );
+    assert!(
+        !body.contains("disabled_at =") && !body.contains("app_private_key_secret_key ="),
+        "a create sets neither the lifecycle nor the App-key column"
+    );
+    let columns = between(
+        &body,
+        "INSERT INTO context69.git_provider_connections (",
+        "\n    )",
+    );
+    assert!(
+        !columns.contains("app_private_key_secret_key"),
+        "the App key reference is never inserted, only moved by its own statement"
+    );
+    assert!(
+        body.contains("inserted.app_private_key_secret_key"),
+        "the create still projects the reference a later writer establishes"
     );
 }
 

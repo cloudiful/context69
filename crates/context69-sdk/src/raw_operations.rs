@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (122 operations, sorted by `operation_id` for deterministic diffs).
+//! (123 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -84,6 +84,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "CreateAdminUserRequest",
         response_schema: "AdminUserResponse",
+        success_status: 201,
+        idempotent: false,
+    },
+    Operation {
+        id: "create_git_connection",
+        method: "PUT",
+        path_template: "/v1/groups/by-path/{group_path}/git-connections/{connection_key}",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "GitProviderConnectionRequest",
+        response_schema: "GitProviderConnection",
         success_status: 201,
         idempotent: false,
     },

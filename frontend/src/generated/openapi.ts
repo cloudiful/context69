@@ -492,7 +492,7 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_git_connection_readiness"];
-        put?: never;
+        put: operations["create_git_connection"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2153,10 +2153,50 @@ export interface components {
             visibility: components["schemas"]["Visibility"];
         };
         /**
+         * @description Request body creating one group-owned Git provider connection.
+         *
+         *     The body carries bounded, non-secret metadata plus one tri-state
+         *     `read_credential` patch. It has no secret-store key, App-private-key field,
+         *     webhook field, installation identity, or provider token metadata, so
+         *     `deny_unknown_fields` rejects every other connection field outright. A
+         *     `Set` credential is sealed before the response is produced; a `Clear` is
+         *     refused because a create has nothing to clear.
+         */
+        GitProviderConnectionRequest: {
+            /** @description Provider API base URL; must be an `http`/`https` URL. */
+            base_url: string;
+            /** @description Human-readable display name. */
+            display_name: string;
+            /** @description Authentication mode: public, installation, or token. */
+            mode: components["schemas"]["GitConnectionMode"];
+            /** @description Provider family this connection authenticates against. */
+            provider: components["schemas"]["GitProviderKind"];
+            /** @description Tri-state read-credential patch; defaults to `Keep`. */
+            read_credential?: components["schemas"]["GitReadCredentialPatch"];
+        };
+        /**
          * @description Provider family behind a Git source or provider connection.
          * @enum {string}
          */
         GitProviderKind: "github" | "forgejo" | "gitlab" | "generic";
+        /**
+         * @description Tri-state read-credential patch for connection creation.
+         *
+         *     `Keep` (the default) creates the connection without a read credential,
+         *     `Set` seals the supplied value, and `Clear` is refused on create because a
+         *     row that does not exist yet has nothing to clear.
+         */
+        GitReadCredentialPatch: {
+            /** @enum {string} */
+            op: "keep";
+        } | {
+            /** @enum {string} */
+            op: "set";
+            value: string;
+        } | {
+            /** @enum {string} */
+            op: "clear";
+        };
         /**
          * @description Refresh policy for a tracked Git source.
          * @enum {string}
@@ -4802,6 +4842,67 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    create_git_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitProviderConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created group-owned Git provider connection */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"];
+                };
+            };
+            /** @description Invalid connection key or request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connection key already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

@@ -5,6 +5,7 @@
 //! take over another group's connection.
 
 use anyhow::Result;
+use sqlx::{Postgres, Transaction};
 
 use super::rows::GitProviderConnectionRow;
 use super::types::{NewGitProviderConnection, StoredGitProviderConnection};
@@ -37,6 +38,23 @@ impl Database {
         StoredGitProviderConnection::from_row(row)
     }
 
+    /// Creates a provider connection owned by `group_id` as a create-only
+    /// insert.
+    ///
+    /// Unlike [`Database::upsert_git_provider_connection`] this statement has no
+    /// conflict clause, so a duplicate `(group_id, connection_key)` raises the
+    /// unique violation the caller maps to a bounded conflict instead of
+    /// overwriting or re-enabling an existing connection. `disabled_at` is
+    /// never written, so a new row is enabled, and secret columns carry
+    /// internal secret-store keys only.
+    pub async fn insert_git_provider_connection(
+        &self,
+        group_id: i64,
+        connection: &NewGitProviderConnection,
+    ) -> Result<StoredGitProviderConnection> {
+        insert_git_provider_connection_on(self.pool(), group_id, connection).await
+    }
+
     /// Reads one connection owned by `group_id`; a connection of another group
     /// reads as absent.
     pub async fn get_git_provider_connection(
@@ -44,15 +62,39 @@ impl Database {
         group_id: i64,
         connection_key: &str,
     ) -> Result<Option<StoredGitProviderConnection>> {
-        let row = sqlx::query_file_as!(
-            GitProviderConnectionRow,
-            "src/sql/db/git_repositories/get_git_provider_connection.sql",
-            group_id,
-            connection_key
+        get_git_provider_connection_on(self.pool(), group_id, connection_key).await
+    }
+
+    /// Begins the transaction that serializes creation of one
+    /// `(group_id, connection_key)`.
+    ///
+    /// Takes a transaction-scoped PostgreSQL advisory lock keyed by the owning
+    /// group and the connection key as its own statement, so every concurrent
+    /// create of the same key queues behind the one already inside. The caller
+    /// must run the pre-check, the seal-only secret write, and the create-only
+    /// insert while holding this transaction, then [`GitConnectionCreation::commit`]
+    /// or [`GitConnectionCreation::rollback`] explicitly: the lock is released
+    /// only when that transaction ends.
+    ///
+    /// Serializing the whole create bounds the deterministic-secret race the
+    /// seal split leaves open: two creates for one new key cannot both seal
+    /// before either inserts, so a losing request blocks before it can rotate
+    /// the encrypted row the winner references. It never seals, and the winner's
+    /// stored value is the winner's own.
+    pub async fn begin_git_connection_creation(
+        &self,
+        group_id: i64,
+        connection_key: &str,
+    ) -> Result<GitConnectionCreation<'static>> {
+        let mut tx = self.pool.begin().await?;
+        let lock_key = format!("context69.git_connection_creation:{group_id}:{connection_key}");
+        sqlx::query_file!(
+            "src/sql/db/git_repositories/acquire_git_connection_creation_lock.sql",
+            lock_key
         )
-        .fetch_optional(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        row.map(StoredGitProviderConnection::from_row).transpose()
+        Ok(GitConnectionCreation { tx })
     }
 
     /// Lists the connections of one group only.
@@ -134,6 +176,98 @@ impl Database {
         .await?;
         Ok(result.rows_affected() > 0)
     }
+}
+
+/// The create transaction that holds the per-key creation lock.
+///
+/// It is the only writer allowed to reach the pre-check, the seal-only secret
+/// write, and the create-only insert for its key, so a concurrent create either
+/// observes the committed row or waits. The lock is transaction-scoped and is
+/// released by the explicit [`GitConnectionCreation::commit`] or
+/// [`GitConnectionCreation::rollback`].
+pub struct GitConnectionCreation<'a> {
+    tx: Transaction<'a, Postgres>,
+}
+
+impl GitConnectionCreation<'_> {
+    /// Reads one connection owned by `group_id` inside the locked transaction,
+    /// so the pre-check sees a winner that committed before the lock was taken.
+    pub async fn get(
+        &mut self,
+        group_id: i64,
+        connection_key: &str,
+    ) -> Result<Option<StoredGitProviderConnection>> {
+        get_git_provider_connection_on(&mut *self.tx, group_id, connection_key).await
+    }
+
+    /// Runs the create-only insert inside the locked transaction.
+    pub async fn insert(
+        &mut self,
+        group_id: i64,
+        connection: &NewGitProviderConnection,
+    ) -> Result<StoredGitProviderConnection> {
+        insert_git_provider_connection_on(&mut *self.tx, group_id, connection).await
+    }
+
+    /// Commits and releases the lock.
+    pub async fn commit(self) -> Result<()> {
+        self.tx.commit().await?;
+        Ok(())
+    }
+
+    /// Rolls back and releases the lock.
+    pub async fn rollback(self) -> Result<()> {
+        self.tx.rollback().await?;
+        Ok(())
+    }
+}
+
+/// Reads one connection through any executor, so the plain pool read and the
+/// locked transaction read share one statement and one shape.
+async fn get_git_provider_connection_on<'e, E>(
+    executor: E,
+    group_id: i64,
+    connection_key: &str,
+) -> Result<Option<StoredGitProviderConnection>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_file_as!(
+        GitProviderConnectionRow,
+        "src/sql/db/git_repositories/get_git_provider_connection.sql",
+        group_id,
+        connection_key
+    )
+    .fetch_optional(executor)
+    .await?;
+    row.map(StoredGitProviderConnection::from_row).transpose()
+}
+
+/// Runs the create-only insert through any executor, so the plain pool insert
+/// and the locked transaction insert share one statement and one shape.
+async fn insert_git_provider_connection_on<'e, E>(
+    executor: E,
+    group_id: i64,
+    connection: &NewGitProviderConnection,
+) -> Result<StoredGitProviderConnection>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_file_as!(
+        GitProviderConnectionRow,
+        "src/sql/db/git_repositories/insert_git_provider_connection.sql",
+        group_id,
+        connection.connection_key,
+        connection.provider.as_str(),
+        connection.mode.as_str(),
+        connection.display_name,
+        connection.base_url,
+        connection.credential_secret_key,
+        connection.webhook_secret_key
+    )
+    .fetch_one(executor)
+    .await?;
+    StoredGitProviderConnection::from_row(row)
 }
 
 #[cfg(test)]
@@ -230,7 +364,7 @@ mod secret_reference_tests {
             .expect("the connection is still there")
     }
 
-    async fn seal(
+    async fn seal_and_point(
         writer: &GitSecretWriter,
         group_id: i64,
         slot: GitSecretSlot,
@@ -256,8 +390,9 @@ mod secret_reference_tests {
             return;
         };
         let writer = GitSecretWriter::new(db.clone(), store.clone());
-        let credential = seal(&writer, group_id, GitSecretSlot::Credential, TOKEN).await;
-        let app_key = seal(&writer, group_id, GitSecretSlot::AppPrivateKey, APP_KEY).await;
+        let credential = seal_and_point(&writer, group_id, GitSecretSlot::Credential, TOKEN).await;
+        let app_key =
+            seal_and_point(&writer, group_id, GitSecretSlot::AppPrivateKey, APP_KEY).await;
         let row = read(&db, group_id).await;
         assert_eq!(
             row.credential_secret_key.as_deref(),
@@ -396,5 +531,68 @@ mod secret_reference_tests {
             None,
             "a statement that matched nothing moved nothing"
         );
+    }
+
+    /// [`GitSecretWriter::seal`] writes the value and returns the reference it
+    /// was stored under while moving no column, so a create path can obtain the
+    /// reference before the row exists and insert the two together;
+    /// [`GitSecretWriter::write`] is the only path that then repoints it.
+    #[tokio::test]
+    async fn a_seal_only_write_returns_the_reference_without_repointing() {
+        let Some((db, group_id, store)) = fixture().await else {
+            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the seal-only round trip");
+            return;
+        };
+        let writer = GitSecretWriter::new(db.clone(), store.clone());
+        let sealed = match writer
+            .seal(&target(group_id), GitSecretSlot::Credential, Some(TOKEN))
+            .await
+            .expect("seal the credential")
+        {
+            GitSecretWrite::Stored(name) => name.as_str().to_string(),
+            GitSecretWrite::Kept => panic!("a value is stored, not kept"),
+        };
+        // The value is in the store under its own purpose immediately...
+        assert!(
+            store
+                .get(SecretPurpose::GitProviderToken, &sealed)
+                .await
+                .expect("open the sealed value")
+                .expect("it is stored")
+                .expose()
+                == TOKEN,
+            "the sealed value round-trips under its own purpose"
+        );
+        // ...and no reference column moved, so the reference is available
+        // before any row exists.
+        let row = read(&db, group_id).await;
+        assert!(
+            row.credential_secret_key.is_none(),
+            "seal alone must not repoint the credential"
+        );
+        assert!(row.app_private_key_secret_key.is_none());
+        assert!(row.webhook_secret_key.is_none());
+
+        // `write` is the operation that moves the reference, and it moves the
+        // exact name `seal` returned.
+        writer
+            .write(&target(group_id), GitSecretSlot::Credential, Some(TOKEN))
+            .await
+            .expect("write the credential");
+        assert!(
+            read(&db, group_id).await.credential_secret_key.as_deref() == Some(sealed.as_str()),
+            "write moves the exact reference seal returned"
+        );
+        // Keep stays a no-op for the seal-only path too.
+        for value in [None, Some(&b""[..])] {
+            assert_eq!(
+                writer
+                    .seal(&target(group_id), GitSecretSlot::Credential, value)
+                    .await
+                    .expect("keep"),
+                GitSecretWrite::Kept,
+                "an absent or empty value must not seal anything"
+            );
+        }
     }
 }

@@ -26,7 +26,7 @@ use crate::services::app::Context69App;
 use super::resource_routes::{document_routes, library_routes, task_routes};
 use super::{
     ApiState, auth_middleware, build_api_state, cancel_active_tasks, create_admin_user,
-    create_group_source_folder, create_personal_access_token, create_source,
+    create_git_connection, create_group_source_folder, create_personal_access_token, create_source,
     create_source_connection, delete_git_repository_connection, delete_source,
     delete_source_connection, disable_admin_user, enable_admin_user,
     forbid_personal_access_token_middleware, get_extraction_health, get_git_connection_readiness,
@@ -254,7 +254,7 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-connections/{connection_key}",
-            get(get_git_connection_readiness),
+            get(get_git_connection_readiness).put(create_git_connection),
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories",

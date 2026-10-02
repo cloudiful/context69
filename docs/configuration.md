@@ -120,7 +120,9 @@ It is one application-wide key that every encrypted application feature can use,
 not a secret-store setting, so it is configured once under `[app]`. Supply it as
 `CONTEXT69_APP__MASTER_SECRET` rather than in a config file committed to source
 control. It is read from configuration, handed to the cipher, and never written
-to PostgreSQL, a log line, an error, or a response.
+to PostgreSQL, a log line, an error, or a response. Git provider read
+credentials submitted when a connection is created are sealed through the same
+store, and only their presence is reported back.
 
 `secret_store.key_version` stays where it is, because it describes the
 ciphertext the store writes rather than naming a secret:

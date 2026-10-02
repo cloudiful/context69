@@ -1778,6 +1778,78 @@
             "description": "Group or connection not found"
           }
         }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "create_git_connection",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connection_key",
+            "in": "path",
+            "description": "Git provider connection key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitProviderConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created group-owned Git provider connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitProviderConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid connection key or request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group not found"
+          },
+          "409": {
+            "description": "Connection key already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/groups/by-path/{group_path}/git-repositories": {
@@ -7788,6 +7860,43 @@
           }
         }
       },
+      "GitProviderConnectionRequest": {
+        "type": "object",
+        "description": "Request body creating one group-owned Git provider connection.\n\nThe body carries bounded, non-secret metadata plus one tri-state\n`read_credential` patch. It has no secret-store key, App-private-key field,\nwebhook field, installation identity, or provider token metadata, so\n`deny_unknown_fields` rejects every other connection field outright. A\n`Set` credential is sealed before the response is produced; a `Clear` is\nrefused because a create has nothing to clear.",
+        "required": [
+          "provider",
+          "mode",
+          "display_name",
+          "base_url"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "Provider API base URL; must be an `http`/`https` URL.",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable display name.",
+            "maxLength": 200,
+            "minLength": 1
+          },
+          "mode": {
+            "$ref": "#/components/schemas/GitConnectionMode",
+            "description": "Authentication mode: public, installation, or token."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/GitProviderKind",
+            "description": "Provider family this connection authenticates against."
+          },
+          "read_credential": {
+            "$ref": "#/components/schemas/GitReadCredentialPatch",
+            "description": "Tri-state read-credential patch; defaults to `Keep`."
+          }
+        },
+        "additionalProperties": false
+      },
       "GitProviderKind": {
         "type": "string",
         "description": "Provider family behind a Git source or provider connection.",
@@ -7797,6 +7906,57 @@
           "gitlab",
           "generic"
         ]
+      },
+      "GitReadCredentialPatch": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "keep"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "set"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "clear"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Tri-state read-credential patch for connection creation.\n\n`Keep` (the default) creates the connection without a read credential,\n`Set` seals the supplied value, and `Clear` is refused on create because a\nrow that does not exist yet has nothing to clear."
       },
       "GitRefreshPolicy": {
         "type": "string",

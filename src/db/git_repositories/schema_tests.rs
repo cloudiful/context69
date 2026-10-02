@@ -36,6 +36,10 @@ const CHECKPOINT_SQL: &str =
     include_str!("../../sql/db/git_repositories/update_git_repository_checkpoint.sql");
 const UPSERT_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_provider_connection.sql");
+const INSERT_CONNECTION_SQL: &str =
+    include_str!("../../sql/db/git_repositories/insert_git_provider_connection.sql");
+const ACQUIRE_CREATION_LOCK_SQL: &str =
+    include_str!("../../sql/db/git_repositories/acquire_git_connection_creation_lock.sql");
 const GET_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/get_git_provider_connection.sql");
 const LIST_CONNECTIONS_SQL: &str =
@@ -159,6 +163,7 @@ fn visibility_is_read_from_the_authoritative_groups_join_only() {
     for query in [
         UPSERT_SOURCE_SQL,
         UPSERT_CONNECTION_SQL,
+        INSERT_CONNECTION_SQL,
         CHECKPOINT_SQL,
         GET_SOURCE_SQL,
     ] {
@@ -227,6 +232,79 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
             &query[..query.len().min(60)]
         );
     }
+}
+
+#[test]
+fn connection_create_is_a_create_only_group_scoped_insert() {
+    assert_eq!(
+        statement_count(INSERT_CONNECTION_SQL),
+        1,
+        "creation must be one atomic statement"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("INSERT INTO context69.git_provider_connections"),
+        "the statement inserts a provider connection"
+    );
+    assert!(
+        !INSERT_CONNECTION_SQL.contains("ON CONFLICT"),
+        "a create-only insert must have no conflict clause, so a duplicate key \
+         is reported instead of overwriting or re-enabling a connection"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("VALUES ($1,"),
+        "the owning group is the first insert value"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("JOIN context69.groups g ON g.id = inserted.group_id"),
+        "the returned group identity comes from the owning groups row"
+    );
+    // A new row is enabled by the schema default: neither lifecycle column is
+    // assigned, and the App key reference is projected but never inserted.
+    for forbidden in [
+        "disabled_at =",
+        "updated_at =",
+        "app_private_key_secret_key =",
+    ] {
+        assert!(
+            !INSERT_CONNECTION_SQL.contains(forbidden),
+            "the create insert must not assign {forbidden}"
+        );
+    }
+    let columns = &INSERT_CONNECTION_SQL[INSERT_CONNECTION_SQL
+        .find("INSERT INTO context69.git_provider_connections (")
+        .expect("insert column list")..];
+    let columns = &columns[..columns.find("\n    )").expect("end of column list")];
+    assert!(
+        !columns.contains("app_private_key_secret_key"),
+        "the insert column list must not name the App key reference"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("inserted.app_private_key_secret_key"),
+        "the statement still projects the App key reference a later writer sets"
+    );
+}
+
+#[test]
+fn connection_creation_takes_a_transaction_scoped_advisory_lock() {
+    assert_eq!(
+        statement_count(ACQUIRE_CREATION_LOCK_SQL),
+        1,
+        "the creation lock is one binding statement"
+    );
+    assert!(
+        ACQUIRE_CREATION_LOCK_SQL.contains("pg_advisory_xact_lock"),
+        "creation must take a transaction-scoped advisory lock, so the end of \
+         the create transaction releases it"
+    );
+    assert!(
+        ACQUIRE_CREATION_LOCK_SQL.contains("$1"),
+        "the lock key is a bound parameter, never a literal, so each \
+         (group, connection key) derives its own lock"
+    );
+    assert!(
+        !ACQUIRE_CREATION_LOCK_SQL.contains("pg_advisory_lock"),
+        "a session-scoped lock would outlive the create transaction"
+    );
 }
 
 #[test]

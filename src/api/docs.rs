@@ -22,6 +22,7 @@ use crate::api::{
         __path_list_extraction_templates, __path_rebuild_document_extractions,
         __path_upsert_extraction_template,
     },
+    git_connection_mutations::__path_create_git_connection,
     git_connection_readiness::__path_get_git_connection_readiness,
     git_connections::{__path_get_git_repository_webhook, __path_list_git_provider_connections},
     git_repositories::{
@@ -117,9 +118,10 @@ use crate::contracts::{
 
 use crate::contracts::sources::{
     GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
-    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderKind, GitRefreshPolicy,
-    GitRepositoryConnectionRequest, GitRepositoryRegistrationRequest, GitRepositorySource,
-    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
+    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
+    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
+    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookOwnership,
+    GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -179,6 +181,7 @@ use crate::contracts::sources::{
         get_git_repository,
         index_git_repository,
         list_git_provider_connections,
+        create_git_connection,
         get_git_connection_readiness,
         get_git_repository_webhook,
         set_git_repository_connection,
@@ -267,6 +270,8 @@ use crate::contracts::sources::{
         GitConnectionReadiness,
         GitConnectionReadinessResponse,
         GitProviderConnection,
+        GitProviderConnectionRequest,
+        GitReadCredentialPatch,
         GitWebhookOwnership,
         GitWebhookRegistration,
         GitRepositoryConnectionRequest,
@@ -597,6 +602,95 @@ mod tests {
             connection_key.get("maxLength").and_then(Value::as_u64),
             Some(GIT_CONNECTION_KEY_MAX_CHARS as u64)
         );
+
+        // Issue 681 4B3: the create body carries bounded non-secret metadata
+        // plus one tri-state read-credential patch, and nothing else. The patch
+        // reuses the settings `SecretPatch` wire shape (`op`/`value`) so a
+        // generated client can send `keep`/`set`/`clear` without learning a new
+        // secret vocabulary.
+        let create = schemas
+            .get("GitProviderConnectionRequest")
+            .and_then(Value::as_object)
+            .expect("GitProviderConnectionRequest schema to exist");
+        let create_properties = create
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("create properties");
+        let mut create_keys = create_properties
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        create_keys.sort_unstable();
+        assert_eq!(
+            create_keys,
+            vec![
+                "base_url",
+                "display_name",
+                "mode",
+                "provider",
+                "read_credential",
+            ],
+            "the create body exposes exactly the planned non-secret fields"
+        );
+        assert_eq!(
+            create.get("additionalProperties").and_then(Value::as_bool),
+            Some(false),
+            "deny_unknown_fields must be reflected in the OpenAPI body"
+        );
+        let required = create
+            .get("required")
+            .and_then(Value::as_array)
+            .expect("create required fields");
+        let required: Vec<&str> = required.iter().filter_map(Value::as_str).collect();
+        for field in ["provider", "mode", "display_name", "base_url"] {
+            assert!(
+                required.contains(&field),
+                "create body must require {field}"
+            );
+        }
+        assert!(
+            !required.contains(&"read_credential"),
+            "read_credential defaults to keep, so it must not be required"
+        );
+        let patch = schemas
+            .get("GitReadCredentialPatch")
+            .and_then(Value::as_object)
+            .expect("GitReadCredentialPatch schema to exist");
+        let variants = patch
+            .get("oneOf")
+            .and_then(Value::as_array)
+            .expect("patch variants");
+        let ops: Vec<&str> = variants
+            .iter()
+            .filter_map(|variant| {
+                variant
+                    .pointer("/properties/op/enum/0")
+                    .and_then(Value::as_str)
+            })
+            .collect();
+        assert_eq!(ops, vec!["keep", "set", "clear"], "patch op vocabulary");
+        let create_schema = serde_json::to_string(create).expect("create schema string");
+        for forbidden in [
+            "credential_secret_key",
+            "webhook_secret_key",
+            "app_private_key",
+            "installation_id",
+        ] {
+            assert!(
+                !create_properties.contains_key(forbidden)
+                    && !create_schema.to_ascii_lowercase().contains(forbidden),
+                "create body must not expose {forbidden}"
+            );
+        }
+        assert!(
+            !json
+                .pointer("/components/schemas/GitProviderConnection")
+                .and_then(|schema| schema.get("properties"))
+                .map(|properties| properties.to_string().contains("app_private_key"))
+                .unwrap_or(false),
+            "the existing connection projection must stay free of an App-key field"
+        );
+
         // Issue 405 Task E2: the task SSE stream exposes snapshot-then-deltas
         // with client-side resync (no server replay), mirroring search-stream.
         let stream = paths

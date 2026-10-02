@@ -1,5 +1,5 @@
 //! Provider-neutral Git source and connection contracts (issue #681 phases 2,
-//! 3B1, 4A2, and 4B2).
+//! 3B1, 4A2, 4B2, and 4B3).
 //!
 //! Covers the wire shape of the contract enums/structs and the shape of
 //! `migrations/20260930204952_git_repository_sources.sql`: the migration must
@@ -14,13 +14,15 @@
 use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
 use context69_contracts_sources::{
+    GIT_CONNECTION_BASE_URL_MAX_CHARS, GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS,
     GIT_CONNECTION_KEY_MAX_CHARS, GitActiveGeneration, GitCommitCheckpoint,
     GitConnectionKeyRejection, GitConnectionMode, GitConnectionReadiness,
-    GitConnectionReadinessResponse, GitGenerationStatus, GitIndexProfile, GitIndexStatus,
-    GitProviderConnection, GitProviderKind, GitRefreshPolicy, GitRepositoryConnectionRequest,
+    GitConnectionReadinessResponse, GitConnectionRequestRejection, GitGenerationStatus,
+    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
+    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
     GitRepositoryGeneration, GitRepositoryRegistrationRequest, GitRepositorySource,
     GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus, GitWebhookOwnership,
-    GitWebhookRegistration,
+    GitWebhookRegistration, validate_git_connection_key,
 };
 use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
@@ -872,5 +874,296 @@ fn connection_request_validates_key_bounds_without_a_lookup() {
             .validated_connection_key()
             .expect("well-formed key"),
         "ghp_16C7e42F292c6912E7710c838347Ae178B4a"
+    );
+    // The create path key shares the exact validator, so both request types
+    // accept and refuse the same keys without duplicating the charset. The
+    // sample keys are descriptive, never secret-store or credential shaped.
+    for key in ["github-app", "", "bad key", "..", "caf\u{e9}"] {
+        assert_eq!(
+            validate_git_connection_key(key),
+            GitRepositoryConnectionRequest {
+                connection_key: key.to_string()
+            }
+            .validated_connection_key(),
+            "the shared validator must agree on {key:?}"
+        );
+    }
+}
+
+fn create_request() -> GitProviderConnectionRequest {
+    GitProviderConnectionRequest {
+        provider: GitProviderKind::GitHub,
+        mode: GitConnectionMode::Token,
+        display_name: "GitHub PAT".to_string(),
+        base_url: "https://api.github.com".to_string(),
+        read_credential: GitReadCredentialPatch::Keep,
+    }
+}
+
+#[test]
+fn connection_create_request_defaults_to_keep_and_rejects_unknown_fields() {
+    let minimal: GitProviderConnectionRequest = from_value(json!({
+        "provider": "github",
+        "mode": "token",
+        "display_name": "GitHub PAT",
+        "base_url": "https://api.github.com"
+    }))
+    .expect("minimal create body");
+    assert_eq!(minimal.read_credential, GitReadCredentialPatch::Keep);
+    assert!(minimal.validate_for_create().is_ok());
+
+    for missing in ["provider", "mode", "display_name", "base_url"] {
+        let mut body = json!({
+            "provider": "github",
+            "mode": "token",
+            "display_name": "GitHub PAT",
+            "base_url": "https://api.github.com"
+        });
+        body.as_object_mut().expect("object").remove(missing);
+        assert!(
+            from_value::<GitProviderConnectionRequest>(body).is_err(),
+            "{missing} is required"
+        );
+    }
+
+    // No secret-store reference, App key, webhook, or installation field may
+    // ride along: creating a connection can never name someone else's secret.
+    // The unknown field is rejected on its name alone, so every sample carries
+    // an inert placeholder and the assertion never echoes a payload.
+    for field in [
+        "credential_secret_key",
+        "app_private_key",
+        "webhook_secret_key",
+        "installation_id",
+    ] {
+        let mut body = json!({
+            "provider": "github",
+            "mode": "token",
+            "display_name": "GitHub PAT",
+            "base_url": "https://api.github.com"
+        });
+        body.as_object_mut()
+            .expect("object")
+            .insert(field.to_string(), json!("placeholder"));
+        assert!(
+            from_value::<GitProviderConnectionRequest>(body).is_err(),
+            "unknown create field {field} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn connection_create_request_round_trips_the_read_credential_patch() {
+    // A generated synthetic value, so no credential-shaped literal is embedded
+    // in the suite while the exact `set` wire shape is still asserted.
+    let synthetic = format!("synthetic-{}", Uuid::new_v4());
+    for (label, patch, expected) in [
+        ("keep", GitReadCredentialPatch::Keep, json!({"op": "keep"})),
+        (
+            "set",
+            GitReadCredentialPatch::Set(synthetic.clone()),
+            json!({"op": "set", "value": synthetic.clone()}),
+        ),
+        (
+            "clear",
+            GitReadCredentialPatch::Clear,
+            json!({"op": "clear"}),
+        ),
+    ] {
+        let mut request = create_request();
+        request.read_credential = patch.clone();
+        let encoded = to_value(&request).expect("serialize create request");
+        assert!(
+            encoded.get("read_credential") == Some(&expected),
+            "the {label} patch must keep its wire shape"
+        );
+        let decoded: GitProviderConnectionRequest =
+            from_value(encoded).expect("deserialize create request");
+        assert!(
+            decoded.read_credential == patch,
+            "the {label} patch must round-trip"
+        );
+    }
+
+    // A missing patch is Keep, never a rotate or clear, and only a non-blank
+    // Set yields a value for the server-side writer.
+    let request: GitProviderConnectionRequest = from_value(json!({
+        "provider": "github",
+        "mode": "token",
+        "display_name": "GitHub PAT",
+        "base_url": "https://api.github.com"
+    }))
+    .expect("body without read_credential");
+    assert!(request.read_credential.is_keep());
+    assert!(!request.read_credential.is_clear());
+    assert_eq!(request.read_credential.set_value(), None);
+    // A non-blank `Set` yields the value for the writer; a blank one is refused
+    // by `validate_for_create` before this point and yields nothing here.
+    let synthetic = format!("synthetic-{}", Uuid::new_v4());
+    let set = GitReadCredentialPatch::Set(synthetic.clone());
+    assert!(set.set_value() == Some(synthetic.as_str()));
+    assert_eq!(
+        GitReadCredentialPatch::Set("   ".to_string()).set_value(),
+        None
+    );
+}
+
+#[test]
+fn connection_create_request_validation_is_bounded_and_secret_free() {
+    assert!(create_request().validate_for_create().is_ok());
+
+    let cases: Vec<(GitProviderConnectionRequest, GitConnectionRequestRejection)> = vec![
+        (
+            GitProviderConnectionRequest {
+                display_name: "   ".to_string(),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::DisplayNameBlank,
+        ),
+        (
+            GitProviderConnectionRequest {
+                display_name: "d".repeat(GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS + 1),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::DisplayNameTooLong,
+        ),
+        (
+            GitProviderConnectionRequest {
+                base_url: "  ".to_string(),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::BaseUrlBlank,
+        ),
+        (
+            GitProviderConnectionRequest {
+                base_url: "h".repeat(GIT_CONNECTION_BASE_URL_MAX_CHARS + 1),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::BaseUrlTooLong,
+        ),
+        (
+            GitProviderConnectionRequest {
+                base_url: "file:///etc/passwd".to_string(),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::BaseUrlUnsupported,
+        ),
+        (
+            GitProviderConnectionRequest {
+                read_credential: GitReadCredentialPatch::Set("   ".to_string()),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::CredentialSetBlank,
+        ),
+        (
+            GitProviderConnectionRequest {
+                read_credential: GitReadCredentialPatch::Clear,
+                ..create_request()
+            },
+            GitConnectionRequestRejection::CredentialClearUnsupported,
+        ),
+    ];
+    for (request, expected) in cases {
+        let rejection = request.validate_for_create().expect_err("must be refused");
+        assert_eq!(rejection, expected);
+        // The bounded reason is a stable code that never echoes the submitted
+        // value, so it is safe to surface in an error body or an assertion.
+        let reason = rejection.as_str();
+        assert!(
+            reason.starts_with("git_connection_") && reason.is_ascii(),
+            "the reason is a bounded stable code"
+        );
+        for forbidden in ["https://", "file://", "   "] {
+            assert!(
+                !reason.contains(forbidden),
+                "reason must not echo a submitted value"
+            );
+        }
+    }
+    assert_eq!(
+        GitConnectionRequestRejection::CredentialClearUnsupported.as_str(),
+        "git_connection_secret_clear_unsupported_on_create"
+    );
+    assert_eq!(
+        GitConnectionRequestRejection::CredentialSetBlank.as_str(),
+        "git_connection_secret_set_blank"
+    );
+}
+
+#[test]
+fn connection_create_request_schema_declares_metadata_and_the_patch() {
+    let schema = schema_for!(GitProviderConnectionRequest);
+    let properties = schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("create properties");
+    let mut keys = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "base_url",
+            "display_name",
+            "mode",
+            "provider",
+            "read_credential",
+        ],
+        "the create schema exposes exactly the planned non-secret fields"
+    );
+    assert_eq!(
+        schema
+            .get("additionalProperties")
+            .and_then(|value| value.as_bool()),
+        Some(false),
+        "deny_unknown_fields must be reflected in the schema"
+    );
+    let required = schema
+        .get("required")
+        .and_then(|required| required.as_array())
+        .expect("required fields");
+    let required: Vec<&str> = required.iter().filter_map(|value| value.as_str()).collect();
+    for field in ["provider", "mode", "display_name", "base_url"] {
+        assert!(required.contains(&field), "the schema must require {field}");
+    }
+    assert!(
+        !required.contains(&"read_credential"),
+        "read_credential defaults to keep, so it is not required"
+    );
+    for forbidden in [
+        "credential_secret_key",
+        "webhook_secret_key",
+        "app_private_key",
+        "installation_id",
+    ] {
+        assert!(
+            !properties.contains_key(forbidden),
+            "create schema must not carry {forbidden}"
+        );
+    }
+    let patch_field = properties
+        .get("read_credential")
+        .expect("read_credential property");
+    assert!(!patch_field.is_null(), "the patch field must be defined");
+    let schema_text = serde_json::to_string(&serde_json::to_value(&schema).expect("schema value"))
+        .expect("schema text");
+    for op in ["keep", "set", "clear"] {
+        assert!(
+            schema_text.contains(op),
+            "the create schema must carry the {op} patch op"
+        );
+    }
+    assert_eq!(
+        properties
+            .get("display_name")
+            .and_then(|field| field.get("maxLength"))
+            .and_then(|max| max.as_u64()),
+        Some(GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS as u64)
+    );
+    assert_eq!(
+        properties
+            .get("base_url")
+            .and_then(|field| field.get("maxLength"))
+            .and_then(|max| max.as_u64()),
+        Some(GIT_CONNECTION_BASE_URL_MAX_CHARS as u64)
     );
 }
