@@ -160,6 +160,30 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Restores a connection owned by `group_id` to service, reporting whether a
+    /// row matched. A connection of another group never matches.
+    ///
+    /// The statement clears only the lifecycle column and stamps `updated_at`: the
+    /// stored credential, App-private-key, and webhook-signing-secret references
+    /// are left untouched, so an enable/disable cycle can neither rotate nor lose
+    /// a secret, and nothing here reaches the secret store. It does not require the
+    /// connection to be disabled, so enabling an already-enabled connection is the
+    /// same successful match rather than a conflict.
+    pub async fn enable_git_provider_connection(
+        &self,
+        group_id: i64,
+        connection_key: &str,
+    ) -> Result<bool> {
+        let result = sqlx::query_file!(
+            "src/sql/db/git_repositories/enable_git_provider_connection.sql",
+            group_id,
+            connection_key
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Disables a connection owned by `group_id`, reporting whether a row
     /// matched. A connection of another group never matches.
     pub async fn disable_git_provider_connection(

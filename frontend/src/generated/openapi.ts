@@ -500,6 +500,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-connections/{connection_key}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["enable_git_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories": {
         parameters: {
             query?: never;
@@ -5549,6 +5565,47 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The connection, taken out of service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or connection not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    enable_git_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection, back in service */
             200: {
                 headers: {
                     [name: string]: unknown;

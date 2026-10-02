@@ -228,13 +228,27 @@ polling, and metadata-index workers remain server-side.
 - The action is idempotent by construction: the stored `COALESCE(disabled_at,
   now())` sets the timestamp once, so a repeated disable is a second `200` with
   the same projection rather than a conflict, and the *first* disable timestamp is
-  the one that survives. There is no enable, re-enable, delete, metadata edit, or
-  credential rotation here, and the route never opens the secret store, reads a
+  the one that survives. Neither lifecycle action offers a delete, metadata edit,
+  or credential rotation, and the route never opens the secret store, reads a
   credential, signing value, or App private key, or calls a provider — the
   projection reports only *whether* a read credential and a webhook secret are
   configured. An unknown or foreign connection key is the same bounded `404` the
   other connection routes return, so the route cannot be used to probe which keys
   exist.
+- `POST /v1/groups/by-path/{group_path}/git-connections/{connection_key}/enable`
+  takes a connection back into service, under the same Maintainer floor, with no
+  request body. It answers with the same `GitProviderConnection` projection, with
+  `disabled: false` read back from storage after the update.
+- The enable statement clears only `disabled_at` and stamps `updated_at`. The
+  stored read-credential, App-private-key, and webhook-signing-secret references
+  are left exactly as they were, and nothing on the path reaches the internal
+  secret store, so an enable/disable cycle can neither rotate nor lose a
+  credential. It deliberately does not require the connection to be disabled, so
+  enabling an already-enabled connection — or repeating an enable — is the same
+  successful `200` rather than a conflict, and an unknown or foreign key is the
+  same bounded `404` the disable path returns. Deletion, metadata edits,
+  credential rotation, hook setup, acquisition, and MCP exposure remain outside
+  both lifecycle actions.
 
 ## Contract bounds and errors
 

@@ -129,7 +129,7 @@ pub(crate) use extractions::{
     get_extraction_health, list_document_extraction_jobs, list_extraction_templates,
     rebuild_document_extractions, upsert_extraction_template,
 };
-pub(crate) use git_connection_lifecycle::disable_git_connection;
+pub(crate) use git_connection_lifecycle::{disable_git_connection, enable_git_connection};
 pub(crate) use git_connection_mutations::create_git_connection;
 pub(crate) use git_connection_readiness::get_git_connection_readiness;
 pub(crate) use git_connections::{get_git_repository_webhook, list_git_provider_connections};

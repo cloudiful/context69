@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Restores one group-owned provider connection to service.\n--\n-- $1 group_id, $2 connection_key.\n--\n-- Only the lifecycle column is touched: `disabled_at` is cleared and `updated_at` is\n-- stamped. The stored credential, App-private-key, and webhook-signing-secret\n-- references are left exactly as they were, and this statement never reaches the\n-- internal secret store and never reads a secret value, so an enable/disable cycle\n-- can neither rotate nor lose a credential.\n--\n-- The predicate is the owning group and the key, and nothing else. It deliberately\n-- does NOT require `disabled_at IS NOT NULL`: enabling an already-enabled\n-- connection is the same successful match, which is what keeps a repeated enable\n-- idempotent instead of a conflict. A connection of another group matches no row,\n-- so the caller learns only that this group has no such key.\nUPDATE context69.git_provider_connections\nSET disabled_at = NULL,\n    updated_at = now()\nWHERE group_id = $1\n  AND connection_key = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e80b057e1dca4f007cc31398ad2e5b208b76534fd972ff4c2a01860b9a76c648"
+}

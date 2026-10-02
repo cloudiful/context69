@@ -46,6 +46,8 @@ const LIST_CONNECTIONS_SQL: &str =
     include_str!("../../sql/db/git_repositories/list_git_provider_connections.sql");
 const DISABLE_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/disable_git_provider_connection.sql");
+const ENABLE_CONNECTION_SQL: &str =
+    include_str!("../../sql/db/git_repositories/enable_git_provider_connection.sql");
 const WEBHOOK_REGISTRATION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_webhook_registration.sql");
 const GET_WEBHOOK_REGISTRATION_SQL: &str =
@@ -102,15 +104,19 @@ fn added_column(sql: &str, name: &str) -> String {
         .to_string()
 }
 
+/// `sql` with its comment lines removed, so an assertion about what a statement
+/// *does* is never satisfied or broken by prose explaining it.
+fn code(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Statements in `sql`, ignoring comments, so a test can assert a file is one
 /// atomic statement rather than a sequence.
 fn statement_count(sql: &str) -> usize {
-    let without_comments = sql
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    without_comments
+    code(sql)
         .split(';')
         .map(str::trim)
         .filter(|statement| !statement.is_empty())
@@ -208,6 +214,7 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
         GET_CONNECTION_SQL,
         LIST_CONNECTIONS_SQL,
         DISABLE_CONNECTION_SQL,
+        ENABLE_CONNECTION_SQL,
     ] {
         assert!(
             query.contains("group_id = $1") || query.contains("group_id = $2"),
@@ -232,6 +239,44 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
             &query[..query.len().min(60)]
         );
     }
+}
+
+#[test]
+fn connection_enable_clears_only_the_lifecycle_column_and_never_reads_a_secret() {
+    // One statement, scoped to the owning group and the key.
+    assert_eq!(
+        statement_count(ENABLE_CONNECTION_SQL),
+        1,
+        "enabling a connection is one atomic statement"
+    );
+    let statement = code(ENABLE_CONNECTION_SQL);
+    assert!(
+        statement.contains("group_id = $1") && statement.contains("connection_key = $2"),
+        "the enable must match the owning group and the key"
+    );
+    // Only the lifecycle column moves. A secret column here would let a repeated
+    // enable rotate or drop a credential, so its absence is the invariant.
+    assert!(
+        statement.contains("disabled_at = NULL") && statement.contains("updated_at = now()"),
+        "enabling clears the disabled marker and stamps freshness, nothing else"
+    );
+    for forbidden in [
+        "internal_secrets",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "app_private_key_secret_key",
+    ] {
+        assert!(
+            !statement.contains(forbidden),
+            "the enable statement must not touch {forbidden}"
+        );
+    }
+    // A guard on `disabled_at` would make a repeated enable a no-match conflict;
+    // the whole point is that the predicate is the group and the key only.
+    assert!(
+        !statement.contains("IS NOT NULL"),
+        "an already-enabled connection must still match"
+    );
 }
 
 #[test]
