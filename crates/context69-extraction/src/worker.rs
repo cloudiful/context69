@@ -8,6 +8,7 @@ use context69_contracts_extraction::{
     ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobsResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
 };
+use context69_secret_store::SecretStore;
 use uuid::Uuid;
 
 use crate::{
@@ -32,6 +33,16 @@ impl ExtractionService {
             publisher: dependencies.publisher,
             readiness: dependencies.readiness,
         }
+    }
+
+    /// Binds the shared encrypted store this deployment configured.
+    ///
+    /// The shared `llm` provider key is resolved through it; until this is
+    /// called the service runs in the unkeyed transition state.
+    #[must_use]
+    pub fn with_secret_store(mut self, store: SecretStore) -> Self {
+        self.store = self.store.with_secret_store(store);
+        self
     }
 
     /// Requeue jobs interrupted by a restart. Jobs are drained inside the

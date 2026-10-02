@@ -1,0 +1,119 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The search / rerank provider API key is never written here: the store is its\n-- only representation, so a settings save cannot leave a plaintext duplicate\n-- behind. A `Clear` removes it from the store instead.\nINSERT INTO context69.search_settings (\n    singleton,\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    vector_weight,\n    keyword_weight,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, now())\nON CONFLICT (singleton) DO UPDATE\nSET mode = EXCLUDED.mode,\n    rerank_enabled = EXCLUDED.rerank_enabled,\n    rerank_base_url = EXCLUDED.rerank_base_url,\n    rerank_model = EXCLUDED.rerank_model,\n    candidate_limit = EXCLUDED.candidate_limit,\n    timeout_secs = EXCLUDED.timeout_secs,\n    vector_weight = EXCLUDED.vector_weight,\n    keyword_weight = EXCLUDED.keyword_weight,\n    updated_at = now()\nRETURNING\n    mode,\n    rerank_enabled,\n    rerank_base_url,\n    rerank_model,\n    candidate_limit,\n    timeout_secs,\n    vector_weight,\n    keyword_weight\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "mode"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rerank_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "rerank_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "rerank_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "rerank_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rerank_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "rerank_model"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "candidate_limit",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "candidate_limit"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "timeout_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "timeout_secs"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "vector_weight",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "vector_weight"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "keyword_weight",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_settings",
+            "name": "keyword_weight"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Float4",
+        "Float4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dd985cd276c1bd7644f7055e9c0f9faa33d66021b885c4cb465c295824cbb371"
+}

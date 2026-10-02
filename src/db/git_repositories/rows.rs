@@ -24,6 +24,7 @@ pub(crate) struct GitProviderConnectionRow {
     pub base_url: String,
     pub credential_secret_key: Option<String>,
     pub webhook_secret_key: Option<String>,
+    pub app_private_key_secret_key: Option<String>,
     pub disabled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

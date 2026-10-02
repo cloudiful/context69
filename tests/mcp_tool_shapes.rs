@@ -1,8 +1,8 @@
 //! MCP tool-shape tests (Redmine 362 Task 5 / mcp-boundary).
 //!
-//! These tests pin the six frozen tool input/output shapes, the progressive
-//! search -> detail flow, anonymous/public source behavior, and invalid
-//! cursor/limit handling — all without a database.
+//! These tests pin the declared eight-tool registry and its input/output
+//! shapes, the progressive search -> detail flow, anonymous/public source
+//! behavior, and invalid cursor/limit handling — all without a database.
 
 use chrono::Utc;
 use context69::contracts::{
@@ -103,7 +103,7 @@ fn sample_document() -> DocumentResponse {
 }
 
 #[test]
-fn frozen_tool_names_are_stable() {
+fn declared_tool_registry_names_are_stable() {
     assert_eq!(
         MCP_TOOL_NAMES,
         [
@@ -113,6 +113,8 @@ fn frozen_tool_names_are_stable() {
             "get_document_by_external_id",
             "get_documents",
             "list_sources",
+            "search_code",
+            "get_code",
         ]
     );
     let mut sorted = MCP_TOOL_NAMES.to_vec();

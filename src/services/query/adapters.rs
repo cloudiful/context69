@@ -16,6 +16,7 @@ use crate::{
     embedding::EmbeddingProvider,
     qdrant_index::QdrantIndex,
     services::auth::AuthService,
+    services::settings::secrets::SettingsSecrets,
 };
 
 #[derive(Clone)]
@@ -23,11 +24,23 @@ pub(super) struct DbSearchRepository {
     db: Database,
     auth: AuthService,
     qdrant: QdrantIndex,
+    /// Resolves the rerank API key through the shared store on every read.
+    secrets: SettingsSecrets,
 }
 
 impl DbSearchRepository {
-    pub(super) fn new(db: Database, auth: AuthService, qdrant: QdrantIndex) -> Self {
-        Self { db, auth, qdrant }
+    pub(super) fn new(
+        db: Database,
+        auth: AuthService,
+        qdrant: QdrantIndex,
+        secrets: SettingsSecrets,
+    ) -> Self {
+        Self {
+            db,
+            auth,
+            qdrant,
+            secrets,
+        }
     }
 }
 
@@ -84,7 +97,12 @@ fn to_root_scope(scope: &SearchAccessScope) -> AccessScope {
     }
 }
 
-fn to_search_settings(settings: crate::db::StoredSearchSettings) -> SearchSettings {
+/// The key is supplied by the caller because it is resolved through the shared
+/// store, which is its only representation.
+fn to_search_settings(
+    settings: crate::db::StoredSearchSettings,
+    api_key: Option<String>,
+) -> SearchSettings {
     SearchSettings {
         mode: settings.mode,
         rerank_enabled: settings.rerank_enabled,
@@ -92,7 +110,7 @@ fn to_search_settings(settings: crate::db::StoredSearchSettings) -> SearchSettin
         rerank_model: settings.rerank_model,
         candidate_limit: settings.candidate_limit,
         timeout_secs: settings.timeout_secs,
-        api_key: settings.api_key,
+        api_key,
         vector_weight: settings.vector_weight,
         keyword_weight: settings.keyword_weight,
     }
@@ -101,7 +119,12 @@ fn to_search_settings(settings: crate::db::StoredSearchSettings) -> SearchSettin
 #[async_trait]
 impl SearchRepository for DbSearchRepository {
     async fn get_search_settings(&self) -> Result<Option<SearchSettings>> {
-        Ok(self.db.get_search_settings().await?.map(to_search_settings))
+        let Some(settings) = self.db.get_search_settings().await? else {
+            return Ok(None);
+        };
+        // Resolved through the store per read, in memory only; opaque seals fail here.
+        let api_key = self.secrets.resolve().await?;
+        Ok(Some(to_search_settings(settings, api_key)))
     }
 
     async fn get_search_generation(&self) -> Result<i64> {

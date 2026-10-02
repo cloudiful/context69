@@ -28,6 +28,7 @@
 mod chunks;
 mod connections;
 mod enums;
+mod file_diff;
 mod file_rows;
 mod file_types;
 mod files;
@@ -42,7 +43,10 @@ mod webhooks;
 mod file_schema_tests;
 #[cfg(test)]
 mod schema_tests;
+#[cfg(test)]
+mod secret_schema_tests;
 
+pub use file_diff::{GitFileDiffSide, StoredGitFileDiff};
 pub use file_types::{
     GitChunkReplacement, GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE,
     MAX_GIT_FILE_BYTES, MAX_GIT_GENERATION_BYTES, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE,

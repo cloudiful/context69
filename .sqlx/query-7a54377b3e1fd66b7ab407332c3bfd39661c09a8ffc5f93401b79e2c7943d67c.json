@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Removes a secret row and reports whether this statement was the one that\n-- removed it, so a caller can tell a cleared secret from an absent one instead\n-- of guessing. Nothing is returned but the key.\nDELETE FROM context69.internal_secrets\nWHERE key = $1\nRETURNING key;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7a54377b3e1fd66b7ab407332c3bfd39661c09a8ffc5f93401b79e2c7943d67c"
+}

@@ -140,16 +140,16 @@ fn expected_body_kind(op: &Value) -> BodyKind {
 fn registry_is_sorted_unique_and_complete() {
     assert_eq!(
         OPERATIONS.len(),
-        112,
-        "registry must cover all 112 operations"
+        131,
+        "registry must cover all 131 operations"
     );
     let ids = operation_ids();
-    assert_eq!(ids.len(), 112);
+    assert_eq!(ids.len(), 131);
     let mut sorted = ids.clone();
     sorted.sort_unstable();
     assert_eq!(ids, sorted, "OPERATIONS must be sorted by operation_id");
     let unique: HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), 112, "operation ids must be unique");
+    assert_eq!(unique.len(), 131, "operation ids must be unique");
     for op in OPERATIONS {
         assert!(!op.id.is_empty());
         assert!(["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&op.method));
@@ -164,7 +164,7 @@ fn registry_is_sorted_unique_and_complete() {
 #[test]
 fn registry_matches_openapi_exactly_with_no_omission() {
     let openapi = openapi_operations();
-    assert_eq!(openapi.len(), 112, "OpenAPI must expose 112 operations");
+    assert_eq!(openapi.len(), 131, "OpenAPI must expose 131 operations");
     let registry: Vec<(String, String, String)> = OPERATIONS
         .iter()
         .map(|op| {
@@ -549,7 +549,7 @@ async fn raw_auth_query_and_idempotency_headers_match_registry() {
         .with_auto_idempotency_key()
         .expect("auto key");
     assert_ne!(different.idempotency_key_value(), Some(first.as_str()));
-    // Only the six task-submitting operations are marked idempotent.
+    // Only the eight task-submitting operations are marked idempotent.
     let idempotent_ids: HashSet<_> = OPERATIONS
         .iter()
         .filter(|op| op.idempotent)
@@ -562,6 +562,8 @@ async fn raw_auth_query_and_idempotency_headers_match_registry() {
         "submit_delete_batch",
         "submit_task",
         "submit_vector_index_rebuild",
+        "register_git_repository",
+        "index_git_repository",
     ]
     .into_iter()
     .collect();

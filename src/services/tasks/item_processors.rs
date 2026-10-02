@@ -139,6 +139,7 @@ fn entry_stage(kind: TaskKind) -> &'static str {
         TaskKind::SourceSync => "sync",
         TaskKind::VectorRebuild => "indexing",
         TaskKind::Translation => "translation",
+        TaskKind::GitIndex => "indexing",
     }
 }
 
@@ -174,6 +175,9 @@ async fn run_stage(
                 service, group, task, item, stage,
             )
             .await
+        }
+        TaskKind::GitIndex => {
+            super::item_git_index_processor::process_git_index(service, group, item, stage).await
         }
     }
 }
@@ -308,6 +312,7 @@ mod tests {
         assert_eq!(entry_stage(TaskKind::SourceSync), "sync");
         assert_eq!(entry_stage(TaskKind::VectorRebuild), "indexing");
         assert_eq!(entry_stage(TaskKind::Translation), "translation");
+        assert_eq!(entry_stage(TaskKind::GitIndex), "indexing");
     }
 
     #[test]

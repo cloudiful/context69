@@ -2,7 +2,7 @@ pub use context69_contracts_auth::auth;
 pub use context69_contracts_core::{common, errors, pagination};
 pub use context69_contracts_extraction::extraction;
 pub use context69_contracts_library::{ingest, library};
-pub use context69_contracts_mcp::{mcp, projections};
+pub use context69_contracts_mcp::{code, mcp, projections};
 pub use context69_contracts_namespace::namespace;
 pub use context69_contracts_search::{documents, search};
 pub use context69_contracts_settings::settings;
@@ -46,6 +46,11 @@ pub use context69_contracts_library::library::{
     LibraryTextContentFormat, LibraryTreeResponse, MoveFileRequest, MoveFolderRequest,
     PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
 };
+pub use context69_contracts_mcp::code::{
+    MCP_CODE_GET_CHUNK_LIMIT_DEFAULT, MCP_CODE_GET_CHUNK_LIMIT_MAX, MCP_CODE_GET_CHUNK_LIMIT_MIN,
+    McpCodeCoverage, McpCodeFile, McpCodeGeneration, McpCodeHit, McpCodeSearchRequest,
+    McpCodeSearchResponse, McpGetCodeRequest, McpGetCodeResponse,
+};
 pub use context69_contracts_mcp::mcp::{
     MCP_QUERY_LIMIT_DEFAULT, MCP_TOOL_NAMES, McpBatchDocumentArgs, McpBatchDocumentItem,
     McpBatchDocumentKeys, McpBatchDocumentResponse, McpDocumentArgs, McpDocumentDetailResponse,
@@ -55,10 +60,13 @@ pub use context69_contracts_mcp::mcp::{
 };
 pub use context69_contracts_mcp::projections::{
     MCP_BATCH_CHUNKS_PER_ITEM, MCP_BATCH_KEYS_MAX, MCP_CHUNK_LIMIT_DEFAULT, MCP_CHUNK_LIMIT_MAX,
-    MCP_CHUNK_LIMIT_MIN, MCP_CHUNK_TEXT_MAX_CHARS, MCP_CURSOR_MAX_CHARS, MCP_DESCRIPTION_MAX_CHARS,
-    MCP_DISPLAY_NAME_MAX_CHARS, MCP_EXTERNAL_ID_MAX_CHARS, MCP_GROUP_PATH_MAX_CHARS,
-    MCP_LOCALE_MAX_CHARS, MCP_QUERY_MAX_CHARS, MCP_SEARCH_LIMIT_DEFAULT, MCP_SEARCH_LIMIT_MAX,
-    MCP_SEARCH_LIMIT_MIN, MCP_SNIPPET_MAX_CHARS, MCP_SOURCE_KEY_MAX_CHARS,
+    MCP_CHUNK_LIMIT_MIN, MCP_CHUNK_TEXT_MAX_CHARS, MCP_CODE_COMMIT_MAX_CHARS,
+    MCP_CODE_LANGUAGE_MAX_CHARS, MCP_CODE_LIMIT_DEFAULT, MCP_CODE_LIMIT_MAX, MCP_CODE_LIMIT_MIN,
+    MCP_CODE_PATH_MAX_CHARS, MCP_CODE_PATH_PREFIX_MAX_CHARS, MCP_CODE_QUERY_MAX_CHARS,
+    MCP_CODE_REF_MAX_CHARS, MCP_CODE_TEXT_MAX_CHARS, MCP_CURSOR_MAX_CHARS,
+    MCP_DESCRIPTION_MAX_CHARS, MCP_DISPLAY_NAME_MAX_CHARS, MCP_EXTERNAL_ID_MAX_CHARS,
+    MCP_GROUP_PATH_MAX_CHARS, MCP_LOCALE_MAX_CHARS, MCP_QUERY_MAX_CHARS, MCP_SEARCH_LIMIT_DEFAULT,
+    MCP_SEARCH_LIMIT_MAX, MCP_SEARCH_LIMIT_MIN, MCP_SNIPPET_MAX_CHARS, MCP_SOURCE_KEY_MAX_CHARS,
     MCP_SOURCE_LIMIT_DEFAULT, MCP_SOURCE_LIMIT_MAX, MCP_SOURCE_LIMIT_MIN, MCP_SOURCE_URI_MAX_CHARS,
     MCP_SUMMARY_MAX_CHARS, MCP_TITLE_MAX_CHARS, McpDocumentChunk, McpDocumentDetail,
     McpDocumentSummary, McpSearchHit, McpSourceSummary, truncate_chars,
@@ -104,8 +112,8 @@ pub use context69_contracts_tasks::tasks::{
     FileBatchItem, FileBatchRequest, FileRetryItem, RerunTaskResponse, ScopeMetadataIndex,
     ScopeSpec, TASK_STREAM_IDS_MAX, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin, TaskPageResponse,
-    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
-    TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate,
-    TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
+    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone,
+    TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest,
+    TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
 };
 pub use context69_contracts_translation::translation::*;

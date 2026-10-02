@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Replaces the stored representation of an existing secret in one statement, so\n-- a rotation cannot leave a window in which the row is absent or half written.\n-- An update that matches no row is reported as \"not rotated\" rather than\n-- inserting, so a rotation can never conjure a secret that was never created.\nUPDATE context69.internal_secrets\nSET value = $2,\n    purpose = $3,\n    key_version = $4,\n    ciphertext_version = $5,\n    updated_at = NOW()\nWHERE key = $1\nRETURNING key;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bytea",
+        "Text",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cb36bc1153c5969203981c592e0730a4b3177f30e14c433cc41b28ffa7154dd5"
+}

@@ -18,6 +18,7 @@ use uuid::Uuid;
 use crate::contracts::sources::{
     GitCodeChunk, GitCodeLexicalHit, GitCodeMatchKind, GitRepositoryFile,
 };
+use crate::domain_errors::DomainError;
 
 use super::enums;
 use super::file_rows::{
@@ -96,6 +97,34 @@ impl GitGenerationManifest {
     }
 }
 
+/// An inclusive 1-based source line window, validated before the range query
+/// runs, so a statement only ever sees a positive, non-reversed, bounded span.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GitChunkLineWindow {
+    pub start_line: i32,
+    pub end_line: i32,
+}
+
+impl GitChunkLineWindow {
+    /// Builds a window, or a bounded invalid-argument error. `max_lines` bounds
+    /// the requested span so a caller cannot ask for a whole file.
+    pub fn new(start_line: i32, end_line: i32, max_lines: usize) -> Result<Self> {
+        if start_line < 1 || end_line < 1 {
+            return Err(DomainError::invalid_argument("git_line_window_out_of_bounds").into());
+        }
+        if end_line < start_line {
+            return Err(DomainError::invalid_argument("git_line_window_reversed").into());
+        }
+        if (end_line - start_line) as u64 + 1 > max_lines as u64 {
+            return Err(DomainError::invalid_argument("git_line_window_too_wide").into());
+        }
+        Ok(Self {
+            start_line,
+            end_line,
+        })
+    }
+}
+
 /// One chunk to store, with the inclusive 1-based line range its text covers.
 #[derive(Debug, Clone)]
 pub struct NewGitGenerationChunk {
@@ -164,6 +193,19 @@ impl StoredGitGenerationFile {
         }
     }
 
+    /// The validated window this entry may be read over.
+    ///
+    /// A window reaching past this entry's last line is accepted: the stored text
+    /// ends earlier and the caller reads the exact text and byte count returned.
+    pub fn line_window(
+        &self,
+        start_line: i32,
+        end_line: i32,
+        max_lines: usize,
+    ) -> Result<GitChunkLineWindow> {
+        GitChunkLineWindow::new(start_line, end_line, max_lines)
+    }
+
     pub fn to_contract(&self) -> GitRepositoryFile {
         GitRepositoryFile {
             file_key: self.file_key,
@@ -216,6 +258,33 @@ impl StoredGitGenerationChunk {
             text: self.text.clone(),
             created_at: self.created_at,
         }
+    }
+
+    /// This chunk's stored text, trimmed to the requested inclusive line window.
+    ///
+    /// This is the one place a line window is cut, and it uses the same
+    /// `split_inclusive('\n')` line rule the chunker used when it stored
+    /// `start_line`/`end_line`, so the numbering resolved here is the numbering
+    /// that was stored. Bytes are copied verbatim: CRLF endings, trailing
+    /// whitespace, and a missing final newline all survive, and a piece of a line
+    /// too long to fit one chunk is kept whole because it *is* part of the
+    /// requested line rather than a line of its own. A chunk outside the window
+    /// yields an empty string, which is how a caller concatenates several chunks
+    /// into one window without splitting lines a second way.
+    pub fn text_in_line_window(&self, start_line: i32, end_line: i32) -> String {
+        if self.end_line < start_line || self.start_line > end_line {
+            return String::new();
+        }
+        let mut trimmed = String::new();
+        for (offset, line) in self.text.split_inclusive('\n').enumerate() {
+            // A piece cut from the middle of one long line holds a single
+            // segment, so its numbering still resolves to that line.
+            let line_number = self.start_line.saturating_add(offset as i32);
+            if (start_line..=end_line).contains(&line_number) {
+                trimmed.push_str(line);
+            }
+        }
+        trimmed
     }
 }
 

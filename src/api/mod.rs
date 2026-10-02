@@ -20,6 +20,20 @@ mod documents;
 mod error_mapping;
 mod errors;
 mod extractions;
+mod git_connection_lifecycle;
+mod git_connection_mutations;
+mod git_connection_readiness;
+mod git_connections;
+mod git_repositories;
+mod git_repository_code_search;
+mod git_repository_connections;
+mod git_repository_file;
+mod git_repository_file_content;
+mod git_repository_file_diff;
+mod git_repository_file_paging;
+mod git_repository_files;
+mod git_webhook_ingress;
+mod git_webhook_registration;
 mod group_access;
 mod group_library;
 mod group_source_folders;
@@ -34,6 +48,11 @@ mod task_inputs;
 pub(crate) mod task_maintenance;
 mod tasks;
 mod translations;
+
+/// Disposable Git scratch rows shared by the database-gated manifest and
+/// exact-file round trips, so one fixture seeds both reads.
+#[cfg(test)]
+mod git_repository_files_db_fixture;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -111,6 +130,23 @@ pub(crate) use extractions::{
     get_extraction_health, list_document_extraction_jobs, list_extraction_templates,
     rebuild_document_extractions, upsert_extraction_template,
 };
+pub(crate) use git_connection_lifecycle::{disable_git_connection, enable_git_connection};
+pub(crate) use git_connection_mutations::create_git_connection;
+pub(crate) use git_connection_readiness::get_git_connection_readiness;
+pub(crate) use git_connections::{get_git_repository_webhook, list_git_provider_connections};
+pub(crate) use git_repositories::{
+    get_git_repository, index_git_repository, list_git_repositories, register_git_repository,
+};
+pub(crate) use git_repository_code_search::search_git_repository_code;
+pub(crate) use git_repository_connections::{
+    delete_git_repository_connection, set_git_repository_connection,
+};
+pub(crate) use git_repository_file::get_git_repository_file;
+pub(crate) use git_repository_file_content::get_git_repository_file_content;
+pub(crate) use git_repository_file_diff::diff_git_repository_files;
+pub(crate) use git_repository_files::list_git_repository_files;
+pub(crate) use git_webhook_ingress::receive_git_webhook;
+pub(crate) use git_webhook_registration::create_git_webhook_registration;
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
     delete_group_library_folder, get_group_library_file, get_group_library_resources,

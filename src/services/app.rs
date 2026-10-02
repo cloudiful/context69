@@ -8,8 +8,8 @@ use crate::{
     services::{
         auth::AuthService, document_store::DocumentStoreService, library::LibraryService,
         namespace::NamespaceService, personal_access_tokens::PersonalAccessTokenService,
-        query::QueryService, settings::SettingsService, source_folders::SourceFoldersService,
-        sync::SyncService, tasks::TaskService,
+        query::QueryService, secret_store::SecretStore, settings::SettingsService,
+        source_folders::SourceFoldersService, sync::SyncService, tasks::TaskService,
     },
 };
 
@@ -42,6 +42,10 @@ pub struct Context69App {
     pub translation: TranslationService,
     pub extraction: ExtractionService,
     pub tasks: TaskService,
+    /// The one path to persisted reversible runtime secrets. Later work routes
+    /// provider and settings credentials through it instead of reading their
+    /// own plaintext columns.
+    pub secrets: SecretStore,
     pub browser_sessions: BrowserSessionConfig,
 }
 
@@ -85,6 +89,7 @@ impl Context69App {
             translation: services.translation,
             extraction: services.extraction,
             tasks: background.tasks,
+            secrets: hydration.secrets,
             browser_sessions: hydration.browser_sessions,
         })
     }

@@ -1,3 +1,6 @@
+-- The S3 access key stays in the settings row because it is an identifier, not a
+-- credential. The secret key is never written here: the store is its only
+-- representation, so a settings save cannot leave a plaintext duplicate behind.
 INSERT INTO context69.runtime_file_library_settings (
     singleton,
     storage_root,
@@ -13,10 +16,9 @@ INSERT INTO context69.runtime_file_library_settings (
     s3_prefix,
     s3_path_style,
     s3_access_key,
-    s3_secret_key,
     updated_at
 )
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
 ON CONFLICT (singleton) DO UPDATE
 SET storage_root = EXCLUDED.storage_root,
     max_upload_size_mb = EXCLUDED.max_upload_size_mb,
@@ -31,5 +33,4 @@ SET storage_root = EXCLUDED.storage_root,
     s3_prefix = EXCLUDED.s3_prefix,
     s3_path_style = EXCLUDED.s3_path_style,
     s3_access_key = EXCLUDED.s3_access_key,
-    s3_secret_key = EXCLUDED.s3_secret_key,
     updated_at = now()

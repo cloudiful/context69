@@ -36,16 +36,27 @@ const CHECKPOINT_SQL: &str =
     include_str!("../../sql/db/git_repositories/update_git_repository_checkpoint.sql");
 const UPSERT_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_provider_connection.sql");
+const INSERT_CONNECTION_SQL: &str =
+    include_str!("../../sql/db/git_repositories/insert_git_provider_connection.sql");
+const ACQUIRE_CREATION_LOCK_SQL: &str =
+    include_str!("../../sql/db/git_repositories/acquire_git_connection_creation_lock.sql");
 const GET_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/get_git_provider_connection.sql");
 const LIST_CONNECTIONS_SQL: &str =
     include_str!("../../sql/db/git_repositories/list_git_provider_connections.sql");
 const DISABLE_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/disable_git_provider_connection.sql");
+const ENABLE_CONNECTION_SQL: &str =
+    include_str!("../../sql/db/git_repositories/enable_git_provider_connection.sql");
 const WEBHOOK_REGISTRATION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_webhook_registration.sql");
 const GET_WEBHOOK_REGISTRATION_SQL: &str =
     include_str!("../../sql/db/git_repositories/get_git_webhook_registration.sql");
+const INSERT_WEBHOOK_REGISTRATION_SQL: &str =
+    include_str!("../../sql/db/git_repositories/insert_git_webhook_registration.sql");
+const ACQUIRE_WEBHOOK_CREATION_LOCK_SQL: &str = include_str!(
+    "../../sql/db/git_repositories/acquire_git_webhook_registration_creation_lock.sql"
+);
 
 /// Body of a `CREATE TABLE IF NOT EXISTS` in `sql`, without the closing paren.
 fn table_body<'a>(sql: &'a str, table: &str) -> &'a str {
@@ -98,15 +109,19 @@ fn added_column(sql: &str, name: &str) -> String {
         .to_string()
 }
 
+/// `sql` with its comment lines removed, so an assertion about what a statement
+/// *does* is never satisfied or broken by prose explaining it.
+fn code(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Statements in `sql`, ignoring comments, so a test can assert a file is one
 /// atomic statement rather than a sequence.
 fn statement_count(sql: &str) -> usize {
-    let without_comments = sql
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    without_comments
+    code(sql)
         .split(';')
         .map(str::trim)
         .filter(|statement| !statement.is_empty())
@@ -159,6 +174,7 @@ fn visibility_is_read_from_the_authoritative_groups_join_only() {
     for query in [
         UPSERT_SOURCE_SQL,
         UPSERT_CONNECTION_SQL,
+        INSERT_CONNECTION_SQL,
         CHECKPOINT_SQL,
         GET_SOURCE_SQL,
     ] {
@@ -203,6 +219,7 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
         GET_CONNECTION_SQL,
         LIST_CONNECTIONS_SQL,
         DISABLE_CONNECTION_SQL,
+        ENABLE_CONNECTION_SQL,
     ] {
         assert!(
             query.contains("group_id = $1") || query.contains("group_id = $2"),
@@ -220,13 +237,194 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
         "the connection upsert keys its conflict on the owning group"
     );
     // Webhook registrations are scoped through their repository source.
-    for query in [WEBHOOK_REGISTRATION_SQL, GET_WEBHOOK_REGISTRATION_SQL] {
+    for query in [
+        WEBHOOK_REGISTRATION_SQL,
+        GET_WEBHOOK_REGISTRATION_SQL,
+        INSERT_WEBHOOK_REGISTRATION_SQL,
+    ] {
         assert!(
             query.contains("s.group_id = $1") || query.contains("s.group_id = $2"),
             "webhook registration must be scoped through the repository source: {}",
             &query[..query.len().min(60)]
         );
     }
+}
+
+#[test]
+fn webhook_registration_create_is_a_create_only_group_and_repository_scoped_insert() {
+    assert_eq!(
+        statement_count(INSERT_WEBHOOK_REGISTRATION_SQL),
+        1,
+        "registration creation must be one atomic statement"
+    );
+    let statement = code(INSERT_WEBHOOK_REGISTRATION_SQL);
+    assert!(
+        statement.contains("INSERT INTO context69.git_webhook_registrations"),
+        "the statement inserts a webhook registration"
+    );
+    // Create-only: the broad upsert's conflict clause would overwrite a
+    // registration another request owns, so a create must have no conflict arm
+    // and let the unique violation be reported instead.
+    assert!(
+        !statement.contains("ON CONFLICT") && !statement.contains("DO UPDATE"),
+        "a create-only insert must have no conflict clause"
+    );
+    // Confined to one repository of one group, and the row is selected from that
+    // source rather than named by the caller, so a foreign key inserts nothing.
+    assert!(
+        statement.contains("s.repository_key = $1")
+            && statement.contains("s.group_id = $2")
+            && statement.contains("s.repository_key,"),
+        "the insert writes only onto a repository this group owns"
+    );
+    // The sealed reference rides on the same insert, so a registration can never
+    // exist without a resolvable reference to the value that was sealed for it.
+    assert!(
+        statement.contains("signing_secret_key")
+            && statement.contains("$7")
+            && !statement.contains("internal_secrets"),
+        "the reference is a bound value, and the statement never reads the store"
+    );
+    for forbidden in ["updated_at =", "DELETE", "TRUNCATE"] {
+        assert!(
+            !statement.contains(forbidden),
+            "the create insert must not {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn webhook_registration_creation_takes_a_transaction_scoped_advisory_lock() {
+    assert_eq!(
+        statement_count(ACQUIRE_WEBHOOK_CREATION_LOCK_SQL),
+        1,
+        "the registration creation lock is one binding statement"
+    );
+    assert!(
+        ACQUIRE_WEBHOOK_CREATION_LOCK_SQL.contains("pg_advisory_xact_lock"),
+        "creation must take a transaction-scoped advisory lock, so the end of \
+         the create transaction releases it"
+    );
+    assert!(
+        !ACQUIRE_WEBHOOK_CREATION_LOCK_SQL.contains("pg_advisory_lock"),
+        "a session-scoped lock would outlive the create transaction"
+    );
+    assert!(
+        ACQUIRE_WEBHOOK_CREATION_LOCK_SQL.contains("$1"),
+        "the lock key is a bound parameter, never a literal, so each \
+         (group, repository) derives its own lock"
+    );
+}
+
+#[test]
+fn connection_enable_clears_only_the_lifecycle_column_and_never_reads_a_secret() {
+    // One statement, scoped to the owning group and the key.
+    assert_eq!(
+        statement_count(ENABLE_CONNECTION_SQL),
+        1,
+        "enabling a connection is one atomic statement"
+    );
+    let statement = code(ENABLE_CONNECTION_SQL);
+    assert!(
+        statement.contains("group_id = $1") && statement.contains("connection_key = $2"),
+        "the enable must match the owning group and the key"
+    );
+    // Only the lifecycle column moves. A secret column here would let a repeated
+    // enable rotate or drop a credential, so its absence is the invariant.
+    assert!(
+        statement.contains("disabled_at = NULL") && statement.contains("updated_at = now()"),
+        "enabling clears the disabled marker and stamps freshness, nothing else"
+    );
+    for forbidden in [
+        "internal_secrets",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "app_private_key_secret_key",
+    ] {
+        assert!(
+            !statement.contains(forbidden),
+            "the enable statement must not touch {forbidden}"
+        );
+    }
+    // A guard on `disabled_at` would make a repeated enable a no-match conflict;
+    // the whole point is that the predicate is the group and the key only.
+    assert!(
+        !statement.contains("IS NOT NULL"),
+        "an already-enabled connection must still match"
+    );
+}
+
+#[test]
+fn connection_create_is_a_create_only_group_scoped_insert() {
+    assert_eq!(
+        statement_count(INSERT_CONNECTION_SQL),
+        1,
+        "creation must be one atomic statement"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("INSERT INTO context69.git_provider_connections"),
+        "the statement inserts a provider connection"
+    );
+    assert!(
+        !INSERT_CONNECTION_SQL.contains("ON CONFLICT"),
+        "a create-only insert must have no conflict clause, so a duplicate key \
+         is reported instead of overwriting or re-enabling a connection"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("VALUES ($1,"),
+        "the owning group is the first insert value"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("JOIN context69.groups g ON g.id = inserted.group_id"),
+        "the returned group identity comes from the owning groups row"
+    );
+    // A new row is enabled by the schema default: neither lifecycle column is
+    // assigned, and the App key reference is projected but never inserted.
+    for forbidden in [
+        "disabled_at =",
+        "updated_at =",
+        "app_private_key_secret_key =",
+    ] {
+        assert!(
+            !INSERT_CONNECTION_SQL.contains(forbidden),
+            "the create insert must not assign {forbidden}"
+        );
+    }
+    let columns = &INSERT_CONNECTION_SQL[INSERT_CONNECTION_SQL
+        .find("INSERT INTO context69.git_provider_connections (")
+        .expect("insert column list")..];
+    let columns = &columns[..columns.find("\n    )").expect("end of column list")];
+    assert!(
+        !columns.contains("app_private_key_secret_key"),
+        "the insert column list must not name the App key reference"
+    );
+    assert!(
+        INSERT_CONNECTION_SQL.contains("inserted.app_private_key_secret_key"),
+        "the statement still projects the App key reference a later writer sets"
+    );
+}
+
+#[test]
+fn connection_creation_takes_a_transaction_scoped_advisory_lock() {
+    assert_eq!(
+        statement_count(ACQUIRE_CREATION_LOCK_SQL),
+        1,
+        "the creation lock is one binding statement"
+    );
+    assert!(
+        ACQUIRE_CREATION_LOCK_SQL.contains("pg_advisory_xact_lock"),
+        "creation must take a transaction-scoped advisory lock, so the end of \
+         the create transaction releases it"
+    );
+    assert!(
+        ACQUIRE_CREATION_LOCK_SQL.contains("$1"),
+        "the lock key is a bound parameter, never a literal, so each \
+         (group, connection key) derives its own lock"
+    );
+    assert!(
+        !ACQUIRE_CREATION_LOCK_SQL.contains("pg_advisory_lock"),
+        "a session-scoped lock would outlive the create transaction"
+    );
 }
 
 #[test]

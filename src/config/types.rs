@@ -10,8 +10,9 @@ use crate::serde_helpers;
 use super::{
     defaults::{
         DEFAULT_MCP_BIND_ADDR, default_scheduler_execution_guard_renew_interval,
-        default_scheduler_execution_guard_ttl, default_session_idle_ttl,
-        default_url_import_concurrency, default_url_import_min_interval_ms,
+        default_scheduler_execution_guard_ttl, default_secret_store_key_version,
+        default_session_idle_ttl, default_url_import_concurrency,
+        default_url_import_min_interval_ms,
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
@@ -19,6 +20,7 @@ use super::{
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    pub app: AppConfig,
     pub app_db: AppDbConfig,
     pub qdrant: QdrantConfig,
     pub embedding: EmbeddingConfig,
@@ -28,6 +30,7 @@ pub struct Config {
     pub scheduler: SchedulerConfig,
     pub api: ApiConfig,
     pub mcp: McpConfig,
+    pub secret_store: SecretStoreConfig,
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
     pub chunking: ChunkingConfig,
@@ -36,6 +39,36 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppDbConfig {
     pub url: String,
+}
+
+/// Deployment-scoped application inputs.
+///
+/// The master secret is one application-wide input rather than a per-feature
+/// setting, so it is configured once here and every encrypted application
+/// feature can draw on it. It is a deployment input and nothing else: it is read
+/// from configuration, handed to a cipher, and never written to PostgreSQL, a
+/// log line, an error, or a response. Leaving it unset is the transition state in
+/// which a deployment can still read and create legacy plaintext secrets, which
+/// is what a deployment that has not migrated yet needs.
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppConfig {
+    /// Base64 master secret. Padding is optional; it must decode to 32 bytes.
+    pub master_secret: Option<String>,
+}
+
+/// `Debug` redacts the master secret so the configuration can be traced like any
+/// other without ever rendering key material.
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppConfig")
+            .field(
+                "master_secret",
+                &self.master_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +190,35 @@ pub(super) fn default_mcp_bind_addr() -> String {
     DEFAULT_MCP_BIND_ADDR.to_string()
 }
 
+/// Configuration that describes the stored ciphertext rather than holding a
+/// secret of its own.
+///
+/// `key_version` belongs here because it versions the ciphertext the store
+/// writes, not because it is a credential. The key that ciphertext is sealed
+/// under is [`AppConfig::master_secret`], which is application-scoped and shared
+/// with every encrypted application feature.
+///
+/// Every default here comes from `default_secret_store_key_version`, not from
+/// zero. A missing `[secret_store]` section is filled from `FileConfig::default`
+/// by the container default, but a *present* section is filled from this type's
+/// own `Default` — so leaving `key_version` out of a configured section used to
+/// deserialise to zero, which validation rejects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretStoreConfig {
+    /// Version new ciphertext is written under, so a rotated key is detected.
+    #[serde(default = "default_secret_store_key_version")]
+    pub key_version: u32,
+}
+
+impl Default for SecretStoreConfig {
+    fn default() -> Self {
+        Self {
+            key_version: default_secret_store_key_version(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
     pub name: String,
@@ -216,6 +278,7 @@ pub struct PostgresSqlConnectorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(super) struct FileConfig {
+    pub app: AppConfig,
     pub app_db: AppDbConfig,
     pub qdrant: QdrantConfig,
     pub embedding: EmbeddingConfig,
@@ -226,6 +289,7 @@ pub(super) struct FileConfig {
     pub scheduler: SchedulerConfig,
     pub api: ApiConfig,
     pub mcp: McpConfig,
+    pub secret_store: SecretStoreConfig,
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
     pub chunking: ChunkingConfig,
@@ -251,6 +315,7 @@ impl TryFrom<FileConfig> for Config {
     fn try_from(file_config: FileConfig) -> Result<Self> {
         validate_loaded_config(&file_config)?;
         Ok(Self {
+            app: file_config.app,
             app_db: file_config.app_db,
             qdrant: file_config.qdrant,
             embedding: file_config.embedding,
@@ -260,6 +325,7 @@ impl TryFrom<FileConfig> for Config {
             scheduler: normalize_scheduler_config(file_config.scheduler),
             api: file_config.api,
             mcp: file_config.mcp,
+            secret_store: file_config.secret_store,
             connections: file_config
                 .connections
                 .into_iter()

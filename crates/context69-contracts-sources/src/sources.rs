@@ -167,3 +167,6 @@ pub use crate::git_repositories::*;
 
 /// Exact code content contracts: manifest entries, chunks, and lexical hits.
 pub use crate::git_files::*;
+
+/// Git repository registration request contracts.
+pub use crate::git_requests::*;

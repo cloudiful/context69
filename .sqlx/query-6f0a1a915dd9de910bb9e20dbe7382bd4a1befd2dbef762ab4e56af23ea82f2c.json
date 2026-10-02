@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Narrows the signing-secret reference of one group-owned webhook registration.\n--\n-- A registration hangs off a repository source, so group ownership is resolved\n-- through that join: a registration of another group's repository matches no\n-- row, and the caller learns the update did not land rather than having\n-- repointed a hook the group does not own. The join is an existence check\n-- rather than an `UPDATE ... FROM` so the parameter order stays group, then\n-- repository, then the new reference.\n--\n-- `active` is left alone: sealing or rotating a signing secret is not a\n-- lifecycle change, and a rotation must not silently re-enable a hook an\n-- operator deactivated.\nUPDATE context69.git_webhook_registrations r\nSET signing_secret_key = $3,\n    updated_at = now()\nWHERE r.repository_key = $2\n  AND EXISTS (\n      SELECT 1\n      FROM context69.git_repository_sources s\n      WHERE s.repository_key = r.repository_key\n        AND s.group_id = $1\n  )\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f0a1a915dd9de910bb9e20dbe7382bd4a1befd2dbef762ab4e56af23ea82f2c"
+}

@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The shared provider's own settings. Its API key is not projected: the shared\n-- encrypted store owns it, and the caller resolves it through that store, so this\n-- statement cannot become a second read path for the credential.\nSELECT enabled, endpoint, model, llm_api_kind\nFROM context69.translation_provider_settings\nWHERE provider_key = 'llm'\n\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.translation_provider_settings",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "endpoint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.translation_provider_settings",
+            "name": "endpoint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.translation_provider_settings",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "llm_api_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.translation_provider_settings",
+            "name": "llm_api_kind"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "3924eb926f6d8f8c4d167f48babb8721ad20c5edb636e4e6675420bb18050294"
+}

@@ -59,6 +59,10 @@ pub struct StoredGitProviderConnection {
     pub base_url: String,
     pub credential_secret_key: Option<String>,
     pub webhook_secret_key: Option<String>,
+    /// Internal secret-store key for the GitHub App private key; never the
+    /// value. Read from the row only: the insert side cannot set it, so the
+    /// narrow App-key reference statement is the one way it moves.
+    pub app_private_key_secret_key: Option<String>,
     pub disabled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -80,12 +84,18 @@ impl StoredGitProviderConnection {
             base_url: row.base_url,
             credential_secret_key: row.credential_secret_key,
             webhook_secret_key: row.webhook_secret_key,
+            app_private_key_secret_key: row.app_private_key_secret_key,
             disabled_at: row.disabled_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
     }
 
+    /// The outward projection.
+    ///
+    /// Purpose separation keeps the GitHub App private key out of it: the
+    /// contract reports which secrets are configured through the two existing
+    /// flags, and this phase adds no third boolean for the App key.
     pub fn to_contract(&self) -> GitProviderConnection {
         GitProviderConnection {
             group_key: self.group.group_key.clone(),

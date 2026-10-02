@@ -15,7 +15,7 @@ use crate::{
     domain_errors::DomainError,
     services::{
         document_store::DocumentStoreService, library::LibraryService, namespace::NamespaceService,
-        source_folders::SourceFoldersService, sync::SyncService,
+        settings::SettingsService, source_folders::SourceFoldersService, sync::SyncService,
     },
 };
 
@@ -27,6 +27,7 @@ mod docling_submit;
 pub mod events;
 mod inline_waits;
 mod item_file_processors;
+mod item_git_index_processor;
 mod item_lifecycle_processors;
 #[cfg(test)]
 mod item_pipeline_tests;
@@ -53,6 +54,7 @@ pub struct TaskService {
     sync: SyncService,
     source_folders: SourceFoldersService,
     translation: TranslationService,
+    settings: SettingsService,
     worker_slots: Arc<Semaphore>,
     worker_capacity: usize,
     dispatch_notify: Arc<Notify>,
@@ -108,6 +110,7 @@ impl TaskService {
             crate::services::tasks::events::TASK_EVENT_BUS_CAPACITY,
         );
         Self {
+            settings: SettingsService::new(db.clone()),
             db,
             namespace,
             document_store,
@@ -226,6 +229,16 @@ impl TaskService {
     }
     pub(crate) fn translation(&self) -> &TranslationService {
         &self.translation
+    }
+    pub(crate) fn settings(&self) -> &SettingsService {
+        &self.settings
+    }
+    /// Uses the application's shared settings service (which carries the
+    /// registered settings observers) instead of the per-service instance
+    /// built in [`Self::new`].
+    pub fn with_settings(mut self, settings: SettingsService) -> Self {
+        self.settings = settings;
+        self
     }
 }
 

@@ -6,8 +6,9 @@ use super::{
     defaults::{APP_NAME, CONFIG_ENV_PREFIX, DATABASE_URL_ENV_VAR},
     types::{AppDbConfig, Config, FileConfig},
     validate::{
-        validate_auth_config, validate_docling_config, validate_scheduler_config,
-        validate_sources_config, validate_storage_config,
+        validate_app_config, validate_auth_config, validate_docling_config,
+        validate_scheduler_config, validate_secret_store_config, validate_sources_config,
+        validate_storage_config,
     },
 };
 
@@ -82,6 +83,8 @@ pub(super) fn validate_loaded_config(config: &FileConfig) -> Result<()> {
     validate_scheduler_config(&config.scheduler)?;
     validate_docling_config(config.docling.as_ref())?;
     validate_auth_config(&config.auth)?;
+    validate_app_config(&config.app)?;
+    validate_secret_store_config(&config.secret_store)?;
     validate_storage_config(&config.file_library, &config.chunking)?;
     validate_sources_config(&config.connections, &config.sources)?;
     Ok(())

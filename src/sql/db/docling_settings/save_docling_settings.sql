@@ -1,3 +1,6 @@
+-- The Docling VLM provider API key is never written here: the store is its only
+-- representation, so a settings save cannot leave a plaintext duplicate behind.
+-- A request that keeps or drops the key acts on the store instead.
 INSERT INTO context69.docling_settings (
     singleton,
     base_url,
@@ -16,7 +19,6 @@ INSERT INTO context69.docling_settings (
     do_formula_enrichment,
     do_picture_description,
     openai_base_url,
-    api_key,
     vlm_pipeline_model,
     picture_description_model,
     code_formula_model,
@@ -45,7 +47,6 @@ VALUES (
     $18,
     $19,
     $20,
-    $21,
     now()
 )
 ON CONFLICT (singleton) DO UPDATE
@@ -65,7 +66,6 @@ SET base_url = EXCLUDED.base_url,
     do_formula_enrichment = EXCLUDED.do_formula_enrichment,
     do_picture_description = EXCLUDED.do_picture_description,
     openai_base_url = EXCLUDED.openai_base_url,
-    api_key = EXCLUDED.api_key,
     vlm_pipeline_model = EXCLUDED.vlm_pipeline_model,
     picture_description_model = EXCLUDED.picture_description_model,
     code_formula_model = EXCLUDED.code_formula_model,
@@ -88,7 +88,6 @@ RETURNING
     do_formula_enrichment,
     do_picture_description,
     openai_base_url,
-    api_key,
     vlm_pipeline_model,
     picture_description_model,
     code_formula_model,

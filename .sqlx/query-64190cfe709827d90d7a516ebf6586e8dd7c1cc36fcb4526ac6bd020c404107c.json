@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Narrows the read-credential reference of one group-owned connection.\n--\n-- The broad connection upsert is deliberately not reused for this: its conflict\n-- clause clears `disabled_at`, so sealing or rotating a credential through it\n-- would silently re-enable a connection an operator had disabled. Sealing a\n-- secret is not a lifecycle change, so this statement touches the reference and\n-- `updated_at` only.\n--\n-- The write is conditional on the owning group, so a connection of another\n-- group matches no row and the caller learns the update did not land instead of\n-- having repointed someone else's credential reference.\nUPDATE context69.git_provider_connections\nSET credential_secret_key = $3,\n    updated_at = now()\nWHERE group_id = $1\n  AND connection_key = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64190cfe709827d90d7a516ebf6586e8dd7c1cc36fcb4526ac6bd020c404107c"
+}

@@ -1,0 +1,196 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    c.group_id,\n    c.connection_key,\n    c.provider_kind,\n    c.connection_mode,\n    c.display_name,\n    c.base_url,\n    c.credential_secret_key,\n    c.webhook_secret_key,\n    c.app_private_key_secret_key,\n    c.disabled_at,\n    c.created_at,\n    c.updated_at,\n    g.group_key,\n    g.full_path AS group_path,\n    g.visibility AS group_visibility\nFROM context69.git_provider_connections c\nJOIN context69.groups g ON g.id = c.group_id\nWHERE c.group_id = $1\nORDER BY c.connection_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "connection_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "connection_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "provider_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "provider_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "connection_mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "connection_mode"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "credential_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "credential_secret_key"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "webhook_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "webhook_secret_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "app_private_key_secret_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "app_private_key_secret_key"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "disabled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "disabled_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_provider_connections",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "group_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "group_visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "visibility"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6003b6fbc37106b14125b3ec7d8e35e2509bcbe9e3fee847cf494e5db9955e50"
+}

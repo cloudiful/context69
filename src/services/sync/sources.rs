@@ -170,10 +170,10 @@ impl SyncService {
         &self,
         input: &SourceConfigInput,
     ) -> Result<()> {
-        let stored = self
+        let pending = self
             .resolve_source_connection(&input.connection, input.database_url.clone())
             .await?;
-        self.db.save_source_connection(&stored).await?;
+        self.persist_source_connection(&pending).await?;
         self.reload_sources().await?;
         Ok(())
     }

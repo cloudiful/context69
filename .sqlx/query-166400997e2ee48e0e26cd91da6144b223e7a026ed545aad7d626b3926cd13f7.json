@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The shared `llm` row's API key is owned by the encrypted store and is never\n-- written here, so the column cannot become a second plaintext copy of it. Every\n-- other provider keeps its credential in this column: no secret purpose owns\n-- `deepl` or `libretranslate`, so this is the only representation they have.\nINSERT INTO context69.translation_provider_settings (\n    provider_key, enabled, priority, endpoint, api_key, model, llm_api_kind,\n    deepl_plan, monthly_character_limit, updated_at\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())\nON CONFLICT (provider_key) DO UPDATE SET\n    enabled = EXCLUDED.enabled,\n    priority = EXCLUDED.priority,\n    endpoint = EXCLUDED.endpoint,\n    api_key = CASE\n        WHEN EXCLUDED.provider_key = 'llm' THEN NULL\n        ELSE COALESCE(EXCLUDED.api_key, context69.translation_provider_settings.api_key)\n    END,\n    model = EXCLUDED.model,\n    llm_api_kind = EXCLUDED.llm_api_kind,\n    deepl_plan = EXCLUDED.deepl_plan,\n    monthly_character_limit = EXCLUDED.monthly_character_limit,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "166400997e2ee48e0e26cd91da6144b223e7a026ed545aad7d626b3926cd13f7"
+}

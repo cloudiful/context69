@@ -22,6 +22,24 @@ use crate::api::{
         __path_list_extraction_templates, __path_rebuild_document_extractions,
         __path_upsert_extraction_template,
     },
+    git_connection_lifecycle::{__path_disable_git_connection, __path_enable_git_connection},
+    git_connection_mutations::__path_create_git_connection,
+    git_connection_readiness::__path_get_git_connection_readiness,
+    git_connections::{__path_get_git_repository_webhook, __path_list_git_provider_connections},
+    git_repositories::{
+        __path_get_git_repository, __path_index_git_repository, __path_list_git_repositories,
+        __path_register_git_repository,
+    },
+    git_repository_code_search::__path_search_git_repository_code,
+    git_repository_connections::{
+        __path_delete_git_repository_connection, __path_set_git_repository_connection,
+    },
+    git_repository_file::__path_get_git_repository_file,
+    git_repository_file_content::__path_get_git_repository_file_content,
+    git_repository_file_diff::__path_diff_git_repository_files,
+    git_repository_files::__path_list_git_repository_files,
+    git_webhook_ingress::__path_receive_git_webhook,
+    git_webhook_registration::__path_create_git_webhook_registration,
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
         __path_delete_group_library_file, __path_delete_group_library_folder,
@@ -75,12 +93,12 @@ use crate::contracts::{
     ClearTaskHistoryResponse, ClearTaskHistoryView, CreateAdminUserRequest, CreateFolderRequest,
     CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
     CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest,
-    CursorPageQuery, DeeplPlan, DeleteBatchRequest, DocumentKey, DocumentLookupQuery,
-    DocumentQueryRequest, DocumentQueryResponse, DocumentSort, DocumentSortField,
-    EnsureScopeResponse, ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse,
-    ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse,
-    ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
-    GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
+    CursorPageQuery, CursorPagination, DeeplPlan, DeleteBatchRequest, DocumentKey,
+    DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentSort,
+    DocumentSortField, EnsureScopeResponse, ExtractionDirective, ExtractionFailureClass,
+    ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse,
+    ExtractionResultResponse, ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem,
+    FileBatchRequest, GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
     ImportLibraryFileFromUrlRequest, IngestOptions, LibraryFileDetailResponse,
     LibraryFolderResponse, LibraryIngestFailureStage, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, MemberPageQuery,
@@ -88,14 +106,13 @@ use crate::contracts::{
     MetadataIndexPageResponse, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
     MoveFileRequest, MoveFolderRequest, OffsetPageQuery, PersonalAccessTokenPageQuery,
     PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
-    RebuildDocumentExtractionsRequest, RebuildDocumentTranslationsRequest, RerunTaskResponse,
-    ResetAdminUserPasswordRequest, ScopeMetadataIndex,
-    ScopeSpec, SearchMode, SecretPatch, SortDirection, SortOrder, SourceConfigInput,
-    SourceConnectionResponse, SourceFolderResponse, SourcePageQuery, SourcePageResponse,
-    SourcePolicy, SourceStatus, SyncOutcome,     TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
-    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, RebuildDocumentExtractionsRequest,
+    RebuildDocumentTranslationsRequest, RerunTaskResponse, ResetAdminUserPasswordRequest,
+    ScopeMetadataIndex, ScopeSpec, SearchMode, SecretPatch, SortDirection, SortOrder,
+    SourceConfigInput, SourceConnectionResponse, SourceFolderResponse, SourcePageQuery,
+    SourcePageResponse, SourcePolicy, SourceStatus, SyncOutcome, TaskItemResponse, TaskItemStatus,
+    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse,
+    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone,
     TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest,
     TextBatchRequest, TranslationDirective, TranslationGlossaryEntry, TranslationJobResponse,
     TranslationJobsResponse, TranslationLlmApiKind, TranslationProviderInput,
@@ -104,6 +121,18 @@ use crate::contracts::{
     UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
     UpdateTranslationSettingsRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
     UrlBatchRequest,
+};
+
+use crate::contracts::sources::{
+    GitCodeSearchHit, GitCodeSearchQuery, GitCodeSearchResponse, GitCommitCheckpoint,
+    GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse, GitFileChangeKind,
+    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
+    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
+    GitRepositoryFile, GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
+    GitRepositoryFileDetailResponse, GitRepositoryFileDiff, GitRepositoryFileDiffFile,
+    GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse, GitRepositoryFileListResponse,
+    GitRepositoryFileQuery, GitRepositoryRegistrationRequest, GitRepositorySource,
+    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration, GitWebhookRegistrationRequest,
 };
 
 #[derive(OpenApi)]
@@ -158,6 +187,25 @@ use crate::contracts::{
         create_group_source_folder,
         update_group_source_folder_config,
         sync_group_source_folder,
+        register_git_repository,
+        list_git_repositories,
+        get_git_repository,
+        index_git_repository,
+        list_git_repository_files,
+        get_git_repository_file,
+        get_git_repository_file_content,
+        search_git_repository_code,
+        diff_git_repository_files,
+        list_git_provider_connections,
+        create_git_connection,
+        get_git_connection_readiness,
+        disable_git_connection,
+        enable_git_connection,
+        get_git_repository_webhook,
+        create_git_webhook_registration,
+        set_git_repository_connection,
+        delete_git_repository_connection,
+        receive_git_webhook,
         query_group_documents,
         get_group_document_by_key,
         batch_get_group_documents,
@@ -229,6 +277,38 @@ use crate::contracts::{
         SyncOutcome,
         CreateSourceFolderRequest,
         SourceFolderResponse,
+        GitProviderKind,
+        GitVersionPolicy,
+        GitRefreshPolicy,
+        GitIndexProfile,
+        GitIndexStatus,
+        GitCommitCheckpoint,
+        GitRepositorySource,
+        GitRepositoryRegistrationRequest,
+        GitRepositoryFile,
+        GitRepositoryFileListResponse,
+        GitRepositoryFileQuery,
+        GitRepositoryFileDetailResponse,
+        GitRepositoryFileContentQuery,
+        GitRepositoryFileContentResponse,
+        GitCodeSearchQuery,
+        GitCodeSearchHit,
+        GitCodeSearchResponse,
+        GitFileChangeKind,
+        GitRepositoryFileDiff,
+        GitRepositoryFileDiffFile,
+        GitRepositoryFileDiffQuery,
+        GitRepositoryFileDiffResponse,
+        GitConnectionMode,
+        GitConnectionReadiness,
+        GitConnectionReadinessResponse,
+        GitProviderConnection,
+        GitProviderConnectionRequest,
+        GitReadCredentialPatch,
+        GitWebhookOwnership,
+        GitWebhookRegistration,
+        GitWebhookRegistrationRequest,
+        GitRepositoryConnectionRequest,
         CreateFolderRequest,
         CreateTextRequest,
         UpsertLibraryTextRequest,
@@ -300,6 +380,7 @@ use crate::contracts::{
         CanonicalApiErrorResponse,
         OffsetPageQuery,
         CursorPageQuery,
+        CursorPagination,
         CanonicalSearchRequest,
         CanonicalTaskListQuery,
         CanonicalUpdateSearchSettingsRequest,
@@ -409,6 +490,7 @@ mod tests {
     use serde_json::Value;
 
     use super::openapi_document;
+    use crate::contracts::sources::{GIT_CONNECTION_KEY_MAX_CHARS, GIT_WEBHOOK_HOOK_ID_MAX_CHARS};
 
     #[test]
     fn openapi_contains_expected_paths_and_schemas() {
@@ -439,6 +521,12 @@ mod tests {
             "/v1/groups/by-path/{group_path}/source-folders",
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/config",
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
+            "/v1/groups/by-path/{group_path}/git-connections",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
             "/v1/groups/by-path/{group_path}/library/tree",
             "/v1/groups/by-path/{group_path}/library/folders",
             "/v1/groups/by-path/{group_path}/library/folders/{folder_id}/move",
@@ -520,6 +608,8 @@ mod tests {
             "SearchRequest",
             "SearchResponse",
             "DocumentResponse",
+            "GitProviderConnection",
+            "GitWebhookRegistration",
             "GroupResponse",
             "SyncOutcome",
             "TaskRef",
@@ -534,6 +624,292 @@ mod tests {
         ] {
             assert!(schemas.contains_key(schema), "missing schema {schema}");
         }
+
+        // Issue 681 4A2: the attach body declares the same key bounds the
+        // runtime validator enforces, so a generated client cannot send a key
+        // the API only rejects after a group-scoped lookup.
+        let connection_key = schemas
+            .get("GitRepositoryConnectionRequest")
+            .and_then(|schema| schema.pointer("/properties/connection_key"))
+            .expect("GitRepositoryConnectionRequest.connection_key to exist");
+        assert_eq!(
+            connection_key.get("minLength").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            connection_key.get("maxLength").and_then(Value::as_u64),
+            Some(GIT_CONNECTION_KEY_MAX_CHARS as u64)
+        );
+
+        // Issue 681 5H: the webhook create body declares the same hook-id bounds
+        // the runtime validator and the signed ingress enforce, so a generated
+        // client cannot register a hook id this API would only refuse after a
+        // group-scoped lookup — or one the ingress could never resolve.
+        let hook_id = schemas
+            .get("GitWebhookRegistrationRequest")
+            .and_then(|schema| schema.pointer("/properties/external_hook_id"))
+            .expect("GitWebhookRegistrationRequest.external_hook_id to exist");
+        assert_eq!(hook_id.get("minLength").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            hook_id.get("maxLength").and_then(Value::as_u64),
+            Some(GIT_WEBHOOK_HOOK_ID_MAX_CHARS as u64)
+        );
+        let registration_body = schemas
+            .get("GitWebhookRegistrationRequest")
+            .expect("GitWebhookRegistrationRequest schema to exist");
+        assert_eq!(
+            registration_body
+                .get("additionalProperties")
+                .and_then(Value::as_bool),
+            Some(false),
+            "deny_unknown_fields must keep a store reference or an active flag out \
+             of the documented body"
+        );
+        // The value to seal carries no declared length: a bound here would either
+        // truncate a legitimate secret or advertise an internal store limit.
+        let signing_secret = registration_body
+            .pointer("/properties/signing_secret")
+            .and_then(Value::as_object)
+            .expect("GitWebhookRegistrationRequest.signing_secret to exist");
+        assert!(
+            !signing_secret.contains_key("maxLength") && !signing_secret.contains_key("minLength"),
+            "the value to seal is unbounded on the wire"
+        );
+
+        // Issue 681 4B3: the create body carries bounded non-secret metadata
+        // plus one tri-state read-credential patch, and nothing else. The patch
+        // reuses the settings `SecretPatch` wire shape (`op`/`value`) so a
+        // generated client can send `keep`/`set`/`clear` without learning a new
+        // secret vocabulary.
+        let create = schemas
+            .get("GitProviderConnectionRequest")
+            .and_then(Value::as_object)
+            .expect("GitProviderConnectionRequest schema to exist");
+        let create_properties = create
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("create properties");
+        let mut create_keys = create_properties
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        create_keys.sort_unstable();
+        assert_eq!(
+            create_keys,
+            vec![
+                "base_url",
+                "display_name",
+                "mode",
+                "provider",
+                "read_credential",
+            ],
+            "the create body exposes exactly the planned non-secret fields"
+        );
+        assert_eq!(
+            create.get("additionalProperties").and_then(Value::as_bool),
+            Some(false),
+            "deny_unknown_fields must be reflected in the OpenAPI body"
+        );
+        let required = create
+            .get("required")
+            .and_then(Value::as_array)
+            .expect("create required fields");
+        let required: Vec<&str> = required.iter().filter_map(Value::as_str).collect();
+        for field in ["provider", "mode", "display_name", "base_url"] {
+            assert!(
+                required.contains(&field),
+                "create body must require {field}"
+            );
+        }
+        assert!(
+            !required.contains(&"read_credential"),
+            "read_credential defaults to keep, so it must not be required"
+        );
+        let patch = schemas
+            .get("GitReadCredentialPatch")
+            .and_then(Value::as_object)
+            .expect("GitReadCredentialPatch schema to exist");
+        let variants = patch
+            .get("oneOf")
+            .and_then(Value::as_array)
+            .expect("patch variants");
+        let ops: Vec<&str> = variants
+            .iter()
+            .filter_map(|variant| {
+                variant
+                    .pointer("/properties/op/enum/0")
+                    .and_then(Value::as_str)
+            })
+            .collect();
+        assert_eq!(ops, vec!["keep", "set", "clear"], "patch op vocabulary");
+        let create_schema = serde_json::to_string(create).expect("create schema string");
+        for forbidden in [
+            "credential_secret_key",
+            "webhook_secret_key",
+            "app_private_key",
+            "installation_id",
+        ] {
+            assert!(
+                !create_properties.contains_key(forbidden)
+                    && !create_schema.to_ascii_lowercase().contains(forbidden),
+                "create body must not expose {forbidden}"
+            );
+        }
+        assert!(
+            !json
+                .pointer("/components/schemas/GitProviderConnection")
+                .and_then(|schema| schema.get("properties"))
+                .map(|properties| properties.to_string().contains("app_private_key"))
+                .unwrap_or(false),
+            "the existing connection projection must stay free of an App-key field"
+        );
+
+        // Issue 681 5A: the manifest page is the only HTTP read of generation
+        // content, and it stays metadata: the documented response names the
+        // page schema, whose entries point at stored bytes without carrying
+        // them.
+        let manifest_page = paths
+            .get("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files")
+            .and_then(|path| path.get("get"))
+            .expect("manifest page GET to exist");
+        assert_eq!(
+            manifest_page.get("operationId").and_then(Value::as_str),
+            Some("list_git_repository_files")
+        );
+        assert_eq!(
+            manifest_page
+                .pointer("/responses/200/content/application~1json/schema/$ref")
+                .and_then(Value::as_str),
+            Some("#/components/schemas/GitRepositoryFileListResponse")
+        );
+        let manifest_schema = schemas
+            .get("GitRepositoryFileListResponse")
+            .and_then(Value::as_object)
+            .expect("GitRepositoryFileListResponse schema to exist");
+        let manifest_properties = manifest_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("manifest page properties");
+        for field in [
+            "files",
+            "pagination",
+            "checkpoint",
+            "commit_sha",
+            "file_count",
+        ] {
+            assert!(
+                manifest_properties.contains_key(field),
+                "the manifest page must expose {field}"
+            );
+        }
+        for forbidden in ["content", "text", "chunk", "provider_blob_sha", "secret"] {
+            assert!(
+                !manifest_properties.contains_key(forbidden),
+                "the manifest page must not expose {forbidden}"
+            );
+        }
+
+        // Issue 681 5B: the exact-file read is a metadata read, so its single
+        // documented query parameter is a bounded path and its response is one
+        // unchanged manifest entry beside the generation provenance.
+        let file_read = paths
+            .get("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file")
+            .and_then(|path| path.get("get"))
+            .expect("exact file GET to exist");
+        assert_eq!(
+            file_read.get("operationId").and_then(Value::as_str),
+            Some("get_git_repository_file")
+        );
+        assert_eq!(
+            file_read
+                .pointer("/responses/200/content/application~1json/schema/$ref")
+                .and_then(Value::as_str),
+            Some("#/components/schemas/GitRepositoryFileDetailResponse")
+        );
+        let query_parameters: Vec<&str> = file_read
+            .get("parameters")
+            .and_then(Value::as_array)
+            .expect("file read parameters")
+            .iter()
+            .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            query_parameters,
+            vec!["group_path", "repository_key", "path"],
+            "the read takes the two path parameters and one bounded path query"
+        );
+        let file_detail_schema = schemas
+            .get("GitRepositoryFileDetailResponse")
+            .and_then(Value::as_object)
+            .expect("GitRepositoryFileDetailResponse schema to exist");
+        let file_detail_properties = file_detail_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("file detail properties");
+        assert!(file_detail_properties.contains_key("file"));
+        for forbidden in ["content", "text", "chunks", "pagination", "start_line"] {
+            assert!(
+                !file_detail_properties.contains_key(forbidden),
+                "the exact-file read must not expose {forbidden}"
+            );
+        }
+
+        // Issue 681 5C: the content read is the one egress path, and it is
+        // bounded and window-scoped: a path, a positive line window, and an
+        // optional continuation, with a response that carries text and no blob.
+        let content_read = paths
+            .get("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content")
+            .and_then(|path| path.get("get"))
+            .expect("file content GET to exist");
+        assert_eq!(
+            content_read.get("operationId").and_then(Value::as_str),
+            Some("get_git_repository_file_content")
+        );
+        let content_parameters: Vec<(&str, &str)> = content_read
+            .get("parameters")
+            .and_then(Value::as_array)
+            .expect("content read parameters")
+            .iter()
+            .filter_map(|parameter| {
+                Some((
+                    parameter.get("in")?.as_str()?,
+                    parameter.get("name")?.as_str()?,
+                ))
+            })
+            .collect();
+        assert_eq!(
+            content_parameters,
+            vec![
+                ("path", "group_path"),
+                ("path", "repository_key"),
+                ("query", "path"),
+                ("query", "start_line"),
+                ("query", "end_line"),
+                ("query", "cursor"),
+            ],
+            "the read takes two path parameters and the bounded window query"
+        );
+        let content_schema = schemas
+            .get("GitRepositoryFileContentResponse")
+            .and_then(Value::as_object)
+            .expect("GitRepositoryFileContentResponse schema to exist");
+        let content_properties = content_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("content response properties");
+        for field in ["text", "byte_count", "start_line", "end_line", "pagination"] {
+            assert!(
+                content_properties.contains_key(field),
+                "the content response must expose {field}"
+            );
+        }
+        for forbidden in ["blob", "content_url", "provider_blob_sha", "chunks"] {
+            assert!(
+                !content_properties.contains_key(forbidden),
+                "the content response must not expose {forbidden}"
+            );
+        }
+
         // Issue 405 Task E2: the task SSE stream exposes snapshot-then-deltas
         // with client-side resync (no server replay), mirroring search-stream.
         let stream = paths

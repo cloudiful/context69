@@ -11,7 +11,6 @@ mod docling_settings;
 mod document_versions;
 mod documents;
 mod git_repositories;
-mod internal_secrets;
 mod metadata_indexes;
 mod namespaces;
 mod personal_access_tokens;
@@ -33,15 +32,15 @@ pub use document_versions::{
     audit_missing_versions, classify_audit_document, list_missing_version_page,
 };
 pub use git_repositories::{
-    GitCheckpointUpdate, GitChunkReplacement, GitGenerationCoverage, GitGroupOwnership,
-    GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE, MAX_GIT_FILE_BYTES,
-    MAX_GIT_GENERATION_BYTES, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE, MAX_GIT_MANIFEST_FILES,
-    MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk, NewGitGenerationFile,
-    NewGitProviderConnection, NewGitRepositoryGeneration, NewGitRepositorySource,
-    NewGitWebhookDelivery, NewGitWebhookRegistration, StoredGitActiveGeneration,
-    StoredGitGenerationChunk, StoredGitGenerationFile, StoredGitProviderConnection,
-    StoredGitRepositoryGeneration, StoredGitRepositorySource, StoredGitWebhookDelivery,
-    StoredGitWebhookRegistration,
+    GitCheckpointUpdate, GitChunkReplacement, GitFileDiffSide, GitGenerationCoverage,
+    GitGroupOwnership, GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE,
+    MAX_GIT_FILE_BYTES, MAX_GIT_GENERATION_BYTES, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE,
+    MAX_GIT_MANIFEST_FILES, MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk,
+    NewGitGenerationFile, NewGitProviderConnection, NewGitRepositoryGeneration,
+    NewGitRepositorySource, NewGitWebhookDelivery, NewGitWebhookRegistration,
+    StoredGitActiveGeneration, StoredGitFileDiff, StoredGitGenerationChunk,
+    StoredGitGenerationFile, StoredGitProviderConnection, StoredGitRepositoryGeneration,
+    StoredGitRepositorySource, StoredGitWebhookDelivery, StoredGitWebhookRegistration,
 };
 pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
@@ -89,6 +88,9 @@ pub struct StoredDoclingSettings {
     pub do_formula_enrichment: bool,
     pub do_picture_description: bool,
     pub openai_base_url: Option<String>,
+    /// The VLM API key the settings service resolved from the shared store. It is
+    /// an in-memory value for the shape checks and the provider config, never a
+    /// persisted one: a stored row always reports `None` here.
     pub api_key: Option<String>,
     pub vlm_pipeline_model: Option<String>,
     pub picture_description_model: Option<String>,
@@ -104,6 +106,9 @@ pub struct StoredSearchSettings {
     pub rerank_model: String,
     pub candidate_limit: usize,
     pub timeout_secs: u64,
+    /// The rerank API key the settings service resolved from the shared store. It
+    /// is an in-memory value for the candidate the request folds onto, never a
+    /// persisted one: a stored row always reports `None` here.
     pub api_key: Option<String>,
     /// Hybrid fusion weight for the vector channel; boost is the residual
     /// margin (1 - vector - keyword).
@@ -136,6 +141,9 @@ pub struct StoredRuntimeQdrantSettings {
 #[derive(Debug, Clone)]
 pub struct StoredRuntimeEmbeddingSettings {
     pub base_url: String,
+    /// The provider API key resolved from the shared store for the process that
+    /// loaded these settings. It is an in-memory value, never a persisted one: a
+    /// stored row always reports `None` here.
     pub api_key: Option<String>,
     pub model: String,
     pub dimensions: usize,
@@ -176,14 +184,41 @@ pub struct StoredRuntimeS3Settings {
     pub bucket: String,
     pub prefix: String,
     pub path_style: bool,
+    /// An identifier, not a credential, so it stays in the settings row.
     pub access_key: String,
-    pub secret_key: String,
+    /// The secret key resolved from the shared store for the process that loaded
+    /// these settings. It is an in-memory value, never a persisted one: a stored
+    /// row always reports `None` here.
+    pub secret_key: Option<String>,
 }
 
+/// A stored source connection, as the database records it.
+///
+/// `name` is the user-controlled API/display identifier. `connection_key` is the
+/// stable identity this application minted for the connection, and it is what a
+/// sealed database URL is keyed by — never the name, never the DSN.
+/// `database_url_secret_key` is the `internal_secrets` row that holds the DSN, and
+/// the only place it exists: a connection that has no reference is one whose
+/// store row does not exist either.
 #[derive(Debug, Clone)]
 pub struct StoredSourceConnection {
     pub name: String,
-    pub database_url: String,
+    pub connection_key: Uuid,
+    pub database_url_secret_key: Option<String>,
+}
+
+/// One source connection write.
+///
+/// The caller mints `connection_key` for a new connection and reuses the stored
+/// one otherwise, then seals the database URL under
+/// `database_url_secret_key` before saving, because the reference has to resolve
+/// to a store row that already exists. The DSN is not part of the write: this
+/// layer never sees it.
+#[derive(Debug, Clone)]
+pub struct NewSourceConnection {
+    pub connection_key: Uuid,
+    pub name: String,
+    pub database_url_secret_key: String,
 }
 
 #[derive(Debug, Clone)]

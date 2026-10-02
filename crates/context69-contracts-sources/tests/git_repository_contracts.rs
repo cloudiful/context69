@@ -1,5 +1,5 @@
-//! Provider-neutral Git source and connection contracts (issue #681 phases 2
-//! and 3B1).
+//! Provider-neutral Git source and connection contracts (issue #681 phases 2,
+//! 3B1, 4A2, 4B2, and 4B3).
 //!
 //! Covers the wire shape of the contract enums/structs and the shape of
 //! `migrations/20260930204952_git_repository_sources.sql`: the migration must
@@ -13,12 +13,22 @@
 
 use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
+use context69_contracts_core::pagination::{CursorPageQuery, CursorPagination};
+use context69_contracts_sources::GIT_REPOSITORY_FILE_PATH_MAX_CHARS;
 use context69_contracts_sources::{
-    GitActiveGeneration, GitCommitCheckpoint, GitConnectionMode, GitGenerationStatus,
-    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderKind, GitRefreshPolicy,
-    GitRepositoryGeneration, GitRepositorySource, GitVersionPolicy, GitWebhookDelivery,
-    GitWebhookDeliveryStatus, GitWebhookOwnership, GitWebhookRegistration,
+    GIT_CONNECTION_BASE_URL_MAX_CHARS, GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS,
+    GIT_CONNECTION_KEY_MAX_CHARS, GIT_WEBHOOK_HOOK_ID_MAX_CHARS, GitActiveGeneration,
+    GitCommitCheckpoint, GitConnectionKeyRejection, GitConnectionMode, GitConnectionReadiness,
+    GitConnectionReadinessResponse, GitConnectionRequestRejection, GitGenerationStatus,
+    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
+    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
+    GitRepositoryFile, GitRepositoryFileDetailResponse, GitRepositoryFileListResponse,
+    GitRepositoryFileQuery, GitRepositoryGeneration, GitRepositoryRegistrationRequest,
+    GitRepositorySource, GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus,
+    GitWebhookOwnership, GitWebhookRegistration, GitWebhookRegistrationRejection,
+    GitWebhookRegistrationRequest, validate_git_connection_key,
 };
+use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
 use uuid::Uuid;
 
@@ -276,6 +286,80 @@ fn connection_contract_exposes_only_secret_presence() {
 }
 
 #[test]
+fn connection_readiness_wire_names_are_stable() {
+    assert_eq!(
+        to_value([
+            GitConnectionReadiness::Public,
+            GitConnectionReadiness::Token,
+            GitConnectionReadiness::Installation,
+            GitConnectionReadiness::Incomplete,
+            GitConnectionReadiness::Disabled,
+        ])
+        .expect("serialize readiness"),
+        json!(["public", "token", "installation", "incomplete", "disabled"])
+    );
+    for (value, name) in [
+        (GitConnectionReadiness::Public, "public"),
+        (GitConnectionReadiness::Token, "token"),
+        (GitConnectionReadiness::Installation, "installation"),
+        (GitConnectionReadiness::Incomplete, "incomplete"),
+        (GitConnectionReadiness::Disabled, "disabled"),
+    ] {
+        assert_eq!(value.as_str(), name);
+    }
+}
+
+#[test]
+fn readiness_response_exposes_only_the_planned_non_secret_fields() {
+    let response = GitConnectionReadinessResponse {
+        connection_key: "github-app-main".to_string(),
+        mode: GitConnectionMode::Token,
+        readiness: GitConnectionReadiness::Token,
+        has_read_credential: true,
+        disabled: false,
+    };
+    let encoded = to_value(&response).expect("serialize readiness response");
+    let object = encoded.as_object().expect("readiness object");
+    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "connection_key",
+            "disabled",
+            "has_read_credential",
+            "mode",
+            "readiness",
+        ],
+        "readiness must expose exactly the planned non-secret fields"
+    );
+    assert_eq!(object["mode"], json!("token"));
+    assert_eq!(object["readiness"], json!("token"));
+    assert_eq!(object["has_read_credential"], json!(true));
+    assert_eq!(object["disabled"], json!(false));
+    for forbidden in [
+        "app_id",
+        "app_private_key",
+        "installation_id",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "base_url",
+        "display_name",
+        "provider",
+        "group_path",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "readiness must not carry {forbidden}"
+        );
+    }
+
+    let decoded: GitConnectionReadinessResponse =
+        from_value(encoded).expect("deserialize readiness response");
+    assert_eq!(decoded, response);
+}
+
+#[test]
 fn webhook_registration_and_delivery_round_trip() {
     let registration = GitWebhookRegistration {
         repository_key: repository_key(),
@@ -308,6 +392,254 @@ fn webhook_registration_and_delivery_round_trip() {
     assert!(encoded.get("processed_at").is_none());
     let decoded: GitWebhookDelivery = from_value(encoded).expect("deserialize delivery");
     assert_eq!(decoded, delivery);
+}
+
+/// A minimal create body: the hook identity plus the existing ownership enum.
+fn registration_body() -> serde_json::Value {
+    json!({
+        "provider": "github",
+        "external_hook_id": "hook-42",
+        "ownership": "integration"
+    })
+}
+
+#[test]
+fn webhook_registration_request_is_exactly_the_hook_identity_and_one_value() {
+    let minimal: GitWebhookRegistrationRequest =
+        from_value(registration_body()).expect("minimal registration body");
+    assert_eq!(minimal.signing_secret, None);
+    assert!(!minimal.is_active());
+    assert!(minimal.validate_for_create().is_ok());
+
+    for missing in ["provider", "external_hook_id", "ownership"] {
+        let mut body = registration_body();
+        body.as_object_mut().expect("object").remove(missing);
+        assert!(
+            from_value::<GitWebhookRegistrationRequest>(body).is_err(),
+            "{missing} is required"
+        );
+    }
+
+    // The only optional field is the value to seal. No internal store reference,
+    // no lifecycle flag, and no echo of the sealed value may ride along, so a
+    // create can never aim at another record's secret or activate a hook by
+    // assertion. Every sample carries an inert placeholder and the assertion never
+    // echoes a payload.
+    for field in [
+        "signing_secret_key",
+        "secret_key",
+        "signing_secret_reference",
+        "active",
+        "has_signing_secret",
+    ] {
+        let mut body = registration_body();
+        body.as_object_mut()
+            .expect("object")
+            .insert(field.to_string(), json!("placeholder"));
+        assert!(
+            from_value::<GitWebhookRegistrationRequest>(body).is_err(),
+            "unknown registration field {field} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn the_signing_secret_round_trips_untrimmed_and_decides_the_active_state() {
+    // A generated synthetic value, so no secret-shaped literal is embedded in the
+    // suite while the wire shape is still asserted.
+    let synthetic = format!("synthetic-{}", Uuid::new_v4());
+    let padded = format!("  {synthetic}  ");
+    for value in [synthetic.clone(), padded.clone()] {
+        let mut body = registration_body();
+        body.as_object_mut()
+            .expect("object")
+            .insert("signing_secret".to_string(), json!(value));
+        let decoded: GitWebhookRegistrationRequest =
+            from_value(body.clone()).expect("a body with a signing secret");
+        assert_eq!(decoded.signing_secret.as_deref(), Some(value.as_str()));
+        assert_eq!(
+            decoded.signing_secret_value(),
+            Some(value.as_str()),
+            "the value is preserved exactly: a provider signs over the exact \
+             configured secret"
+        );
+        assert!(decoded.is_active());
+        assert_eq!(
+            to_value(&decoded).expect("serialize the request")["signing_secret"],
+            json!(value),
+            "a supplied secret round-trips byte for byte"
+        );
+    }
+    // An omitted secret stays absent on the wire instead of serializing as null.
+    let minimal: GitWebhookRegistrationRequest =
+        from_value(registration_body()).expect("minimal registration body");
+    assert!(
+        to_value(&minimal)
+            .expect("serialize the request")
+            .get("signing_secret")
+            .is_none(),
+        "an omitted secret is not serialized"
+    );
+}
+
+#[test]
+fn the_registration_request_validates_the_hook_id_and_a_blank_secret() {
+    let mut bounded = registration_body();
+    bounded["external_hook_id"] = json!("h".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS));
+    assert!(
+        from_value::<GitWebhookRegistrationRequest>(bounded.clone())
+            .expect("the longest accepted hook id")
+            .validate_for_create()
+            .is_ok()
+    );
+    bounded["external_hook_id"] = json!("h".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS + 1));
+    assert_eq!(
+        from_value::<GitWebhookRegistrationRequest>(bounded)
+            .expect("an over-long hook id still decodes")
+            .validate_for_create()
+            .err(),
+        Some(GitWebhookRegistrationRejection::HookIdTooLong)
+    );
+    for blank in ["", "  ", "\t"] {
+        let mut body = registration_body();
+        body["external_hook_id"] = json!(blank);
+        assert_eq!(
+            from_value::<GitWebhookRegistrationRequest>(body)
+                .expect("a blank hook id still decodes")
+                .validate_for_create()
+                .err(),
+            Some(GitWebhookRegistrationRejection::HookIdBlank),
+            "a blank hook id names no hook"
+        );
+    }
+    for blank in ["", "   "] {
+        let mut body = registration_body();
+        body["signing_secret"] = json!(blank);
+        let request: GitWebhookRegistrationRequest =
+            from_value(body).expect("a blank secret still decodes");
+        assert_eq!(
+            request.validate_for_create().err(),
+            Some(GitWebhookRegistrationRejection::SigningSecretBlank),
+            "asking to set a secret while sending none is a contradiction"
+        );
+        assert_eq!(request.signing_secret_value(), None);
+        assert!(!request.is_active());
+    }
+    // The declared schema bound is the same bound the runtime validator enforces,
+    // so a generated client cannot send a hook id the API only rejects afterwards.
+    let schema = schema_for!(GitWebhookRegistrationRequest);
+    let properties = schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("registration request properties");
+    let mut names: Vec<&str> = properties.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec![
+            "external_hook_id",
+            "ownership",
+            "provider",
+            "signing_secret"
+        ],
+        "the body carries the hook identity and the one value to seal"
+    );
+    let hook_id = properties
+        .get("external_hook_id")
+        .and_then(|hook_id| hook_id.as_object())
+        .expect("external_hook_id schema");
+    assert_eq!(
+        (
+            hook_id.get("minLength").and_then(|value| value.as_u64()),
+            hook_id.get("maxLength").and_then(|value| value.as_u64()),
+        ),
+        (Some(1), Some(GIT_WEBHOOK_HOOK_ID_MAX_CHARS as u64)),
+        "the declared hook-id bound is the runtime bound"
+    );
+    // The secret is the one optional field, and its bound lives in the sealed
+    // store, not in this schema: pinning a length here would either truncate a
+    // legitimate secret or advertise an internal limit.
+    let secret = properties
+        .get("signing_secret")
+        .and_then(|secret| secret.as_object())
+        .expect("signing_secret schema");
+    assert!(
+        !secret.contains_key("maxLength") && !secret.contains_key("writeOnly"),
+        "the value to seal carries no declared length or echo behaviour"
+    );
+    let required = schema
+        .get("required")
+        .and_then(|required| required.as_array())
+        .expect("registration required fields");
+    let mut required: Vec<&str> = required.iter().filter_map(|name| name.as_str()).collect();
+    required.sort_unstable();
+    assert_eq!(
+        required,
+        vec!["external_hook_id", "ownership", "provider"],
+        "only the secret may be absent"
+    );
+}
+
+#[test]
+fn the_hook_id_bound_counts_utf8_bytes_so_the_ingress_agrees_on_every_id() {
+    // The signed ingress measures its own path segment in bytes, so a hook id that
+    // fits a character count but exceeds the byte bound would be stored here and
+    // then refused by the one route that must resolve it. These two ids differ only
+    // in how many bytes they occupy, and the validator has to split on exactly
+    // that line: the same character count, one byte under and one byte over.
+    let accepted = "é".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS / 2) + "e";
+    let refused = "é".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS / 2) + "é";
+    assert_eq!(
+        (accepted.chars().count(), accepted.len()),
+        (128, GIT_WEBHOOK_HOOK_ID_MAX_CHARS),
+        "the accepted id is exactly at the byte bound"
+    );
+    assert_eq!(
+        (refused.chars().count(), refused.len()),
+        (128, GIT_WEBHOOK_HOOK_ID_MAX_CHARS + 1),
+        "the refused id has the same character count and one more byte"
+    );
+    for (label, hook_id, expected) in [
+        (
+            "at the bound",
+            accepted.clone(),
+            Ok::<(), GitWebhookRegistrationRejection>(()),
+        ),
+        (
+            "one codepoint over the bound",
+            refused.clone(),
+            Err(GitWebhookRegistrationRejection::HookIdTooLong),
+        ),
+    ] {
+        let mut request = registration_request();
+        request.external_hook_id = hook_id;
+        assert_eq!(
+            request.validate_for_create(),
+            expected,
+            "a multibyte id {label} is decided by its bytes, not its characters"
+        );
+    }
+    // A four-byte codepoint is refused long before the character count reaches the
+    // bound, which is the case a character-counting validator would let through.
+    let mut wide = registration_request();
+    wide.external_hook_id = "🔔".repeat(64);
+    assert!(
+        wide.external_hook_id.chars().count() < GIT_WEBHOOK_HOOK_ID_MAX_CHARS,
+        "the wide id is short in characters"
+    );
+    assert_eq!(
+        wide.validate_for_create().err(),
+        Some(GitWebhookRegistrationRejection::HookIdTooLong),
+        "256 bytes of a four-byte codepoint are refused even though the id is only \
+         64 characters long"
+    );
+}
+
+/// A registration request with a synthetic hook id, for the bound tests.
+fn registration_request() -> GitWebhookRegistrationRequest {
+    let mut body = registration_body();
+    body["external_hook_id"] = json!("hook-42");
+    from_value(body).expect("minimal registration body")
 }
 
 fn table_body<'a>(sql: &'a str, table: &str) -> &'a str {
@@ -588,4 +920,891 @@ fn generation_contract_tolerates_absent_optional_fields() {
     assert_eq!(generation.status, GitGenerationStatus::Building);
     assert_eq!(generation.error_code, None);
     assert_eq!(generation.completed_at, None);
+}
+
+#[test]
+fn registration_request_defaults_policies_without_optional_fields() {
+    let request: GitRepositoryRegistrationRequest = from_value(json!({
+        "canonical_url": "https://github.com/cloudiful/context69",
+        "default_branch": "main",
+        "target_ref": "refs/heads/main"
+    }))
+    .expect("minimal registration request");
+
+    assert_eq!(request.index_profile, GitIndexProfile::Lexical);
+    assert_eq!(request.refresh_policy, GitRefreshPolicy::Manual);
+    assert_eq!(request.pinned_commit, None);
+}
+
+#[test]
+fn registration_request_round_trips_pin_and_policies_without_secret_fields() {
+    let request = GitRepositoryRegistrationRequest {
+        canonical_url: "https://github.com/cloudiful/context69".to_string(),
+        default_branch: "main".to_string(),
+        target_ref: "refs/tags/v1.2.3".to_string(),
+        pinned_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+        index_profile: GitIndexProfile::Hybrid,
+        refresh_policy: GitRefreshPolicy::Webhook,
+    };
+    let encoded = to_value(&request).expect("serialize request");
+    assert_eq!(encoded["index_profile"], json!("hybrid"));
+    assert_eq!(encoded["refresh_policy"], json!("webhook"));
+    assert_eq!(
+        encoded["pinned_commit"],
+        json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+
+    // Registration carries no credential or provider-connection material.
+    let object = encoded.as_object().expect("request object");
+    for forbidden in [
+        "connection_key",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "access_token",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "registration request must not carry {forbidden}"
+        );
+    }
+
+    let decoded: GitRepositoryRegistrationRequest =
+        from_value(encoded).expect("deserialize request");
+    assert_eq!(decoded, request);
+}
+
+#[test]
+fn registration_request_omits_absent_optional_pin() {
+    let request = GitRepositoryRegistrationRequest {
+        canonical_url: "https://github.com/cloudiful/context69".to_string(),
+        default_branch: "main".to_string(),
+        target_ref: "HEAD".to_string(),
+        pinned_commit: None,
+        index_profile: GitIndexProfile::Lexical,
+        refresh_policy: GitRefreshPolicy::Manual,
+    };
+    let encoded = to_value(&request).expect("serialize request");
+    assert!(encoded.get("pinned_commit").is_none());
+    assert_eq!(encoded["index_profile"], json!("lexical"));
+    assert_eq!(encoded["refresh_policy"], json!("manual"));
+}
+
+#[test]
+fn connection_request_carries_only_the_existing_connection_key() {
+    let request = GitRepositoryConnectionRequest {
+        connection_key: "github-app-main".to_string(),
+    };
+    let encoded = to_value(&request).expect("serialize request");
+    assert_eq!(encoded, json!({ "connection_key": "github-app-main" }));
+
+    // No credential, token, secret-store key, or other connection field may ride
+    // along: attaching metadata can never configure or create a connection.
+    let object = encoded.as_object().expect("request object");
+    for forbidden in [
+        "connection_mode",
+        "mode",
+        "base_url",
+        "display_name",
+        "credential_secret_key",
+        "webhook_secret_key",
+        "access_token",
+        "disabled",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "connection request must not carry {forbidden}"
+        );
+    }
+    for extra in [
+        json!({ "connection_key": "github-app", "access_token": "ghp_secret" }),
+        json!({ "connection_key": "github-app", "credential_secret_key": "internal/secret/read" }),
+        json!({ "connection_key": "github-app", "disabled": false }),
+    ] {
+        assert!(
+            from_value::<GitRepositoryConnectionRequest>(extra.clone()).is_err(),
+            "unknown connection fields must be rejected: {extra}"
+        );
+    }
+    assert!(
+        from_value::<GitRepositoryConnectionRequest>(json!({})).is_err(),
+        "connection_key is required"
+    );
+
+    let decoded: GitRepositoryConnectionRequest = from_value(encoded).expect("deserialize request");
+    assert_eq!(decoded, request);
+}
+
+#[test]
+fn connection_request_schema_declares_the_key_bounds() {
+    let schema = schema_for!(GitRepositoryConnectionRequest);
+    let key = schema
+        .get("properties")
+        .and_then(|properties| properties.get("connection_key"))
+        .expect("connection_key property");
+    assert_eq!(
+        key.get("type").and_then(|kind| kind.as_str()),
+        Some("string")
+    );
+    assert_eq!(key.get("minLength").and_then(|min| min.as_u64()), Some(1));
+    assert_eq!(
+        key.get("maxLength").and_then(|max| max.as_u64()),
+        Some(GIT_CONNECTION_KEY_MAX_CHARS as u64),
+    );
+    assert!(
+        schema.get("required").is_some(),
+        "the runtime validator requires connection_key, so the schema must too"
+    );
+}
+
+#[test]
+fn connection_request_validates_key_bounds_without_a_lookup() {
+    let accepted = GitRepositoryConnectionRequest {
+        connection_key: "github_app-main.1".to_string(),
+    };
+    assert_eq!(
+        accepted.validated_connection_key().expect("safe key"),
+        "github_app-main.1"
+    );
+
+    for (key, expected) in [
+        ("", GitConnectionKeyRejection::Blank),
+        ("  ", GitConnectionKeyRejection::Blank),
+    ] {
+        let request = GitRepositoryConnectionRequest {
+            connection_key: key.to_string(),
+        };
+        assert_eq!(request.validated_connection_key(), Err(expected));
+    }
+
+    let oversized = "k".repeat(GIT_CONNECTION_KEY_MAX_CHARS + 1);
+    assert_eq!(
+        GitRepositoryConnectionRequest {
+            connection_key: oversized
+        }
+        .validated_connection_key(),
+        Err(GitConnectionKeyRejection::TooLong)
+    );
+    let longest_allowed = "k".repeat(GIT_CONNECTION_KEY_MAX_CHARS);
+    assert!(
+        GitRepositoryConnectionRequest {
+            connection_key: longest_allowed
+        }
+        .validated_connection_key()
+        .is_ok()
+    );
+
+    // A secret-store reference and a path/control form are both refused: the
+    // accepted charset has no separator or whitespace, so secret material can
+    // never be submitted as a connection key.
+    for unsafe_key in [
+        "internal/secret/read-token",
+        "secret:read-token",
+        "github app",
+        "github\napp",
+        "..",
+        ".github-app",
+    ] {
+        assert_eq!(
+            GitRepositoryConnectionRequest {
+                connection_key: unsafe_key.to_string()
+            }
+            .validated_connection_key(),
+            Err(GitConnectionKeyRejection::Unsafe),
+            "unsafe key must be refused: {unsafe_key:?}"
+        );
+    }
+
+    // A token-shaped value is indistinguishable from a key by shape alone, so
+    // the charset check does not claim to be the secret guard: it is the
+    // group-scoped existence lookup that keeps such a value from ever being
+    // stored, and the projection that keeps it from ever being disclosed.
+    let token_shaped = GitRepositoryConnectionRequest {
+        connection_key: "ghp_16C7e42F292c6912E7710c838347Ae178B4a".to_string(),
+    };
+    assert_eq!(
+        token_shaped
+            .validated_connection_key()
+            .expect("well-formed key"),
+        "ghp_16C7e42F292c6912E7710c838347Ae178B4a"
+    );
+    // The create path key shares the exact validator, so both request types
+    // accept and refuse the same keys without duplicating the charset. The
+    // sample keys are descriptive, never secret-store or credential shaped.
+    for key in ["github-app", "", "bad key", "..", "caf\u{e9}"] {
+        assert_eq!(
+            validate_git_connection_key(key),
+            GitRepositoryConnectionRequest {
+                connection_key: key.to_string()
+            }
+            .validated_connection_key(),
+            "the shared validator must agree on {key:?}"
+        );
+    }
+}
+
+fn create_request() -> GitProviderConnectionRequest {
+    GitProviderConnectionRequest {
+        provider: GitProviderKind::GitHub,
+        mode: GitConnectionMode::Token,
+        display_name: "GitHub PAT".to_string(),
+        base_url: "https://api.github.com".to_string(),
+        read_credential: GitReadCredentialPatch::Keep,
+    }
+}
+
+#[test]
+fn connection_create_request_defaults_to_keep_and_rejects_unknown_fields() {
+    let minimal: GitProviderConnectionRequest = from_value(json!({
+        "provider": "github",
+        "mode": "token",
+        "display_name": "GitHub PAT",
+        "base_url": "https://api.github.com"
+    }))
+    .expect("minimal create body");
+    assert_eq!(minimal.read_credential, GitReadCredentialPatch::Keep);
+    assert!(minimal.validate_for_create().is_ok());
+
+    for missing in ["provider", "mode", "display_name", "base_url"] {
+        let mut body = json!({
+            "provider": "github",
+            "mode": "token",
+            "display_name": "GitHub PAT",
+            "base_url": "https://api.github.com"
+        });
+        body.as_object_mut().expect("object").remove(missing);
+        assert!(
+            from_value::<GitProviderConnectionRequest>(body).is_err(),
+            "{missing} is required"
+        );
+    }
+
+    // No secret-store reference, App key, webhook, or installation field may
+    // ride along: creating a connection can never name someone else's secret.
+    // The unknown field is rejected on its name alone, so every sample carries
+    // an inert placeholder and the assertion never echoes a payload.
+    for field in [
+        "credential_secret_key",
+        "app_private_key",
+        "webhook_secret_key",
+        "installation_id",
+    ] {
+        let mut body = json!({
+            "provider": "github",
+            "mode": "token",
+            "display_name": "GitHub PAT",
+            "base_url": "https://api.github.com"
+        });
+        body.as_object_mut()
+            .expect("object")
+            .insert(field.to_string(), json!("placeholder"));
+        assert!(
+            from_value::<GitProviderConnectionRequest>(body).is_err(),
+            "unknown create field {field} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn connection_create_request_round_trips_the_read_credential_patch() {
+    // A generated synthetic value, so no credential-shaped literal is embedded
+    // in the suite while the exact `set` wire shape is still asserted.
+    let synthetic = format!("synthetic-{}", Uuid::new_v4());
+    for (label, patch, expected) in [
+        ("keep", GitReadCredentialPatch::Keep, json!({"op": "keep"})),
+        (
+            "set",
+            GitReadCredentialPatch::Set(synthetic.clone()),
+            json!({"op": "set", "value": synthetic.clone()}),
+        ),
+        (
+            "clear",
+            GitReadCredentialPatch::Clear,
+            json!({"op": "clear"}),
+        ),
+    ] {
+        let mut request = create_request();
+        request.read_credential = patch.clone();
+        let encoded = to_value(&request).expect("serialize create request");
+        assert!(
+            encoded.get("read_credential") == Some(&expected),
+            "the {label} patch must keep its wire shape"
+        );
+        let decoded: GitProviderConnectionRequest =
+            from_value(encoded).expect("deserialize create request");
+        assert!(
+            decoded.read_credential == patch,
+            "the {label} patch must round-trip"
+        );
+    }
+
+    // A missing patch is Keep, never a rotate or clear, and only a non-blank
+    // Set yields a value for the server-side writer.
+    let request: GitProviderConnectionRequest = from_value(json!({
+        "provider": "github",
+        "mode": "token",
+        "display_name": "GitHub PAT",
+        "base_url": "https://api.github.com"
+    }))
+    .expect("body without read_credential");
+    assert!(request.read_credential.is_keep());
+    assert!(!request.read_credential.is_clear());
+    assert_eq!(request.read_credential.set_value(), None);
+    // A non-blank `Set` yields the value for the writer; a blank one is refused
+    // by `validate_for_create` before this point and yields nothing here.
+    let synthetic = format!("synthetic-{}", Uuid::new_v4());
+    let set = GitReadCredentialPatch::Set(synthetic.clone());
+    assert!(set.set_value() == Some(synthetic.as_str()));
+    assert_eq!(
+        GitReadCredentialPatch::Set("   ".to_string()).set_value(),
+        None
+    );
+}
+
+#[test]
+fn connection_create_request_validation_is_bounded_and_secret_free() {
+    assert!(create_request().validate_for_create().is_ok());
+
+    let cases: Vec<(GitProviderConnectionRequest, GitConnectionRequestRejection)> = vec![
+        (
+            GitProviderConnectionRequest {
+                display_name: "   ".to_string(),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::DisplayNameBlank,
+        ),
+        (
+            GitProviderConnectionRequest {
+                display_name: "d".repeat(GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS + 1),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::DisplayNameTooLong,
+        ),
+        (
+            GitProviderConnectionRequest {
+                base_url: "  ".to_string(),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::BaseUrlBlank,
+        ),
+        (
+            GitProviderConnectionRequest {
+                base_url: "h".repeat(GIT_CONNECTION_BASE_URL_MAX_CHARS + 1),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::BaseUrlTooLong,
+        ),
+        (
+            GitProviderConnectionRequest {
+                base_url: "file:///etc/passwd".to_string(),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::BaseUrlUnsupported,
+        ),
+        (
+            GitProviderConnectionRequest {
+                read_credential: GitReadCredentialPatch::Set("   ".to_string()),
+                ..create_request()
+            },
+            GitConnectionRequestRejection::CredentialSetBlank,
+        ),
+        (
+            GitProviderConnectionRequest {
+                read_credential: GitReadCredentialPatch::Clear,
+                ..create_request()
+            },
+            GitConnectionRequestRejection::CredentialClearUnsupported,
+        ),
+    ];
+    for (request, expected) in cases {
+        let rejection = request.validate_for_create().expect_err("must be refused");
+        assert_eq!(rejection, expected);
+        // The bounded reason is a stable code that never echoes the submitted
+        // value, so it is safe to surface in an error body or an assertion.
+        let reason = rejection.as_str();
+        assert!(
+            reason.starts_with("git_connection_") && reason.is_ascii(),
+            "the reason is a bounded stable code"
+        );
+        for forbidden in ["https://", "file://", "   "] {
+            assert!(
+                !reason.contains(forbidden),
+                "reason must not echo a submitted value"
+            );
+        }
+    }
+    assert_eq!(
+        GitConnectionRequestRejection::CredentialClearUnsupported.as_str(),
+        "git_connection_secret_clear_unsupported_on_create"
+    );
+    assert_eq!(
+        GitConnectionRequestRejection::CredentialSetBlank.as_str(),
+        "git_connection_secret_set_blank"
+    );
+}
+
+#[test]
+fn connection_create_request_schema_declares_metadata_and_the_patch() {
+    let schema = schema_for!(GitProviderConnectionRequest);
+    let properties = schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("create properties");
+    let mut keys = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "base_url",
+            "display_name",
+            "mode",
+            "provider",
+            "read_credential",
+        ],
+        "the create schema exposes exactly the planned non-secret fields"
+    );
+    assert_eq!(
+        schema
+            .get("additionalProperties")
+            .and_then(|value| value.as_bool()),
+        Some(false),
+        "deny_unknown_fields must be reflected in the schema"
+    );
+    let required = schema
+        .get("required")
+        .and_then(|required| required.as_array())
+        .expect("required fields");
+    let required: Vec<&str> = required.iter().filter_map(|value| value.as_str()).collect();
+    for field in ["provider", "mode", "display_name", "base_url"] {
+        assert!(required.contains(&field), "the schema must require {field}");
+    }
+    assert!(
+        !required.contains(&"read_credential"),
+        "read_credential defaults to keep, so it is not required"
+    );
+    for forbidden in [
+        "credential_secret_key",
+        "webhook_secret_key",
+        "app_private_key",
+        "installation_id",
+    ] {
+        assert!(
+            !properties.contains_key(forbidden),
+            "create schema must not carry {forbidden}"
+        );
+    }
+    let patch_field = properties
+        .get("read_credential")
+        .expect("read_credential property");
+    assert!(!patch_field.is_null(), "the patch field must be defined");
+    let schema_text = serde_json::to_string(&serde_json::to_value(&schema).expect("schema value"))
+        .expect("schema text");
+    for op in ["keep", "set", "clear"] {
+        assert!(
+            schema_text.contains(op),
+            "the create schema must carry the {op} patch op"
+        );
+    }
+    assert_eq!(
+        properties
+            .get("display_name")
+            .and_then(|field| field.get("maxLength"))
+            .and_then(|max| max.as_u64()),
+        Some(GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS as u64)
+    );
+    assert_eq!(
+        properties
+            .get("base_url")
+            .and_then(|field| field.get("maxLength"))
+            .and_then(|max| max.as_u64()),
+        Some(GIT_CONNECTION_BASE_URL_MAX_CHARS as u64)
+    );
+}
+
+#[test]
+fn manifest_page_exposes_only_provenance_coverage_and_pagination() {
+    let page = sample_manifest_page(false);
+    let encoded = to_value(&page).expect("serialize manifest page");
+    let object = encoded.as_object().expect("manifest page object");
+    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "checkpoint",
+            "commit_sha",
+            "excluded_file_count",
+            "file_count",
+            "files",
+            "generation_key",
+            "generation_number",
+            "index_status",
+            "pagination",
+            "ref_name",
+            "repository_key",
+            "total_bytes",
+        ],
+        "the manifest page exposes exactly the planned fields: no bytes, chunks, \
+         or connection state travel with a manifest entry"
+    );
+    assert_eq!(object["generation_number"], json!(4));
+    assert_eq!(object["ref_name"], json!("refs/heads/main"));
+    assert_eq!(object["commit_sha"], json!(page.commit_sha));
+    assert_eq!(object["index_status"], json!("stale"));
+    assert_eq!(object["file_count"], json!(120));
+    assert_eq!(object["excluded_file_count"], json!(3));
+    assert_eq!(object["total_bytes"], json!(4096));
+    assert_eq!(
+        object["checkpoint"]["indexed_commit_sha"],
+        json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "a page states which commit is indexed, not only which one it serves"
+    );
+    assert_eq!(object["files"][0]["path"], json!("src/main.rs"));
+    let serialized = serde_json::to_string(&page).expect("serialize manifest page");
+    for forbidden in [
+        "internal/secret",
+        "credential_secret_key",
+        "provider_blob_sha",
+        "chunk",
+        "text",
+        "canonical_url",
+        "connection_key",
+    ] {
+        assert!(
+            !serialized.contains(forbidden),
+            "the manifest page must not project {forbidden}: {serialized}"
+        );
+    }
+
+    let decoded: GitRepositoryFileListResponse = from_value(encoded).expect("deserialize page");
+    assert_eq!(decoded.files, page.files);
+    assert_eq!(
+        to_value(&decoded.pagination).expect("serialize pagination"),
+        to_value(&page.pagination).expect("serialize pagination")
+    );
+    assert_eq!(decoded.commit_sha, page.commit_sha);
+    assert_eq!(decoded.checkpoint, page.checkpoint);
+}
+
+#[test]
+fn manifest_page_carries_the_shared_cursor_continuation() {
+    // A continued page hands back the shared cursor token, and a terminal page
+    // omits it instead of sending an empty string a client could replay.
+    let continued = sample_manifest_page(true);
+    let encoded = to_value(&continued).expect("serialize continued page");
+    assert_eq!(encoded["pagination"]["has_more"], json!(true));
+    assert_eq!(encoded["pagination"]["next_cursor"], json!("10"));
+    continued
+        .pagination
+        .validate_continuation()
+        .expect("has_more must carry its continuation token");
+
+    let terminal = sample_manifest_page(false);
+    let encoded = to_value(&terminal).expect("serialize terminal page");
+    assert_eq!(encoded["pagination"]["has_more"], json!(false));
+    assert!(
+        encoded["pagination"]
+            .as_object()
+            .expect("pagination object")
+            .get("next_cursor")
+            .is_none(),
+        "a terminal page must omit next_cursor"
+    );
+    assert!(terminal.pagination.is_terminal());
+}
+
+#[test]
+fn manifest_page_schema_pins_the_bounded_query_and_response() {
+    let page_schema = schema_for!(GitRepositoryFileListResponse);
+    let properties = page_schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("manifest page properties");
+    for field in ["files", "pagination", "checkpoint", "index_status"] {
+        assert!(properties.contains_key(field), "page schema needs {field}");
+    }
+    let files = properties
+        .get("files")
+        .and_then(|files| files.get("items"))
+        .expect("files items");
+    assert_eq!(
+        files.get("$ref").and_then(|reference| reference.as_str()),
+        Some("#/$defs/GitRepositoryFile"),
+        "the page reuses the existing manifest entry projection unchanged"
+    );
+    let entry_properties = schema_for!(GitRepositoryFile)
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("manifest entry properties")
+        .clone();
+    let mut entry_keys = entry_properties
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    entry_keys.sort_unstable();
+    assert_eq!(
+        entry_keys,
+        vec![
+            "byte_count",
+            "created_at",
+            "file_key",
+            "generation_key",
+            "language",
+            "line_count",
+            "path",
+            "repository_key",
+        ],
+        "a manifest entry stays identity plus counters; bytes and chunks are read elsewhere"
+    );
+
+    // The read path pages with the shared cursor query, so its bounds are the
+    // same ones every other cursor consumer is held to.
+    let query = schema_for!(CursorPageQuery);
+    let limit = query.pointer("/properties/limit").expect("limit property");
+    assert_eq!(
+        limit.get("minimum").and_then(|value| value.as_u64()),
+        Some(1)
+    );
+    assert_eq!(
+        limit.get("maximum").and_then(|value| value.as_u64()),
+        Some(100)
+    );
+    assert!(
+        query
+            .get("properties")
+            .and_then(|properties| properties.as_object())
+            .expect("query properties")
+            .contains_key("cursor"),
+        "the manifest page continues with an opaque cursor"
+    );
+}
+
+fn sample_manifest_page(has_more: bool) -> GitRepositoryFileListResponse {
+    GitRepositoryFileListResponse {
+        repository_key: repository_key(),
+        generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+        generation_number: 4,
+        ref_name: "refs/heads/main".to_string(),
+        commit_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        index_status: GitIndexStatus::Stale,
+        checkpoint: GitCommitCheckpoint {
+            target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+            indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+            indexed_at: Some(timestamp()),
+            checkpoint_updated_at: Some(timestamp()),
+        },
+        file_count: 120,
+        excluded_file_count: 3,
+        total_bytes: 4096,
+        files: vec![GitRepositoryFile {
+            file_key: Uuid::parse_str("018f9f40-1111-7000-8000-0000000000c1").expect("uuid"),
+            generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+            repository_key: repository_key(),
+            path: "src/main.rs".to_string(),
+            language: "rust".to_string(),
+            byte_count: 512,
+            line_count: 20,
+            created_at: timestamp(),
+        }],
+        pagination: CursorPagination::new(has_more.then(|| "10".to_string()), has_more),
+    }
+}
+
+#[test]
+fn file_detail_exposes_only_the_entry_and_its_generation() {
+    let detail = sample_file_detail();
+    let encoded = to_value(&detail).expect("serialize file detail");
+    let object = encoded.as_object().expect("detail object");
+    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "checkpoint",
+            "commit_sha",
+            "excluded_file_count",
+            "file",
+            "file_count",
+            "generation_key",
+            "generation_number",
+            "index_status",
+            "ref_name",
+            "repository_key",
+            "total_bytes",
+        ],
+        "the detail exposes exactly the entry plus generation provenance and coverage; \
+         there is no content window, line or byte range, and no pagination"
+    );
+    assert_eq!(
+        object["file"]["path"],
+        json!("src/db/git_repositories/files.rs")
+    );
+    assert_eq!(object["generation_number"], json!(4));
+    assert_eq!(object["index_status"], json!("stale"));
+    assert_eq!(object["file_count"], json!(120));
+    assert_eq!(
+        object["checkpoint"]["indexed_commit_sha"],
+        json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "a detail read states which commit is indexed, not only which one it serves"
+    );
+    for forbidden in [
+        "content",
+        "text",
+        "chunks",
+        "start_line",
+        "end_line",
+        "provider_blob_sha",
+        "pagination",
+        "next_cursor",
+        "secret",
+        "connection_key",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "the detail must not carry {forbidden}"
+        );
+    }
+    let serialized = serde_json::to_string(&detail).expect("serialize file detail");
+    for forbidden in ["internal/secret", "canonical_url", "cccccccccccccccc"] {
+        assert!(
+            !serialized.contains(forbidden),
+            "the detail must not project {forbidden}: {serialized}"
+        );
+    }
+
+    let decoded: GitRepositoryFileDetailResponse =
+        from_value(encoded).expect("deserialize file detail");
+    assert_eq!(decoded.file, detail.file);
+    assert_eq!(decoded.checkpoint, detail.checkpoint);
+    assert_eq!(decoded.commit_sha, detail.commit_sha);
+}
+
+#[test]
+fn file_detail_reuses_the_unchanged_manifest_entry_projection() {
+    let entry = sample_manifest_entry();
+    let detail = sample_file_detail();
+    assert_eq!(
+        detail.file, entry,
+        "a detail read returns exactly the entry a manifest page returns"
+    );
+    let entry_schema = schema_for!(GitRepositoryFile);
+    let detail_schema = schema_for!(GitRepositoryFileDetailResponse);
+    let entry_properties = entry_schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("entry properties")
+        .clone();
+    let embedded = detail_schema
+        .pointer("/properties/file")
+        .expect("detail file property");
+    assert!(
+        embedded.get("items").is_none(),
+        "the detail carries one entry, not a list"
+    );
+    let embedded_type = embedded
+        .get("allOf")
+        .and_then(|all_of| all_of[0].get("$ref"))
+        .or_else(|| embedded.get("$ref"))
+        .and_then(|reference| reference.as_str())
+        .expect("detail file refs the entry schema");
+    assert_eq!(embedded_type, "#/$defs/GitRepositoryFile");
+    let mut entry_keys = entry_properties
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    entry_keys.sort_unstable();
+    assert_eq!(
+        entry_keys,
+        vec![
+            "byte_count",
+            "created_at",
+            "file_key",
+            "generation_key",
+            "language",
+            "line_count",
+            "path",
+            "repository_key",
+        ],
+        "the manifest entry stays identity plus counters in both reads"
+    );
+}
+
+#[test]
+fn file_detail_query_declares_one_bounded_path_parameter() {
+    let query = schema_for!(GitRepositoryFileQuery);
+    let properties = query
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("query properties");
+    let mut keys = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["path"],
+        "the read takes one path and nothing else"
+    );
+    let path = properties.get("path").expect("path property");
+    assert_eq!(
+        path.get("maxLength").and_then(|value| value.as_u64()),
+        Some(GIT_REPOSITORY_FILE_PATH_MAX_CHARS as u64),
+        "the declared bound is the acquisition bound, so a generated client \
+         learns the same limit the validator enforces"
+    );
+    let required = query
+        .get("required")
+        .and_then(|required| required.as_array())
+        .expect("required fields");
+    assert!(
+        required
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|name| name == "path"),
+        "a read with no path is not a read"
+    );
+    // The bound must not become a minimum, a default, or a validated charset:
+    // repository paths legitimately contain `/`, `.`, and Unicode.
+    assert!(path.get("minimum").is_none());
+    assert!(path.get("minLength").is_none());
+    assert!(path.get("pattern").is_none());
+
+    let decoded: GitRepositoryFileQuery =
+        from_value(json!({ "path": "src/main.rs" })).expect("decode query");
+    assert_eq!(decoded.path, "src/main.rs");
+    assert!(
+        from_value::<GitRepositoryFileQuery>(json!({})).is_err(),
+        "a missing path cannot silently select a default entry"
+    );
+}
+
+fn sample_manifest_entry() -> GitRepositoryFile {
+    GitRepositoryFile {
+        file_key: Uuid::parse_str("018f9f40-1111-7000-8000-0000000000c1").expect("uuid"),
+        generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+        repository_key: repository_key(),
+        path: "src/db/git_repositories/files.rs".to_string(),
+        language: "rust".to_string(),
+        byte_count: 512,
+        line_count: 20,
+        created_at: timestamp(),
+    }
+}
+
+fn sample_file_detail() -> GitRepositoryFileDetailResponse {
+    GitRepositoryFileDetailResponse {
+        repository_key: repository_key(),
+        generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+        generation_number: 4,
+        ref_name: "refs/heads/main".to_string(),
+        commit_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        index_status: GitIndexStatus::Stale,
+        checkpoint: GitCommitCheckpoint {
+            target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+            indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+            indexed_at: Some(timestamp()),
+            checkpoint_updated_at: Some(timestamp()),
+        },
+        file_count: 120,
+        excluded_file_count: 3,
+        total_bytes: 4096,
+        file: sample_manifest_entry(),
+    }
 }

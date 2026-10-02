@@ -24,14 +24,18 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     api::{RequestAuth, optional_auth_middleware},
     contracts::{
-        McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpDocumentArgs,
-        McpDocumentKeyArgs, McpDocumentQueryArgs, McpDocumentQueryResponse, McpSearchRequest,
+        McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpCodeSearchRequest,
+        McpCodeSearchResponse, McpDocumentArgs, McpDocumentKeyArgs, McpDocumentQueryArgs,
+        McpDocumentQueryResponse, McpGetCodeRequest, McpGetCodeResponse, McpSearchRequest,
         McpSearchResponse, McpSourceListArgs, McpSourceListResponse,
     },
     domain::AccessScope,
     services::app::Context69App,
 };
-use tools::{documents as document_tools, search as search_tools, sources as source_tools};
+use tools::{
+    code as code_tools, code_get as code_get_tools, documents as document_tools,
+    search as search_tools, sources as source_tools,
+};
 
 #[derive(Clone)]
 pub struct Context69McpServer {
@@ -278,6 +282,60 @@ impl Context69McpServer {
             .map_err(internal_error)?;
         let summaries = source_tools::summarize_all(&sources);
         Ok(Json(source_tools::paged_response(&summaries, &args)?))
+    }
+
+    #[tool(
+        name = "search_code",
+        description = "Search one Git repository's active index generation. Accepts group_path, repository_key, a bounded query, optional path_prefix/language filters, and limit; returns lexical hits with commit/ref/path/line provenance and generation coverage, plus a truthful truncated flag."
+    )]
+    async fn search_code(
+        &self,
+        Parameters(request): Parameters<McpCodeSearchRequest>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<McpCodeSearchResponse>, McpError> {
+        code_tools::checked_search_args(&request)?;
+        let user_id = self
+            .user_id_from_context(&context)?
+            .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
+        let group = self
+            .app
+            .namespace
+            .get_group_for_user(user_id, &request.group_path)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        let scope = self
+            .scope_from_context(&context, Some(request.group_path.clone()))
+            .await?;
+        let response = code_tools::search(&self.app.db, group.id, &scope, &request).await?;
+        Ok(Json(response))
+    }
+
+    #[tool(
+        name = "get_code",
+        description = "Read one bounded, commit-pinned line window of a file in one Git repository's active index generation. Accepts group_path, repository_key, a safe repository-relative path, inclusive start_line/end_line, and an optional chunk_limit; returns the verbatim stored UTF-8 text with generation provenance, coverage, the exact byte count, and a truthful truncated flag."
+    )]
+    async fn get_code(
+        &self,
+        Parameters(request): Parameters<McpGetCodeRequest>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<McpGetCodeResponse>, McpError> {
+        code_get_tools::checked_get_args(&request)?;
+        let user_id = self
+            .user_id_from_context(&context)?
+            .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
+        let group = self
+            .app
+            .namespace
+            .get_group_for_user(user_id, &request.group_path)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        let scope = self
+            .scope_from_context(&context, Some(request.group_path.clone()))
+            .await?;
+        let response = code_get_tools::get(&self.app.db, group.id, &scope, &request).await?;
+        Ok(Json(response))
     }
 
     async fn visible_sources(

@@ -468,6 +468,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_git_provider_connections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-connections/{connection_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_connection_readiness"];
+        put: operations["create_git_connection"];
+        post?: never;
+        delete: operations["disable_git_connection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-connections/{connection_key}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["enable_git_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_git_repositories"];
+        put?: never;
+        post: operations["register_git_repository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_git_repository_code"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_git_repository_connection"];
+        post?: never;
+        delete: operations["delete_git_repository_connection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diff_git_repository_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository_file_content"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_git_repository_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["index_git_repository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository_webhook"];
+        put: operations["create_git_webhook_registration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/import-url": {
         parameters: {
             query?: never;
@@ -1485,6 +1693,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/webhooks/{provider}/{external_hook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["receive_git_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1717,6 +1941,10 @@ export interface components {
             /** Format: int32 */
             limit?: number;
         };
+        CursorPagination: {
+            has_more: boolean;
+            next_cursor?: string | null;
+        };
         /** @enum {string} */
         DeeplPlan: "free" | "pro";
         DeleteBatchRequest: {
@@ -1938,6 +2166,800 @@ export interface components {
         FileRetryItem: {
             /** Format: uuid */
             file_id: string;
+        };
+        /**
+         * @description Why one chunk was returned by a lexical code query.
+         * @enum {string}
+         */
+        GitCodeMatchKind: "path_exact" | "path_phrase" | "chunk_phrase" | "chunk_terms";
+        /**
+         * @description One bounded code hit with the provenance a caller needs to check it.
+         *
+         *     The stored text is verbatim — same bytes, same line endings, same trailing
+         *     whitespace — so a caller can quote it or cite its inclusive line range. Raw
+         *     acquisition blobs, provider blob ids, secret references, and connection state
+         *     never cross this contract.
+         */
+        GitCodeSearchHit: {
+            /**
+             * Format: int32
+             * @description Zero-based position of the chunk inside its file.
+             */
+            chunk_index: number;
+            /** Format: uuid */
+            chunk_key: string;
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int32
+             * @description Last source line of the chunk, inclusive.
+             */
+            end_line: number;
+            /** Format: uuid */
+            file_key: string;
+            /** Format: uuid */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Classified language of that path. */
+            language: string;
+            /** @description Which side of the match produced this hit. */
+            matched: components["schemas"]["GitCodeMatchKind"];
+            /** @description Repository-relative path the hit was found in. */
+            path: string;
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: float */
+            score: number;
+            /**
+             * Format: int32
+             * @description First source line of the chunk, inclusive and 1-based.
+             */
+            start_line: number;
+            text: string;
+            /** @description Current visibility of the owning group, read at query time. */
+            visibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * @description Query for a bounded lexical search over one repository's active generation.
+         *
+         *     The term is matched whole and case-insensitively against stored code and is
+         *     never rewritten here, so a `%` or `_` stays a literal character.
+         *     `path_prefix` narrows to a repository-relative prefix and is matched
+         *     case-sensitively, the way Git paths are; `language` is the classified token
+         *     the manifest stores.
+         */
+        GitCodeSearchQuery: {
+            /** @description Optional classified language token, such as `rust` or `markdown`. */
+            language?: string | null;
+            /**
+             * Format: int32
+             * @description Most hits to return, 1..=50.
+             */
+            limit?: number;
+            /** @description Optional repository-relative path prefix, matched case-sensitively. */
+            path_prefix?: string | null;
+            /** @description Search term, matched whole and case-insensitively. */
+            query: string;
+        };
+        /**
+         * @description One bounded page of lexical hits over a repository's active generation.
+         *
+         *     The response names the serving generation, so every hit stays attributable to
+         *     a pinned commit, and it reports coverage next to the hits, so a caller can see
+         *     what the search did not cover. `truncated` is true only when the storage layer
+         *     held more hits than the page returns. No cursor is offered: a caller that
+         *     needs more narrows its filters instead.
+         */
+        GitCodeSearchResponse: {
+            /** @description Target/indexed commit checkpoint of the source. */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /** Format: uuid */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description At most `limit` hits, in the storage layer's score/path/chunk order. */
+            hits: components["schemas"]["GitCodeSearchHit"][];
+            /** @description Index lifecycle state of the source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: int64 */
+            total_bytes: number;
+            /** @description Whether more matching hits existed than this response returns. */
+            truncated: boolean;
+        };
+        /**
+         * @description Incremental-sync checkpoint between the target and indexed commits.
+         *
+         *     `indexed_commit_sha` is the last fully indexed commit, so the next sync
+         *     diffs `indexed_commit_sha..target_commit_sha` instead of re-reading the ref.
+         */
+        GitCommitCheckpoint: {
+            /**
+             * Format: date-time
+             * @description When either side of the checkpoint last changed.
+             */
+            checkpoint_updated_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the indexed commit last advanced.
+             */
+            indexed_at?: string | null;
+            indexed_commit_sha?: string | null;
+            target_commit_sha?: string | null;
+        };
+        /**
+         * @description How a Git provider connection authenticates.
+         * @enum {string}
+         */
+        GitConnectionMode: "public" | "installation" | "token";
+        /**
+         * @description Offline readiness of one Git provider connection.
+         *
+         *     Readiness is a projection of persisted, non-secret metadata only. It never
+         *     reflects a provider call, an installation identity, secret-store access, or
+         *     a secret value.
+         * @enum {string}
+         */
+        GitConnectionReadiness: "public" | "token" | "installation" | "incomplete" | "disabled";
+        /**
+         * @description Readiness projection of one group-owned Git provider connection.
+         *
+         *     It reports only the non-secret readiness of the connection: the key, its
+         *     mode, the derived readiness, and the two raw facts the derivation consumes.
+         *     Provider identity, App private keys, secret-store keys, and secret values
+         *     are never part of it.
+         */
+        GitConnectionReadinessResponse: {
+            connection_key: string;
+            disabled: boolean;
+            has_read_credential: boolean;
+            mode: components["schemas"]["GitConnectionMode"];
+            readiness: components["schemas"]["GitConnectionReadiness"];
+        };
+        /**
+         * @description How a repository-relative path differs between two index generations.
+         *
+         *     The kind is decided inside the database, by comparing the two stored provider
+         *     blob ids, and it is the only thing that comparison projects: a path whose
+         *     bytes are identical in both generations is not a change and is omitted, so
+         *     `Modified` always means the stored content address differs, never that a
+         *     rewrite produced different text.
+         * @enum {string}
+         */
+        GitFileChangeKind: "added" | "modified" | "deleted";
+        /**
+         * @description Independent index profile for a Git source.
+         * @enum {string}
+         */
+        GitIndexProfile: "lexical" | "hybrid" | "full_semantic";
+        /**
+         * @description Index lifecycle state of a Git source.
+         * @enum {string}
+         */
+        GitIndexStatus: "pending" | "indexing" | "ready" | "stale" | "failed" | "disabled";
+        /**
+         * @description Provider connection metadata owned by one group.
+         *
+         *     Read credentials and webhook signing secrets live in the internal secret
+         *     store; this contract only reports whether each is configured.
+         */
+        GitProviderConnection: {
+            base_url: string;
+            connection_key: string;
+            /** Format: date-time */
+            created_at: string;
+            disabled: boolean;
+            display_name: string;
+            /** @description Key of the owning group; connections have no owner-less form. */
+            group_key: string;
+            /** @description Current full path of the owning group. */
+            group_path: string;
+            has_read_credential: boolean;
+            has_webhook_secret: boolean;
+            mode: components["schemas"]["GitConnectionMode"];
+            provider: components["schemas"]["GitProviderKind"];
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Current visibility of the owning group. */
+            visibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * @description Request body creating one group-owned Git provider connection.
+         *
+         *     The body carries bounded, non-secret metadata plus one tri-state
+         *     `read_credential` patch. It has no secret-store key, App-private-key field,
+         *     webhook field, installation identity, or provider token metadata, so
+         *     `deny_unknown_fields` rejects every other connection field outright. A
+         *     `Set` credential is sealed before the response is produced; a `Clear` is
+         *     refused because a create has nothing to clear.
+         */
+        GitProviderConnectionRequest: {
+            /** @description Provider API base URL; must be an `http`/`https` URL. */
+            base_url: string;
+            /** @description Human-readable display name. */
+            display_name: string;
+            /** @description Authentication mode: public, installation, or token. */
+            mode: components["schemas"]["GitConnectionMode"];
+            /** @description Provider family this connection authenticates against. */
+            provider: components["schemas"]["GitProviderKind"];
+            /** @description Tri-state read-credential patch; defaults to `Keep`. */
+            read_credential?: components["schemas"]["GitReadCredentialPatch"];
+        };
+        /**
+         * @description Provider family behind a Git source or provider connection.
+         * @enum {string}
+         */
+        GitProviderKind: "github" | "forgejo" | "gitlab" | "generic";
+        /**
+         * @description Tri-state read-credential patch for connection creation.
+         *
+         *     `Keep` (the default) creates the connection without a read credential,
+         *     `Set` seals the supplied value, and `Clear` is refused on create because a
+         *     row that does not exist yet has nothing to clear.
+         */
+        GitReadCredentialPatch: {
+            /** @enum {string} */
+            op: "keep";
+        } | {
+            /** @enum {string} */
+            op: "set";
+            value: string;
+        } | {
+            /** @enum {string} */
+            op: "clear";
+        };
+        /**
+         * @description Refresh policy for a tracked Git source.
+         * @enum {string}
+         */
+        GitRefreshPolicy: "manual" | "webhook" | "reconcile";
+        /**
+         * @description Request body attaching one already-persisted provider connection to a
+         *     repository source.
+         *
+         *     The body names a connection that must already exist in the same group. It
+         *     carries no credential, token, secret-store key, provider mode, or base URL:
+         *     `deny_unknown_fields` rejects any other connection field outright, so
+         *     attaching a connection can never create, configure, or enable one.
+         */
+        GitRepositoryConnectionRequest: {
+            /** @description Key of an existing, enabled provider connection owned by the same group. */
+            connection_key: string;
+        };
+        /**
+         * @description One manifest entry: a safe repository path mapped to a stored blob.
+         *
+         *     The manifest is scoped to a single index generation, so the same path can
+         *     hold different content in two snapshots and a superseded snapshot keeps
+         *     serving its own bytes. `line_count` counts the source lines the chunker
+         *     walked, so an empty file is `0` and a file ending in a newline does not gain
+         *     a phantom last line.
+         */
+        GitRepositoryFile: {
+            /**
+             * Format: int64
+             * @description Raw byte length of the stored blob.
+             */
+            byte_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            file_key: string;
+            /** Format: uuid */
+            generation_key: string;
+            /**
+             * @description Classified language token (`rust`, `python`, `unknown`, …) derived from
+             *     the path alone.
+             */
+            language: string;
+            /** Format: int64 */
+            line_count: number;
+            /**
+             * @description Repository-relative path, already checked for traversal, absolute, and
+             *     control-character hazards before storage.
+             */
+            path: string;
+            /** Format: uuid */
+            repository_key: string;
+        };
+        /** @description Query for one bounded line window of an exact repository path. */
+        GitRepositoryFileContentQuery: {
+            /**
+             * @description Continuation token from a previous page of the same window. Absent starts
+             *     at the first matching chunk.
+             *
+             *     The utoipa derive needs a literal, so it mirrors the constant the runtime
+             *     validator enforces; the bound is asserted in the contract tests.
+             */
+            cursor?: string | null;
+            /**
+             * Format: int32
+             * @description Last source line of the window, inclusive and at least `start_line`.
+             */
+            end_line: number;
+            /**
+             * @description Repository-relative path, as stored in the serving generation's manifest.
+             *
+             *     The utoipa derives need a literal, so they mirror the constant the
+             *     runtime validator enforces; both bounds are asserted in the contract
+             *     tests.
+             */
+            path: string;
+            /**
+             * Format: int32
+             * @description First source line of the window, inclusive and 1-based.
+             */
+            start_line: number;
+        };
+        /**
+         * @description One bounded page of stored chunk text for an exact line window.
+         *
+         *     The text is the stored UTF-8 verbatim — same bytes, same line endings, same
+         *     trailing whitespace — trimmed to the requested inclusive window, so a caller
+         *     can quote it or concatenate continuation pages in order. `byte_count` is the
+         *     exact UTF-8 length of `text`, which is what makes the page checkable, and the
+         *     generation provenance, the manifest entry, and the requested bounds travel
+         *     with it so the text is always attributable.
+         *
+         *     Raw acquisition blobs, provider blob ids, secret references, and connection
+         *     state never cross this response.
+         */
+        GitRepositoryFileContentResponse: {
+            /**
+             * Format: int64
+             * @description Exact UTF-8 byte length of `text`.
+             */
+            byte_count: number;
+            /** @description Target/indexed commit checkpoint of the source. */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int32
+             * @description Last requested source line, inclusive.
+             */
+            end_line: number;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /** @description The manifest entry the path named. */
+            file: components["schemas"]["GitRepositoryFile"];
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the text and entry belong to.
+             */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            /** @description Cursor continuation: `has_more = true` always carries `next_cursor`. */
+            pagination: components["schemas"]["CursorPagination"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /**
+             * Format: int32
+             * @description First requested source line, inclusive.
+             */
+            start_line: number;
+            /** @description Stored text for the window, verbatim and without normalization. */
+            text: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the serving generation covers.
+             */
+            total_bytes: number;
+        };
+        /**
+         * @description One exact manifest entry of the generation a repository currently serves.
+         *
+         *     The entry is the same safe [`GitRepositoryFile`] projection the manifest page
+         *     returns, so a caller can compare a detail read against the page it came from
+         *     field for field. The serving generation's provenance and coverage travel with
+         *     it, so the entry stays checkable against a pinned commit. File bytes, chunk
+         *     text, provider blob ids, secret references, and provider transport state
+         *     never cross this response.
+         */
+        GitRepositoryFileDetailResponse: {
+            /**
+             * @description Target/indexed commit checkpoint of the source, so the caller can tell a
+             *     fresh generation from one the ref has already moved past.
+             */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /** @description The exact entry the path named. */
+            file: components["schemas"]["GitRepositoryFile"];
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the entry below belongs to.
+             */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the serving generation covers.
+             */
+            total_bytes: number;
+        };
+        /**
+         * @description One changed repository-relative path between two generations.
+         *
+         *     Exactly one side is present for `Added` and `Deleted`; both are present for
+         *     `Modified`, so a caller can size the change without reading either file. The
+         *     kind says which side is missing, so the optional sides are not ambiguous.
+         */
+        GitRepositoryFileDiff: {
+            after?: null | components["schemas"]["GitRepositoryFileDiffFile"];
+            before?: null | components["schemas"]["GitRepositoryFileDiffFile"];
+            change_kind: components["schemas"]["GitFileChangeKind"];
+            /** @description Repository-relative path that changed. */
+            path: string;
+        };
+        /**
+         * @description The safe manifest metadata of one side of a change.
+         *
+         *     The four fields are what a caller needs to decide whether to read the file:
+         *     which entry it is, how it is classified, and how large it is. Raw bytes, a
+         *     line- or content-level diff, a provider blob id, and any secret, credential,
+         *     or connection state are absent by construction.
+         */
+        GitRepositoryFileDiffFile: {
+            /**
+             * Format: int64
+             * @description Raw bytes that generation stored for the path.
+             */
+            byte_count: number;
+            /** Format: uuid */
+            file_key: string;
+            /** @description Classified language of that path. */
+            language: string;
+            /**
+             * Format: int64
+             * @description Lines that generation stored for the path.
+             */
+            line_count: number;
+        };
+        /**
+         * @description Query for one bounded page of a metadata-only generation comparison.
+         *
+         *     Both generations are optional. An omitted `from_generation` resolves to the
+         *     completed generation covering the source's current indexed commit, which is
+         *     normally a `superseded` one: indexing a newer commit activates a newer
+         *     generation, so the generation the checkpoint still names is the historical
+         *     snapshot this comparison starts from. An omitted `to_generation` resolves to
+         *     the repository's active ready generation, so the common case is "what changed
+         *     since the last index". An explicit key is never trusted as given: it is
+         *     resolved through the same group- and repository-confined read and must name a
+         *     completed generation of this repository — `ready` or `superseded`; a
+         *     `building` or `failed` snapshot is refused. `limit` and `cursor` are the shared
+         *     bounded page contract, so a continuation is a token this API issued and
+         *     nothing else.
+         */
+        GitRepositoryFileDiffQuery: {
+            /** @description Continuation this API issued for the next page. */
+            cursor?: string | null;
+            /**
+             * Format: uuid
+             * @description Completed generation to compare from; defaults to the indexed commit's,
+             *     which is normally the superseded one.
+             */
+            from_generation?: string | null;
+            /**
+             * Format: int32
+             * @description Most changes this page returns, 1..=100.
+             */
+            limit?: number;
+            /**
+             * Format: uuid
+             * @description Generation to compare to; defaults to the active ready generation. An
+             *     explicit key must name a `ready` or `superseded` generation.
+             */
+            to_generation?: string | null;
+        };
+        /**
+         * @description One bounded page of a metadata-only comparison of two index generations.
+         *
+         *     Both generations are named with their numbers, refs, and pinned commits, and
+         *     both coverage envelopes are reported, so a caller can see what each side of
+         *     the comparison covers and never has to infer which snapshot a change came
+         *     from. `changes` holds changed paths in path order and omits every unchanged
+         *     path, so an empty list is a truthful "these two generations hold the same
+         *     bytes at the same paths". A `GitCodeSearchHit`-style text payload, a hunk, a
+         *     symbol, a provider blob id, and any secret-bearing field never cross here.
+         */
+        GitRepositoryFileDiffResponse: {
+            /** @description Changed paths in path order, at most the requested limit. */
+            changes: components["schemas"]["GitRepositoryFileDiff"][];
+            /** @description Target/indexed commit checkpoint of the source. */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the compared-from generation covers. */
+            from_commit_sha: string;
+            /**
+             * Format: int64
+             * @description Entries acquisition excluded from the compared-from generation.
+             */
+            from_excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the compared-from generation covers.
+             */
+            from_file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the comparison starts from.
+             */
+            from_generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository sequence of the compared-from generation.
+             */
+            from_generation_number: number;
+            from_ref_name: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the compared-from generation covers.
+             */
+            from_total_bytes: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            /** @description Cursor continuation: `has_more = true` always carries `next_cursor`. */
+            pagination: components["schemas"]["CursorPagination"];
+            /** Format: uuid */
+            repository_key: string;
+            /** @description Pinned snapshot commit the compared-to generation covers. */
+            to_commit_sha: string;
+            /**
+             * Format: int64
+             * @description Entries acquisition excluded from the compared-to generation.
+             */
+            to_excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the compared-to generation covers.
+             */
+            to_file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the comparison ends at.
+             */
+            to_generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository sequence of the compared-to generation.
+             */
+            to_generation_number: number;
+            to_ref_name: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the compared-to generation covers.
+             */
+            to_total_bytes: number;
+        };
+        /**
+         * @description One bounded page of the active generation's path manifest.
+         *
+         *     The page answers from the generation the repository currently serves, so
+         *     every entry belongs to the same pinned commit and `generation_number`
+         *     reported here. The source's own index status and target/indexed checkpoint
+         *     travel with the page so freshness and coverage gaps stay visible without a
+         *     second request. File bytes, chunk text, secret references, and provider
+         *     transport state never cross this response.
+         */
+        GitRepositoryFileListResponse: {
+            /**
+             * @description Target/indexed commit checkpoint of the source, so the caller can tell a
+             *     fresh generation from one the ref has already moved past.
+             */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /** @description One page of the manifest, ordered by path. */
+            files: components["schemas"]["GitRepositoryFile"][];
+            /**
+             * Format: uuid
+             * @description Generation the manifest entries below belong to.
+             */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            /** @description Cursor continuation: `has_more = true` always carries `next_cursor`. */
+            pagination: components["schemas"]["CursorPagination"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the serving generation covers.
+             */
+            total_bytes: number;
+        };
+        /**
+         * @description Query for one exact repository path.
+         *
+         *     The path is a query parameter rather than a path segment because valid
+         *     repository paths contain `/`; the server parses it with the same path safety
+         *     validator that admitted the stored entry, so the value that reaches the
+         *     lookup is exactly the value that was validated at storage time.
+         */
+        GitRepositoryFileQuery: {
+            /**
+             * @description Repository-relative path, as stored in the serving generation's manifest.
+             *
+             *     The utoipa derives need a literal, so they mirror the constant the
+             *     runtime validator enforces; both bounds are asserted in the contract
+             *     tests.
+             */
+            path: string;
+        };
+        /**
+         * @description Registration request for one public GitHub repository ref.
+         *
+         *     `canonical_url` must be exactly `https://github.com/{owner}/{name}` (a
+         *     trailing slash and a single `.git` suffix are tolerated by the validator).
+         *     `target_ref` is a full ref (`refs/heads/main`, `refs/tags/v1`) or `HEAD`,
+         *     and when it names a branch it must match `default_branch`.
+         */
+        GitRepositoryRegistrationRequest: {
+            /** @description Canonical public GitHub HTTPS repository URL. */
+            canonical_url: string;
+            /** @description Default branch name of the repository. */
+            default_branch: string;
+            /** @description Independent index profile; defaults to cheap lexical indexing. */
+            index_profile?: components["schemas"]["GitIndexProfile"];
+            /** @description Optional pinned commit SHA the target ref must resolve to. */
+            pinned_commit?: string | null;
+            /** @description Refresh policy; defaults to manual one-off snapshots. */
+            refresh_policy?: components["schemas"]["GitRefreshPolicy"];
+            /** @description Full target ref to index, or `HEAD`. */
+            target_ref: string;
+        };
+        /**
+         * @description A registered Git repository source with its owning group, identity,
+         *     policies, and checkpoint.
+         *
+         *     `group_key`, `group_path`, and `visibility` are read from the owning
+         *     `groups` row on every query, so a visibility change is reflected instead of
+         *     being served from a stored snapshot. Ownership is always a real group.
+         */
+        GitRepositorySource: {
+            /**
+             * Format: uuid
+             * @description Generation currently activated for this repository, when one is.
+             */
+            active_generation_key?: string | null;
+            canonical_url: string;
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            connection_key?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            default_branch: string;
+            /** @description Key of the owning group; sources have no owner-less form. */
+            group_key: string;
+            /** @description Current full path of the owning group. */
+            group_path: string;
+            index_profile: components["schemas"]["GitIndexProfile"];
+            index_status: components["schemas"]["GitIndexStatus"];
+            name: string;
+            owner: string;
+            provider: components["schemas"]["GitProviderKind"];
+            refresh: components["schemas"]["GitRefreshPolicy"];
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: components["schemas"]["GitVersionPolicy"];
+            /** @description Current visibility of the owning group. */
+            visibility: components["schemas"]["Visibility"];
+        };
+        /** @description Version policy: the ref to read plus an optional pinned commit. */
+        GitVersionPolicy: {
+            commit_sha?: string | null;
+            ref_name: string;
+        };
+        /**
+         * @description Whether the integration owns the repository webhook it registered.
+         * @enum {string}
+         */
+        GitWebhookOwnership: "integration" | "external" | "unknown";
+        /** @description A webhook registration owned by (or observed for) a Git repository source. */
+        GitWebhookRegistration: {
+            active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            external_hook_id: string;
+            has_signing_secret: boolean;
+            ownership: components["schemas"]["GitWebhookOwnership"];
+            provider: components["schemas"]["GitProviderKind"];
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description Request body registering one webhook for a group-owned repository source.
+         *
+         *     The provider must match the repository's own, the hook id is provider-issued,
+         *     and the signing secret is accepted only to be sealed immediately: there is no
+         *     echo field, no secret-store key or reference, and no `active` flag, so
+         *     `deny_unknown_fields` keeps every internal field out of the body.
+         */
+        GitWebhookRegistrationRequest: {
+            /** @description Provider-issued hook id, bounded to the ingress limit in UTF-8 bytes. */
+            external_hook_id: string;
+            /** @description Whether this integration owns the hook it registered. */
+            ownership: components["schemas"]["GitWebhookOwnership"];
+            /** @description Provider family the hook belongs to; must match the repository's. */
+            provider: components["schemas"]["GitProviderKind"];
+            /** @description Optional plain signing secret, sealed immediately and never returned. */
+            signing_secret?: string | null;
         };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
@@ -2803,7 +3825,7 @@ export interface components {
             next_cursor?: string | null;
         };
         /** @enum {string} */
-        TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild";
+        TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild" | "git_index";
         /**
          * @description v0.18 task list query: typed `view` owns the trash predicate and the
          *     legacy `trashed` flag is gone. Unknown fields (including `trashed`) are
@@ -4405,6 +5427,950 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractionTemplateResponse"];
+                };
+            };
+        };
+    };
+    list_git_provider_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Group-visible Git provider connections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"][];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_git_connection_readiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Offline readiness of a group-owned Git provider connection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitConnectionReadinessResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or connection not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_git_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitProviderConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created group-owned Git provider connection */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"];
+                };
+            };
+            /** @description Invalid connection key or request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connection key already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    disable_git_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection, taken out of service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or connection not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    enable_git_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git provider connection key */
+                connection_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection, back in service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitProviderConnection"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or connection not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_git_repositories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Group-visible Git repository sources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"][];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    register_git_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitRepositoryRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Git index task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            /** @description Invalid repository registration */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Idempotency key reuse conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_git_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Git repository source status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    search_git_repository_code: {
+        parameters: {
+            query: {
+                /** @description Search term, matched whole and case-insensitively. */
+                query: string;
+                /** @description Optional repository-relative path prefix, matched case-sensitively. */
+                path_prefix?: string;
+                /** @description Optional classified language token, such as `rust` or `markdown`. */
+                language?: string;
+                /** @description Most hits to return, 1..=50. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded lexical hits from the active generation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCodeSearchResponse"];
+                };
+            };
+            /** @description Invalid search term, path prefix, language, or limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to search */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    set_git_repository_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitRepositoryConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Repository source with the connection attached */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Invalid connection key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or connection not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connection is disabled or built for another provider */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_git_repository_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository source with the connection detached */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    diff_git_repository_files: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Completed generation to compare from; defaults to the indexed commit's,
+                 *     which is normally the superseded one.
+                 */
+                from_generation?: string;
+                /**
+                 * @description Generation to compare to; defaults to the active ready generation. An
+                 *     explicit key must name a `ready` or `superseded` generation.
+                 */
+                to_generation?: string;
+                /** @description Most changes this page returns, 1..=100. */
+                limit?: number;
+                /** @description Continuation this API issued for the next page. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of changed paths between two index generations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileDiffResponse"];
+                };
+            };
+            /** @description Invalid page limit or continuation cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No comparable generation, or the pair runs backwards */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_git_repository_file: {
+        parameters: {
+            query: {
+                /**
+                 * @description Repository-relative path, as stored in the serving generation's manifest.
+                 *
+                 *     The utoipa derives need a literal, so they mirror the constant the
+                 *     runtime validator enforces; both bounds are asserted in the contract
+                 *     tests.
+                 */
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Metadata of one exact manifest entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileDetailResponse"];
+                };
+            };
+            /** @description Invalid repository path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or path not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_git_repository_file_content: {
+        parameters: {
+            query: {
+                /**
+                 * @description Repository-relative path, as stored in the serving generation's manifest.
+                 *
+                 *     The utoipa derives need a literal, so they mirror the constant the
+                 *     runtime validator enforces; both bounds are asserted in the contract
+                 *     tests.
+                 */
+                path: string;
+                /** @description First source line of the window, inclusive and 1-based. */
+                start_line: number;
+                /** @description Last source line of the window, inclusive and at least `start_line`. */
+                end_line: number;
+                /**
+                 * @description Continuation token from a previous page of the same window. Absent starts
+                 *     at the first matching chunk.
+                 *
+                 *     The utoipa derive needs a literal, so it mirrors the constant the runtime
+                 *     validator enforces; the bound is asserted in the contract tests.
+                 */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored text of one bounded line window */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileContentResponse"];
+                };
+            };
+            /** @description Invalid path, line window, or continuation cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or path not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_git_repository_files: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the active generation's path manifest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileListResponse"];
+                };
+            };
+            /** @description Invalid page limit or continuation cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    index_git_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Git index task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Idempotency key reuse conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_git_repository_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Webhook registration status of a group-owned repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitWebhookRegistration"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or webhook registration not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_git_webhook_registration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitWebhookRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created group-owned Git webhook registration */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitWebhookRegistration"];
+                };
+            };
+            /** @description Invalid hook id or signing secret */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A webhook is already registered, or the hook identity is claimed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };
@@ -7241,6 +9207,45 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
+            };
+        };
+    };
+    receive_git_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Git provider kind */
+                provider: string;
+                /** @description Provider-issued webhook hook id */
+                external_hook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delivery recorded */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown hook or invalid signature */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Webhook body exceeds the accepted bound */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

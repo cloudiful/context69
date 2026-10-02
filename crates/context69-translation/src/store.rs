@@ -6,49 +6,23 @@ use context69_contracts_translation::{
     GroupTranslationSettingsResponse, TranslationProviderPageResponse, TranslationSettingsResponse,
     UpdateGroupTranslationSettingsRequest, UpdateTranslationSettingsRequest,
 };
+use context69_secret_store::{SecretDatabase, SecretStore};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 mod codec;
 mod jobs;
+mod provider;
+mod secrets;
 use codec::{
-    clean, deepl_plan, llm_api_kind, provider_endpoint, provider_key, provider_response,
-    validate_glossary, validate_provider_inputs,
+    clean, deepl_plan, legacy_has_api_key, llm_api_kind, provider_endpoint, provider_key,
+    provider_response, validate_glossary, validate_provider_inputs, validation_has_legacy_api_key,
 };
 pub use codec::{job_response, normalize_locale, normalize_locales};
 pub(crate) use jobs::{FinishJob, TranslationAttempt};
-
-#[derive(Debug, Clone, FromRow)]
-pub struct StoredTranslationProvider {
-    pub provider_key: String,
-    pub enabled: bool,
-    pub priority: i32,
-    pub endpoint: Option<String>,
-    pub api_key: Option<String>,
-    pub model: Option<String>,
-    pub llm_api_kind: Option<String>,
-    pub deepl_plan: Option<String>,
-    pub monthly_character_limit: Option<i64>,
-}
-
-impl StoredTranslationProvider {
-    pub fn config_hash(&self) -> String {
-        let mut digest = Sha256::new();
-        for value in [
-            Some(self.provider_key.as_str()),
-            self.endpoint.as_deref(),
-            self.model.as_deref(),
-            self.llm_api_kind.as_deref(),
-            self.deepl_plan.as_deref(),
-        ] {
-            digest.update(value.unwrap_or_default().as_bytes());
-            digest.update(b"\0");
-        }
-        hex_digest(digest.finalize().as_slice())
-    }
-}
+pub use provider::StoredTranslationProvider;
+use secrets::ProviderApiKey;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct StoredGroupTranslationSettings {
@@ -115,18 +89,56 @@ pub struct TranslationVersionInput<'a> {
 #[derive(Debug, Clone)]
 pub struct TranslationStore {
     pool: PgPool,
+    secrets: ProviderApiKey,
 }
 
 impl TranslationStore {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        let store = SecretStore::new(SecretDatabase::new(pool.clone()), None, 1)
+            .expect("a store without a master key cannot fail to build");
+        Self {
+            pool,
+            secrets: ProviderApiKey::new(store),
+        }
+    }
+
+    /// Binds the shared encrypted store this deployment configured.
+    ///
+    /// Until this is called the store is unkeyed, so a caller that only has a pool
+    /// cannot open a sealed shared key and still fails closed on one — which is
+    /// what a deployment without a master secret runs in.
+    #[must_use]
+    pub fn with_secret_store(mut self, store: SecretStore) -> Self {
+        self.secrets = ProviderApiKey::new(store);
+        self
     }
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
 
+    /// Every provider row, with the shared `llm` API key resolved from the store.
+    ///
+    /// The translation runner consumes this, so the key it sends is the
+    /// effective one; a sealed row this deployment cannot open fails here
+    /// rather than being reported as an absent credential. Only an enabled
+    /// provider is resolved, so a disabled category's row never blocks another
+    /// provider's attempt.
     pub async fn providers(&self) -> Result<Vec<StoredTranslationProvider>> {
+        let mut providers = self.provider_rows().await?;
+        for provider in &mut providers {
+            if provider.enabled && provider.provider_key == "llm" {
+                provider.api_key = self.secrets.resolve().await?;
+            }
+        }
+        Ok(providers)
+    }
+
+    /// Every provider row as the table holds it, with nothing opened: the shared
+    /// `llm` row's `api_key` column is never written, and the sibling rows keep
+    /// their own credentials there. Settings reads use this so `has_api_key` can
+    /// be answered metadata-only, without opening the shared store row.
+    async fn provider_rows(&self) -> Result<Vec<StoredTranslationProvider>> {
         Ok(
             sqlx::query_file_as!(StoredTranslationProvider, "sql/providers/list.sql")
                 .fetch_all(&self.pool)
@@ -134,11 +146,20 @@ impl TranslationStore {
         )
     }
 
+    async fn provider_has_key(&self, provider: &StoredTranslationProvider) -> Result<bool> {
+        if provider.provider_key == "llm" {
+            self.secrets.present().await
+        } else {
+            Ok(legacy_has_api_key(provider.api_key.as_deref()))
+        }
+    }
+
     pub async fn settings(&self) -> Result<TranslationSettingsResponse> {
         let mut providers = Vec::new();
-        for provider in self.providers().await? {
+        for provider in self.provider_rows().await? {
             let usage = self.current_usage(&provider.provider_key).await?;
-            providers.push(provider_response(provider, usage)?);
+            let has_api_key = self.provider_has_key(&provider).await?;
+            providers.push(provider_response(provider, usage, has_api_key)?);
         }
         Ok(TranslationSettingsResponse { providers })
     }
@@ -165,7 +186,8 @@ impl TranslationStore {
         let mut items = Vec::with_capacity(providers.len());
         for provider in providers {
             let usage = self.current_usage(&provider.provider_key).await?;
-            items.push(provider_response(provider, usage)?);
+            let has_api_key = self.provider_has_key(&provider).await?;
+            items.push(provider_response(provider, usage, has_api_key)?);
         }
         Ok(TranslationProviderPageResponse {
             items,
@@ -178,15 +200,23 @@ impl TranslationStore {
         request: &UpdateTranslationSettingsRequest,
     ) -> Result<TranslationSettingsResponse> {
         validate_provider_inputs(&request.providers)?;
-        let existing = self.providers().await?;
+        let existing = self.provider_rows().await?;
         for provider in &request.providers {
             let key = provider_key(provider.provider);
-            let has_key = clean(provider.api_key.as_deref()).is_some()
-                || existing
+            let requested = clean(provider.api_key.as_deref());
+            let has_key = if requested.is_some() {
+                true
+            } else if key == "llm" {
+                // Only the shared row's presence is store-aware, and it is
+                // answered from the store's own metadata.
+                self.secrets.present().await?
+            } else {
+                let existing_key = existing
                     .iter()
                     .find(|item| item.provider_key == key)
-                    .and_then(|item| clean(item.api_key.as_deref()))
-                    .is_some();
+                    .map(|item| item.api_key.as_deref());
+                validation_has_legacy_api_key(existing_key.flatten())
+            };
             if provider.enabled
                 && provider.provider
                     != context69_contracts_translation::TranslationProviderKind::Libretranslate
@@ -197,13 +227,19 @@ impl TranslationStore {
                 )
                 .into());
             }
+            // The shared `llm` key is owned by the store alone: it is sealed there
+            // and the statement refuses to write the column, so the table can
+            // never hold a second plaintext copy of it.
+            if key == "llm" {
+                self.secrets.write(requested.as_deref()).await?;
+            }
             sqlx::query_file!(
                 "sql/providers/upsert.sql",
                 key,
                 provider.enabled,
                 provider.priority,
                 provider_endpoint(provider),
-                clean(provider.api_key.as_deref()),
+                if key == "llm" { None } else { requested },
                 clean(provider.model.as_deref()),
                 provider.llm_api_kind.map(llm_api_kind),
                 provider.deepl_plan.map(deepl_plan),
@@ -345,8 +381,4 @@ impl TranslationStore {
                 .await?,
         )
     }
-}
-
-fn hex_digest(value: &[u8]) -> String {
-    value.iter().map(|byte| format!("{byte:02x}")).collect()
 }

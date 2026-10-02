@@ -22,6 +22,7 @@ use crate::{
         extraction::ExtractionPublisherAdapter,
         library::{LibraryService, LibraryServiceConfig},
         namespace::NamespaceService,
+        secret_store,
         settings::SettingsService,
         source_folders::SourceFoldersService,
         sync::SyncService,
@@ -110,7 +111,18 @@ pub(super) async fn build_service(db: &Database) -> (TaskService, PathBuf) {
     )
     .await
     .expect("build library service");
-    let sync = SyncService::new(db.clone(), None, None, chunking, 1, translation.clone());
+    // A store with no master key: these tests never read a sealed value, and the
+    // unconfigured state is the same one a deployment without deployment
+    // configuration has.
+    let sync = SyncService::new(
+        db.clone(),
+        secret_store::build_unkeyed(db),
+        None,
+        None,
+        chunking,
+        1,
+        translation.clone(),
+    );
     let service = TaskService::new(TaskServiceDependencies {
         db: db.clone(),
         namespace: NamespaceService::new(db.clone()),

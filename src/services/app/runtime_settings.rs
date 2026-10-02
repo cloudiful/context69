@@ -6,15 +6,43 @@ use tracing::warn;
 use crate::{
     chunking::ChunkingConfig,
     config::{Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig, SchedulerConfig},
-    db::{Database, StoredDoclingSettings, StoredRuntimeSettings, StoredSourceConnection},
+    db::{Database, StoredDoclingSettings, StoredRuntimeSettings},
+    services::{
+        secret_store::SecretStore,
+        settings::secrets::{SettingsSecrets, optional_key_patch},
+    },
     source_store::SourceStore,
 };
 
-pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> Result<()> {
+/// Seeds the first-boot runtime row from deployment configuration.
+///
+/// The embedding, Docling VLM, and runtime S3 API keys and every source
+/// connection's database URL are committed to the shared store, so a fresh
+/// database starts with every credential sealed under its purpose. They are not
+/// also written to a settings row: the store is the only representation, so the
+/// seeded row holds no plaintext copy of a key.
+pub async fn import_legacy_runtime_if_needed(
+    db: &Database,
+    config: &Config,
+    store: &SecretStore,
+) -> Result<()> {
     if db.runtime_settings_initialized().await? {
         return Ok(());
     }
 
+    let embedding = SettingsSecrets::embedding(store.clone());
+    embedding
+        .commit(&optional_key_patch(config.embedding.api_key.clone()))
+        .await?;
+    SettingsSecrets::runtime_s3(store.clone())
+        .commit(&optional_key_patch(
+            config
+                .file_library
+                .s3
+                .as_ref()
+                .map(|s3| s3.secret_key.clone()),
+        ))
+        .await?;
     db.save_runtime_settings(&StoredRuntimeSettings {
         qdrant: crate::db::StoredRuntimeQdrantSettings {
             url: config.qdrant.url.clone(),
@@ -23,7 +51,7 @@ pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> 
         },
         embedding: crate::db::StoredRuntimeEmbeddingSettings {
             base_url: config.embedding.base_url.clone(),
-            api_key: config.embedding.api_key.clone(),
+            api_key: None,
             model: config.embedding.model.clone(),
             dimensions: config.embedding.dimensions,
             timeout_secs: config.embedding.timeout.as_secs(),
@@ -58,21 +86,28 @@ pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> 
                     prefix: s3.prefix.clone(),
                     path_style: s3.path_style,
                     access_key: s3.access_key.clone(),
-                    secret_key: s3.secret_key.clone(),
+                    secret_key: None,
                 }),
         },
     })
     .await?;
 
     for connection in &config.connections {
-        db.save_source_connection(&StoredSourceConnection {
-            name: connection.name.clone(),
-            database_url: connection.database_url.clone(),
-        })
+        // Through the same writer the API uses, so a seeded DSN is sealed and
+        // referenced exactly like an operator-supplied one.
+        crate::services::sync::save_source_connection(
+            db,
+            store,
+            &connection.name,
+            &connection.database_url,
+        )
         .await?;
     }
 
     if let Some(docling) = &config.docling {
+        SettingsSecrets::docling(store.clone())
+            .commit(&optional_key_patch(docling.vlm.api_key.clone()))
+            .await?;
         db.save_docling_settings(&StoredDoclingSettings {
             base_url: docling.connection.base_url.clone(),
             timeout_secs: docling.connection.timeout.as_secs(),
@@ -93,7 +128,7 @@ pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> 
             do_formula_enrichment: true,
             do_picture_description: true,
             openai_base_url: docling.vlm.openai_base_url.clone(),
-            api_key: docling.vlm.api_key.clone(),
+            api_key: None,
             vlm_pipeline_model: docling.vlm.vlm_pipeline_model.clone(),
             picture_description_model: docling.vlm.picture_description_model.clone(),
             code_formula_model: docling.vlm.code_formula_model.clone(),
@@ -108,7 +143,19 @@ pub async fn import_legacy_runtime_if_needed(db: &Database, config: &Config) -> 
     Ok(())
 }
 
-pub async fn load_runtime_settings(db: &Database) -> Result<Option<StoredRuntimeSettings>> {
+/// Loads the persisted runtime settings with the reversible keys resolved
+/// through the shared store.
+///
+/// The store is resolved *after* the legacy REST-to-gRPC upgrade rewrite, so the
+/// rewrite keeps saving the row exactly as it did and the resolved values are
+/// never written back. They then live only in this in-memory value: the
+/// embedding key is handed to the embedding provider and the S3 secret key to
+/// object storage, and neither is logged, persisted by this function, or
+/// returned by an API.
+pub async fn load_runtime_settings(
+    db: &Database,
+    store: &SecretStore,
+) -> Result<Option<StoredRuntimeSettings>> {
     let Some(mut runtime) = db.get_runtime_settings().await? else {
         return Ok(None);
     };
@@ -121,6 +168,18 @@ pub async fn load_runtime_settings(db: &Database) -> Result<Option<StoredRuntime
         );
         runtime.qdrant.url = grpc_url;
         runtime = db.save_runtime_settings(&runtime).await?;
+    }
+
+    // Fails closed: a sealed embedding key this deployment cannot open must not
+    // be reported as no credential, which would silently start the process
+    // without one.
+    runtime.embedding.api_key = SettingsSecrets::embedding(store.clone()).resolve().await?;
+
+    // The S3 secret key is read the same way, before it can reach object storage,
+    // for the same reason: a sealed row this deployment cannot open has to fail
+    // startup rather than quietly configure object storage without a key.
+    if let Some(s3) = runtime.file_library.s3.as_mut() {
+        s3.secret_key = SettingsSecrets::runtime_s3(store.clone()).resolve().await?;
     }
 
     Ok(Some(runtime))
@@ -171,7 +230,11 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
                 prefix: s3.prefix.clone(),
                 path_style: s3.path_style,
                 access_key: s3.access_key.clone(),
-                secret_key: s3.secret_key.clone(),
+                // An S3 block whose secret key is not configured stays in the
+                // effective configuration with an empty key, so the failure is
+                // S3 rejecting the request rather than the service silently
+                // falling back to local storage.
+                secret_key: s3.secret_key.clone().unwrap_or_default(),
             }),
     };
 }
@@ -185,23 +248,5 @@ fn qdrant_grpc_url_from_rest_port(url: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::qdrant_grpc_url_from_rest_port;
-
-    #[test]
-    fn upgrades_qdrant_rest_port_to_grpc_port() {
-        assert_eq!(
-            qdrant_grpc_url_from_rest_port("http://qdrant:6333").as_deref(),
-            Some("http://qdrant:6334")
-        );
-        assert_eq!(
-            qdrant_grpc_url_from_rest_port("http://qdrant:6333/").as_deref(),
-            Some("http://qdrant:6334")
-        );
-    }
-
-    #[test]
-    fn keeps_qdrant_grpc_port_unchanged() {
-        assert_eq!(qdrant_grpc_url_from_rest_port("http://qdrant:6334"), None);
-    }
-}
+#[path = "runtime_settings_tests.rs"]
+mod tests;

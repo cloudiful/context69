@@ -14,8 +14,12 @@ use crate::{
     db::Database,
     library_store::LibraryStore,
     services::{
-        auth::AuthService, extraction::ExtractionPublisherAdapter, query::QueryService,
-        sync::SyncService, translation::TranslationPublisherAdapter,
+        auth::AuthService,
+        extraction::ExtractionPublisherAdapter,
+        query::{QueryDeps, QueryService},
+        secret_store,
+        sync::SyncService,
+        translation::TranslationPublisherAdapter,
     },
 };
 
@@ -36,6 +40,11 @@ pub async fn initialize(
     auth: &AuthService,
     vector: &VectorRuntime,
 ) -> Result<ServicesInit> {
+    // The search path needs the rerank key resolved through the shared store, so
+    // it gets a handle onto the same configuration the application already
+    // built. Building a handle is just a cipher over the existing pool; the
+    // unconfigured state was reported once during config hydration.
+    let store = secret_store::build(db, config)?;
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()
@@ -54,7 +63,8 @@ pub async fn initialize(
             store: LibraryStore::new(db.clone()),
             configuration_fingerprint: vector_identity::configuration_fingerprint(config),
         }),
-    });
+    })
+    .with_secret_store(store.clone());
     let extraction = ExtractionService::new(ExtractionDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()
@@ -69,9 +79,11 @@ pub async fn initialize(
             store: LibraryStore::new(db.clone()),
             configuration_fingerprint: vector_identity::configuration_fingerprint(config),
         }),
-    });
+    })
+    .with_secret_store(store.clone());
     let sync = SyncService::new(
         db.clone(),
+        store.clone(),
         vector.embedding.clone(),
         vector.index.clone(),
         ChunkingConfig {
@@ -93,15 +105,16 @@ pub async fn initialize(
     }
     let query =
         if let (Some(embedding), Some(index)) = (vector.embedding.clone(), vector.index.clone()) {
-            QueryService::new(
-                db.clone(),
+            QueryService::new(QueryDeps {
+                db: db.clone(),
                 embedding,
                 index,
-                config.scheduler.valkey_url.as_deref(),
-                vector_identity::fingerprint(config),
-                auth.clone(),
-                vector_index_ready.clone(),
-            )
+                valkey_url: config.scheduler.valkey_url.as_deref(),
+                embedding_model: vector_identity::fingerprint(config),
+                auth: auth.clone(),
+                store: store.clone(),
+                vector_index_ready: vector_index_ready.clone(),
+            })
             .await?
         } else {
             QueryService::disabled(db.clone())

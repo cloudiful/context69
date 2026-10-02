@@ -1,0 +1,170 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The S3 access key stays in the settings row because it is an identifier, not a\n-- credential. The secret key is not projected: the shared encrypted store owns\n-- it, and the service resolves it through that store alone.\nSELECT\n    storage_root,\n    max_upload_size_mb,\n    max_upload_request_size_mb,\n    ingest_concurrency,\n    url_import_concurrency,\n    url_import_min_interval_ms,\n    trusted_proxy_enabled,\n    s3_endpoint,\n    s3_region,\n    s3_bucket,\n    s3_prefix,\n    s3_path_style,\n    s3_access_key\nFROM context69.runtime_file_library_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "storage_root",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "storage_root"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "max_upload_size_mb",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "max_upload_size_mb"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "max_upload_request_size_mb",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "max_upload_request_size_mb"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ingest_concurrency",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "ingest_concurrency"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "url_import_concurrency",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "url_import_concurrency"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "url_import_min_interval_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "url_import_min_interval_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "trusted_proxy_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "trusted_proxy_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "s3_endpoint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_endpoint"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "s3_region",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_region"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "s3_bucket",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_bucket"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "s3_prefix",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_prefix"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "s3_path_style",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_path_style"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "s3_access_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_file_library_settings",
+            "name": "s3_access_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "16e6107e3aca959263c7e88647c2b9b710684618a05eadbf233140374ac2d1a0"
+}

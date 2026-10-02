@@ -7,6 +7,7 @@ use context69::{
     mcp,
     services::{
         app::Context69App,
+        maintenance,
         scheduler::{
             ManualRunResult, SCHEDULER_EXECUTION_LEASE_PREFIX, SCHEDULER_VALKEY_KEY_PREFIX,
             build_valkey_execution_guard, run_manual_sync_guarded, startup_execution_slot_at,
@@ -21,6 +22,7 @@ use scheduler::{
 use tokio::signal;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
@@ -29,6 +31,13 @@ async fn main() -> Result<()> {
     if mode == "export-openapi" {
         export_openapi(env::args().nth(2)).await?;
         return Ok(());
+    }
+    // Before `Context69App::new`, and deliberately not behind it: a rewrap is a
+    // maintenance run over the application database, so it must not start
+    // Valkey, Qdrant, the scheduler, the API, or the MCP server, and it must not
+    // mint or resolve any runtime credential to do it.
+    if mode == "rewrap-secrets" {
+        return maintenance::rewrap_secrets().await;
     }
 
     let config = Config::load()?;
@@ -74,7 +83,7 @@ async fn main() -> Result<()> {
         "serve" => serve(app).await?,
         other => {
             return Err(anyhow::anyhow!(
-                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, migrate-library-storage, or export-openapi"
+                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, rewrap-secrets, migrate-library-storage, or export-openapi"
             ));
         }
     }

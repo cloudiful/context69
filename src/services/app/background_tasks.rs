@@ -59,7 +59,8 @@ pub async fn start(
         source_folders: startup.source_folders.clone(),
         translation: services.translation.clone(),
         concurrency: task_worker_capacity(config),
-    });
+    })
+    .with_settings(settings.clone());
     tasks.resume_pending();
     tasks.start_maintenance();
     tasks.start_event_bus();

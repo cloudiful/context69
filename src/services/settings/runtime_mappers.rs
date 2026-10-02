@@ -1,8 +1,8 @@
 use crate::{
     contracts::{
         RuntimeChunkingSettings, RuntimeEmbeddingSettings, RuntimeFileLibrarySettings,
-        RuntimeQdrantSettings, RuntimeSchedulerSettings, RuntimeSettingsResponse,
-        UpdateRuntimeSettingsRequest,
+        RuntimeQdrantSettings, RuntimeSchedulerSettings, RuntimeSettingsResponse, SecretPatch,
+        UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
     },
     db::{
         StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
@@ -12,9 +12,23 @@ use crate::{
     support::normalize::normalize_optional_string,
 };
 
+use super::secrets::optional_key_patch;
+
+/// The patch a runtime S3 update maps to.
+///
+/// A submitted secret key replaces the stored one and an absent or blank one
+/// keeps it — a blank key has never been a clear. Dropping the S3 block drops the
+/// credential with it, the same rule the Docling base URL follows, so a later
+/// re-add cannot silently resurrect a credential the operator removed.
+pub(super) fn s3_secret_patch(requested: Option<&UpdateRuntimeS3Settings>) -> SecretPatch {
+    match requested {
+        Some(s3) => optional_key_patch(s3.secret_key.clone()),
+        None => SecretPatch::Clear,
+    }
+}
+
 pub(super) fn runtime_settings_from_request(
     request: &UpdateRuntimeSettingsRequest,
-    api_key: Option<String>,
 ) -> StoredRuntimeSettings {
     StoredRuntimeSettings {
         qdrant: StoredRuntimeQdrantSettings {
@@ -24,7 +38,9 @@ pub(super) fn runtime_settings_from_request(
         },
         embedding: StoredRuntimeEmbeddingSettings {
             base_url: request.embedding.base_url.trim().to_string(),
-            api_key,
+            // The provider API key is not a runtime setting: the shared store owns
+            // it, so the row never carries a plaintext copy of it.
+            api_key: None,
             model: request.embedding.model.trim().to_string(),
             dimensions: request.embedding.dimensions,
             timeout_secs: request.embedding.timeout_secs,
@@ -59,14 +75,22 @@ pub(super) fn runtime_settings_from_request(
                     prefix: s3.prefix.trim_matches('/').to_string(),
                     path_style: s3.path_style,
                     access_key: s3.access_key.trim().to_string(),
-                    secret_key: s3.secret_key.clone().unwrap_or_default(),
+                    // The secret key is not a runtime setting either: the shared
+                    // store owns it, so the row keeps only the identifiers and
+                    // whoever needs a usable configuration resolves the key.
+                    secret_key: None,
                 }),
         },
     }
 }
 
+/// `has_api_key` and `has_secret_key` are passed in rather than derived from the
+/// stored values: a credential is answered from the shared store's metadata, so
+/// presence has to be answerable without opening it.
 pub(super) fn runtime_settings_response(
     settings: StoredRuntimeSettings,
+    has_embedding_api_key: bool,
+    has_s3_secret_key: bool,
 ) -> RuntimeSettingsResponse {
     RuntimeSettingsResponse {
         qdrant: RuntimeQdrantSettings {
@@ -79,11 +103,7 @@ pub(super) fn runtime_settings_response(
             model: settings.embedding.model,
             dimensions: settings.embedding.dimensions,
             timeout_secs: settings.embedding.timeout_secs,
-            has_api_key: settings
-                .embedding
-                .api_key
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty()),
+            has_api_key: has_embedding_api_key,
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
@@ -114,7 +134,7 @@ pub(super) fn runtime_settings_response(
                     prefix: s3.prefix,
                     path_style: s3.path_style,
                     access_key: s3.access_key,
-                    has_secret_key: !s3.secret_key.is_empty(),
+                    has_secret_key: has_s3_secret_key,
                 }),
         },
     }
@@ -168,8 +188,47 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
                     prefix: s3.prefix,
                     path_style: s3.path_style,
                     access_key: s3.access_key,
+                    // No runtime settings row means no store row: the S3 secret
+                    // key is only ever written together with that row, so the
+                    // deployment default is the whole truth here.
                     has_secret_key: !s3.secret_key.is_empty(),
                 }),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::s3_secret_patch;
+    use crate::contracts::{SecretPatch, UpdateRuntimeS3Settings};
+
+    fn s3_request(secret_key: Option<&str>) -> UpdateRuntimeS3Settings {
+        UpdateRuntimeS3Settings {
+            endpoint: "https://objects.invalid".to_string(),
+            region: "internal".to_string(),
+            bucket: "library".to_string(),
+            prefix: String::new(),
+            path_style: false,
+            access_key: "AKIA-EXAMPLE".to_string(),
+            secret_key: secret_key.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn an_s3_update_maps_to_set_keep_or_clear() {
+        assert_eq!(
+            s3_secret_patch(Some(&s3_request(Some("new")))),
+            SecretPatch::Set("new".to_string())
+        );
+        // An absent or blank key keeps what is stored; a blank key has never been
+        // a way to clear it.
+        assert_eq!(s3_secret_patch(Some(&s3_request(None))), SecretPatch::Keep);
+        assert_eq!(
+            s3_secret_patch(Some(&s3_request(Some("   ")))),
+            SecretPatch::Keep
+        );
+        // Dropping the S3 block drops the credential with it, so a re-add cannot
+        // resurrect one the operator removed.
+        assert_eq!(s3_secret_patch(None), SecretPatch::Clear);
     }
 }
