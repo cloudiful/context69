@@ -564,6 +564,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository_file_content"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files": {
         parameters: {
             query?: never;
@@ -2286,6 +2302,105 @@ export interface components {
             path: string;
             /** Format: uuid */
             repository_key: string;
+        };
+        /** @description Query for one bounded line window of an exact repository path. */
+        GitRepositoryFileContentQuery: {
+            /**
+             * @description Continuation token from a previous page of the same window. Absent starts
+             *     at the first matching chunk.
+             *
+             *     The utoipa derive needs a literal, so it mirrors the constant the runtime
+             *     validator enforces; the bound is asserted in the contract tests.
+             */
+            cursor?: string | null;
+            /**
+             * Format: int32
+             * @description Last source line of the window, inclusive and at least `start_line`.
+             */
+            end_line: number;
+            /**
+             * @description Repository-relative path, as stored in the serving generation's manifest.
+             *
+             *     The utoipa derives need a literal, so they mirror the constant the
+             *     runtime validator enforces; both bounds are asserted in the contract
+             *     tests.
+             */
+            path: string;
+            /**
+             * Format: int32
+             * @description First source line of the window, inclusive and 1-based.
+             */
+            start_line: number;
+        };
+        /**
+         * @description One bounded page of stored chunk text for an exact line window.
+         *
+         *     The text is the stored UTF-8 verbatim — same bytes, same line endings, same
+         *     trailing whitespace — trimmed to the requested inclusive window, so a caller
+         *     can quote it or concatenate continuation pages in order. `byte_count` is the
+         *     exact UTF-8 length of `text`, which is what makes the page checkable, and the
+         *     generation provenance, the manifest entry, and the requested bounds travel
+         *     with it so the text is always attributable.
+         *
+         *     Raw acquisition blobs, provider blob ids, secret references, and connection
+         *     state never cross this response.
+         */
+        GitRepositoryFileContentResponse: {
+            /**
+             * Format: int64
+             * @description Exact UTF-8 byte length of `text`.
+             */
+            byte_count: number;
+            /** @description Target/indexed commit checkpoint of the source. */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int32
+             * @description Last requested source line, inclusive.
+             */
+            end_line: number;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /** @description The manifest entry the path named. */
+            file: components["schemas"]["GitRepositoryFile"];
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the text and entry belong to.
+             */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            /** @description Cursor continuation: `has_more = true` always carries `next_cursor`. */
+            pagination: components["schemas"]["CursorPagination"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /**
+             * Format: int32
+             * @description First requested source line, inclusive.
+             */
+            start_line: number;
+            /** @description Stored text for the window, verbatim and without normalization. */
+            text: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the serving generation covers.
+             */
+            total_bytes: number;
         };
         /**
          * @description One exact manifest entry of the generation a repository currently serves.
@@ -5368,6 +5483,84 @@ export interface operations {
                 };
             };
             /** @description Invalid repository path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or path not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_git_repository_file_content: {
+        parameters: {
+            query: {
+                /**
+                 * @description Repository-relative path, as stored in the serving generation's manifest.
+                 *
+                 *     The utoipa derives need a literal, so they mirror the constant the
+                 *     runtime validator enforces; both bounds are asserted in the contract
+                 *     tests.
+                 */
+                path: string;
+                /** @description First source line of the window, inclusive and 1-based. */
+                start_line: number;
+                /** @description Last source line of the window, inclusive and at least `start_line`. */
+                end_line: number;
+                /**
+                 * @description Continuation token from a previous page of the same window. Absent starts
+                 *     at the first matching chunk.
+                 *
+                 *     The utoipa derive needs a literal, so it mirrors the constant the runtime
+                 *     validator enforces; the bound is asserted in the contract tests.
+                 */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored text of one bounded line window */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileContentResponse"];
+                };
+            };
+            /** @description Invalid path, line window, or continuation cursor */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -18,9 +18,9 @@ use crate::contracts::sources::GitCodeLexicalHit;
 
 use super::file_rows::{GitChunkReplaceRow, GitGenerationChunkRow, GitLexicalChunkHitRow};
 use super::file_types::{
-    GitChunkReplacement, GitGenerationChunkList, GitLexicalCodeSearch, MAX_GIT_CHUNKS_PER_FILE,
-    MAX_GIT_LEXICAL_LIMIT, MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk,
-    StoredGitGenerationChunk, lexical_hit_from_row,
+    GitChunkLineWindow, GitChunkReplacement, GitGenerationChunkList, GitLexicalCodeSearch,
+    MAX_GIT_CHUNKS_PER_FILE, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_SEARCH_TERM_LENGTH,
+    NewGitGenerationChunk, StoredGitGenerationChunk, StoredGitGenerationFile, lexical_hit_from_row,
 };
 use super::files::bounded_page;
 use crate::db::Database;
@@ -77,6 +77,43 @@ impl Database {
             repository_key,
             generation_key,
             file_key,
+            limit,
+            offset
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(StoredGitGenerationChunk::from_row)
+            .collect())
+    }
+
+    /// Lists one bounded page of the stored chunk text covering a line window.
+    ///
+    /// The page is confined to one group, repository, generation, and file: the
+    /// repository and generation keys are taken from the manifest entry itself,
+    /// so the text can only ever come from the entry the caller already resolved
+    /// for its own group. Only the chunk table is read — the raw acquisition blob
+    /// and its provider blob id are never selected — so a caller cannot reach
+    /// bytes outside the stored, line-anchored text.
+    pub async fn list_git_generation_chunks_in_line_range(
+        &self,
+        group_id: i64,
+        file: &StoredGitGenerationFile,
+        window: &GitChunkLineWindow,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoredGitGenerationChunk>> {
+        bounded_page(limit, offset)?;
+        let rows = sqlx::query_file_as!(
+            GitGenerationChunkRow,
+            "src/sql/db/git_repository_files/list_git_generation_chunks_in_line_range.sql",
+            group_id,
+            file.repository_key,
+            file.generation_key,
+            file.file_key,
+            window.start_line,
+            window.end_line,
             limit,
             offset
         )

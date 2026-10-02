@@ -140,6 +140,22 @@ polling, and metadata-index workers remain server-side.
   indexed. Neither read returns file bytes, chunk text, a line or
   byte range, a provider blob id, or any credential, secret reference, or
   connection state.
+- `GET /v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content?path=<path>&start_line=<n>&end_line=<n>&cursor=<token>`
+  is the one content egress path. It returns the stored UTF-8 text of one
+  inclusive line window, verbatim: CRLF endings, trailing whitespace, and a
+  missing final newline are preserved, so a caller can quote the text or
+  concatenate continuation pages in order. The window is at most 400 lines, the
+  returned text at most 64 KiB, and a `limit`-free `cursor` is the server-issued
+  offset of the next matching chunk; `next_cursor` is present exactly when
+  `has_more` is true. The response
+  (`GitRepositoryFileContentResponse`) carries that text with its exact
+  `byte_count`, the same manifest entry, and the same provenance and coverage
+  the other two reads report.
+- A zero, negative, reversed, or over-wide window and a continuation this API did
+  not issue are `400 invalid_argument`. The content read never selects the raw
+  acquisition blob or a provider blob id: only stored, line-anchored chunk text
+  of the requested window is returned, and nothing outside that window appears
+  in it.
 
 ## Contract bounds and errors
 

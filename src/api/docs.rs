@@ -33,6 +33,7 @@ use crate::api::{
         __path_delete_git_repository_connection, __path_set_git_repository_connection,
     },
     git_repository_file::__path_get_git_repository_file,
+    git_repository_file_content::__path_get_git_repository_file_content,
     git_repository_files::__path_list_git_repository_files,
     git_webhook_ingress::__path_receive_git_webhook,
     group_library::{
@@ -122,9 +123,10 @@ use crate::contracts::sources::{
     GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
     GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
     GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryFile, GitRepositoryFileDetailResponse, GitRepositoryFileListResponse,
-    GitRepositoryFileQuery, GitRepositoryRegistrationRequest, GitRepositorySource,
-    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
+    GitRepositoryFile, GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
+    GitRepositoryFileDetailResponse, GitRepositoryFileListResponse, GitRepositoryFileQuery,
+    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookOwnership,
+    GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -185,6 +187,7 @@ use crate::contracts::sources::{
         index_git_repository,
         list_git_repository_files,
         get_git_repository_file,
+        get_git_repository_file_content,
         list_git_provider_connections,
         create_git_connection,
         get_git_connection_readiness,
@@ -275,6 +278,8 @@ use crate::contracts::sources::{
         GitRepositoryFileListResponse,
         GitRepositoryFileQuery,
         GitRepositoryFileDetailResponse,
+        GitRepositoryFileContentQuery,
+        GitRepositoryFileContentResponse,
         GitConnectionMode,
         GitConnectionReadiness,
         GitConnectionReadinessResponse,
@@ -498,6 +503,7 @@ mod tests {
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
             "/v1/groups/by-path/{group_path}/git-connections",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
@@ -790,6 +796,62 @@ mod tests {
             assert!(
                 !file_detail_properties.contains_key(forbidden),
                 "the exact-file read must not expose {forbidden}"
+            );
+        }
+
+        // Issue 681 5C: the content read is the one egress path, and it is
+        // bounded and window-scoped: a path, a positive line window, and an
+        // optional continuation, with a response that carries text and no blob.
+        let content_read = paths
+            .get("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content")
+            .and_then(|path| path.get("get"))
+            .expect("file content GET to exist");
+        assert_eq!(
+            content_read.get("operationId").and_then(Value::as_str),
+            Some("get_git_repository_file_content")
+        );
+        let content_parameters: Vec<(&str, &str)> = content_read
+            .get("parameters")
+            .and_then(Value::as_array)
+            .expect("content read parameters")
+            .iter()
+            .filter_map(|parameter| {
+                Some((
+                    parameter.get("in")?.as_str()?,
+                    parameter.get("name")?.as_str()?,
+                ))
+            })
+            .collect();
+        assert_eq!(
+            content_parameters,
+            vec![
+                ("path", "group_path"),
+                ("path", "repository_key"),
+                ("query", "path"),
+                ("query", "start_line"),
+                ("query", "end_line"),
+                ("query", "cursor"),
+            ],
+            "the read takes two path parameters and the bounded window query"
+        );
+        let content_schema = schemas
+            .get("GitRepositoryFileContentResponse")
+            .and_then(Value::as_object)
+            .expect("GitRepositoryFileContentResponse schema to exist");
+        let content_properties = content_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("content response properties");
+        for field in ["text", "byte_count", "start_line", "end_line", "pagination"] {
+            assert!(
+                content_properties.contains_key(field),
+                "the content response must expose {field}"
+            );
+        }
+        for forbidden in ["blob", "content_url", "provider_blob_sha", "chunks"] {
+            assert!(
+                !content_properties.contains_key(forbidden),
+                "the content response must not expose {forbidden}"
             );
         }
 

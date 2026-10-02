@@ -200,3 +200,104 @@ pub struct GitRepositoryFileDetailResponse {
     /// The exact entry the path named.
     pub file: GitRepositoryFile,
 }
+
+/// Longest line window one content read may request.
+///
+/// The bound is on the requested span, not on what storage holds, so a caller
+/// cannot ask for a whole file in one response and every read is answered by a
+/// page of stored chunks.
+pub const MAX_GIT_CONTENT_WINDOW_LINES: usize = 400;
+
+/// Largest returned UTF-8 text one content read may carry, in bytes.
+///
+/// Runtime byte accounting is authoritative for the response: a page stops
+/// before the chunk that would cross this bound, and a continuation token says
+/// so. The database caps a single stored chunk far below this, so a page always
+/// makes progress and a continuation always terminates.
+pub const MAX_GIT_CONTENT_WINDOW_BYTES: usize = 64 * 1024;
+
+/// Longest accepted continuation token for a content read.
+///
+/// A continuation is a decimal chunk-row offset this service issued, so the
+/// width is bounded: a hostile value can never become a long parse or an
+/// unbounded `OFFSET`.
+pub const MAX_GIT_CONTENT_CURSOR_MAX_CHARS: usize = 20;
+
+/// Query for one bounded line window of an exact repository path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
+#[into_params(parameter_in = Query)]
+pub struct GitRepositoryFileContentQuery {
+    /// Repository-relative path, as stored in the serving generation's manifest.
+    ///
+    /// The utoipa derives need a literal, so they mirror the constant the
+    /// runtime validator enforces; both bounds are asserted in the contract
+    /// tests.
+    #[schema(max_length = 512)]
+    #[schemars(length(max = GIT_REPOSITORY_FILE_PATH_MAX_CHARS))]
+    #[param(max_length = 512)]
+    pub path: String,
+    /// First source line of the window, inclusive and 1-based.
+    #[schema(minimum = 1)]
+    #[schemars(range(min = 1))]
+    #[param(minimum = 1)]
+    pub start_line: i32,
+    /// Last source line of the window, inclusive and at least `start_line`.
+    #[schema(minimum = 1)]
+    #[schemars(range(min = 1))]
+    #[param(minimum = 1)]
+    pub end_line: i32,
+    /// Continuation token from a previous page of the same window. Absent starts
+    /// at the first matching chunk.
+    ///
+    /// The utoipa derive needs a literal, so it mirrors the constant the runtime
+    /// validator enforces; the bound is asserted in the contract tests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(max = MAX_GIT_CONTENT_CURSOR_MAX_CHARS))]
+    #[param(max_length = 20)]
+    pub cursor: Option<String>,
+}
+
+/// One bounded page of stored chunk text for an exact line window.
+///
+/// The text is the stored UTF-8 verbatim — same bytes, same line endings, same
+/// trailing whitespace — trimmed to the requested inclusive window, so a caller
+/// can quote it or concatenate continuation pages in order. `byte_count` is the
+/// exact UTF-8 length of `text`, which is what makes the page checkable, and the
+/// generation provenance, the manifest entry, and the requested bounds travel
+/// with it so the text is always attributable.
+///
+/// Raw acquisition blobs, provider blob ids, secret references, and connection
+/// state never cross this response.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct GitRepositoryFileContentResponse {
+    pub repository_key: Uuid,
+    /// Generation the text and entry belong to.
+    pub generation_key: Uuid,
+    /// Per-repository monotonic sequence of the serving generation.
+    pub generation_number: i64,
+    pub ref_name: String,
+    /// Pinned snapshot commit the serving generation covers.
+    pub commit_sha: String,
+    /// Index lifecycle state of the repository source, read at query time.
+    pub index_status: GitIndexStatus,
+    /// Target/indexed commit checkpoint of the source.
+    pub checkpoint: GitCommitCheckpoint,
+    /// Manifest entries the serving generation covers.
+    pub file_count: i64,
+    /// File entries acquisition excluded, so coverage gaps stay visible.
+    pub excluded_file_count: i64,
+    /// Raw bytes the serving generation covers.
+    pub total_bytes: i64,
+    /// The manifest entry the path named.
+    pub file: GitRepositoryFile,
+    /// First requested source line, inclusive.
+    pub start_line: i32,
+    /// Last requested source line, inclusive.
+    pub end_line: i32,
+    /// Stored text for the window, verbatim and without normalization.
+    pub text: String,
+    /// Exact UTF-8 byte length of `text`.
+    pub byte_count: i64,
+    /// Cursor continuation: `has_more = true` always carries `next_cursor`.
+    pub pagination: CursorPagination,
+}

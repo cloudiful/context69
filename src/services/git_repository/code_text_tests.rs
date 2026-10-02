@@ -3,8 +3,11 @@
 
 use std::collections::BTreeSet;
 
+use chrono::Utc;
+use uuid::Uuid;
+
 use super::{CodeChunk, CodeChunkBounds, CodeText, CodeTextRejection, chunk_code_text};
-use crate::db::MAX_GIT_FILE_BYTES;
+use crate::db::{MAX_GIT_FILE_BYTES, StoredGitGenerationChunk};
 
 /// The ceiling `chk_git_generation_chunks_text` enforces on stored chunk text.
 /// A chunker bound above it would let a chunk exist that the database refuses.
@@ -318,10 +321,155 @@ fn default_bounds_keep_every_chunk_storable() {
         assert_exact_and_anchored(&source, &chunks);
         assert_within_bound(&chunks, default_bounds.max_bytes);
         for chunk in &chunks {
+            // The chunk's inclusive line span, as the storage layer reads it.
+            let span = (chunk.end_line - chunk.start_line + 1) as usize;
             assert!(
-                (chunk.end_line - chunk.start_line) as usize + 1 <= default_bounds.max_lines,
+                span <= default_bounds.max_lines,
                 "a chunk never spans more lines than the bound allows"
             );
         }
     }
+}
+
+/// A stored chunk built from a `CodeChunk` the chunker produced, which is how
+/// storage receives it.
+fn stored(chunk: &CodeChunk) -> StoredGitGenerationChunk {
+    StoredGitGenerationChunk {
+        chunk_key: Uuid::new_v4(),
+        generation_key: Uuid::new_v4(),
+        file_key: Uuid::new_v4(),
+        chunk_index: chunk.chunk_index,
+        start_line: chunk.start_line,
+        end_line: chunk.end_line,
+        text: chunk.text.clone(),
+        created_at: Utc::now(),
+    }
+}
+
+/// A window's text, reassembled from the stored chunks the chunker produced.
+///
+/// The line numbering resolved by the window trim must be the numbering the
+/// chunker stored, and a window must never return text from outside itself or
+/// drop a byte of the lines it did ask for.
+fn window_text(source: &str, start_line: i32, end_line: i32) -> String {
+    let bounds = bounds(64, 2, 4_096);
+    let chunks = chunk_code_text(source, bounds).expect("chunking succeeds");
+    chunks
+        .iter()
+        .map(stored)
+        .fold(String::new(), |mut window, row| {
+            window.push_str(&row.text_in_line_window(start_line, end_line));
+            window
+        })
+}
+
+/// Every entry is one terminated line except the last, so the file really has six
+/// lines and the CRLF, trailing-space, and multibyte cases each occupy their own.
+const LINES: [&str; 6] = [
+    "alpha\n",
+    "beta  \n",
+    "gamma\r\n",
+    "delta\n",
+    "ünïcode ✅\n",
+    "zeta",
+];
+
+fn source(start: i32, count: i32) -> String {
+    LINES
+        .iter()
+        .take(count as usize)
+        .skip(start as usize)
+        .copied()
+        .collect()
+}
+
+#[test]
+fn a_window_inside_one_chunk_returns_only_those_lines() {
+    // With these bounds the chunker groups two lines per chunk, so the window
+    // 1..=1 is strictly inside the first chunk and 1..=2 is that whole chunk.
+    let whole = source(0, 6);
+    assert_eq!(window_text(&whole, 1, 1), "alpha\n");
+    assert_eq!(window_text(&whole, 1, 2), "alpha\nbeta  \n");
+    assert!(
+        whole.contains(&window_text(&whole, 1, 1)),
+        "the window is a slice of the stored text"
+    );
+}
+
+#[test]
+fn a_window_spanning_chunks_concatenates_them_in_order() {
+    let whole = source(0, 6);
+    // Lines 2 and 3 sit in different chunks: the spanning window is exactly the
+    // concatenation of the two single-line windows.
+    assert_eq!(window_text(&whole, 2, 3), "beta  \ngamma\r\n");
+    for (start_line, end_line) in [(2, 3), (3, 5), (1, 4)] {
+        let mut line_by_line = String::new();
+        for line in start_line..=end_line {
+            line_by_line.push_str(&window_text(&whole, line, line));
+        }
+        assert_eq!(
+            window_text(&whole, start_line, end_line),
+            line_by_line,
+            "{start_line}..={end_line} is the concatenation of its single-line windows"
+        );
+    }
+}
+
+#[test]
+fn a_window_clips_the_first_and_last_requested_line_without_normalizing() {
+    let whole = source(0, 6);
+    // CRLF, trailing whitespace, and a multibyte line survive verbatim.
+    assert_eq!(window_text(&whole, 2, 2), "beta  \n");
+    assert_eq!(window_text(&whole, 3, 5), "gamma\r\ndelta\nünïcode ✅\n");
+    // A window ending on the last line keeps that line's missing terminator.
+    assert_eq!(window_text(&whole, 6, 6), "zeta");
+    // A window past the last line returns what exists, never more.
+    assert_eq!(window_text(&whole, 6, 40), "zeta");
+    assert_eq!(window_text(&whole, 40, 50), "");
+}
+
+#[test]
+fn a_window_over_empty_and_minimal_text_stays_truthful() {
+    // Empty content has no lines, so no window can return text.
+    assert_eq!(window_text("", 1, 1), "");
+    assert_eq!(window_text("\n", 1, 1), "\n", "a bare newline is one line");
+    assert_eq!(window_text("only\n", 1, 1), "only\n");
+    // A window whose chunk carries no requested line yields nothing.
+    let stored_row = StoredGitGenerationChunk {
+        chunk_key: Uuid::new_v4(),
+        generation_key: Uuid::new_v4(),
+        file_key: Uuid::new_v4(),
+        chunk_index: 0,
+        start_line: 40,
+        end_line: 41,
+        text: "far away\n".to_string(),
+        created_at: Utc::now(),
+    };
+    assert_eq!(stored_row.text_in_line_window(1, 2), "");
+    assert_eq!(stored_row.text_in_line_window(40, 40), "far away\n");
+}
+
+#[test]
+fn a_line_too_long_for_one_chunk_is_returned_whole() {
+    // One line longer than the chunk byte bound is cut into several pieces that
+    // all carry that line's number, so a window naming the line returns every
+    // piece and reassembles the line exactly.
+    let long_line = format!("{}\n", "x".repeat(200));
+    let whole = format!("first\n{long_line}last\n");
+    let bounds = bounds(64, 8, 4_096);
+    let chunks = chunk_code_text(&whole, bounds).expect("chunking succeeds");
+    let pieces = chunks
+        .iter()
+        .filter(|chunk| chunk.start_line == 2)
+        .map(stored)
+        .collect::<Vec<_>>();
+    assert!(pieces.len() > 1, "the long line is cut into several pieces");
+    let text = pieces.iter().fold(String::new(), |mut window, row| {
+        window.push_str(&row.text_in_line_window(2, 2));
+        window
+    });
+    assert_eq!(text, long_line, "the long line reassembles byte for byte");
+    // A window of a different line never sees a piece of the long one.
+    assert_eq!(window_text(&whole, 1, 1), "first\n");
+    assert_eq!(window_text(&whole, 3, 3), "last\n");
 }

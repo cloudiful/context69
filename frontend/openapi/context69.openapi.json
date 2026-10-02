@@ -2191,6 +2191,113 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content": {
+      "get": {
+        "tags": [],
+        "operationId": "get_git_repository_file_content",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Repository-relative path, as stored in the serving generation's manifest.\n\nThe utoipa derives need a literal, so they mirror the constant the\nruntime validator enforces; both bounds are asserted in the contract\ntests.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "start_line",
+            "in": "query",
+            "description": "First source line of the window, inclusive and 1-based.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "end_line",
+            "in": "query",
+            "description": "Last source line of the window, inclusive and at least `start_line`.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Continuation token from a previous page of the same window. Absent starts\nat the first matching chunk.\n\nThe utoipa derive needs a literal, so it mirrors the constant the runtime\nvalidator enforces; the bound is asserted in the contract tests.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored text of one bounded line window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepositoryFileContentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path, line window, or continuation cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group, repository, or path not found"
+          },
+          "409": {
+            "description": "No active ready index generation to read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files": {
       "get": {
         "tags": [],
@@ -8205,6 +8312,136 @@
           "repository_key": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "GitRepositoryFileContentQuery": {
+        "type": "object",
+        "description": "Query for one bounded line window of an exact repository path.",
+        "required": [
+          "path",
+          "start_line",
+          "end_line"
+        ],
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Continuation token from a previous page of the same window. Absent starts\nat the first matching chunk.\n\nThe utoipa derive needs a literal, so it mirrors the constant the runtime\nvalidator enforces; the bound is asserted in the contract tests."
+          },
+          "end_line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Last source line of the window, inclusive and at least `start_line`.",
+            "minimum": 1
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository-relative path, as stored in the serving generation's manifest.\n\nThe utoipa derives need a literal, so they mirror the constant the\nruntime validator enforces; both bounds are asserted in the contract\ntests.",
+            "maxLength": 512
+          },
+          "start_line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "First source line of the window, inclusive and 1-based.",
+            "minimum": 1
+          }
+        }
+      },
+      "GitRepositoryFileContentResponse": {
+        "type": "object",
+        "description": "One bounded page of stored chunk text for an exact line window.\n\nThe text is the stored UTF-8 verbatim — same bytes, same line endings, same\ntrailing whitespace — trimmed to the requested inclusive window, so a caller\ncan quote it or concatenate continuation pages in order. `byte_count` is the\nexact UTF-8 length of `text`, which is what makes the page checkable, and the\ngeneration provenance, the manifest entry, and the requested bounds travel\nwith it so the text is always attributable.\n\nRaw acquisition blobs, provider blob ids, secret references, and connection\nstate never cross this response.",
+        "required": [
+          "repository_key",
+          "generation_key",
+          "generation_number",
+          "ref_name",
+          "commit_sha",
+          "index_status",
+          "checkpoint",
+          "file_count",
+          "excluded_file_count",
+          "total_bytes",
+          "file",
+          "start_line",
+          "end_line",
+          "text",
+          "byte_count",
+          "pagination"
+        ],
+        "properties": {
+          "byte_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Exact UTF-8 byte length of `text`."
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/GitCommitCheckpoint",
+            "description": "Target/indexed commit checkpoint of the source."
+          },
+          "commit_sha": {
+            "type": "string",
+            "description": "Pinned snapshot commit the serving generation covers."
+          },
+          "end_line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Last requested source line, inclusive."
+          },
+          "excluded_file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "File entries acquisition excluded, so coverage gaps stay visible."
+          },
+          "file": {
+            "$ref": "#/components/schemas/GitRepositoryFile",
+            "description": "The manifest entry the path named."
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Manifest entries the serving generation covers."
+          },
+          "generation_key": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Generation the text and entry belong to."
+          },
+          "generation_number": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-repository monotonic sequence of the serving generation."
+          },
+          "index_status": {
+            "$ref": "#/components/schemas/GitIndexStatus",
+            "description": "Index lifecycle state of the repository source, read at query time."
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/CursorPagination",
+            "description": "Cursor continuation: `has_more = true` always carries `next_cursor`."
+          },
+          "ref_name": {
+            "type": "string"
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "start_line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "First requested source line, inclusive."
+          },
+          "text": {
+            "type": "string",
+            "description": "Stored text for the window, verbatim and without normalization."
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Raw bytes the serving generation covers."
           }
         }
       },
