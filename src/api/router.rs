@@ -38,9 +38,9 @@ use super::{
     register_git_repository, require_admin_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
-    set_git_repository_connection, submit_vector_index_rebuild, sync_group_source_folder,
-    sync_source, touch_personal_access_token_middleware, update_admin_user,
-    update_group_source_folder_config, update_source, update_source_connection,
+    search_git_repository_code, set_git_repository_connection, submit_vector_index_rebuild,
+    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
+    update_admin_user, update_group_source_folder_config, update_source, update_source_connection,
     update_translation_settings,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
@@ -280,6 +280,10 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file/content",
             get(get_git_repository_file_content),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search",
+            get(search_git_repository_code),
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",

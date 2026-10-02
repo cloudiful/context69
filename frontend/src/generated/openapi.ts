@@ -532,6 +532,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_git_repository_code"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection": {
         parameters: {
             query?: never;
@@ -2118,6 +2134,128 @@ export interface components {
         FileRetryItem: {
             /** Format: uuid */
             file_id: string;
+        };
+        /**
+         * @description Why one chunk was returned by a lexical code query.
+         * @enum {string}
+         */
+        GitCodeMatchKind: "path_exact" | "path_phrase" | "chunk_phrase" | "chunk_terms";
+        /**
+         * @description One bounded code hit with the provenance a caller needs to check it.
+         *
+         *     The stored text is verbatim — same bytes, same line endings, same trailing
+         *     whitespace — so a caller can quote it or cite its inclusive line range. Raw
+         *     acquisition blobs, provider blob ids, secret references, and connection state
+         *     never cross this contract.
+         */
+        GitCodeSearchHit: {
+            /**
+             * Format: int32
+             * @description Zero-based position of the chunk inside its file.
+             */
+            chunk_index: number;
+            /** Format: uuid */
+            chunk_key: string;
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int32
+             * @description Last source line of the chunk, inclusive.
+             */
+            end_line: number;
+            /** Format: uuid */
+            file_key: string;
+            /** Format: uuid */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Classified language of that path. */
+            language: string;
+            /** @description Which side of the match produced this hit. */
+            matched: components["schemas"]["GitCodeMatchKind"];
+            /** @description Repository-relative path the hit was found in. */
+            path: string;
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: float */
+            score: number;
+            /**
+             * Format: int32
+             * @description First source line of the chunk, inclusive and 1-based.
+             */
+            start_line: number;
+            text: string;
+            /** @description Current visibility of the owning group, read at query time. */
+            visibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * @description Query for a bounded lexical search over one repository's active generation.
+         *
+         *     The term is matched whole and case-insensitively against stored code and is
+         *     never rewritten here, so a `%` or `_` stays a literal character.
+         *     `path_prefix` narrows to a repository-relative prefix and is matched
+         *     case-sensitively, the way Git paths are; `language` is the classified token
+         *     the manifest stores.
+         */
+        GitCodeSearchQuery: {
+            /** @description Optional classified language token, such as `rust` or `markdown`. */
+            language?: string | null;
+            /**
+             * Format: int32
+             * @description Most hits to return, 1..=50.
+             */
+            limit?: number;
+            /** @description Optional repository-relative path prefix, matched case-sensitively. */
+            path_prefix?: string | null;
+            /** @description Search term, matched whole and case-insensitively. */
+            query: string;
+        };
+        /**
+         * @description One bounded page of lexical hits over a repository's active generation.
+         *
+         *     The response names the serving generation, so every hit stays attributable to
+         *     a pinned commit, and it reports coverage next to the hits, so a caller can see
+         *     what the search did not cover. `truncated` is true only when the storage layer
+         *     held more hits than the page returns. No cursor is offered: a caller that
+         *     needs more narrows its filters instead.
+         */
+        GitCodeSearchResponse: {
+            /** @description Target/indexed commit checkpoint of the source. */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /** Format: uuid */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description At most `limit` hits, in the storage layer's score/path/chunk order. */
+            hits: components["schemas"]["GitCodeSearchHit"][];
+            /** @description Index lifecycle state of the source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /** Format: int64 */
+            total_bytes: number;
+            /** @description Whether more matching hits existed than this response returns. */
+            truncated: boolean;
         };
         /**
          * @description Incremental-sync checkpoint between the target and indexed commits.
@@ -5347,6 +5485,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    search_git_repository_code: {
+        parameters: {
+            query: {
+                /** @description Search term, matched whole and case-insensitively. */
+                query: string;
+                /** @description Optional repository-relative path prefix, matched case-sensitively. */
+                path_prefix?: string;
+                /** @description Optional classified language token, such as `rust` or `markdown`. */
+                language?: string;
+                /** @description Most hits to return, 1..=50. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded lexical hits from the active generation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCodeSearchResponse"];
+                };
+            };
+            /** @description Invalid search term, path prefix, language, or limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to search */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

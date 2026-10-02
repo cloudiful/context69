@@ -1998,6 +1998,114 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search": {
+      "get": {
+        "tags": [],
+        "operationId": "search_git_repository_code",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Search term, matched whole and case-insensitively.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            }
+          },
+          {
+            "name": "path_prefix",
+            "in": "query",
+            "description": "Optional repository-relative path prefix, matched case-sensitively.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "description": "Optional classified language token, such as `rust` or `markdown`.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Most hits to return, 1..=50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 50,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded lexical hits from the active generation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCodeSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid search term, path prefix, language, or limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          },
+          "409": {
+            "description": "No active ready index generation to search",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection": {
       "put": {
         "tags": [],
@@ -7972,6 +8080,212 @@
           "file_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "GitCodeMatchKind": {
+        "type": "string",
+        "description": "Why one chunk was returned by a lexical code query.",
+        "enum": [
+          "path_exact",
+          "path_phrase",
+          "chunk_phrase",
+          "chunk_terms"
+        ]
+      },
+      "GitCodeSearchHit": {
+        "type": "object",
+        "description": "One bounded code hit with the provenance a caller needs to check it.\n\nThe stored text is verbatim — same bytes, same line endings, same trailing\nwhitespace — so a caller can quote it or cite its inclusive line range. Raw\nacquisition blobs, provider blob ids, secret references, and connection state\nnever cross this contract.",
+        "required": [
+          "repository_key",
+          "generation_key",
+          "generation_number",
+          "ref_name",
+          "commit_sha",
+          "visibility",
+          "file_key",
+          "path",
+          "language",
+          "chunk_key",
+          "chunk_index",
+          "start_line",
+          "end_line",
+          "text",
+          "score",
+          "matched"
+        ],
+        "properties": {
+          "chunk_index": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Zero-based position of the chunk inside its file."
+          },
+          "chunk_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "commit_sha": {
+            "type": "string",
+            "description": "Pinned snapshot commit the serving generation covers."
+          },
+          "end_line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Last source line of the chunk, inclusive."
+          },
+          "file_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_number": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-repository monotonic sequence of the serving generation."
+          },
+          "language": {
+            "type": "string",
+            "description": "Classified language of that path."
+          },
+          "matched": {
+            "$ref": "#/components/schemas/GitCodeMatchKind",
+            "description": "Which side of the match produced this hit."
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository-relative path the hit was found in."
+          },
+          "ref_name": {
+            "type": "string"
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "score": {
+            "type": "number",
+            "format": "float"
+          },
+          "start_line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "First source line of the chunk, inclusive and 1-based."
+          },
+          "text": {
+            "type": "string"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility",
+            "description": "Current visibility of the owning group, read at query time."
+          }
+        }
+      },
+      "GitCodeSearchQuery": {
+        "type": "object",
+        "description": "Query for a bounded lexical search over one repository's active generation.\n\nThe term is matched whole and case-insensitively against stored code and is\nnever rewritten here, so a `%` or `_` stays a literal character.\n`path_prefix` narrows to a repository-relative prefix and is matched\ncase-sensitively, the way Git paths are; `language` is the classified token\nthe manifest stores.",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional classified language token, such as `rust` or `markdown`."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Most hits to return, 1..=50.",
+            "minimum": 0
+          },
+          "path_prefix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional repository-relative path prefix, matched case-sensitively."
+          },
+          "query": {
+            "type": "string",
+            "description": "Search term, matched whole and case-insensitively."
+          }
+        }
+      },
+      "GitCodeSearchResponse": {
+        "type": "object",
+        "description": "One bounded page of lexical hits over a repository's active generation.\n\nThe response names the serving generation, so every hit stays attributable to\na pinned commit, and it reports coverage next to the hits, so a caller can see\nwhat the search did not cover. `truncated` is true only when the storage layer\nheld more hits than the page returns. No cursor is offered: a caller that\nneeds more narrows its filters instead.",
+        "required": [
+          "repository_key",
+          "generation_key",
+          "generation_number",
+          "ref_name",
+          "commit_sha",
+          "index_status",
+          "checkpoint",
+          "file_count",
+          "excluded_file_count",
+          "total_bytes",
+          "hits",
+          "truncated"
+        ],
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/GitCommitCheckpoint",
+            "description": "Target/indexed commit checkpoint of the source."
+          },
+          "commit_sha": {
+            "type": "string",
+            "description": "Pinned snapshot commit the serving generation covers."
+          },
+          "excluded_file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "File entries acquisition excluded, so coverage gaps stay visible."
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Manifest entries the serving generation covers."
+          },
+          "generation_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_number": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-repository monotonic sequence of the serving generation."
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitCodeSearchHit"
+            },
+            "description": "At most `limit` hits, in the storage layer's score/path/chunk order."
+          },
+          "index_status": {
+            "$ref": "#/components/schemas/GitIndexStatus",
+            "description": "Index lifecycle state of the source, read at query time."
+          },
+          "ref_name": {
+            "type": "string"
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Whether more matching hits existed than this response returns."
           }
         }
       },

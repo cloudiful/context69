@@ -156,6 +156,36 @@ polling, and metadata-index workers remain server-side.
   acquisition blob or a provider blob id: only stored, line-anchored chunk text
   of the requested window is returned, and nothing outside that window appears
   in it.
+- `GET /v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search?query=<term>&path_prefix=<prefix>&language=<token>&limit=<n>`
+  is the one search read. It searches the serving generation with the same
+  group-scoped lexical matching the `search_code` MCP tool uses — whole-term,
+  case-insensitive, identifier-aware, with a case-sensitive Git path prefix and
+  the classified `language` token as optional filters — and answers from stored
+  chunks only. `query` is required and at most 200 characters, `path_prefix` is
+  an optional repository-relative prefix of at most 512 characters, `language`
+  is an optional lowercase token of at most 32 characters, and `limit` is
+  `1..=50` with a default of 20. A blank or over-long term, an absolute,
+  traversing, or control-byte prefix, a non-classified language, and an
+  out-of-range limit are `400 invalid_argument`, and the refusal names the rule,
+  never the submitted value. A `%` or `_` in the term stays a literal character,
+  and only the term's surrounding whitespace is dropped. The prefix is matched
+  literally and case-sensitively against the stored repository-relative path, so
+  `src` also matches `srcfoo.rs`; one trailing `/` is dropped so a directory
+  prefix stays expressible, and an absent, empty, or separator-only prefix
+  narrows nothing.
+- The search response (`GitCodeSearchResponse`) names the serving repository,
+  generation, ref, pinned commit, index status, commit checkpoint, and
+  file/excluded/byte coverage, then returns at most `limit` `GitCodeSearchHit`
+  entries in score, path, and chunk order. Each hit carries the repository,
+  generation, ref, commit, visibility, file, path, language, chunk, inclusive
+  line range, score, match kind, and the verbatim stored chunk text. `truncated`
+  is true exactly when the storage layer held more matches than the page
+  returns; there is no cursor, so a caller that needs more narrows its filters.
+  An empty valid search is an empty hit list with the same provenance and
+  `truncated = false`. A repository without a serving generation is `409`, and
+  an unknown or foreign repository is the same bounded `404` the other Git reads
+  return. The search never returns a raw acquisition blob, a provider blob id, a
+  secret reference, a credential, or connection state.
 
 ## Contract bounds and errors
 

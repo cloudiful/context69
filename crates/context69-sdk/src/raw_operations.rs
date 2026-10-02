@@ -1067,6 +1067,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "search_git_repository_code",
+        method: "GET",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GitCodeSearchResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "search_groups",
         method: "GET",
         path_template: "/v1/groups/search",

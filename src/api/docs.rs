@@ -29,6 +29,7 @@ use crate::api::{
         __path_get_git_repository, __path_index_git_repository, __path_list_git_repositories,
         __path_register_git_repository,
     },
+    git_repository_code_search::__path_search_git_repository_code,
     git_repository_connections::{
         __path_delete_git_repository_connection, __path_set_git_repository_connection,
     },
@@ -120,10 +121,11 @@ use crate::contracts::{
 };
 
 use crate::contracts::sources::{
-    GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
-    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
-    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryFile, GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
+    GitCodeSearchHit, GitCodeSearchQuery, GitCodeSearchResponse, GitCommitCheckpoint,
+    GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse, GitIndexProfile,
+    GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest, GitProviderKind,
+    GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest, GitRepositoryFile,
+    GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
     GitRepositoryFileDetailResponse, GitRepositoryFileListResponse, GitRepositoryFileQuery,
     GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookOwnership,
     GitWebhookRegistration,
@@ -188,6 +190,7 @@ use crate::contracts::sources::{
         list_git_repository_files,
         get_git_repository_file,
         get_git_repository_file_content,
+        search_git_repository_code,
         list_git_provider_connections,
         create_git_connection,
         get_git_connection_readiness,
@@ -280,6 +283,9 @@ use crate::contracts::sources::{
         GitRepositoryFileDetailResponse,
         GitRepositoryFileContentQuery,
         GitRepositoryFileContentResponse,
+        GitCodeSearchQuery,
+        GitCodeSearchHit,
+        GitCodeSearchResponse,
         GitConnectionMode,
         GitConnectionReadiness,
         GitConnectionReadinessResponse,

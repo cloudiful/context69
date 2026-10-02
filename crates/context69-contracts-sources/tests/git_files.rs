@@ -13,9 +13,13 @@ use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
 use context69_contracts_core::pagination::CursorPagination;
 use context69_contracts_sources::git_files::{
-    GIT_REPOSITORY_FILE_PATH_MAX_CHARS, GitCodeChunk, GitCodeLexicalHit, GitCodeMatchKind,
-    GitRepositoryFile, GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
-    MAX_GIT_CONTENT_CURSOR_MAX_CHARS, MAX_GIT_CONTENT_WINDOW_BYTES, MAX_GIT_CONTENT_WINDOW_LINES,
+    GIT_CODE_SEARCH_LANGUAGE_MAX_CHARS, GIT_CODE_SEARCH_LIMIT_DEFAULT, GIT_CODE_SEARCH_LIMIT_MAX,
+    GIT_CODE_SEARCH_LIMIT_MIN, GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS,
+    GIT_CODE_SEARCH_QUERY_MAX_CHARS, GIT_REPOSITORY_FILE_PATH_MAX_CHARS, GitCodeChunk,
+    GitCodeLexicalHit, GitCodeMatchKind, GitCodeSearchHit, GitCodeSearchQuery,
+    GitCodeSearchResponse, GitRepositoryFile, GitRepositoryFileContentQuery,
+    GitRepositoryFileContentResponse, MAX_GIT_CONTENT_CURSOR_MAX_CHARS,
+    MAX_GIT_CONTENT_WINDOW_BYTES, MAX_GIT_CONTENT_WINDOW_LINES,
 };
 use context69_contracts_sources::git_repositories::{GitCommitCheckpoint, GitIndexStatus};
 use schemars::schema_for;
@@ -395,5 +399,255 @@ fn sample_content_response() -> GitRepositoryFileContentResponse {
         text: "fn window() {\n    1.0;\n".to_string(),
         byte_count: 23,
         pagination: CursorPagination::terminal(),
+    }
+}
+
+#[test]
+fn code_search_query_declares_bounded_filters_and_a_documented_default() {
+    let schema = schema_for!(GitCodeSearchQuery);
+    let properties = schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("query properties");
+    let mut names = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec!["language", "limit", "path_prefix", "query"],
+        "the search takes a term, two optional filters, and a bounded limit"
+    );
+    let term = properties.get("query").expect("term property");
+    assert_eq!(
+        term.get("minLength").and_then(|value| value.as_u64()),
+        Some(1),
+        "a search always names a term"
+    );
+    assert_eq!(
+        term.get("maxLength").and_then(|value| value.as_u64()),
+        Some(GIT_CODE_SEARCH_QUERY_MAX_CHARS as u64)
+    );
+    for (filter, bound) in [
+        ("path_prefix", GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS),
+        ("language", GIT_CODE_SEARCH_LANGUAGE_MAX_CHARS),
+    ] {
+        assert_eq!(
+            properties
+                .get(filter)
+                .and_then(|value| value.get("maxLength"))
+                .and_then(|value| value.as_u64()),
+            Some(bound as u64),
+            "{filter} is a bounded optional filter"
+        );
+    }
+    let limit = properties.get("limit").expect("limit property");
+    assert_eq!(
+        limit.get("minimum").and_then(|value| value.as_u64()),
+        Some(u64::from(GIT_CODE_SEARCH_LIMIT_MIN))
+    );
+    assert_eq!(
+        limit.get("maximum").and_then(|value| value.as_u64()),
+        Some(u64::from(GIT_CODE_SEARCH_LIMIT_MAX))
+    );
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(|required| required.as_array())
+        .expect("required fields")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect();
+    assert_eq!(required, vec!["query"], "only the term is required");
+    assert_eq!(GIT_CODE_SEARCH_LIMIT_MIN, 1);
+    assert_eq!(GIT_CODE_SEARCH_LIMIT_MAX, 50);
+    assert_eq!(GIT_CODE_SEARCH_QUERY_MAX_CHARS, 200);
+    assert_eq!(GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS, 512);
+    assert_eq!(GIT_CODE_SEARCH_LANGUAGE_MAX_CHARS, 32);
+
+    // A caller that names no limit still gets a bounded page, and the term
+    // reaches storage unmodified, so a `%` or `_` stays a literal character.
+    let decoded: GitCodeSearchQuery =
+        from_value(json!({ "query": "100%_a" })).expect("decode a term-only search");
+    assert_eq!(decoded.query, "100%_a", "the term is never rewritten");
+    assert_eq!(decoded.limit, GIT_CODE_SEARCH_LIMIT_DEFAULT);
+    assert_eq!(decoded.path_prefix, None);
+    assert_eq!(decoded.language, None);
+}
+
+#[test]
+fn a_code_search_hit_repeats_the_stored_provenance_and_text_verbatim() {
+    let stored = sample_code_lexical_hit();
+    let hit = sample_code_hit();
+    assert_eq!(
+        keys(&to_value(&hit).expect("serialize the hit")),
+        keys(&to_value(&stored).expect("serialize the stored hit")),
+        "an HTTP hit repeats the stored hit's provenance field for field"
+    );
+    let encoded = to_value(&hit).expect("serialize the hit");
+    assert_eq!(
+        encoded["text"],
+        json!("fn window() {\r\n    1.0;\t\n}\n"),
+        "the stored chunk text crosses verbatim, CRLF and trailing tab included"
+    );
+    assert_eq!(
+        from_value::<GitCodeSearchHit>(encoded.clone()).expect("round trip"),
+        hit
+    );
+    for (field, value) in [
+        ("repository_key", stored.repository_key),
+        ("generation_key", stored.generation_key),
+        ("file_key", stored.file_key),
+        ("chunk_key", stored.chunk_key),
+    ] {
+        assert_eq!(
+            encoded[field],
+            to_value(value).expect("serialize the key"),
+            "{field}"
+        );
+    }
+    assert_eq!(encoded["start_line"], json!(41));
+    assert_eq!(encoded["end_line"], json!(57));
+    assert_eq!(encoded["chunk_index"], json!(2));
+    assert_eq!(encoded["matched"], json!("chunk_terms"));
+    assert_eq!(encoded["visibility"], json!("private"));
+    let schema = to_value(schema_for!(GitCodeSearchHit)).expect("schema object");
+    let mut required: Vec<&str> = schema["required"]
+        .as_array()
+        .expect("required fields")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect();
+    required.sort_unstable();
+    assert_eq!(
+        required,
+        keys(&encoded),
+        "every field of a hit is always present: no provenance is optional, and the \
+         hit adds no field the stored projection does not already carry"
+    );
+}
+
+#[test]
+fn the_search_response_names_the_serving_generation_and_its_coverage() {
+    let response = sample_search_response();
+    assert_eq!(
+        keys(&to_value(&response).expect("serialize the search")),
+        vec![
+            "checkpoint",
+            "commit_sha",
+            "excluded_file_count",
+            "file_count",
+            "generation_key",
+            "generation_number",
+            "hits",
+            "index_status",
+            "ref_name",
+            "repository_key",
+            "total_bytes",
+            "truncated",
+        ],
+        "the response carries the generation, its coverage, the bounded hits, and the \
+         truncation flag — and no continuation token"
+    );
+    assert_eq!(response.generation_key, response.hits[0].generation_key);
+    assert_eq!(response.commit_sha, response.hits[0].commit_sha);
+    assert_eq!(response.file_count, 120);
+    assert_eq!(response.excluded_file_count, 3);
+    assert_eq!(response.total_bytes, 4096);
+    let serialized = to_value(&response)
+        .expect("serialize the search")
+        .to_string();
+    for forbidden in [
+        "pagination",
+        "next_cursor",
+        "has_more",
+        "blob",
+        "connection",
+        "credential",
+        "secret",
+        "token",
+    ] {
+        assert!(
+            !serialized.contains(forbidden),
+            "the search response must not carry {forbidden}: {serialized}"
+        );
+    }
+
+    // An empty but valid search is a truthful result with the same provenance.
+    let mut empty = response.clone();
+    empty.hits.clear();
+    empty.truncated = false;
+    let encoded = to_value(&empty).expect("serialize an empty search");
+    assert_eq!(encoded["hits"], json!([]));
+    assert_eq!(encoded["truncated"], json!(false));
+    assert_eq!(
+        encoded["generation_key"],
+        to_value(response.generation_key).expect("serialize the generation key")
+    );
+    assert_eq!(encoded["file_count"], json!(120));
+    assert_eq!(
+        schema_for!(GitCodeSearchResponse)
+            .pointer("/properties/truncated/type")
+            .and_then(|value| value.as_str()),
+        Some("boolean"),
+        "truncation is a flag, not a cursor"
+    );
+}
+
+fn sample_code_lexical_hit() -> GitCodeLexicalHit {
+    GitCodeLexicalHit {
+        repository_key: Uuid::parse_str("018f9f3a-2c1b-7c4d-8e5f-6a7b8c9d0e1f").expect("uuid"),
+        generation_key: Uuid::parse_str("018f9f40-2222-7000-8000-0000000000c2").expect("uuid"),
+        generation_number: 7,
+        ref_name: "refs/heads/main".to_string(),
+        commit_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        visibility: Visibility::Private,
+        file_key: Uuid::parse_str("018f9f40-1111-7000-8000-0000000000c1").expect("uuid"),
+        path: "src/api/mod.rs".to_string(),
+        language: "rust".to_string(),
+        chunk_key: Uuid::parse_str("018f9f40-3333-7000-8000-0000000000c3").expect("uuid"),
+        chunk_index: 2,
+        start_line: 41,
+        end_line: 57,
+        text: "fn window() {\r\n    1.0;\t\n}\n".to_string(),
+        score: 1.5,
+        matched: GitCodeMatchKind::ChunkTerms,
+    }
+}
+
+fn sample_code_hit() -> GitCodeSearchHit {
+    let stored = sample_code_lexical_hit();
+    GitCodeSearchHit {
+        repository_key: stored.repository_key,
+        generation_key: stored.generation_key,
+        generation_number: stored.generation_number,
+        ref_name: stored.ref_name,
+        commit_sha: stored.commit_sha,
+        visibility: stored.visibility,
+        file_key: stored.file_key,
+        path: stored.path,
+        language: stored.language,
+        chunk_key: stored.chunk_key,
+        chunk_index: stored.chunk_index,
+        start_line: stored.start_line,
+        end_line: stored.end_line,
+        text: stored.text,
+        score: stored.score,
+        matched: stored.matched,
+    }
+}
+
+fn sample_search_response() -> GitCodeSearchResponse {
+    let content = sample_content_response();
+    GitCodeSearchResponse {
+        repository_key: content.repository_key,
+        generation_key: content.generation_key,
+        generation_number: content.generation_number,
+        ref_name: content.ref_name,
+        commit_sha: content.commit_sha,
+        index_status: content.index_status,
+        checkpoint: content.checkpoint,
+        file_count: content.file_count,
+        excluded_file_count: content.excluded_file_count,
+        total_bytes: content.total_bytes,
+        hits: vec![sample_code_hit()],
+        truncated: true,
     }
 }

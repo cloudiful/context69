@@ -24,6 +24,7 @@ mod git_connection_mutations;
 mod git_connection_readiness;
 mod git_connections;
 mod git_repositories;
+mod git_repository_code_search;
 mod git_repository_connections;
 mod git_repository_file;
 mod git_repository_file_content;
@@ -132,6 +133,7 @@ pub(crate) use git_connections::{get_git_repository_webhook, list_git_provider_c
 pub(crate) use git_repositories::{
     get_git_repository, index_git_repository, list_git_repositories, register_git_repository,
 };
+pub(crate) use git_repository_code_search::search_git_repository_code;
 pub(crate) use git_repository_connections::{
     delete_git_repository_connection, set_git_repository_connection,
 };
