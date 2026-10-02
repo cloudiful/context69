@@ -21,12 +21,13 @@ use crate::{
     },
     db::{
         Database, GitCheckpointUpdate, GitGenerationCoverage, NewGitGenerationFile,
-        NewGitRepositoryGeneration, NewGitRepositorySource, StoredGitRepositorySource,
+        NewGitRepositoryGeneration, NewGitRepositorySource, StoredGitGenerationFile,
+        StoredGitRepositorySource,
     },
 };
 
-use super::super::super::git_repository_file_paging::requested_page;
-use super::super::{manifest_page, serving_generation};
+use super::git_repository_file_paging::requested_page;
+use super::git_repository_files::{manifest_page, serving_generation};
 
 /// The commit the indexed generation covers.
 pub(super) const INDEXED_COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -81,6 +82,44 @@ impl Fixture {
             .await
     }
 
+    /// Starts a generation and leaves it building, for the reads that must
+    /// refuse a generation the repository does not yet advertise.
+    pub(super) async fn start_building(&self) -> Uuid {
+        self.start_generation().await
+    }
+
+    /// Stores the standard manifest into a building generation.
+    pub(super) async fn store_manifest(&self, generation_key: Uuid) {
+        self.replace_manifest(generation_key, &unsorted_manifest())
+            .await
+    }
+
+    /// One exact manifest entry of this fixture's repository, or `None`.
+    pub(super) async fn file(
+        &self,
+        generation_key: Uuid,
+        path: &str,
+    ) -> Option<StoredGitGenerationFile> {
+        self.file_in(self.group_id, self.repository_key, generation_key, path)
+            .await
+    }
+
+    /// One exact manifest entry as the given group would read it. A group that
+    /// does not own the repository matches no row, which is what makes the
+    /// confinement assertions meaningful.
+    pub(super) async fn file_in(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        generation_key: Uuid,
+        path: &str,
+    ) -> Option<StoredGitGenerationFile> {
+        self.db
+            .get_git_generation_file(group_id, repository_key, generation_key, path)
+            .await
+            .expect("read one exact manifest entry")
+    }
+
     /// Indexes one generation, stores `files` as its manifest, activates it, and
     /// advances the source checkpoint the way the snapshot orchestration does,
     /// so the page has real provenance and freshness to report.
@@ -89,32 +128,8 @@ impl Fixture {
         files: &[(&str, &str, &str)],
         coverage: GitGenerationCoverage,
     ) -> Uuid {
-        let generation_key = self
-            .db
-            .start_git_repository_generation(
-                self.group_id,
-                self.repository_key,
-                &NewGitRepositoryGeneration {
-                    ref_name: "refs/heads/main".to_string(),
-                    commit_sha: INDEXED_COMMIT.to_string(),
-                    index_profile: GitIndexProfile::Lexical,
-                },
-            )
-            .await
-            .expect("start a generation")
-            .generation_key;
-        self.db
-            .replace_git_generation_files(
-                self.group_id,
-                self.repository_key,
-                generation_key,
-                &files
-                    .iter()
-                    .map(|(path, content, language)| manifest_entry(path, content, language))
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .expect("store the manifest");
+        let generation_key = self.start_generation().await;
+        self.replace_manifest(generation_key, files).await;
         self.db
             .complete_and_activate_git_repository_generation(
                 self.group_id,
@@ -138,6 +153,40 @@ impl Fixture {
             .expect("advance the source checkpoint")
             .expect("the repository is owned by this group");
         generation_key
+    }
+
+    /// Opens the next generation of this repository, pinned to the indexed
+    /// commit.
+    async fn start_generation(&self) -> Uuid {
+        self.db
+            .start_git_repository_generation(
+                self.group_id,
+                self.repository_key,
+                &NewGitRepositoryGeneration {
+                    ref_name: "refs/heads/main".to_string(),
+                    commit_sha: INDEXED_COMMIT.to_string(),
+                    index_profile: GitIndexProfile::Lexical,
+                },
+            )
+            .await
+            .expect("start a generation")
+            .generation_key
+    }
+
+    /// Stores a whole manifest into a building generation.
+    async fn replace_manifest(&self, generation_key: Uuid, files: &[(&str, &str, &str)]) {
+        self.db
+            .replace_git_generation_files(
+                self.group_id,
+                self.repository_key,
+                generation_key,
+                &files
+                    .iter()
+                    .map(|(path, content, language)| manifest_entry(path, content, language))
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .expect("store the manifest");
     }
 
     /// The stored source, as the route reads it.

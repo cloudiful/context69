@@ -32,6 +32,7 @@ use crate::api::{
     git_repository_connections::{
         __path_delete_git_repository_connection, __path_set_git_repository_connection,
     },
+    git_repository_file::__path_get_git_repository_file,
     git_repository_files::__path_list_git_repository_files,
     git_webhook_ingress::__path_receive_git_webhook,
     group_library::{
@@ -121,8 +122,9 @@ use crate::contracts::sources::{
     GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
     GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
     GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryFile, GitRepositoryFileListResponse, GitRepositoryRegistrationRequest,
-    GitRepositorySource, GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
+    GitRepositoryFile, GitRepositoryFileDetailResponse, GitRepositoryFileListResponse,
+    GitRepositoryFileQuery, GitRepositoryRegistrationRequest, GitRepositorySource,
+    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -182,6 +184,7 @@ use crate::contracts::sources::{
         get_git_repository,
         index_git_repository,
         list_git_repository_files,
+        get_git_repository_file,
         list_git_provider_connections,
         create_git_connection,
         get_git_connection_readiness,
@@ -270,6 +273,8 @@ use crate::contracts::sources::{
         GitRepositoryRegistrationRequest,
         GitRepositoryFile,
         GitRepositoryFileListResponse,
+        GitRepositoryFileQuery,
+        GitRepositoryFileDetailResponse,
         GitConnectionMode,
         GitConnectionReadiness,
         GitConnectionReadinessResponse,
@@ -492,6 +497,7 @@ mod tests {
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/config",
             "/v1/groups/by-path/{group_path}/source-folders/{folder_id}/sync",
             "/v1/groups/by-path/{group_path}/git-connections",
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
@@ -739,6 +745,51 @@ mod tests {
             assert!(
                 !manifest_properties.contains_key(forbidden),
                 "the manifest page must not expose {forbidden}"
+            );
+        }
+
+        // Issue 681 5B: the exact-file read is a metadata read, so its single
+        // documented query parameter is a bounded path and its response is one
+        // unchanged manifest entry beside the generation provenance.
+        let file_read = paths
+            .get("/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file")
+            .and_then(|path| path.get("get"))
+            .expect("exact file GET to exist");
+        assert_eq!(
+            file_read.get("operationId").and_then(Value::as_str),
+            Some("get_git_repository_file")
+        );
+        assert_eq!(
+            file_read
+                .pointer("/responses/200/content/application~1json/schema/$ref")
+                .and_then(Value::as_str),
+            Some("#/components/schemas/GitRepositoryFileDetailResponse")
+        );
+        let query_parameters: Vec<&str> = file_read
+            .get("parameters")
+            .and_then(Value::as_array)
+            .expect("file read parameters")
+            .iter()
+            .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            query_parameters,
+            vec!["group_path", "repository_key", "path"],
+            "the read takes the two path parameters and one bounded path query"
+        );
+        let file_detail_schema = schemas
+            .get("GitRepositoryFileDetailResponse")
+            .and_then(Value::as_object)
+            .expect("GitRepositoryFileDetailResponse schema to exist");
+        let file_detail_properties = file_detail_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("file detail properties");
+        assert!(file_detail_properties.contains_key("file"));
+        for forbidden in ["content", "text", "chunks", "pagination", "start_line"] {
+            assert!(
+                !file_detail_properties.contains_key(forbidden),
+                "the exact-file read must not expose {forbidden}"
             );
         }
 

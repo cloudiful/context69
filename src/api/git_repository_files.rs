@@ -123,7 +123,7 @@ pub(crate) async fn list_git_repository_files(
 /// The decision is delegated to the shared [`require_group_role`] rather than
 /// restated here, so the route cannot drift from the hierarchy every other
 /// group-scoped read uses and a refusal stays the shared typed forbidden error.
-fn require_manifest_read(group: &GroupRecord) -> anyhow::Result<()> {
+pub(super) fn require_manifest_read(group: &GroupRecord) -> anyhow::Result<()> {
     require_group_role(group, MembershipRole::Viewer)
 }
 
@@ -134,7 +134,7 @@ fn require_manifest_read(group: &GroupRecord) -> anyhow::Result<()> {
 /// assumed, and a pointer whose generation is not `Ready` is refused instead of
 /// served, so a manifest page is never taken from a generation that is not the
 /// one the repository advertises.
-async fn serving_generation(
+pub(super) async fn serving_generation(
     db: &Database,
     source: &StoredGitRepositorySource,
 ) -> anyhow::Result<Option<StoredGitRepositoryGeneration>> {
@@ -158,7 +158,7 @@ async fn serving_generation(
 /// provenance, coverage, and continuation. `has_more` is derived from the extra
 /// row the read fetched, so a continuation token exists exactly when another
 /// page does.
-fn manifest_page(
+pub(super) fn manifest_page(
     source: &StoredGitRepositorySource,
     generation: &StoredGitRepositoryGeneration,
     rows: Vec<StoredGitGenerationFile>,
@@ -183,13 +183,13 @@ fn manifest_page(
 
 /// An unknown and a foreign repository key share one bounded not-found shape, so
 /// reading a manifest reveals nothing about another group's repository keys.
-fn repository_not_found() -> Response {
+pub(super) fn repository_not_found() -> Response {
     library_management_error_response(DomainError::not_found("unknown git repository").into())
 }
 
 /// A repository with no active ready generation is a conflict, not an empty
 /// page: the manifest is never empty just because nothing is indexed yet.
-fn generation_not_ready() -> Response {
+pub(super) fn generation_not_ready() -> Response {
     library_management_error_response(
         DomainError::conflict("git repository has no active index generation").into(),
     )

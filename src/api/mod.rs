@@ -25,6 +25,7 @@ mod git_connection_readiness;
 mod git_connections;
 mod git_repositories;
 mod git_repository_connections;
+mod git_repository_file;
 mod git_repository_file_paging;
 mod git_repository_files;
 mod git_webhook_ingress;
@@ -42,6 +43,11 @@ mod task_inputs;
 pub(crate) mod task_maintenance;
 mod tasks;
 mod translations;
+
+/// Disposable Git scratch rows shared by the database-gated manifest and
+/// exact-file round trips, so one fixture seeds both reads.
+#[cfg(test)]
+mod git_repository_files_db_fixture;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -128,6 +134,7 @@ pub(crate) use git_repositories::{
 pub(crate) use git_repository_connections::{
     delete_git_repository_connection, set_git_repository_connection,
 };
+pub(crate) use git_repository_file::get_git_repository_file;
 pub(crate) use git_repository_files::list_git_repository_files;
 pub(crate) use git_webhook_ingress::receive_git_webhook;
 pub(crate) use group_library::{

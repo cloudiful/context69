@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use context69_contracts_core::Visibility;
@@ -139,4 +139,64 @@ pub struct GitRepositoryFileListResponse {
     pub files: Vec<GitRepositoryFile>,
     /// Cursor continuation: `has_more = true` always carries `next_cursor`.
     pub pagination: CursorPagination,
+}
+
+/// Maximum characters accepted for a repository-relative path.
+///
+/// This is the same bound the acquisition path safety validator enforces, stated
+/// on the wire so a generated client learns it without reading the server code.
+/// A longer value is rejected as a bounded invalid argument, never truncated.
+pub const GIT_REPOSITORY_FILE_PATH_MAX_CHARS: usize = 512;
+
+/// Query for one exact repository path.
+///
+/// The path is a query parameter rather than a path segment because valid
+/// repository paths contain `/`; the server parses it with the same path safety
+/// validator that admitted the stored entry, so the value that reaches the
+/// lookup is exactly the value that was validated at storage time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
+#[into_params(parameter_in = Query)]
+pub struct GitRepositoryFileQuery {
+    /// Repository-relative path, as stored in the serving generation's manifest.
+    ///
+    /// The utoipa derives need a literal, so they mirror the constant the
+    /// runtime validator enforces; both bounds are asserted in the contract
+    /// tests.
+    #[schema(max_length = 512)]
+    #[schemars(length(max = GIT_REPOSITORY_FILE_PATH_MAX_CHARS))]
+    #[param(max_length = 512)]
+    pub path: String,
+}
+
+/// One exact manifest entry of the generation a repository currently serves.
+///
+/// The entry is the same safe [`GitRepositoryFile`] projection the manifest page
+/// returns, so a caller can compare a detail read against the page it came from
+/// field for field. The serving generation's provenance and coverage travel with
+/// it, so the entry stays checkable against a pinned commit. File bytes, chunk
+/// text, provider blob ids, secret references, and provider transport state
+/// never cross this response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct GitRepositoryFileDetailResponse {
+    pub repository_key: Uuid,
+    /// Generation the entry below belongs to.
+    pub generation_key: Uuid,
+    /// Per-repository monotonic sequence of the serving generation.
+    pub generation_number: i64,
+    pub ref_name: String,
+    /// Pinned snapshot commit the serving generation covers.
+    pub commit_sha: String,
+    /// Index lifecycle state of the repository source, read at query time.
+    pub index_status: GitIndexStatus,
+    /// Target/indexed commit checkpoint of the source, so the caller can tell a
+    /// fresh generation from one the ref has already moved past.
+    pub checkpoint: GitCommitCheckpoint,
+    /// Manifest entries the serving generation covers.
+    pub file_count: i64,
+    /// File entries acquisition excluded, so coverage gaps stay visible.
+    pub excluded_file_count: i64,
+    /// Raw bytes the serving generation covers.
+    pub total_bytes: i64,
+    /// The exact entry the path named.
+    pub file: GitRepositoryFile,
 }

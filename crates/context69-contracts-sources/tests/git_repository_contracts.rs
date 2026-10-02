@@ -14,6 +14,7 @@
 use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
 use context69_contracts_core::pagination::{CursorPageQuery, CursorPagination};
+use context69_contracts_sources::GIT_REPOSITORY_FILE_PATH_MAX_CHARS;
 use context69_contracts_sources::{
     GIT_CONNECTION_BASE_URL_MAX_CHARS, GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS,
     GIT_CONNECTION_KEY_MAX_CHARS, GitActiveGeneration, GitCommitCheckpoint,
@@ -21,10 +22,10 @@ use context69_contracts_sources::{
     GitConnectionReadinessResponse, GitConnectionRequestRejection, GitGenerationStatus,
     GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
     GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryFile, GitRepositoryFileListResponse, GitRepositoryGeneration,
-    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookDelivery,
-    GitWebhookDeliveryStatus, GitWebhookOwnership, GitWebhookRegistration,
-    validate_git_connection_key,
+    GitRepositoryFile, GitRepositoryFileDetailResponse, GitRepositoryFileListResponse,
+    GitRepositoryFileQuery, GitRepositoryGeneration, GitRepositoryRegistrationRequest,
+    GitRepositorySource, GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus,
+    GitWebhookOwnership, GitWebhookRegistration, validate_git_connection_key,
 };
 use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
@@ -1356,5 +1357,205 @@ fn sample_manifest_page(has_more: bool) -> GitRepositoryFileListResponse {
             created_at: timestamp(),
         }],
         pagination: CursorPagination::new(has_more.then(|| "10".to_string()), has_more),
+    }
+}
+
+#[test]
+fn file_detail_exposes_only_the_entry_and_its_generation() {
+    let detail = sample_file_detail();
+    let encoded = to_value(&detail).expect("serialize file detail");
+    let object = encoded.as_object().expect("detail object");
+    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "checkpoint",
+            "commit_sha",
+            "excluded_file_count",
+            "file",
+            "file_count",
+            "generation_key",
+            "generation_number",
+            "index_status",
+            "ref_name",
+            "repository_key",
+            "total_bytes",
+        ],
+        "the detail exposes exactly the entry plus generation provenance and coverage; \
+         there is no content window, line or byte range, and no pagination"
+    );
+    assert_eq!(
+        object["file"]["path"],
+        json!("src/db/git_repositories/files.rs")
+    );
+    assert_eq!(object["generation_number"], json!(4));
+    assert_eq!(object["index_status"], json!("stale"));
+    assert_eq!(object["file_count"], json!(120));
+    assert_eq!(
+        object["checkpoint"]["indexed_commit_sha"],
+        json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "a detail read states which commit is indexed, not only which one it serves"
+    );
+    for forbidden in [
+        "content",
+        "text",
+        "chunks",
+        "start_line",
+        "end_line",
+        "provider_blob_sha",
+        "pagination",
+        "next_cursor",
+        "secret",
+        "connection_key",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "the detail must not carry {forbidden}"
+        );
+    }
+    let serialized = serde_json::to_string(&detail).expect("serialize file detail");
+    for forbidden in ["internal/secret", "canonical_url", "cccccccccccccccc"] {
+        assert!(
+            !serialized.contains(forbidden),
+            "the detail must not project {forbidden}: {serialized}"
+        );
+    }
+
+    let decoded: GitRepositoryFileDetailResponse =
+        from_value(encoded).expect("deserialize file detail");
+    assert_eq!(decoded.file, detail.file);
+    assert_eq!(decoded.checkpoint, detail.checkpoint);
+    assert_eq!(decoded.commit_sha, detail.commit_sha);
+}
+
+#[test]
+fn file_detail_reuses_the_unchanged_manifest_entry_projection() {
+    let entry = sample_manifest_entry();
+    let detail = sample_file_detail();
+    assert_eq!(
+        detail.file, entry,
+        "a detail read returns exactly the entry a manifest page returns"
+    );
+    let entry_schema = schema_for!(GitRepositoryFile);
+    let detail_schema = schema_for!(GitRepositoryFileDetailResponse);
+    let entry_properties = entry_schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("entry properties")
+        .clone();
+    let embedded = detail_schema
+        .pointer("/properties/file")
+        .expect("detail file property");
+    assert!(
+        embedded.get("items").is_none(),
+        "the detail carries one entry, not a list"
+    );
+    let embedded_type = embedded
+        .get("allOf")
+        .and_then(|all_of| all_of[0].get("$ref"))
+        .or_else(|| embedded.get("$ref"))
+        .and_then(|reference| reference.as_str())
+        .expect("detail file refs the entry schema");
+    assert_eq!(embedded_type, "#/$defs/GitRepositoryFile");
+    let mut entry_keys = entry_properties
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    entry_keys.sort_unstable();
+    assert_eq!(
+        entry_keys,
+        vec![
+            "byte_count",
+            "created_at",
+            "file_key",
+            "generation_key",
+            "language",
+            "line_count",
+            "path",
+            "repository_key",
+        ],
+        "the manifest entry stays identity plus counters in both reads"
+    );
+}
+
+#[test]
+fn file_detail_query_declares_one_bounded_path_parameter() {
+    let query = schema_for!(GitRepositoryFileQuery);
+    let properties = query
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("query properties");
+    let mut keys = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["path"],
+        "the read takes one path and nothing else"
+    );
+    let path = properties.get("path").expect("path property");
+    assert_eq!(
+        path.get("maxLength").and_then(|value| value.as_u64()),
+        Some(GIT_REPOSITORY_FILE_PATH_MAX_CHARS as u64),
+        "the declared bound is the acquisition bound, so a generated client \
+         learns the same limit the validator enforces"
+    );
+    let required = query
+        .get("required")
+        .and_then(|required| required.as_array())
+        .expect("required fields");
+    assert!(
+        required
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|name| name == "path"),
+        "a read with no path is not a read"
+    );
+    // The bound must not become a minimum, a default, or a validated charset:
+    // repository paths legitimately contain `/`, `.`, and Unicode.
+    assert!(path.get("minimum").is_none());
+    assert!(path.get("minLength").is_none());
+    assert!(path.get("pattern").is_none());
+
+    let decoded: GitRepositoryFileQuery =
+        from_value(json!({ "path": "src/main.rs" })).expect("decode query");
+    assert_eq!(decoded.path, "src/main.rs");
+    assert!(
+        from_value::<GitRepositoryFileQuery>(json!({})).is_err(),
+        "a missing path cannot silently select a default entry"
+    );
+}
+
+fn sample_manifest_entry() -> GitRepositoryFile {
+    GitRepositoryFile {
+        file_key: Uuid::parse_str("018f9f40-1111-7000-8000-0000000000c1").expect("uuid"),
+        generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+        repository_key: repository_key(),
+        path: "src/db/git_repositories/files.rs".to_string(),
+        language: "rust".to_string(),
+        byte_count: 512,
+        line_count: 20,
+        created_at: timestamp(),
+    }
+}
+
+fn sample_file_detail() -> GitRepositoryFileDetailResponse {
+    GitRepositoryFileDetailResponse {
+        repository_key: repository_key(),
+        generation_key: Uuid::parse_str("018f9f3b-0000-7000-8000-0000000000aa").expect("uuid"),
+        generation_number: 4,
+        ref_name: "refs/heads/main".to_string(),
+        commit_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        index_status: GitIndexStatus::Stale,
+        checkpoint: GitCommitCheckpoint {
+            target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+            indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+            indexed_at: Some(timestamp()),
+            checkpoint_updated_at: Some(timestamp()),
+        },
+        file_count: 120,
+        excluded_file_count: 3,
+        total_bytes: 4096,
+        file: sample_manifest_entry(),
     }
 }

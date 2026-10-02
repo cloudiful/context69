@@ -548,6 +548,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_git_repository_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files": {
         parameters: {
             query?: never;
@@ -2272,6 +2288,57 @@ export interface components {
             repository_key: string;
         };
         /**
+         * @description One exact manifest entry of the generation a repository currently serves.
+         *
+         *     The entry is the same safe [`GitRepositoryFile`] projection the manifest page
+         *     returns, so a caller can compare a detail read against the page it came from
+         *     field for field. The serving generation's provenance and coverage travel with
+         *     it, so the entry stays checkable against a pinned commit. File bytes, chunk
+         *     text, provider blob ids, secret references, and provider transport state
+         *     never cross this response.
+         */
+        GitRepositoryFileDetailResponse: {
+            /**
+             * @description Target/indexed commit checkpoint of the source, so the caller can tell a
+             *     fresh generation from one the ref has already moved past.
+             */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the serving generation covers. */
+            commit_sha: string;
+            /**
+             * Format: int64
+             * @description File entries acquisition excluded, so coverage gaps stay visible.
+             */
+            excluded_file_count: number;
+            /** @description The exact entry the path named. */
+            file: components["schemas"]["GitRepositoryFile"];
+            /**
+             * Format: int64
+             * @description Manifest entries the serving generation covers.
+             */
+            file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the entry below belongs to.
+             */
+            generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository monotonic sequence of the serving generation.
+             */
+            generation_number: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            ref_name: string;
+            /** Format: uuid */
+            repository_key: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the serving generation covers.
+             */
+            total_bytes: number;
+        };
+        /**
          * @description One bounded page of the active generation's path manifest.
          *
          *     The page answers from the generation the repository currently serves, so
@@ -2323,6 +2390,24 @@ export interface components {
              * @description Raw bytes the serving generation covers.
              */
             total_bytes: number;
+        };
+        /**
+         * @description Query for one exact repository path.
+         *
+         *     The path is a query parameter rather than a path segment because valid
+         *     repository paths contain `/`; the server parses it with the same path safety
+         *     validator that admitted the stored entry, so the value that reaches the
+         *     lookup is exactly the value that was validated at storage time.
+         */
+        GitRepositoryFileQuery: {
+            /**
+             * @description Repository-relative path, as stored in the serving generation's manifest.
+             *
+             *     The utoipa derives need a literal, so they mirror the constant the
+             *     runtime validator enforces; both bounds are asserted in the contract
+             *     tests.
+             */
+            path: string;
         };
         /**
          * @description Registration request for one public GitHub repository ref.
@@ -5247,6 +5332,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_git_repository_file: {
+        parameters: {
+            query: {
+                /**
+                 * @description Repository-relative path, as stored in the serving generation's manifest.
+                 *
+                 *     The utoipa derives need a literal, so they mirror the constant the
+                 *     runtime validator enforces; both bounds are asserted in the contract
+                 *     tests.
+                 */
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Metadata of one exact manifest entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileDetailResponse"];
+                };
+            };
+            /** @description Invalid repository path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group, repository, or path not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active ready index generation to read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

@@ -30,11 +30,12 @@ use super::{
     create_source_connection, delete_git_repository_connection, delete_source,
     delete_source_connection, disable_admin_user, enable_admin_user,
     forbid_personal_access_token_middleware, get_extraction_health, get_git_connection_readiness,
-    get_git_repository, get_git_repository_webhook, get_translation_settings, healthz,
-    index_git_repository, list_admin_users, list_git_provider_connections, list_git_repositories,
-    list_git_repository_files, list_personal_access_tokens, list_source_connections, list_sources,
-    list_translation_providers, login, logout, me, openapi_json, receive_git_webhook,
-    register_git_repository, require_admin_scope_middleware, require_search_scope_middleware,
+    get_git_repository, get_git_repository_file, get_git_repository_webhook,
+    get_translation_settings, healthz, index_git_repository, list_admin_users,
+    list_git_provider_connections, list_git_repositories, list_git_repository_files,
+    list_personal_access_tokens, list_source_connections, list_sources, list_translation_providers,
+    login, logout, me, openapi_json, receive_git_webhook, register_git_repository,
+    require_admin_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
     require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
     set_git_repository_connection, submit_vector_index_rebuild, sync_group_source_folder,
@@ -271,6 +272,10 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/files",
             get(list_git_repository_files),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file",
+            get(get_git_repository_file),
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",

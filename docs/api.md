@@ -124,6 +124,22 @@ polling, and metadata-index workers remain server-side.
   a `404`, and a repository with no active ready generation is a `409` rather
   than an empty page. Read access needs the `sources` scope and at least Viewer
   in the group.
+- `GET /v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file?path=<path>`
+  answers the same questions for one exact path of that same generation. The
+  `path` parameter is a query parameter because repository paths contain `/`; it
+  is bounded at 512 characters and validated with the same path rules the stored
+  entry passed, so a traversal or control-byte value is a `400 invalid_argument`
+  that is refused before any lookup. The response
+  (`GitRepositoryFileDetailResponse`) is one `GitRepositoryFile` entry plus the
+  same provenance and coverage the manifest page reports.
+- Both reads resolve the group, the Viewer floor, and the serving generation
+  identically, so a detail read and the page it came from always describe the
+  same commit. A path the serving generation does not hold returns exactly the
+  unknown-repository response — same status, same body — so the two reads cannot
+  be used to probe which repository keys exist or which paths another group
+  indexed. Neither read returns file bytes, chunk text, a line or
+  byte range, a provider blob id, or any credential, secret reference, or
+  connection state.
 
 ## Contract bounds and errors
 

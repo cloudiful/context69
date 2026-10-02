@@ -17,11 +17,10 @@ use uuid::Uuid;
 use crate::contracts::sources::{GitIndexProfile, GitIndexStatus};
 use crate::db::NewGitRepositoryGeneration;
 
-use super::serving_generation;
-use fixture::{Fixture, INDEXED_COMMIT, MANIFEST_ENTRIES, TARGET_COMMIT, paths};
-
-#[path = "git_repository_files_db_fixture.rs"]
-mod fixture;
+use super::super::git_repository_files::serving_generation;
+use crate::api::git_repository_files_db_fixture::{
+    Fixture, INDEXED_COMMIT, MANIFEST_ENTRIES, TARGET_COMMIT, paths,
+};
 
 #[tokio::test]
 async fn a_page_reports_the_serving_generation_provenance_and_coverage() {
