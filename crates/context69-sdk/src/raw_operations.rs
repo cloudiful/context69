@@ -341,6 +341,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "diff_git_repository_files",
+        method: "GET",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/diff",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GitRepositoryFileDiffResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "disable_admin_user",
         method: "POST",
         path_template: "/v1/admin/users/{login_name}/disable",

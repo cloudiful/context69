@@ -186,6 +186,39 @@ polling, and metadata-index workers remain server-side.
   an unknown or foreign repository is the same bounded `404` the other Git reads
   return. The search never returns a raw acquisition blob, a provider blob id, a
   secret reference, a credential, or connection state.
+- `GET /v1/groups/by-path/{group_path}/git-repositories/{repository_key}/diff?from_generation=<uuid>&to_generation=<uuid>&limit=<n>&cursor=<token>`
+  compares two stored index generations and returns metadata only. Both
+  generation parameters are optional: an omitted `from_generation` resolves to the
+  comparable generation covering the source's current `indexed_commit_sha` — which
+  is the superseded snapshot, because indexing a newer commit activates a newer
+  generation — and an omitted `to_generation` to the repository's active ready
+  generation, so the common case is "what changed since the last index". An
+  explicit key is never trusted as given: it is resolved through the same group-
+  and repository-confined read and must name a completed generation of this
+  repository, and a key that does not is indistinguishable from a key that names
+  nothing.
+- The response (`GitRepositoryFileDiffResponse`) names both generations with
+  their numbers, refs, and pinned commits, reports the source's index status and
+  commit checkpoint plus both coverage envelopes, and returns at most `limit`
+  changes in repository-path order with the shared cursor continuation. Each
+  change carries its `path`, its `change_kind` (`added` | `modified` | `deleted`),
+  and the safe manifest metadata of each side that exists (`file_key`, `language`,
+  `byte_count`, `line_count`). A path whose stored bytes are identical in both
+  generations is omitted, so an empty list is the truthful answer for two
+  generations that hold the same bytes at the same paths.
+- The comparison is decided in the database: the two manifests are joined on the
+  repository-relative path and their stored provider content addresses are
+  compared there, so no provider blob id, raw blob, chunk text, line- or
+  content-level diff, symbol, credential, secret reference, or connection state
+  exists anywhere on this path. `modified` therefore means the stored content
+  address differs, not that the text differs. A comparable generation is a
+  completed one — the active one, or one a newer snapshot superseded, which is the
+  state the checkpoint's generation is in as soon as a newer commit is indexed. A
+  generation that is still building or has failed is refused even when it holds
+  manifest rows, an unknown or foreign repository is the same bounded `404` the
+  other Git reads return, a generation that cannot be resolved is `409`, and a
+  pair whose `from_generation` is newer than its `to_generation` is `409` rather
+  than an empty comparison. An identical pair compares to an empty page.
 
 ## Contract bounds and errors
 

@@ -28,7 +28,7 @@ use super::{
     ApiState, auth_middleware, build_api_state, cancel_active_tasks, create_admin_user,
     create_git_connection, create_group_source_folder, create_personal_access_token, create_source,
     create_source_connection, delete_git_repository_connection, delete_source,
-    delete_source_connection, disable_admin_user, enable_admin_user,
+    delete_source_connection, diff_git_repository_files, disable_admin_user, enable_admin_user,
     forbid_personal_access_token_middleware, get_extraction_health, get_git_connection_readiness,
     get_git_repository, get_git_repository_file, get_git_repository_file_content,
     get_git_repository_webhook, get_translation_settings, healthz, index_git_repository,
@@ -284,6 +284,10 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search",
             get(search_git_repository_code),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/diff",
+            get(diff_git_repository_files),
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",

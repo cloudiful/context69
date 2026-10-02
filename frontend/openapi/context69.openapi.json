@@ -2224,6 +2224,112 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/diff": {
+      "get": {
+        "tags": [],
+        "operationId": "diff_git_repository_files",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from_generation",
+            "in": "query",
+            "description": "Completed generation to compare from; defaults to the indexed commit's,\nwhich is normally the superseded one.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "to_generation",
+            "in": "query",
+            "description": "Generation to compare to; defaults to the active ready generation. An\nexplicit key must name a `ready` or `superseded` generation.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Most changes this page returns, 1..=100.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Continuation this API issued for the next page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of changed paths between two index generations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepositoryFileDiffResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid page limit or continuation cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          },
+          "409": {
+            "description": "No comparable generation, or the pair runs backwards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file": {
       "get": {
         "tags": [],
@@ -8371,6 +8477,15 @@
           }
         }
       },
+      "GitFileChangeKind": {
+        "type": "string",
+        "description": "How a repository-relative path differs between two index generations.\n\nThe kind is decided inside the database, by comparing the two stored provider\nblob ids, and it is the only thing that comparison projects: a path whose\nbytes are identical in both generations is not a change and is omitted, so\n`Modified` always means the stored content address differs, never that a\nrewrite produced different text.",
+        "enum": [
+          "added",
+          "modified",
+          "deleted"
+        ]
+      },
       "GitIndexProfile": {
         "type": "string",
         "description": "Independent index profile for a Git source.",
@@ -8823,6 +8938,224 @@
             "type": "integer",
             "format": "int64",
             "description": "Raw bytes the serving generation covers."
+          }
+        }
+      },
+      "GitRepositoryFileDiff": {
+        "type": "object",
+        "description": "One changed repository-relative path between two generations.\n\nExactly one side is present for `Added` and `Deleted`; both are present for\n`Modified`, so a caller can size the change without reading either file. The\nkind says which side is missing, so the optional sides are not ambiguous.",
+        "required": [
+          "path",
+          "change_kind"
+        ],
+        "properties": {
+          "after": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GitRepositoryFileDiffFile",
+                "description": "Entry of the compared-to generation, absent when the path was deleted."
+              }
+            ]
+          },
+          "before": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GitRepositoryFileDiffFile",
+                "description": "Entry of the compared-from generation, absent when the path was added."
+              }
+            ]
+          },
+          "change_kind": {
+            "$ref": "#/components/schemas/GitFileChangeKind"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository-relative path that changed."
+          }
+        }
+      },
+      "GitRepositoryFileDiffFile": {
+        "type": "object",
+        "description": "The safe manifest metadata of one side of a change.\n\nThe four fields are what a caller needs to decide whether to read the file:\nwhich entry it is, how it is classified, and how large it is. Raw bytes, a\nline- or content-level diff, a provider blob id, and any secret, credential,\nor connection state are absent by construction.",
+        "required": [
+          "file_key",
+          "language",
+          "byte_count",
+          "line_count"
+        ],
+        "properties": {
+          "byte_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Raw bytes that generation stored for the path."
+          },
+          "file_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "language": {
+            "type": "string",
+            "description": "Classified language of that path."
+          },
+          "line_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Lines that generation stored for the path."
+          }
+        }
+      },
+      "GitRepositoryFileDiffQuery": {
+        "type": "object",
+        "description": "Query for one bounded page of a metadata-only generation comparison.\n\nBoth generations are optional. An omitted `from_generation` resolves to the\ncompleted generation covering the source's current indexed commit, which is\nnormally a `superseded` one: indexing a newer commit activates a newer\ngeneration, so the generation the checkpoint still names is the historical\nsnapshot this comparison starts from. An omitted `to_generation` resolves to\nthe repository's active ready generation, so the common case is \"what changed\nsince the last index\". An explicit key is never trusted as given: it is\nresolved through the same group- and repository-confined read and must name a\ncompleted generation of this repository — `ready` or `superseded`; a\n`building` or `failed` snapshot is refused. `limit` and `cursor` are the shared\nbounded page contract, so a continuation is a token this API issued and\nnothing else.",
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Continuation this API issued for the next page."
+          },
+          "from_generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Completed generation to compare from; defaults to the indexed commit's,\nwhich is normally the superseded one."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Most changes this page returns, 1..=100.",
+            "minimum": 0
+          },
+          "to_generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Generation to compare to; defaults to the active ready generation. An\nexplicit key must name a `ready` or `superseded` generation."
+          }
+        }
+      },
+      "GitRepositoryFileDiffResponse": {
+        "type": "object",
+        "description": "One bounded page of a metadata-only comparison of two index generations.\n\nBoth generations are named with their numbers, refs, and pinned commits, and\nboth coverage envelopes are reported, so a caller can see what each side of\nthe comparison covers and never has to infer which snapshot a change came\nfrom. `changes` holds changed paths in path order and omits every unchanged\npath, so an empty list is a truthful \"these two generations hold the same\nbytes at the same paths\". A `GitCodeSearchHit`-style text payload, a hunk, a\nsymbol, a provider blob id, and any secret-bearing field never cross here.",
+        "required": [
+          "repository_key",
+          "from_generation_key",
+          "from_generation_number",
+          "from_ref_name",
+          "from_commit_sha",
+          "to_generation_key",
+          "to_generation_number",
+          "to_ref_name",
+          "to_commit_sha",
+          "index_status",
+          "checkpoint",
+          "from_file_count",
+          "from_excluded_file_count",
+          "from_total_bytes",
+          "to_file_count",
+          "to_excluded_file_count",
+          "to_total_bytes",
+          "changes",
+          "pagination"
+        ],
+        "properties": {
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitRepositoryFileDiff"
+            },
+            "description": "Changed paths in path order, at most the requested limit."
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/GitCommitCheckpoint",
+            "description": "Target/indexed commit checkpoint of the source."
+          },
+          "from_commit_sha": {
+            "type": "string",
+            "description": "Pinned snapshot commit the compared-from generation covers."
+          },
+          "from_excluded_file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Entries acquisition excluded from the compared-from generation."
+          },
+          "from_file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Manifest entries the compared-from generation covers."
+          },
+          "from_generation_key": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Generation the comparison starts from."
+          },
+          "from_generation_number": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-repository sequence of the compared-from generation."
+          },
+          "from_ref_name": {
+            "type": "string"
+          },
+          "from_total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Raw bytes the compared-from generation covers."
+          },
+          "index_status": {
+            "$ref": "#/components/schemas/GitIndexStatus",
+            "description": "Index lifecycle state of the repository source, read at query time."
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/CursorPagination",
+            "description": "Cursor continuation: `has_more = true` always carries `next_cursor`."
+          },
+          "repository_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "to_commit_sha": {
+            "type": "string",
+            "description": "Pinned snapshot commit the compared-to generation covers."
+          },
+          "to_excluded_file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Entries acquisition excluded from the compared-to generation."
+          },
+          "to_file_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Manifest entries the compared-to generation covers."
+          },
+          "to_generation_key": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Generation the comparison ends at."
+          },
+          "to_generation_number": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-repository sequence of the compared-to generation."
+          },
+          "to_ref_name": {
+            "type": "string"
+          },
+          "to_total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Raw bytes the compared-to generation covers."
           }
         }
       },

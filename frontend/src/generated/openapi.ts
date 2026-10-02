@@ -564,6 +564,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diff_git_repository_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/file": {
         parameters: {
             query?: never;
@@ -2307,6 +2323,17 @@ export interface components {
             readiness: components["schemas"]["GitConnectionReadiness"];
         };
         /**
+         * @description How a repository-relative path differs between two index generations.
+         *
+         *     The kind is decided inside the database, by comparing the two stored provider
+         *     blob ids, and it is the only thing that comparison projects: a path whose
+         *     bytes are identical in both generations is not a change and is omitted, so
+         *     `Modified` always means the stored content address differs, never that a
+         *     rewrite produced different text.
+         * @enum {string}
+         */
+        GitFileChangeKind: "added" | "modified" | "deleted";
+        /**
          * @description Independent index profile for a Git source.
          * @enum {string}
          */
@@ -2590,6 +2617,160 @@ export interface components {
              * @description Raw bytes the serving generation covers.
              */
             total_bytes: number;
+        };
+        /**
+         * @description One changed repository-relative path between two generations.
+         *
+         *     Exactly one side is present for `Added` and `Deleted`; both are present for
+         *     `Modified`, so a caller can size the change without reading either file. The
+         *     kind says which side is missing, so the optional sides are not ambiguous.
+         */
+        GitRepositoryFileDiff: {
+            after?: null | components["schemas"]["GitRepositoryFileDiffFile"];
+            before?: null | components["schemas"]["GitRepositoryFileDiffFile"];
+            change_kind: components["schemas"]["GitFileChangeKind"];
+            /** @description Repository-relative path that changed. */
+            path: string;
+        };
+        /**
+         * @description The safe manifest metadata of one side of a change.
+         *
+         *     The four fields are what a caller needs to decide whether to read the file:
+         *     which entry it is, how it is classified, and how large it is. Raw bytes, a
+         *     line- or content-level diff, a provider blob id, and any secret, credential,
+         *     or connection state are absent by construction.
+         */
+        GitRepositoryFileDiffFile: {
+            /**
+             * Format: int64
+             * @description Raw bytes that generation stored for the path.
+             */
+            byte_count: number;
+            /** Format: uuid */
+            file_key: string;
+            /** @description Classified language of that path. */
+            language: string;
+            /**
+             * Format: int64
+             * @description Lines that generation stored for the path.
+             */
+            line_count: number;
+        };
+        /**
+         * @description Query for one bounded page of a metadata-only generation comparison.
+         *
+         *     Both generations are optional. An omitted `from_generation` resolves to the
+         *     completed generation covering the source's current indexed commit, which is
+         *     normally a `superseded` one: indexing a newer commit activates a newer
+         *     generation, so the generation the checkpoint still names is the historical
+         *     snapshot this comparison starts from. An omitted `to_generation` resolves to
+         *     the repository's active ready generation, so the common case is "what changed
+         *     since the last index". An explicit key is never trusted as given: it is
+         *     resolved through the same group- and repository-confined read and must name a
+         *     completed generation of this repository — `ready` or `superseded`; a
+         *     `building` or `failed` snapshot is refused. `limit` and `cursor` are the shared
+         *     bounded page contract, so a continuation is a token this API issued and
+         *     nothing else.
+         */
+        GitRepositoryFileDiffQuery: {
+            /** @description Continuation this API issued for the next page. */
+            cursor?: string | null;
+            /**
+             * Format: uuid
+             * @description Completed generation to compare from; defaults to the indexed commit's,
+             *     which is normally the superseded one.
+             */
+            from_generation?: string | null;
+            /**
+             * Format: int32
+             * @description Most changes this page returns, 1..=100.
+             */
+            limit?: number;
+            /**
+             * Format: uuid
+             * @description Generation to compare to; defaults to the active ready generation. An
+             *     explicit key must name a `ready` or `superseded` generation.
+             */
+            to_generation?: string | null;
+        };
+        /**
+         * @description One bounded page of a metadata-only comparison of two index generations.
+         *
+         *     Both generations are named with their numbers, refs, and pinned commits, and
+         *     both coverage envelopes are reported, so a caller can see what each side of
+         *     the comparison covers and never has to infer which snapshot a change came
+         *     from. `changes` holds changed paths in path order and omits every unchanged
+         *     path, so an empty list is a truthful "these two generations hold the same
+         *     bytes at the same paths". A `GitCodeSearchHit`-style text payload, a hunk, a
+         *     symbol, a provider blob id, and any secret-bearing field never cross here.
+         */
+        GitRepositoryFileDiffResponse: {
+            /** @description Changed paths in path order, at most the requested limit. */
+            changes: components["schemas"]["GitRepositoryFileDiff"][];
+            /** @description Target/indexed commit checkpoint of the source. */
+            checkpoint: components["schemas"]["GitCommitCheckpoint"];
+            /** @description Pinned snapshot commit the compared-from generation covers. */
+            from_commit_sha: string;
+            /**
+             * Format: int64
+             * @description Entries acquisition excluded from the compared-from generation.
+             */
+            from_excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the compared-from generation covers.
+             */
+            from_file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the comparison starts from.
+             */
+            from_generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository sequence of the compared-from generation.
+             */
+            from_generation_number: number;
+            from_ref_name: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the compared-from generation covers.
+             */
+            from_total_bytes: number;
+            /** @description Index lifecycle state of the repository source, read at query time. */
+            index_status: components["schemas"]["GitIndexStatus"];
+            /** @description Cursor continuation: `has_more = true` always carries `next_cursor`. */
+            pagination: components["schemas"]["CursorPagination"];
+            /** Format: uuid */
+            repository_key: string;
+            /** @description Pinned snapshot commit the compared-to generation covers. */
+            to_commit_sha: string;
+            /**
+             * Format: int64
+             * @description Entries acquisition excluded from the compared-to generation.
+             */
+            to_excluded_file_count: number;
+            /**
+             * Format: int64
+             * @description Manifest entries the compared-to generation covers.
+             */
+            to_file_count: number;
+            /**
+             * Format: uuid
+             * @description Generation the comparison ends at.
+             */
+            to_generation_key: string;
+            /**
+             * Format: int64
+             * @description Per-repository sequence of the compared-to generation.
+             */
+            to_generation_number: number;
+            to_ref_name: string;
+            /**
+             * Format: int64
+             * @description Raw bytes the compared-to generation covers.
+             */
+            to_total_bytes: number;
         };
         /**
          * @description One bounded page of the active generation's path manifest.
@@ -5651,6 +5832,78 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    diff_git_repository_files: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Completed generation to compare from; defaults to the indexed commit's,
+                 *     which is normally the superseded one.
+                 */
+                from_generation?: string;
+                /**
+                 * @description Generation to compare to; defaults to the active ready generation. An
+                 *     explicit key must name a `ready` or `superseded` generation.
+                 */
+                to_generation?: string;
+                /** @description Most changes this page returns, 1..=100. */
+                limit?: number;
+                /** @description Continuation this API issued for the next page. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of changed paths between two index generations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositoryFileDiffResponse"];
+                };
+            };
+            /** @description Invalid page limit or continuation cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No comparable generation, or the pair runs backwards */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

@@ -35,6 +35,7 @@ use crate::api::{
     },
     git_repository_file::__path_get_git_repository_file,
     git_repository_file_content::__path_get_git_repository_file_content,
+    git_repository_file_diff::__path_diff_git_repository_files,
     git_repository_files::__path_list_git_repository_files,
     git_webhook_ingress::__path_receive_git_webhook,
     group_library::{
@@ -122,13 +123,14 @@ use crate::contracts::{
 
 use crate::contracts::sources::{
     GitCodeSearchHit, GitCodeSearchQuery, GitCodeSearchResponse, GitCommitCheckpoint,
-    GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse, GitIndexProfile,
-    GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest, GitProviderKind,
-    GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest, GitRepositoryFile,
-    GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
-    GitRepositoryFileDetailResponse, GitRepositoryFileListResponse, GitRepositoryFileQuery,
-    GitRepositoryRegistrationRequest, GitRepositorySource, GitVersionPolicy, GitWebhookOwnership,
-    GitWebhookRegistration,
+    GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse, GitFileChangeKind,
+    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
+    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
+    GitRepositoryFile, GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
+    GitRepositoryFileDetailResponse, GitRepositoryFileDiff, GitRepositoryFileDiffFile,
+    GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse, GitRepositoryFileListResponse,
+    GitRepositoryFileQuery, GitRepositoryRegistrationRequest, GitRepositorySource,
+    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
 };
 
 #[derive(OpenApi)]
@@ -191,6 +193,7 @@ use crate::contracts::sources::{
         get_git_repository_file,
         get_git_repository_file_content,
         search_git_repository_code,
+        diff_git_repository_files,
         list_git_provider_connections,
         create_git_connection,
         get_git_connection_readiness,
@@ -286,6 +289,11 @@ use crate::contracts::sources::{
         GitCodeSearchQuery,
         GitCodeSearchHit,
         GitCodeSearchResponse,
+        GitFileChangeKind,
+        GitRepositoryFileDiff,
+        GitRepositoryFileDiffFile,
+        GitRepositoryFileDiffQuery,
+        GitRepositoryFileDiffResponse,
         GitConnectionMode,
         GitConnectionReadiness,
         GitConnectionReadinessResponse,

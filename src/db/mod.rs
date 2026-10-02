@@ -32,15 +32,15 @@ pub use document_versions::{
     audit_missing_versions, classify_audit_document, list_missing_version_page,
 };
 pub use git_repositories::{
-    GitCheckpointUpdate, GitChunkReplacement, GitGenerationCoverage, GitGroupOwnership,
-    GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE, MAX_GIT_FILE_BYTES,
-    MAX_GIT_GENERATION_BYTES, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE, MAX_GIT_MANIFEST_FILES,
-    MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk, NewGitGenerationFile,
-    NewGitProviderConnection, NewGitRepositoryGeneration, NewGitRepositorySource,
-    NewGitWebhookDelivery, NewGitWebhookRegistration, StoredGitActiveGeneration,
-    StoredGitGenerationChunk, StoredGitGenerationFile, StoredGitProviderConnection,
-    StoredGitRepositoryGeneration, StoredGitRepositorySource, StoredGitWebhookDelivery,
-    StoredGitWebhookRegistration,
+    GitCheckpointUpdate, GitChunkReplacement, GitFileDiffSide, GitGenerationCoverage,
+    GitGroupOwnership, GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE,
+    MAX_GIT_FILE_BYTES, MAX_GIT_GENERATION_BYTES, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE,
+    MAX_GIT_MANIFEST_FILES, MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk,
+    NewGitGenerationFile, NewGitProviderConnection, NewGitRepositoryGeneration,
+    NewGitRepositorySource, NewGitWebhookDelivery, NewGitWebhookRegistration,
+    StoredGitActiveGeneration, StoredGitFileDiff, StoredGitGenerationChunk,
+    StoredGitGenerationFile, StoredGitProviderConnection, StoredGitRepositoryGeneration,
+    StoredGitRepositorySource, StoredGitWebhookDelivery, StoredGitWebhookRegistration,
 };
 pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};

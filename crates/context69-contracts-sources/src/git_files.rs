@@ -415,3 +415,157 @@ pub struct GitCodeSearchResponse {
     /// Whether more matching hits existed than this response returns.
     pub truncated: bool,
 }
+
+/// How a repository-relative path differs between two index generations.
+///
+/// The kind is decided inside the database, by comparing the two stored provider
+/// blob ids, and it is the only thing that comparison projects: a path whose
+/// bytes are identical in both generations is not a change and is omitted, so
+/// `Modified` always means the stored content address differs, never that a
+/// rewrite produced different text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GitFileChangeKind {
+    /// Only the newer generation holds this path.
+    Added,
+    /// Both hold this path and the stored bytes differ.
+    Modified,
+    /// Only the older generation holds this path.
+    Deleted,
+}
+
+impl GitFileChangeKind {
+    /// Stable wire name of this change kind.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Modified => "modified",
+            Self::Deleted => "deleted",
+        }
+    }
+
+    /// The kind a stored wire name denotes, or `None` for anything else, so a
+    /// value this API never wrote fails closed instead of becoming a fourth kind.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "added" => Some(Self::Added),
+            "modified" => Some(Self::Modified),
+            "deleted" => Some(Self::Deleted),
+            _ => None,
+        }
+    }
+}
+
+/// Query for one bounded page of a metadata-only generation comparison.
+///
+/// Both generations are optional. An omitted `from_generation` resolves to the
+/// completed generation covering the source's current indexed commit, which is
+/// normally a `superseded` one: indexing a newer commit activates a newer
+/// generation, so the generation the checkpoint still names is the historical
+/// snapshot this comparison starts from. An omitted `to_generation` resolves to
+/// the repository's active ready generation, so the common case is "what changed
+/// since the last index". An explicit key is never trusted as given: it is
+/// resolved through the same group- and repository-confined read and must name a
+/// completed generation of this repository — `ready` or `superseded`; a
+/// `building` or `failed` snapshot is refused. `limit` and `cursor` are the shared
+/// bounded page contract, so a continuation is a token this API issued and
+/// nothing else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
+#[into_params(parameter_in = Query)]
+pub struct GitRepositoryFileDiffQuery {
+    /// Completed generation to compare from; defaults to the indexed commit's,
+    /// which is normally the superseded one.
+    pub from_generation: Option<Uuid>,
+    /// Generation to compare to; defaults to the active ready generation. An
+    /// explicit key must name a `ready` or `superseded` generation.
+    pub to_generation: Option<Uuid>,
+    /// Most changes this page returns, 1..=100.
+    #[serde(default = "context69_contracts_core::pagination::default_limit")]
+    #[schemars(range(min = 1, max = 100))]
+    #[param(minimum = 1, maximum = 100)]
+    pub limit: u32,
+    /// Continuation this API issued for the next page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// The safe manifest metadata of one side of a change.
+///
+/// The four fields are what a caller needs to decide whether to read the file:
+/// which entry it is, how it is classified, and how large it is. Raw bytes, a
+/// line- or content-level diff, a provider blob id, and any secret, credential,
+/// or connection state are absent by construction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct GitRepositoryFileDiffFile {
+    pub file_key: Uuid,
+    /// Classified language of that path.
+    pub language: String,
+    /// Raw bytes that generation stored for the path.
+    pub byte_count: i64,
+    /// Lines that generation stored for the path.
+    pub line_count: i64,
+}
+
+/// One changed repository-relative path between two generations.
+///
+/// Exactly one side is present for `Added` and `Deleted`; both are present for
+/// `Modified`, so a caller can size the change without reading either file. The
+/// kind says which side is missing, so the optional sides are not ambiguous.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct GitRepositoryFileDiff {
+    /// Repository-relative path that changed.
+    pub path: String,
+    pub change_kind: GitFileChangeKind,
+    /// Entry of the compared-from generation, absent when the path was added.
+    pub before: Option<GitRepositoryFileDiffFile>,
+    /// Entry of the compared-to generation, absent when the path was deleted.
+    pub after: Option<GitRepositoryFileDiffFile>,
+}
+
+/// One bounded page of a metadata-only comparison of two index generations.
+///
+/// Both generations are named with their numbers, refs, and pinned commits, and
+/// both coverage envelopes are reported, so a caller can see what each side of
+/// the comparison covers and never has to infer which snapshot a change came
+/// from. `changes` holds changed paths in path order and omits every unchanged
+/// path, so an empty list is a truthful "these two generations hold the same
+/// bytes at the same paths". A `GitCodeSearchHit`-style text payload, a hunk, a
+/// symbol, a provider blob id, and any secret-bearing field never cross here.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct GitRepositoryFileDiffResponse {
+    pub repository_key: Uuid,
+    /// Generation the comparison starts from.
+    pub from_generation_key: Uuid,
+    /// Per-repository sequence of the compared-from generation.
+    pub from_generation_number: i64,
+    pub from_ref_name: String,
+    /// Pinned snapshot commit the compared-from generation covers.
+    pub from_commit_sha: String,
+    /// Generation the comparison ends at.
+    pub to_generation_key: Uuid,
+    /// Per-repository sequence of the compared-to generation.
+    pub to_generation_number: i64,
+    pub to_ref_name: String,
+    /// Pinned snapshot commit the compared-to generation covers.
+    pub to_commit_sha: String,
+    /// Index lifecycle state of the repository source, read at query time.
+    pub index_status: GitIndexStatus,
+    /// Target/indexed commit checkpoint of the source.
+    pub checkpoint: GitCommitCheckpoint,
+    /// Manifest entries the compared-from generation covers.
+    pub from_file_count: i64,
+    /// Entries acquisition excluded from the compared-from generation.
+    pub from_excluded_file_count: i64,
+    /// Raw bytes the compared-from generation covers.
+    pub from_total_bytes: i64,
+    /// Manifest entries the compared-to generation covers.
+    pub to_file_count: i64,
+    /// Entries acquisition excluded from the compared-to generation.
+    pub to_excluded_file_count: i64,
+    /// Raw bytes the compared-to generation covers.
+    pub to_total_bytes: i64,
+    /// Changed paths in path order, at most the requested limit.
+    pub changes: Vec<GitRepositoryFileDiff>,
+    /// Cursor continuation: `has_more = true` always carries `next_cursor`.
+    pub pagination: CursorPagination,
+}

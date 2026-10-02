@@ -1,24 +1,29 @@
-//! Exact code content contracts (issue #681 work unit 3B2 and phase 5C).
+//! Exact code content contracts (issue #681 work unit 3B2 and phases 5C, 5D,
+//! and 5E).
 //!
-//! Covers the wire shape of the manifest, chunk, lexical-hit, and bounded
-//! line-window content contracts: an entry points at stored bytes without
-//! carrying them, a chunk preserves its source text verbatim with inclusive line
-//! anchors, a lexical hit carries the repository/ref/commit/path/line
-//! provenance a code result must be checkable against, and a content page
-//! carries exactly the window text it promised. The migration and query
-//! invariants these contracts depend on are asserted next to the persistence
-//! layer that relies on them, in `src/db/git_repositories/schema_tests.rs`.
+//! Covers the wire shape of the manifest, chunk, lexical-hit, bounded
+//! line-window content, code-search, and generation-comparison contracts: an entry
+//! points at stored bytes without carrying them, a chunk preserves its source
+//! text verbatim with inclusive line anchors, a lexical hit carries the
+//! repository/ref/commit/path/line provenance a code result must be checkable
+//! against, a content page carries exactly the window text it promised, and a
+//! comparison page names both generations and only safe path metadata. The
+//! migration and query invariants these contracts depend on are asserted next to
+//! the persistence layer that relies on them, in
+//! `src/db/git_repositories/schema_tests.rs`.
 
 use chrono::{DateTime, Utc};
 use context69_contracts_core::Visibility;
 use context69_contracts_core::pagination::CursorPagination;
+use context69_contracts_core::pagination::default_limit;
 use context69_contracts_sources::git_files::{
     GIT_CODE_SEARCH_LANGUAGE_MAX_CHARS, GIT_CODE_SEARCH_LIMIT_DEFAULT, GIT_CODE_SEARCH_LIMIT_MAX,
     GIT_CODE_SEARCH_LIMIT_MIN, GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS,
     GIT_CODE_SEARCH_QUERY_MAX_CHARS, GIT_REPOSITORY_FILE_PATH_MAX_CHARS, GitCodeChunk,
     GitCodeLexicalHit, GitCodeMatchKind, GitCodeSearchHit, GitCodeSearchQuery,
-    GitCodeSearchResponse, GitRepositoryFile, GitRepositoryFileContentQuery,
-    GitRepositoryFileContentResponse, MAX_GIT_CONTENT_CURSOR_MAX_CHARS,
+    GitCodeSearchResponse, GitFileChangeKind, GitRepositoryFile, GitRepositoryFileContentQuery,
+    GitRepositoryFileContentResponse, GitRepositoryFileDiff, GitRepositoryFileDiffFile,
+    GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse, MAX_GIT_CONTENT_CURSOR_MAX_CHARS,
     MAX_GIT_CONTENT_WINDOW_BYTES, MAX_GIT_CONTENT_WINDOW_LINES,
 };
 use context69_contracts_sources::git_repositories::{GitCommitCheckpoint, GitIndexStatus};
@@ -28,6 +33,20 @@ use uuid::Uuid;
 
 fn timestamp() -> DateTime<Utc> {
     "2026-10-01T05:27:06Z".parse().expect("timestamp")
+}
+
+/// One side of a comparison sample: identity, provenance, and coverage.
+///
+/// The wire contract spells those fields out once per side, so both samples are
+/// built from this shared shape instead of restating each side.
+struct GitRepositoryGenerationEnvelope {
+    generation_key: Uuid,
+    generation_number: i64,
+    ref_name: String,
+    commit_sha: String,
+    file_count: i64,
+    excluded_file_count: i64,
+    total_bytes: i64,
 }
 
 fn keys(value: &serde_json::Value) -> Vec<&str> {
@@ -649,5 +668,327 @@ fn sample_search_response() -> GitCodeSearchResponse {
         total_bytes: content.total_bytes,
         hits: vec![sample_code_hit()],
         truncated: true,
+    }
+}
+
+#[test]
+fn a_change_kind_is_stable_on_the_wire_and_fails_closed() {
+    assert_eq!(
+        to_value([
+            GitFileChangeKind::Added,
+            GitFileChangeKind::Modified,
+            GitFileChangeKind::Deleted
+        ])
+        .expect("serialize change kinds"),
+        json!(["added", "modified", "deleted"])
+    );
+    for kind in [
+        GitFileChangeKind::Added,
+        GitFileChangeKind::Modified,
+        GitFileChangeKind::Deleted,
+    ] {
+        assert_eq!(GitFileChangeKind::from_wire(kind.as_str()), Some(kind));
+        assert_eq!(
+            from_value::<GitFileChangeKind>(json!(kind.as_str())).expect("decode"),
+            kind
+        );
+    }
+    // A kind this storage layer never writes cannot become a fourth kind.
+    for unknown in ["unchanged", "renamed", "Added", "MODIFIED", ""] {
+        assert_eq!(
+            GitFileChangeKind::from_wire(unknown),
+            None,
+            "{unknown:?} is not a change kind"
+        );
+        assert!(from_value::<GitFileChangeKind>(json!(unknown)).is_err());
+    }
+}
+
+#[test]
+fn the_diff_query_declares_two_optional_generations_and_the_shared_page() {
+    let schema = schema_for!(GitRepositoryFileDiffQuery);
+    let properties = schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("query properties");
+    let mut names = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec!["cursor", "from_generation", "limit", "to_generation",],
+        "the comparison takes two optional generations and the shared page window"
+    );
+    let limit = properties.get("limit").expect("limit property");
+    assert_eq!(
+        limit.get("minimum").and_then(|value| value.as_u64()),
+        Some(1),
+        "a page always holds at least one change"
+    );
+    assert_eq!(
+        limit.get("maximum").and_then(|value| value.as_u64()),
+        Some(100),
+        "the page bound is the shared cursor bound"
+    );
+    for generation in ["from_generation", "to_generation"] {
+        let property = properties.get(generation).expect("generation property");
+        assert_eq!(
+            property.get("format").and_then(|value| value.as_str()),
+            Some("uuid"),
+            "{generation} names a generation"
+        );
+        assert!(
+            property.get("default").is_none(),
+            "{generation} is resolved server-side when it is absent"
+        );
+    }
+    assert!(
+        schema.get("required").is_none(),
+        "an omitted comparison resolves to the indexed commit against the active \
+         generation, so no field is required"
+    );
+
+    // The default limit is the shared cursor default rather than a second number,
+    // and the decoded query keeps both generations optional.
+    let decoded: GitRepositoryFileDiffQuery = from_value(json!({})).expect("decode an empty query");
+    assert_eq!(decoded.limit, default_limit());
+    assert_eq!(decoded.from_generation, None);
+    assert_eq!(decoded.to_generation, None);
+    assert_eq!(decoded.cursor, None);
+    let named: GitRepositoryFileDiffQuery = from_value(json!({
+        "from_generation": "018f9f40-2222-7000-8000-0000000000c2",
+        "to_generation": "018f9f40-3333-7000-8000-0000000000c3",
+        "limit": 25,
+        "cursor": "25"
+    }))
+    .expect("decode a fully named query");
+    assert_eq!(
+        named.from_generation,
+        Some(sample_diff_from().generation_key)
+    );
+    assert_eq!(named.to_generation, Some(sample_diff_to().generation_key));
+    assert_eq!(named.limit, 25);
+    assert_eq!(named.cursor.as_deref(), Some("25"));
+}
+
+#[test]
+fn a_diff_page_names_both_generations_its_coverage_and_nothing_else() {
+    let response = sample_diff_response();
+    assert_eq!(
+        keys(&to_value(&response).expect("serialize the diff")),
+        vec![
+            "changes",
+            "checkpoint",
+            "from_commit_sha",
+            "from_excluded_file_count",
+            "from_file_count",
+            "from_generation_key",
+            "from_generation_number",
+            "from_ref_name",
+            "from_total_bytes",
+            "index_status",
+            "pagination",
+            "repository_key",
+            "to_commit_sha",
+            "to_excluded_file_count",
+            "to_file_count",
+            "to_generation_key",
+            "to_generation_number",
+            "to_ref_name",
+            "to_total_bytes",
+        ],
+        "a comparison page names both generations, both coverage envelopes, the \
+         changes, and the continuation — nothing else"
+    );
+    assert_eq!(
+        response.from_generation_key,
+        sample_diff_from().generation_key
+    );
+    assert_eq!(response.to_generation_key, sample_diff_to().generation_key);
+    assert_ne!(
+        response.from_commit_sha, response.to_commit_sha,
+        "each side is attributable to its own pinned commit"
+    );
+    assert_eq!(
+        (response.from_file_count, response.to_file_count),
+        (120, 122)
+    );
+    assert_eq!(
+        (
+            response.from_excluded_file_count,
+            response.to_excluded_file_count
+        ),
+        (3, 3)
+    );
+    assert_eq!(
+        (response.from_total_bytes, response.to_total_bytes),
+        (4096, 4300)
+    );
+
+    let encoded = to_value(&response).expect("serialize the diff");
+    for (index, changes) in encoded["changes"]
+        .as_array()
+        .expect("changes array")
+        .iter()
+        .enumerate()
+    {
+        let change = changes.as_object().expect("one change object");
+        let mut change_keys = change.keys().map(String::as_str).collect::<Vec<_>>();
+        change_keys.sort_unstable();
+        assert_eq!(change_keys, vec!["after", "before", "change_kind", "path"]);
+        // Every side that is present is safe manifest metadata; the absent one is
+        // null rather than an empty entry, so a missing side is unambiguous.
+        let present = ["before", "after"]
+            .into_iter()
+            .filter(|side| !change[*side].is_null())
+            .count();
+        assert!(present >= 1, "change {index} carries at least one side");
+        for side in ["before", "after"] {
+            let Some(object) = change[side].as_object() else {
+                continue;
+            };
+            let mut side_keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+            side_keys.sort_unstable();
+            assert_eq!(
+                side_keys,
+                vec!["byte_count", "file_key", "language", "line_count"],
+                "one side is safe manifest metadata: no content address, no text"
+            );
+        }
+    }
+    assert!(
+        encoded["changes"][0]["before"].is_null(),
+        "an added path has no before side"
+    );
+    assert!(
+        encoded["changes"][2]["after"].is_null(),
+        "a deleted path has no after side"
+    );
+    // An added path has no before side and a deleted path no after side, so the
+    // kind never leaves the missing side ambiguous.
+    let added = &response.changes[0];
+    assert_eq!(added.change_kind, GitFileChangeKind::Added);
+    assert!(added.before.is_none() && added.after.is_some());
+    let deleted = &response.changes[2];
+    assert_eq!(deleted.change_kind, GitFileChangeKind::Deleted);
+    assert!(deleted.after.is_none() && deleted.before.is_some());
+
+    let serialized = encoded.to_string();
+    for forbidden in [
+        "provider_blob_sha",
+        "blob_sha",
+        "content",
+        "chunk",
+        "text",
+        "hunk",
+        "symbol",
+        "secret",
+        "credential",
+        "connection",
+        "raw",
+    ] {
+        assert!(
+            !serialized.contains(forbidden),
+            "the comparison page must not carry {forbidden}: {serialized}"
+        );
+    }
+    // Unchanged paths are omitted, so a comparison of two generations that hold
+    // the same bytes is an empty, terminal page rather than a full manifest.
+    let mut unchanged = response.clone();
+    unchanged.changes.clear();
+    unchanged.pagination = CursorPagination::terminal();
+    let empty = to_value(&unchanged).expect("serialize an empty comparison");
+    assert_eq!(empty["changes"], json!([]));
+    assert_eq!(empty["pagination"]["has_more"], json!(false));
+    assert!(
+        empty["pagination"]
+            .as_object()
+            .expect("pagination object")
+            .get("next_cursor")
+            .is_none(),
+        "a complete page omits its continuation token"
+    );
+    assert_eq!(
+        empty["from_generation_key"],
+        to_value(response.from_generation_key).expect("serialize the key")
+    );
+    assert_eq!(empty["to_file_count"], json!(122));
+}
+
+fn sample_diff_from() -> GitRepositoryGenerationEnvelope {
+    GitRepositoryGenerationEnvelope {
+        generation_key: Uuid::parse_str("018f9f40-2222-7000-8000-0000000000c2").expect("uuid"),
+        generation_number: 7,
+        ref_name: "refs/heads/main".to_string(),
+        commit_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        file_count: 120,
+        excluded_file_count: 3,
+        total_bytes: 4096,
+    }
+}
+
+fn sample_diff_to() -> GitRepositoryGenerationEnvelope {
+    GitRepositoryGenerationEnvelope {
+        generation_key: Uuid::parse_str("018f9f40-3333-7000-8000-0000000000c3").expect("uuid"),
+        generation_number: 8,
+        ref_name: "refs/heads/main".to_string(),
+        commit_sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        file_count: 122,
+        excluded_file_count: 3,
+        total_bytes: 4300,
+    }
+}
+
+fn sample_diff_file(ordinal: &str) -> GitRepositoryFileDiffFile {
+    GitRepositoryFileDiffFile {
+        file_key: Uuid::parse_str(ordinal).expect("uuid"),
+        language: "rust".to_string(),
+        byte_count: 512,
+        line_count: 20,
+    }
+}
+
+fn sample_diff_response() -> GitRepositoryFileDiffResponse {
+    let content = sample_content_response();
+    let from = sample_diff_from();
+    let to = sample_diff_to();
+    GitRepositoryFileDiffResponse {
+        repository_key: content.repository_key,
+        from_generation_key: from.generation_key,
+        from_generation_number: from.generation_number,
+        from_ref_name: from.ref_name,
+        from_commit_sha: from.commit_sha,
+        to_generation_key: to.generation_key,
+        to_generation_number: to.generation_number,
+        to_ref_name: to.ref_name,
+        to_commit_sha: to.commit_sha,
+        index_status: content.index_status,
+        checkpoint: content.checkpoint,
+        from_file_count: from.file_count,
+        from_excluded_file_count: from.excluded_file_count,
+        from_total_bytes: from.total_bytes,
+        to_file_count: to.file_count,
+        to_excluded_file_count: to.excluded_file_count,
+        to_total_bytes: to.total_bytes,
+        changes: vec![
+            GitRepositoryFileDiff {
+                path: "src/added.rs".to_string(),
+                change_kind: GitFileChangeKind::Added,
+                before: None,
+                after: Some(sample_diff_file("018f9f40-1111-7000-8000-0000000000c1")),
+            },
+            GitRepositoryFileDiff {
+                path: "src/alpha.rs".to_string(),
+                change_kind: GitFileChangeKind::Modified,
+                before: Some(sample_diff_file("018f9f40-1111-7000-8000-0000000000c2")),
+                after: Some(sample_diff_file("018f9f40-1111-7000-8000-0000000000c3")),
+            },
+            GitRepositoryFileDiff {
+                path: "src/dropped.rs".to_string(),
+                change_kind: GitFileChangeKind::Deleted,
+                before: Some(sample_diff_file("018f9f40-1111-7000-8000-0000000000c4")),
+                after: None,
+            },
+        ],
+        pagination: CursorPagination::new(Some("3".to_string()), true),
     }
 }
