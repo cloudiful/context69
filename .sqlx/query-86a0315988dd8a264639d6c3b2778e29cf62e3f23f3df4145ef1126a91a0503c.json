@@ -1,0 +1,23 @@
+{
+ "db_name": "PostgreSQL",
+ "query": "-- Serializes webhook registration creation for one (group_id, repository_key).\n--\n-- Transaction-scoped, so the lock is released by PostgreSQL when the creating\n-- transaction ends whether it committed or rolled back, and keyed by the owning\n-- group plus the repository the registration hangs from: two groups registering\n-- hooks on their own repositories never queue behind each other, while two\n-- concurrent creates for the same repository do. The caller builds the key.\nSELECT pg_advisory_xact_lock(hashtextextended($1, 0))\n",
+ "describe": {
+  "columns": [
+   {
+    "ordinal": 0,
+    "name": "pg_advisory_xact_lock",
+    "type_info": "Void",
+    "origin": "Expression"
+   }
+  ],
+  "parameters": {
+   "Left": [
+    "Text"
+   ]
+  },
+  "nullable": [
+   null
+  ]
+ },
+ "hash": "86a0315988dd8a264639d6c3b2778e29cf62e3f23f3df4145ef1126a91a0503c"
+}

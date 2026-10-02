@@ -39,6 +39,7 @@ use crate::api::{
     git_repository_file_diff::__path_diff_git_repository_files,
     git_repository_files::__path_list_git_repository_files,
     git_webhook_ingress::__path_receive_git_webhook,
+    git_webhook_registration::__path_create_git_webhook_registration,
     group_library::{
         __path_create_group_library_folder, __path_create_group_library_text,
         __path_delete_group_library_file, __path_delete_group_library_folder,
@@ -131,7 +132,7 @@ use crate::contracts::sources::{
     GitRepositoryFileDetailResponse, GitRepositoryFileDiff, GitRepositoryFileDiffFile,
     GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse, GitRepositoryFileListResponse,
     GitRepositoryFileQuery, GitRepositoryRegistrationRequest, GitRepositorySource,
-    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
+    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration, GitWebhookRegistrationRequest,
 };
 
 #[derive(OpenApi)]
@@ -201,6 +202,7 @@ use crate::contracts::sources::{
         disable_git_connection,
         enable_git_connection,
         get_git_repository_webhook,
+        create_git_webhook_registration,
         set_git_repository_connection,
         delete_git_repository_connection,
         receive_git_webhook,
@@ -305,6 +307,7 @@ use crate::contracts::sources::{
         GitReadCredentialPatch,
         GitWebhookOwnership,
         GitWebhookRegistration,
+        GitWebhookRegistrationRequest,
         GitRepositoryConnectionRequest,
         CreateFolderRequest,
         CreateTextRequest,
@@ -487,7 +490,7 @@ mod tests {
     use serde_json::Value;
 
     use super::openapi_document;
-    use crate::contracts::sources::GIT_CONNECTION_KEY_MAX_CHARS;
+    use crate::contracts::sources::{GIT_CONNECTION_KEY_MAX_CHARS, GIT_WEBHOOK_HOOK_ID_MAX_CHARS};
 
     #[test]
     fn openapi_contains_expected_paths_and_schemas() {
@@ -636,6 +639,41 @@ mod tests {
         assert_eq!(
             connection_key.get("maxLength").and_then(Value::as_u64),
             Some(GIT_CONNECTION_KEY_MAX_CHARS as u64)
+        );
+
+        // Issue 681 5H: the webhook create body declares the same hook-id bounds
+        // the runtime validator and the signed ingress enforce, so a generated
+        // client cannot register a hook id this API would only refuse after a
+        // group-scoped lookup — or one the ingress could never resolve.
+        let hook_id = schemas
+            .get("GitWebhookRegistrationRequest")
+            .and_then(|schema| schema.pointer("/properties/external_hook_id"))
+            .expect("GitWebhookRegistrationRequest.external_hook_id to exist");
+        assert_eq!(hook_id.get("minLength").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            hook_id.get("maxLength").and_then(Value::as_u64),
+            Some(GIT_WEBHOOK_HOOK_ID_MAX_CHARS as u64)
+        );
+        let registration_body = schemas
+            .get("GitWebhookRegistrationRequest")
+            .expect("GitWebhookRegistrationRequest schema to exist");
+        assert_eq!(
+            registration_body
+                .get("additionalProperties")
+                .and_then(Value::as_bool),
+            Some(false),
+            "deny_unknown_fields must keep a store reference or an active flag out \
+             of the documented body"
+        );
+        // The value to seal carries no declared length: a bound here would either
+        // truncate a legitimate secret or advertise an internal store limit.
+        let signing_secret = registration_body
+            .pointer("/properties/signing_secret")
+            .and_then(Value::as_object)
+            .expect("GitWebhookRegistrationRequest.signing_secret to exist");
+        assert!(
+            !signing_secret.contains_key("maxLength") && !signing_secret.contains_key("minLength"),
+            "the value to seal is unbounded on the wire"
         );
 
         // Issue 681 4B3: the create body carries bounded non-secret metadata

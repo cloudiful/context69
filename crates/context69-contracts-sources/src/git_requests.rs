@@ -1,6 +1,6 @@
 //! Request contracts for public Git repository registration, explicit
-//! connection attachment, and provider connection creation (issue #681 work
-//! units 3C2, 4A2, and 4B3).
+//! connection attachment, provider connection creation, and repository webhook
+//! registration (issue #681 work units 3C2, 4A2, 4B3, and phase 5H).
 //!
 //! Registration is public GitHub only and carries no credential or connection
 //! key: the caller supplies a canonical URL, a default branch, the target ref,
@@ -26,13 +26,19 @@
 //! local type because this leaf crate does not depend on the settings contract
 //! crate, and the shared value-echoing `Set(String)` is only ever consumed by
 //! the server-side writer, never projected or logged.
+//!
+//! [`GitWebhookRegistrationRequest`] is the create-only webhook body: a provider
+//! that must match the repository's own, a bounded provider-issued hook id, the
+//! existing ownership enum, and one optional plain signing secret. The secret is
+//! a value on its way into the encrypted store — never a store key or reference —
+//! and its presence, not a submitted flag, decides whether the hook is active.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::git_repositories::{
-    GitConnectionMode, GitIndexProfile, GitProviderKind, GitRefreshPolicy,
+    GitConnectionMode, GitIndexProfile, GitProviderKind, GitRefreshPolicy, GitWebhookOwnership,
 };
 
 fn default_index_profile() -> GitIndexProfile {
@@ -293,5 +299,102 @@ impl GitRepositoryConnectionRequest {
     /// charset shared by connection attachment and connection creation.
     pub fn validated_connection_key(&self) -> Result<String, GitConnectionKeyRejection> {
         validate_git_connection_key(&self.connection_key)
+    }
+}
+
+/// Maximum UTF-8 bytes accepted for a provider-issued webhook hook id, the same
+/// bound the signed ingress applies to its own path segment: a multibyte id can
+/// exceed it while still fitting 255 characters, and a row stored under a
+/// character bound would be one the ingress can never resolve. The public name
+/// keeps its `CHARS` suffix so no call site had to change over a unit change.
+pub const GIT_WEBHOOK_HOOK_ID_MAX_CHARS: usize = 255;
+
+/// Request body registering one webhook for a group-owned repository source.
+///
+/// The provider must match the repository's own, the hook id is provider-issued,
+/// and the signing secret is accepted only to be sealed immediately: there is no
+/// echo field, no secret-store key or reference, and no `active` flag, so
+/// `deny_unknown_fields` keeps every internal field out of the body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GitWebhookRegistrationRequest {
+    /// Provider family the hook belongs to; must match the repository's.
+    pub provider: GitProviderKind,
+    /// Provider-issued hook id, bounded to the ingress limit in UTF-8 bytes.
+    // The utoipa derive needs a literal, so it mirrors the constant the runtime
+    // validator uses; the OpenAPI bound is asserted in `src/api/docs.rs`.
+    #[schema(min_length = 1, max_length = 255)]
+    #[schemars(length(min = 1, max = GIT_WEBHOOK_HOOK_ID_MAX_CHARS))]
+    pub external_hook_id: String,
+    /// Whether this integration owns the hook it registered.
+    pub ownership: GitWebhookOwnership,
+    /// Optional plain signing secret, sealed immediately and never returned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signing_secret: Option<String>,
+}
+
+/// Why a registration request was refused before any group-scoped work. Every
+/// variant names a stable bounded reason and never echoes a submitted value, so
+/// a signing secret cannot leak through an error body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitWebhookRegistrationRejection {
+    /// `external_hook_id` is empty or whitespace-only.
+    HookIdBlank,
+    /// `external_hook_id` is longer than [`GIT_WEBHOOK_HOOK_ID_MAX_CHARS`] UTF-8
+    /// bytes, which is the bound the signed ingress applies to the same id.
+    HookIdTooLong,
+    /// `signing_secret` was supplied blank or whitespace-only.
+    SigningSecretBlank,
+}
+
+impl GitWebhookRegistrationRejection {
+    /// Stable bounded reason for API error bodies.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::HookIdBlank => "git_webhook_hook_id_blank",
+            Self::HookIdTooLong => "git_webhook_hook_id_too_long",
+            Self::SigningSecretBlank => "git_webhook_signing_secret_blank",
+        }
+    }
+}
+
+impl GitWebhookRegistrationRequest {
+    /// Validates the bounded fields before any group lookup, secret write, or
+    /// provider-facing work. The hook id is measured in UTF-8 bytes, exactly as
+    /// the ingress measures its path segment; no field is echoed back.
+    pub fn validate_for_create(&self) -> Result<(), GitWebhookRegistrationRejection> {
+        if self.external_hook_id.trim().is_empty() {
+            return Err(GitWebhookRegistrationRejection::HookIdBlank);
+        }
+        if self.external_hook_id.len() > GIT_WEBHOOK_HOOK_ID_MAX_CHARS {
+            return Err(GitWebhookRegistrationRejection::HookIdTooLong);
+        }
+        match &self.signing_secret {
+            Some(secret) if secret.trim().is_empty() => {
+                Err(GitWebhookRegistrationRejection::SigningSecretBlank)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// The exact bytes to seal, or `None` for an omitted secret.
+    ///
+    /// The value is returned untrimmed: a provider verifies a signature over the
+    /// exact bytes it was configured with, so a trimmed value would store a secret
+    /// no delivery verifies against. A blank supplied secret is refused before
+    /// this is reached.
+    pub fn signing_secret_value(&self) -> Option<&str> {
+        self.signing_secret
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+    }
+
+    /// Whether a create with this request stores an active registration.
+    ///
+    /// A sealed signing secret is what makes a hook verifiable, so a registration
+    /// without one is stored inactive and the ingress records `Ignored` for it
+    /// rather than failing open.
+    pub fn is_active(&self) -> bool {
+        self.signing_secret_value().is_some()
     }
 }

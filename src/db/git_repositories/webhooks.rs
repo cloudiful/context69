@@ -13,6 +13,7 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use super::rows::{GitWebhookDeliveryRow, GitWebhookRegistrationRow};
@@ -42,6 +43,40 @@ struct GitWebhookRegistrationByHookRow {
 }
 
 impl Database {
+    /// Begins the transaction that serializes registration creation for one
+    /// repository of `group_id`.
+    ///
+    /// Takes a transaction-scoped advisory lock keyed by the owning group and the
+    /// repository the registration hangs from as its own statement, so two
+    /// concurrent creates for the same repository queue behind each other. The
+    /// caller must run the group-scoped pre-check, the seal-only secret write, and
+    /// the create-only insert while holding it, then
+    /// [`GitWebhookRegistrationCreation::commit`] or
+    /// [`GitWebhookRegistrationCreation::rollback`] explicitly: the lock is
+    /// released only when that transaction ends.
+    ///
+    /// Serializing the whole create is what bounds the deterministic-secret race
+    /// the seal split would otherwise leave open: two creates for one repository
+    /// cannot both seal before either inserts, so the losing request blocks before
+    /// it can overwrite the sealed row the winner references, and the value the
+    /// winner stored is the winner's own.
+    pub async fn begin_git_webhook_registration_creation(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+    ) -> Result<GitWebhookRegistrationCreation<'static>> {
+        let mut tx = self.pool.begin().await?;
+        let lock_key =
+            format!("context69.git_webhook_registration_creation:{group_id}:{repository_key}");
+        sqlx::query_file!(
+            "src/sql/db/git_repositories/acquire_git_webhook_registration_creation_lock.sql",
+            lock_key
+        )
+        .execute(&mut *tx)
+        .await?;
+        Ok(GitWebhookRegistrationCreation { tx })
+    }
+
     /// Registers or updates the webhook of a repository source owned by
     /// `group_id`, reporting an error when the source belongs to another group.
     pub async fn upsert_git_webhook_registration(
@@ -75,15 +110,7 @@ impl Database {
         group_id: i64,
         repository_key: Uuid,
     ) -> Result<Option<StoredGitWebhookRegistration>> {
-        let row = sqlx::query_file_as!(
-            GitWebhookRegistrationRow,
-            "src/sql/db/git_repositories/get_git_webhook_registration.sql",
-            group_id,
-            repository_key
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        row.map(StoredGitWebhookRegistration::from_row).transpose()
+        get_git_webhook_registration_on(&self.pool, group_id, repository_key).await
     }
 
     /// Resolves a webhook registration by its provider-facing identity, plus
@@ -182,6 +209,99 @@ impl Database {
         .await?;
         Ok(row.is_some())
     }
+}
+
+/// The transaction that serializes creation of one registration.
+///
+/// The caller never names this type: it is the value
+/// [`Database::begin_git_webhook_registration_creation`] returns, and the lock it
+/// holds is released only by the explicit [`Self::commit`] or [`Self::rollback`].
+pub struct GitWebhookRegistrationCreation<'a> {
+    tx: Transaction<'a, Postgres>,
+}
+
+impl GitWebhookRegistrationCreation<'_> {
+    /// Reads the group-owned registration inside the locked transaction, so the
+    /// pre-check sees a winner that committed before the lock was taken.
+    pub async fn get(
+        &mut self,
+        group_id: i64,
+        repository_key: Uuid,
+    ) -> Result<Option<StoredGitWebhookRegistration>> {
+        get_git_webhook_registration_on(&mut *self.tx, group_id, repository_key).await
+    }
+
+    /// Runs the create-only insert inside the locked transaction.
+    ///
+    /// The insert has no conflict clause, so a repository that already has a
+    /// registration and a hook identity another repository already claims both
+    /// raise their unique violation for the caller to map to one bounded conflict.
+    pub async fn insert(
+        &mut self,
+        group_id: i64,
+        registration: &NewGitWebhookRegistration,
+    ) -> Result<StoredGitWebhookRegistration> {
+        insert_git_webhook_registration_on(&mut *self.tx, group_id, registration).await
+    }
+
+    /// Commits and releases the lock.
+    pub async fn commit(self) -> Result<()> {
+        self.tx.commit().await?;
+        Ok(())
+    }
+
+    /// Rolls back and releases the lock.
+    pub async fn rollback(self) -> Result<()> {
+        self.tx.rollback().await?;
+        Ok(())
+    }
+}
+
+/// Reads one registration through any executor, so the plain pool read and the
+/// locked transaction read share one statement and one shape.
+async fn get_git_webhook_registration_on<'e, E>(
+    executor: E,
+    group_id: i64,
+    repository_key: Uuid,
+) -> Result<Option<StoredGitWebhookRegistration>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_file_as!(
+        GitWebhookRegistrationRow,
+        "src/sql/db/git_repositories/get_git_webhook_registration.sql",
+        group_id,
+        repository_key
+    )
+    .fetch_optional(executor)
+    .await?;
+    row.map(StoredGitWebhookRegistration::from_row).transpose()
+}
+
+/// Runs the create-only insert through any executor, so the locked transaction is
+/// the only way the create path writes a registration.
+async fn insert_git_webhook_registration_on<'e, E>(
+    executor: E,
+    group_id: i64,
+    registration: &NewGitWebhookRegistration,
+) -> Result<StoredGitWebhookRegistration>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_file_as!(
+        GitWebhookRegistrationRow,
+        "src/sql/db/git_repositories/insert_git_webhook_registration.sql",
+        registration.repository_key,
+        group_id,
+        registration.provider.as_str(),
+        registration.external_hook_id,
+        registration.ownership.as_str(),
+        registration.active,
+        registration.signing_secret_key
+    )
+    .fetch_one(executor)
+    .await?;
+    StoredGitWebhookRegistration::from_row(row)
 }
 
 #[cfg(test)]

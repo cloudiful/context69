@@ -668,7 +668,7 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_git_repository_webhook"];
-        put?: never;
+        put: operations["create_git_webhook_registration"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2942,6 +2942,24 @@ export interface components {
             repository_key: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /**
+         * @description Request body registering one webhook for a group-owned repository source.
+         *
+         *     The provider must match the repository's own, the hook id is provider-issued,
+         *     and the signing secret is accepted only to be sealed immediately: there is no
+         *     echo field, no secret-store key or reference, and no `active` flag, so
+         *     `deny_unknown_fields` keeps every internal field out of the body.
+         */
+        GitWebhookRegistrationRequest: {
+            /** @description Provider-issued hook id, bounded to the ingress limit in UTF-8 bytes. */
+            external_hook_id: string;
+            /** @description Whether this integration owns the hook it registered. */
+            ownership: components["schemas"]["GitWebhookOwnership"];
+            /** @description Provider family the hook belongs to; must match the repository's. */
+            provider: components["schemas"]["GitProviderKind"];
+            /** @description Optional plain signing secret, sealed immediately and never returned. */
+            signing_secret?: string | null;
         };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
@@ -6293,6 +6311,67 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    create_git_webhook_registration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitWebhookRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created group-owned Git webhook registration */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitWebhookRegistration"];
+                };
+            };
+            /** @description Invalid hook id or signing secret */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A webhook is already registered, or the hook identity is claimed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

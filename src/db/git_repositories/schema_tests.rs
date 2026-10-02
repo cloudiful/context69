@@ -52,6 +52,11 @@ const WEBHOOK_REGISTRATION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_webhook_registration.sql");
 const GET_WEBHOOK_REGISTRATION_SQL: &str =
     include_str!("../../sql/db/git_repositories/get_git_webhook_registration.sql");
+const INSERT_WEBHOOK_REGISTRATION_SQL: &str =
+    include_str!("../../sql/db/git_repositories/insert_git_webhook_registration.sql");
+const ACQUIRE_WEBHOOK_CREATION_LOCK_SQL: &str = include_str!(
+    "../../sql/db/git_repositories/acquire_git_webhook_registration_creation_lock.sql"
+);
 
 /// Body of a `CREATE TABLE IF NOT EXISTS` in `sql`, without the closing paren.
 fn table_body<'a>(sql: &'a str, table: &str) -> &'a str {
@@ -232,13 +237,83 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
         "the connection upsert keys its conflict on the owning group"
     );
     // Webhook registrations are scoped through their repository source.
-    for query in [WEBHOOK_REGISTRATION_SQL, GET_WEBHOOK_REGISTRATION_SQL] {
+    for query in [
+        WEBHOOK_REGISTRATION_SQL,
+        GET_WEBHOOK_REGISTRATION_SQL,
+        INSERT_WEBHOOK_REGISTRATION_SQL,
+    ] {
         assert!(
             query.contains("s.group_id = $1") || query.contains("s.group_id = $2"),
             "webhook registration must be scoped through the repository source: {}",
             &query[..query.len().min(60)]
         );
     }
+}
+
+#[test]
+fn webhook_registration_create_is_a_create_only_group_and_repository_scoped_insert() {
+    assert_eq!(
+        statement_count(INSERT_WEBHOOK_REGISTRATION_SQL),
+        1,
+        "registration creation must be one atomic statement"
+    );
+    let statement = code(INSERT_WEBHOOK_REGISTRATION_SQL);
+    assert!(
+        statement.contains("INSERT INTO context69.git_webhook_registrations"),
+        "the statement inserts a webhook registration"
+    );
+    // Create-only: the broad upsert's conflict clause would overwrite a
+    // registration another request owns, so a create must have no conflict arm
+    // and let the unique violation be reported instead.
+    assert!(
+        !statement.contains("ON CONFLICT") && !statement.contains("DO UPDATE"),
+        "a create-only insert must have no conflict clause"
+    );
+    // Confined to one repository of one group, and the row is selected from that
+    // source rather than named by the caller, so a foreign key inserts nothing.
+    assert!(
+        statement.contains("s.repository_key = $1")
+            && statement.contains("s.group_id = $2")
+            && statement.contains("s.repository_key,"),
+        "the insert writes only onto a repository this group owns"
+    );
+    // The sealed reference rides on the same insert, so a registration can never
+    // exist without a resolvable reference to the value that was sealed for it.
+    assert!(
+        statement.contains("signing_secret_key")
+            && statement.contains("$7")
+            && !statement.contains("internal_secrets"),
+        "the reference is a bound value, and the statement never reads the store"
+    );
+    for forbidden in ["updated_at =", "DELETE", "TRUNCATE"] {
+        assert!(
+            !statement.contains(forbidden),
+            "the create insert must not {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn webhook_registration_creation_takes_a_transaction_scoped_advisory_lock() {
+    assert_eq!(
+        statement_count(ACQUIRE_WEBHOOK_CREATION_LOCK_SQL),
+        1,
+        "the registration creation lock is one binding statement"
+    );
+    assert!(
+        ACQUIRE_WEBHOOK_CREATION_LOCK_SQL.contains("pg_advisory_xact_lock"),
+        "creation must take a transaction-scoped advisory lock, so the end of \
+         the create transaction releases it"
+    );
+    assert!(
+        !ACQUIRE_WEBHOOK_CREATION_LOCK_SQL.contains("pg_advisory_lock"),
+        "a session-scoped lock would outlive the create transaction"
+    );
+    assert!(
+        ACQUIRE_WEBHOOK_CREATION_LOCK_SQL.contains("$1"),
+        "the lock key is a bound parameter, never a literal, so each \
+         (group, repository) derives its own lock"
+    );
 }
 
 #[test]

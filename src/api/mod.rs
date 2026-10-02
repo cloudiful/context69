@@ -33,6 +33,7 @@ mod git_repository_file_diff;
 mod git_repository_file_paging;
 mod git_repository_files;
 mod git_webhook_ingress;
+mod git_webhook_registration;
 mod group_access;
 mod group_library;
 mod group_source_folders;
@@ -145,6 +146,7 @@ pub(crate) use git_repository_file_content::get_git_repository_file_content;
 pub(crate) use git_repository_file_diff::diff_git_repository_files;
 pub(crate) use git_repository_files::list_git_repository_files;
 pub(crate) use git_webhook_ingress::receive_git_webhook;
+pub(crate) use git_webhook_registration::create_git_webhook_registration;
 pub(crate) use group_library::{
     create_group_library_folder, create_group_library_text, delete_group_library_file,
     delete_group_library_folder, get_group_library_file, get_group_library_resources,

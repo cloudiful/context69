@@ -249,6 +249,38 @@ polling, and metadata-index workers remain server-side.
   same bounded `404` the disable path returns. Deletion, metadata edits,
   credential rotation, hook setup, acquisition, and MCP exposure remain outside
   both lifecycle actions.
+- `PUT /v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook`
+  registers the repository's webhook and answers `201` with the same
+  `GitWebhookRegistration` projection the existing read returns. It is
+  create-only: it never updates, rotates, deactivates, or deletes a registration,
+  never creates the hook at the provider, never processes a delivery, and has no
+  MCP tool. The group and its Maintainer floor are checked before any repository
+  or secret work, so a Viewer or non-member is refused with `403` and an unknown
+  or foreign repository is the same bounded `404` the other Git routes return.
+- The body is `GitWebhookRegistrationRequest` — the `provider` (which must match
+  the repository's own, or the request is a `409` before anything is written), a
+  provider-issued `external_hook_id` bounded to the ingress limit of 1..=255 UTF-8
+  bytes, the existing `ownership`, and an optional plain `signing_secret`. The
+  bound is bytes, not characters, so the create and the signed ingress accept and
+  refuse exactly the same ids.
+  It carries no `active` flag and no store key or reference field: a non-blank
+  secret makes the registration active, an omitted one stores it inactive, and the
+  signed ingress rejects an inactive registration as it already does. A blank or
+  whitespace-only hook id or supplied secret is a `400`, and the value is sealed
+  untrimmed, because a provider signs over the exact configured secret.
+- Creation is serialized by a transaction-scoped advisory lock keyed by the owning
+  group and repository. Under that lock the group-owned registration is pre-checked
+  — so a duplicate is a `409` with no secret-store write at all — then a supplied
+  secret is sealed into the unified store under its own `git_webhook.signing_secret`
+  purpose at the key name derived from the repository record, never from the
+  caller's hook id, and the create-only insert writes the row and that reference
+  together. The insert has no conflict clause, so a second registration on one
+  repository and a hook identity another repository already claims are both the
+  same bounded `409` and never overwrite or repoint an existing registration. A
+  failed seal leaves no row; the only residue of a lost race is the store's own
+  reclaimable sealed orphan. The response carries presence only — never a signing
+  secret, ciphertext, store key, derived key, or provider state — and the value is
+  never echoed, logged, or returned.
 
 ## Contract bounds and errors
 

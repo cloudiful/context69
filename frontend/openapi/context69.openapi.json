@@ -2794,6 +2794,79 @@
             "description": "Group, repository, or webhook registration not found"
           }
         }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "create_git_webhook_registration",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitWebhookRegistrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created group-owned Git webhook registration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitWebhookRegistration"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid hook id or signing secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          },
+          "409": {
+            "description": "A webhook is already registered, or the hook identity is claimed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/groups/by-path/{group_path}/library/files/import-url": {
@@ -9547,6 +9620,39 @@
             "format": "date-time"
           }
         }
+      },
+      "GitWebhookRegistrationRequest": {
+        "type": "object",
+        "description": "Request body registering one webhook for a group-owned repository source.\n\nThe provider must match the repository's own, the hook id is provider-issued,\nand the signing secret is accepted only to be sealed immediately: there is no\necho field, no secret-store key or reference, and no `active` flag, so\n`deny_unknown_fields` keeps every internal field out of the body.",
+        "required": [
+          "provider",
+          "external_hook_id",
+          "ownership"
+        ],
+        "properties": {
+          "external_hook_id": {
+            "type": "string",
+            "description": "Provider-issued hook id, bounded to the ingress limit in UTF-8 bytes.",
+            "maxLength": 255,
+            "minLength": 1
+          },
+          "ownership": {
+            "$ref": "#/components/schemas/GitWebhookOwnership",
+            "description": "Whether this integration owns the hook it registered."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/GitProviderKind",
+            "description": "Provider family the hook belongs to; must match the repository's."
+          },
+          "signing_secret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional plain signing secret, sealed immediately and never returned."
+          }
+        },
+        "additionalProperties": false
       },
       "GroupKind": {
         "type": "string",

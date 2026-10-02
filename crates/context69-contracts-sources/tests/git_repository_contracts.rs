@@ -17,15 +17,16 @@ use context69_contracts_core::pagination::{CursorPageQuery, CursorPagination};
 use context69_contracts_sources::GIT_REPOSITORY_FILE_PATH_MAX_CHARS;
 use context69_contracts_sources::{
     GIT_CONNECTION_BASE_URL_MAX_CHARS, GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS,
-    GIT_CONNECTION_KEY_MAX_CHARS, GitActiveGeneration, GitCommitCheckpoint,
-    GitConnectionKeyRejection, GitConnectionMode, GitConnectionReadiness,
+    GIT_CONNECTION_KEY_MAX_CHARS, GIT_WEBHOOK_HOOK_ID_MAX_CHARS, GitActiveGeneration,
+    GitCommitCheckpoint, GitConnectionKeyRejection, GitConnectionMode, GitConnectionReadiness,
     GitConnectionReadinessResponse, GitConnectionRequestRejection, GitGenerationStatus,
     GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
     GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
     GitRepositoryFile, GitRepositoryFileDetailResponse, GitRepositoryFileListResponse,
     GitRepositoryFileQuery, GitRepositoryGeneration, GitRepositoryRegistrationRequest,
     GitRepositorySource, GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus,
-    GitWebhookOwnership, GitWebhookRegistration, validate_git_connection_key,
+    GitWebhookOwnership, GitWebhookRegistration, GitWebhookRegistrationRejection,
+    GitWebhookRegistrationRequest, validate_git_connection_key,
 };
 use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
@@ -391,6 +392,254 @@ fn webhook_registration_and_delivery_round_trip() {
     assert!(encoded.get("processed_at").is_none());
     let decoded: GitWebhookDelivery = from_value(encoded).expect("deserialize delivery");
     assert_eq!(decoded, delivery);
+}
+
+/// A minimal create body: the hook identity plus the existing ownership enum.
+fn registration_body() -> serde_json::Value {
+    json!({
+        "provider": "github",
+        "external_hook_id": "hook-42",
+        "ownership": "integration"
+    })
+}
+
+#[test]
+fn webhook_registration_request_is_exactly_the_hook_identity_and_one_value() {
+    let minimal: GitWebhookRegistrationRequest =
+        from_value(registration_body()).expect("minimal registration body");
+    assert_eq!(minimal.signing_secret, None);
+    assert!(!minimal.is_active());
+    assert!(minimal.validate_for_create().is_ok());
+
+    for missing in ["provider", "external_hook_id", "ownership"] {
+        let mut body = registration_body();
+        body.as_object_mut().expect("object").remove(missing);
+        assert!(
+            from_value::<GitWebhookRegistrationRequest>(body).is_err(),
+            "{missing} is required"
+        );
+    }
+
+    // The only optional field is the value to seal. No internal store reference,
+    // no lifecycle flag, and no echo of the sealed value may ride along, so a
+    // create can never aim at another record's secret or activate a hook by
+    // assertion. Every sample carries an inert placeholder and the assertion never
+    // echoes a payload.
+    for field in [
+        "signing_secret_key",
+        "secret_key",
+        "signing_secret_reference",
+        "active",
+        "has_signing_secret",
+    ] {
+        let mut body = registration_body();
+        body.as_object_mut()
+            .expect("object")
+            .insert(field.to_string(), json!("placeholder"));
+        assert!(
+            from_value::<GitWebhookRegistrationRequest>(body).is_err(),
+            "unknown registration field {field} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn the_signing_secret_round_trips_untrimmed_and_decides_the_active_state() {
+    // A generated synthetic value, so no secret-shaped literal is embedded in the
+    // suite while the wire shape is still asserted.
+    let synthetic = format!("synthetic-{}", Uuid::new_v4());
+    let padded = format!("  {synthetic}  ");
+    for value in [synthetic.clone(), padded.clone()] {
+        let mut body = registration_body();
+        body.as_object_mut()
+            .expect("object")
+            .insert("signing_secret".to_string(), json!(value));
+        let decoded: GitWebhookRegistrationRequest =
+            from_value(body.clone()).expect("a body with a signing secret");
+        assert_eq!(decoded.signing_secret.as_deref(), Some(value.as_str()));
+        assert_eq!(
+            decoded.signing_secret_value(),
+            Some(value.as_str()),
+            "the value is preserved exactly: a provider signs over the exact \
+             configured secret"
+        );
+        assert!(decoded.is_active());
+        assert_eq!(
+            to_value(&decoded).expect("serialize the request")["signing_secret"],
+            json!(value),
+            "a supplied secret round-trips byte for byte"
+        );
+    }
+    // An omitted secret stays absent on the wire instead of serializing as null.
+    let minimal: GitWebhookRegistrationRequest =
+        from_value(registration_body()).expect("minimal registration body");
+    assert!(
+        to_value(&minimal)
+            .expect("serialize the request")
+            .get("signing_secret")
+            .is_none(),
+        "an omitted secret is not serialized"
+    );
+}
+
+#[test]
+fn the_registration_request_validates_the_hook_id_and_a_blank_secret() {
+    let mut bounded = registration_body();
+    bounded["external_hook_id"] = json!("h".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS));
+    assert!(
+        from_value::<GitWebhookRegistrationRequest>(bounded.clone())
+            .expect("the longest accepted hook id")
+            .validate_for_create()
+            .is_ok()
+    );
+    bounded["external_hook_id"] = json!("h".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS + 1));
+    assert_eq!(
+        from_value::<GitWebhookRegistrationRequest>(bounded)
+            .expect("an over-long hook id still decodes")
+            .validate_for_create()
+            .err(),
+        Some(GitWebhookRegistrationRejection::HookIdTooLong)
+    );
+    for blank in ["", "  ", "\t"] {
+        let mut body = registration_body();
+        body["external_hook_id"] = json!(blank);
+        assert_eq!(
+            from_value::<GitWebhookRegistrationRequest>(body)
+                .expect("a blank hook id still decodes")
+                .validate_for_create()
+                .err(),
+            Some(GitWebhookRegistrationRejection::HookIdBlank),
+            "a blank hook id names no hook"
+        );
+    }
+    for blank in ["", "   "] {
+        let mut body = registration_body();
+        body["signing_secret"] = json!(blank);
+        let request: GitWebhookRegistrationRequest =
+            from_value(body).expect("a blank secret still decodes");
+        assert_eq!(
+            request.validate_for_create().err(),
+            Some(GitWebhookRegistrationRejection::SigningSecretBlank),
+            "asking to set a secret while sending none is a contradiction"
+        );
+        assert_eq!(request.signing_secret_value(), None);
+        assert!(!request.is_active());
+    }
+    // The declared schema bound is the same bound the runtime validator enforces,
+    // so a generated client cannot send a hook id the API only rejects afterwards.
+    let schema = schema_for!(GitWebhookRegistrationRequest);
+    let properties = schema
+        .get("properties")
+        .and_then(|properties| properties.as_object())
+        .expect("registration request properties");
+    let mut names: Vec<&str> = properties.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec![
+            "external_hook_id",
+            "ownership",
+            "provider",
+            "signing_secret"
+        ],
+        "the body carries the hook identity and the one value to seal"
+    );
+    let hook_id = properties
+        .get("external_hook_id")
+        .and_then(|hook_id| hook_id.as_object())
+        .expect("external_hook_id schema");
+    assert_eq!(
+        (
+            hook_id.get("minLength").and_then(|value| value.as_u64()),
+            hook_id.get("maxLength").and_then(|value| value.as_u64()),
+        ),
+        (Some(1), Some(GIT_WEBHOOK_HOOK_ID_MAX_CHARS as u64)),
+        "the declared hook-id bound is the runtime bound"
+    );
+    // The secret is the one optional field, and its bound lives in the sealed
+    // store, not in this schema: pinning a length here would either truncate a
+    // legitimate secret or advertise an internal limit.
+    let secret = properties
+        .get("signing_secret")
+        .and_then(|secret| secret.as_object())
+        .expect("signing_secret schema");
+    assert!(
+        !secret.contains_key("maxLength") && !secret.contains_key("writeOnly"),
+        "the value to seal carries no declared length or echo behaviour"
+    );
+    let required = schema
+        .get("required")
+        .and_then(|required| required.as_array())
+        .expect("registration required fields");
+    let mut required: Vec<&str> = required.iter().filter_map(|name| name.as_str()).collect();
+    required.sort_unstable();
+    assert_eq!(
+        required,
+        vec!["external_hook_id", "ownership", "provider"],
+        "only the secret may be absent"
+    );
+}
+
+#[test]
+fn the_hook_id_bound_counts_utf8_bytes_so_the_ingress_agrees_on_every_id() {
+    // The signed ingress measures its own path segment in bytes, so a hook id that
+    // fits a character count but exceeds the byte bound would be stored here and
+    // then refused by the one route that must resolve it. These two ids differ only
+    // in how many bytes they occupy, and the validator has to split on exactly
+    // that line: the same character count, one byte under and one byte over.
+    let accepted = "é".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS / 2) + "e";
+    let refused = "é".repeat(GIT_WEBHOOK_HOOK_ID_MAX_CHARS / 2) + "é";
+    assert_eq!(
+        (accepted.chars().count(), accepted.len()),
+        (128, GIT_WEBHOOK_HOOK_ID_MAX_CHARS),
+        "the accepted id is exactly at the byte bound"
+    );
+    assert_eq!(
+        (refused.chars().count(), refused.len()),
+        (128, GIT_WEBHOOK_HOOK_ID_MAX_CHARS + 1),
+        "the refused id has the same character count and one more byte"
+    );
+    for (label, hook_id, expected) in [
+        (
+            "at the bound",
+            accepted.clone(),
+            Ok::<(), GitWebhookRegistrationRejection>(()),
+        ),
+        (
+            "one codepoint over the bound",
+            refused.clone(),
+            Err(GitWebhookRegistrationRejection::HookIdTooLong),
+        ),
+    ] {
+        let mut request = registration_request();
+        request.external_hook_id = hook_id;
+        assert_eq!(
+            request.validate_for_create(),
+            expected,
+            "a multibyte id {label} is decided by its bytes, not its characters"
+        );
+    }
+    // A four-byte codepoint is refused long before the character count reaches the
+    // bound, which is the case a character-counting validator would let through.
+    let mut wide = registration_request();
+    wide.external_hook_id = "🔔".repeat(64);
+    assert!(
+        wide.external_hook_id.chars().count() < GIT_WEBHOOK_HOOK_ID_MAX_CHARS,
+        "the wide id is short in characters"
+    );
+    assert_eq!(
+        wide.validate_for_create().err(),
+        Some(GitWebhookRegistrationRejection::HookIdTooLong),
+        "256 bytes of a four-byte codepoint are refused even though the id is only \
+         64 characters long"
+    );
+}
+
+/// A registration request with a synthetic hook id, for the bound tests.
+fn registration_request() -> GitWebhookRegistrationRequest {
+    let mut body = registration_body();
+    body["external_hook_id"] = json!("hook-42");
+    from_value(body).expect("minimal registration body")
 }
 
 fn table_body<'a>(sql: &'a str, table: &str) -> &'a str {

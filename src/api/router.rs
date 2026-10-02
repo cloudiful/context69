@@ -26,14 +26,14 @@ use crate::services::app::Context69App;
 use super::resource_routes::{document_routes, library_routes, task_routes};
 use super::{
     ApiState, auth_middleware, build_api_state, cancel_active_tasks, create_admin_user,
-    create_git_connection, create_group_source_folder, create_personal_access_token, create_source,
-    create_source_connection, delete_git_repository_connection, delete_source,
-    delete_source_connection, diff_git_repository_files, disable_admin_user,
-    disable_git_connection, enable_admin_user, enable_git_connection,
-    forbid_personal_access_token_middleware, get_extraction_health, get_git_connection_readiness,
-    get_git_repository, get_git_repository_file, get_git_repository_file_content,
-    get_git_repository_webhook, get_translation_settings, healthz, index_git_repository,
-    list_admin_users, list_git_provider_connections, list_git_repositories,
+    create_git_connection, create_git_webhook_registration, create_group_source_folder,
+    create_personal_access_token, create_source, create_source_connection,
+    delete_git_repository_connection, delete_source, delete_source_connection,
+    diff_git_repository_files, disable_admin_user, disable_git_connection, enable_admin_user,
+    enable_git_connection, forbid_personal_access_token_middleware, get_extraction_health,
+    get_git_connection_readiness, get_git_repository, get_git_repository_file,
+    get_git_repository_file_content, get_git_repository_webhook, get_translation_settings, healthz,
+    index_git_repository, list_admin_users, list_git_provider_connections, list_git_repositories,
     list_git_repository_files, list_personal_access_tokens, list_source_connections, list_sources,
     list_translation_providers, login, logout, me, openapi_json, receive_git_webhook,
     register_git_repository, require_admin_scope_middleware, require_search_scope_middleware,
@@ -298,7 +298,7 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/webhook",
-            get(get_git_repository_webhook),
+            get(get_git_repository_webhook).put(create_git_webhook_registration),
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/connection",
