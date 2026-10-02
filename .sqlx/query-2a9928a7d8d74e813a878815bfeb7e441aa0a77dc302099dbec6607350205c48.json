@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Nulls the legacy embedding provider API key, the first of the four\n-- standalone nullable credential columns a backfill may clear.\n--\n-- The statement is deliberately whole-column and unconditional on the stored\n-- value: it runs once per category, after that category's sealed write and its\n-- round trip have committed, and it touches no other column — not `base_url`,\n-- not `updated_at`, and not any settings row. A row without a key matches\n-- nothing, so a retry over an already-cleared column is a no-op.\nUPDATE context69.runtime_embedding_settings\nSET api_key = NULL\nWHERE singleton = TRUE\n  AND api_key IS NOT NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2a9928a7d8d74e813a878815bfeb7e441aa0a77dc302099dbec6607350205c48"
+}

@@ -1,21 +1,19 @@
 use std::{env, fs, path::PathBuf, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use context69::{
     api::{self, openapi_document},
     config::Config,
-    db::Database,
     mcp,
     services::{
         app::Context69App,
+        maintenance,
         scheduler::{
             ManualRunResult, SCHEDULER_EXECUTION_LEASE_PREFIX, SCHEDULER_VALKEY_KEY_PREFIX,
             build_valkey_execution_guard, run_manual_sync_guarded, startup_execution_slot_at,
         },
-        secret_store,
     },
 };
-use context69_secret_store::{SecretDatabase, SecretStore};
 use scheduler::{
     CoordinatedLeaseConfig, ExecutionSlot, GuardedRunResult, GuardedRunner, InMemoryStateStore,
     Job, OverlapPolicy, Schedule, Scheduler, SchedulerConfig, Task, TaskContext,
@@ -24,18 +22,6 @@ use scheduler::{
 use tokio::signal;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
-
-/// The master key a `rewrap-secrets` run seals into.
-///
-/// Deliberately a different variable from `CONTEXT69_SECRET_STORE__MASTER_KEY`:
-/// the incoming key must never be able to reach a config file, and a command-line
-/// argument would put it in the process table and the shell history. It is read
-/// once, held in the cipher's zeroizing buffer, and never persisted or logged.
-const REWRAP_TARGET_MASTER_KEY_ENV_VAR: &str = "CONTEXT69_SECRET_STORE__NEXT_MASTER_KEY";
-/// The key version that master key is registered under, and the version every
-/// re-sealed row moves to. It has to be strictly above the source version, which
-/// the store refuses if it is not.
-const REWRAP_TARGET_KEY_VERSION_ENV_VAR: &str = "CONTEXT69_SECRET_STORE__NEXT_KEY_VERSION";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -51,7 +37,13 @@ async fn main() -> Result<()> {
     // Valkey, Qdrant, the scheduler, the API, or the MCP server, and it must not
     // mint or resolve any runtime credential to do it.
     if mode == "rewrap-secrets" {
-        return rewrap_secrets().await;
+        return maintenance::rewrap_secrets().await;
+    }
+    // The reversible-secret backfill is a manual maintenance run for the same
+    // reason, and it additionally never resolves a runtime credential: it reads
+    // legacy columns and writes sealed rows, nothing else.
+    if mode == "backfill-secrets" {
+        return maintenance::backfill_secrets().await;
     }
 
     let config = Config::load()?;
@@ -97,63 +89,12 @@ async fn main() -> Result<()> {
         "serve" => serve(app).await?,
         other => {
             return Err(anyhow::anyhow!(
-                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, rewrap-secrets, migrate-library-storage, or export-openapi"
+                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, rewrap-secrets, backfill-secrets, migrate-library-storage, or export-openapi"
             ));
         }
     }
 
     Ok(())
-}
-
-/// Re-seals every sealed secret from the configured master key to the next one.
-///
-/// The outgoing deployment is read from the ordinary configuration, exactly as a
-/// serving process reads it, so the run always opens rows with the key that
-/// actually sealed them. Only the incoming key is taken from the environment. The
-/// run stops at the first row it cannot re-seal, deletes nothing, and reports
-/// bounded counts: no key name, no value, no ciphertext, and no credential ever
-/// reaches stdout, the log, or the exit status.
-///
-/// Neither deployment key is written anywhere. The runbook that drives this is in
-/// `docs/configuration.md`; it owns the backup, the restore rehearsal, the
-/// metadata-only verification, and the cutover, none of which this mode performs.
-async fn rewrap_secrets() -> Result<()> {
-    let config = Config::load()?;
-    let target_master_key = required_env(REWRAP_TARGET_MASTER_KEY_ENV_VAR)?;
-    let target_key_version = required_env(REWRAP_TARGET_KEY_VERSION_ENV_VAR)?
-        .parse::<u32>()
-        .context("rewrap target key version must be a positive integer")?;
-    if target_key_version == 0 {
-        return Err(anyhow::anyhow!(
-            "rewrap target key version must be greater than 0"
-        ));
-    }
-
-    let db = Database::connect(&config.app_db.url).await?;
-    let source = secret_store::build(&db, &config.secret_store)?;
-    let target = SecretStore::new(
-        SecretDatabase::new(db.pool().clone()),
-        Some(&target_master_key),
-        target_key_version,
-    )?;
-    let report = target.rewrap_secrets_from(&source).await?;
-    info!(
-        source_key_version = config.secret_store.key_version,
-        target_key_version,
-        rewrapped = report.rewrapped,
-        purposes = report.purposes,
-        "secret rewrap finished"
-    );
-    Ok(())
-}
-
-/// Reads one deployment input that the rewrap cannot run without.
-fn required_env(name: &str) -> Result<String> {
-    env::var(name)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("{name} must be set to run a secret rewrap"))
 }
 
 async fn export_openapi(output_path: Option<String>) -> Result<()> {

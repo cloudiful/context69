@@ -33,9 +33,12 @@ mod connections;
 mod execution;
 pub(crate) mod project_source_folders;
 mod runtime;
+mod secret_keys;
 mod sources;
 
 use connections::SourceConnectionSecrets;
+
+pub(crate) use secret_keys::source_connection_database_url_key;
 
 pub(crate) use connections::save_source_connection;
 

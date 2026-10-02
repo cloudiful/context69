@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Nulls the legacy Docling VLM provider API key.\n--\n-- One column only. The base URL, the model names, and the OCR/representation\n-- flags are configuration rather than credentials and keep their values, so a\n-- deployment that has not re-entered its VLM key is not silently reconfigured\n-- by a backfill. `api_key IS NOT NULL` makes a repeated run a no-op.\nUPDATE context69.docling_settings\nSET api_key = NULL\nWHERE singleton = TRUE\n  AND api_key IS NOT NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "247dff86f8ed7f3bd9d1007ccf2bb36d7d1f8b635df785b56f7b069d3c625c52"
+}

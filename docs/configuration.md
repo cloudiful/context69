@@ -274,6 +274,81 @@ every placeholder; nothing below is a real credential or a real value.
    have all succeeded. Only then remove it from the deployment and destroy the
    copy you kept.
 
+### Reversible-secret backfill
+
+`context69 backfill-secrets` seals the reversible credentials a deployment still holds
+outside the store: the legacy `api_key` columns of the embedding, search, Docling and
+shared translation/extraction settings, the source-connection database URLs, the
+runtime S3 secret key, and any store row still in the legacy plaintext representation.
+It is a manual maintenance mode with no automatic startup path.
+
+| Flag | Meaning |
+| --- | --- |
+| *(none)* | read-only inventory: reports what a run would do and writes nothing |
+| `--apply` | commit the migration; still the only write path |
+| `--limit <count>` | how many changes one run may make; defaults to 500 and must be greater than `0` |
+
+Both modes need `secret_store.master_key`: without it a run is refused before the first
+row is read, because an unencrypted store cannot open the rows it would inventory.
+
+The mode runs before the application starts, so it opens no Valkey, no Qdrant, no
+API, and no MCP server, and it resolves no runtime credential. It reads each legacy
+value raw, writes it sealed under its purpose and key version, and reads it back
+before it touches anything legacy: then it nulls the four standalone nullable
+credential columns and points each source connection at its sealed value. The
+source-connection `database_url` and the runtime S3 `secret_key` keep their legacy
+values — the first is `NOT NULL` with a non-blank check, the second belongs to a
+settings projection whose readers need every field present.
+
+What one run guarantees:
+
+- **Seal before clear.** A legacy value is only cleared or referenced after its
+  encrypted write committed and read back identically.
+- **Read-only by default, and blind to nothing.** A dry run reads the store too, so
+  it can tell an unmigrated column from a sealed one, and it stops on any row the
+  configured key cannot open — exactly as a serving process would.
+- **Stop on the first failure.** A run that cannot migrate one item does not skip
+  it, and everything it already finished stays finished. The failing item keeps its
+  legacy value, so re-running resumes.
+- **Idempotent.** An item already sealed and cleaned up is neither rewritten nor
+  counted again, so repeated runs converge and report nothing left.
+- **Counts only.** The log line reports `scanned`, `absent`, `already_sealed`, `sealed`,
+  `cleared`, `referenced`, `retained`, `unmapped`, and `limit_reached` — never a value,
+  key name, DSN, or connection name.
+
+Run it from the same release as the deployment, with the service stopped, so
+nothing rewrites a legacy column while it runs:
+
+1. **Take and verify a backup** as in the rotation runbook above, and rehearse the
+   restore into a disposable database.
+2. **Rehearse on the disposable copy**, with the deployment's own
+   `secret_store.master_key` still configured, and run the mode with no flags: the
+   counts are the work the apply run would perform. The rehearsal must use the key the
+   deployment seals under; another valid key also writes ciphertext, but opens none of
+   the copy's rows, so a green run under it proves nothing about reading them back.
+3. **Apply on the live database.**
+
+   ```bash
+   context69 backfill-secrets --apply
+   context69 backfill-secrets --apply --limit 100
+   ```
+
+   Repeat while a run reports `limit_reached=true`. A run that stops with an error
+   exits non-zero and names the purpose that could not be migrated: fix the cause
+   and run it again.
+4. **Verify, metadata-only**, with a read-only role:
+
+   ```sql
+   SELECT ciphertext_version, count(*) AS rows FROM context69.internal_secrets
+   GROUP BY ciphertext_version ORDER BY ciphertext_version;
+
+   SELECT count(*) AS unreferenced_source_connections
+   FROM context69.runtime_source_connections WHERE database_url_secret_key IS NULL;
+   ```
+
+   Every credential this phase owns must be sealed, and no source connection may be
+   left without a reference.
+
 ### Restoring a database after a lost master key
 
 If the outgoing key is gone and no rewrap has run, the sealed rows in a restored

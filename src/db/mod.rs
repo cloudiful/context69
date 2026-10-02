@@ -18,6 +18,7 @@ mod rows;
 mod runtime_settings;
 mod search_cache;
 mod search_settings;
+mod secret_backfill;
 mod source_connections;
 mod sync_runs;
 mod task_file_dedup;
@@ -46,6 +47,7 @@ pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
+pub use secret_backfill::LegacySecretColumn;
 pub use tasks::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow,
     DoclingRecoverySummary, FinishTaskItemRequest, InsertTaskItemRequest, StoredDoclingRemoteJob,

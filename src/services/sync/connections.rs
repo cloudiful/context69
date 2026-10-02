@@ -1,9 +1,10 @@
+use super::secret_keys::source_connection_database_url_key;
 use super::*;
 use crate::{
     db::NewSourceConnection,
     domain_errors::DomainError,
     services::{
-        secret_store::{SecretKeyName, SecretPurpose, SecretStore, key_names},
+        secret_store::{SecretKeyName, SecretPurpose, SecretStore},
         settings::secrets::{resolve_stored_or_legacy, secret_error, secret_is_present},
     },
     support::normalize::normalize_optional_string,
@@ -93,10 +94,6 @@ impl SyncService {
 
 /// The source-connection view of the shared store: one database URL per
 /// connection, sealed under the connection's own stable UUID.
-///
-/// The connection name never forms a key. It is user-chosen, renameable, and
-/// reusable after a delete, so a value written under one could later be served
-/// to a different connection.
 pub(super) struct SourceConnectionSecrets {
     store: SecretStore,
 }
@@ -108,11 +105,7 @@ impl SourceConnectionSecrets {
 
     /// The store key one connection's database URL is sealed under.
     fn key_name(connection_key: Uuid) -> Result<SecretKeyName> {
-        SecretKeyName::with_prefix(
-            key_names::SOURCE_CONNECTION_DATABASE_URL_PREFIX,
-            &connection_key.to_string(),
-        )
-        .map_err(|error| secret_error(SecretPurpose::SourceConnectionDatabaseUrl, error))
+        source_connection_database_url_key(connection_key)
     }
 
     /// The store row a stored connection points at, if it has one yet.
@@ -222,7 +215,7 @@ mod tests {
     use super::{SourceConnectionSecrets, save_source_connection};
     use crate::{
         db::StoredSourceConnection,
-        services::secret_store::{SecretPurpose, SecretStore, key_names},
+        services::secret_store::{SecretPurpose, SecretStore},
     };
     use uuid::Uuid;
 
@@ -250,37 +243,6 @@ mod tests {
             database_url: database_url.to_string(),
             database_url_secret_key: database_url_secret_key.map(str::to_string),
         }
-    }
-
-    #[test]
-    fn a_store_key_is_the_stable_uuid_and_never_the_name_or_the_dsn() {
-        let connection_key =
-            Uuid::parse_str("2f6d1f0e-2b7c-4a1f-9a3d-5c8e7b0a1d22").expect("a uuid");
-        let key = SourceConnectionSecrets::key_name(connection_key)
-            .expect("a connection key is a valid store key");
-
-        assert_eq!(
-            key.as_str(),
-            format!(
-                "{}{connection_key}",
-                key_names::SOURCE_CONNECTION_DATABASE_URL_PREFIX
-            )
-        );
-        assert!(
-            key.as_str().starts_with("source_connection.database_url."),
-            "the key is namespaced by the category that owns it"
-        );
-        assert!(
-            !key.as_str().contains("primary") && !key.as_str().contains("postgres"),
-            "neither a user-chosen name nor the DSN may appear in a store key"
-        );
-        assert_eq!(
-            key.as_str(),
-            SourceConnectionSecrets::key_name(connection_key)
-                .expect("the same identity always yields the same key")
-                .as_str(),
-            "the key is derived from the identity, so it is stable across saves"
-        );
     }
 
     #[tokio::test]
@@ -330,30 +292,6 @@ mod tests {
             error.to_string().contains("source_connection.database_url"),
             "the failure names the purpose and never a value: {error}"
         );
-    }
-
-    #[test]
-    fn a_source_connection_dsn_is_a_record_scoped_purpose() {
-        // The category owns one secret per record, so it has a prefix rather than
-        // a fixed key name, and no two purposes may share a key namespace.
-        assert_eq!(
-            SecretPurpose::SourceConnectionDatabaseUrl.key_name_prefix(),
-            Some(key_names::SOURCE_CONNECTION_DATABASE_URL_PREFIX)
-        );
-        assert_eq!(
-            SecretPurpose::SourceConnectionDatabaseUrl.singleton_key_name(),
-            None
-        );
-        for purpose in SecretPurpose::ALL
-            .into_iter()
-            .filter(|purpose| *purpose != SecretPurpose::SourceConnectionDatabaseUrl)
-        {
-            assert_ne!(
-                purpose.key_name_prefix(),
-                Some(key_names::SOURCE_CONNECTION_DATABASE_URL_PREFIX),
-                "{purpose} must not write into the source-connection key namespace"
-            );
-        }
     }
 
     /// The whole transition for one connection, against a migrated scratch
