@@ -27,17 +27,28 @@
 -- statement) and releases it when that item lease is declared expired, and
 -- `recompute.sql` clears it once every item is terminal.
 --
--- Item gates are unchanged from issue 529 / 639 except the crash-recovery
--- adoption below: the attempt cap, the expired-lease recovery branch, and the
+-- Item gates are unchanged from issue 529 / 639 except the parent projection
+-- below: the attempt cap, the expired-lease recovery branch, and the
 -- Docling remote-job exclusion that keeps parked or queued items with an
 -- active remote row out of the dispatcher until recovery adopts or fences
 -- them. A running item whose lease expired is exempt from that exclusion so
 -- the reclaim adopts the tracked remote id. Items advance strictly in
--- ordinal order inside the parent slot:
--- only the parent's current (lowest ordinal non-terminal) item is ever
--- eligible, so a parked item blocks its later siblings instead of letting a
--- batch task start several items at once. The crashed worker's attempt is still
--- interrupted inside this statement, scoped to the items being claimed.
+-- ordinal order inside the parent slot: only the parent's current (lowest
+-- ordinal non-terminal) item is ever eligible, so a parked item blocks its
+-- later siblings instead of letting a batch task start several items at once.
+-- The crashed worker's attempt is still interrupted inside this statement,
+-- scoped to the items being claimed.
+--
+-- The one parent UPDATE (`parents`) is driven by `claimed`, not by the
+-- admission candidates. A candidate whose item row was SKIP LOCKED by a
+-- concurrent worker, or whose status guard rejected the claim, therefore
+-- never mints or renews a durable task lease: a parent can only hold a
+-- concurrency slot once an item of it is actually running in this statement.
+-- The same UPDATE writes the item-derived projection (counts, stage, wait
+-- fields), so the parent agrees with its items in the claim transaction
+-- instead of only after a later `recompute.sql`: the claim flips exactly one
+-- item per parent into `running`, so the effective counts are the snapshot
+-- counts with that one item moved out of its previous bucket.
 WITH current_items AS (
     -- The one item of each parent that must finish before any later item of
     -- the same parent can start.
@@ -133,28 +144,6 @@ claim_targets AS (
     UNION
     SELECT id FROM admitted_work
 ),
-touched AS (
-    -- One UPDATE covers both lease grants and renewals, so a task row is never
-    -- written twice by this statement: admitting a slot-less parent mints a
-    -- token, extending an admitted parent keeps its token, and a still-fresh
-    -- lease is left alone.
-    UPDATE context69.tasks task
-    SET lease_token = COALESCE(touch.lease_token, gen_random_uuid()),
-        lease_until = now() + interval '8 minutes',
-        status = 'running',
-        started_at = COALESCE(task.started_at, now()),
-        updated_at = now()
-    FROM (
-        SELECT candidate.id, NULL::uuid AS lease_token
-        FROM slot_candidates candidate
-        UNION ALL
-        SELECT admitted.id, admitted.lease_token
-        FROM admitted_work admitted
-        WHERE admitted.lease_until < now() + interval '4 minutes'
-    ) AS touch
-    WHERE task.id = touch.id
-    RETURNING task.id AS task_id
-),
 chosen AS (
     -- One item per claimable parent; `eligible_items` already narrows each
     -- parent to its current item, so the claim advances strictly in order.
@@ -163,7 +152,10 @@ chosen AS (
     JOIN claim_targets target ON target.id = item.task_id
 ),
 locked AS (
-    SELECT item.id
+    -- The pre-claim status is captured here because a data-modifying CTE's
+    -- effects are invisible to the rest of the statement: the parent counts
+    -- below are the snapshot counts adjusted by this one status transition.
+    SELECT item.id, item.task_id, item.status AS previous_status
     FROM context69.task_items item
     JOIN chosen ON chosen.id = item.id
     FOR UPDATE OF item SKIP LOCKED
@@ -200,6 +192,39 @@ attempts AS (
     FROM claimed
     RETURNING item_id, id AS attempt_id
 ),
+claim_counts AS (
+    -- Post-claim item counts for the parents that claimed. A data-modifying
+    -- CTE's own effect is invisible to the rest of the statement, so the
+    -- snapshot counts are adjusted by hand: every claimed item is moved out
+    -- of its snapshot bucket into `running`. A reclaimed expired `running`
+    -- item is already in `running` and therefore stays counted exactly once.
+    SELECT item.task_id,
+           count(*) FILTER (
+               WHERE item.status = 'queued'
+                 AND NOT (claimed.id IS NOT NULL AND locked.previous_status = 'queued')
+           )::bigint AS queued_count,
+           count(*) FILTER (
+               WHERE item.status = 'running'
+                 OR (claimed.id IS NOT NULL AND locked.previous_status IN ('queued', 'waiting'))
+           )::bigint AS running_count,
+           count(*) FILTER (
+               WHERE item.status = 'waiting'
+                 AND NOT (claimed.id IS NOT NULL AND locked.previous_status = 'waiting')
+           )::bigint AS waiting_count,
+           count(*) FILTER (WHERE item.status = 'succeeded')::bigint AS succeeded_count,
+           count(*) FILTER (WHERE item.status = 'failed')::bigint AS failed_count,
+           count(*) FILTER (WHERE item.status = 'cancelled')::bigint AS cancelled_count,
+           -- The claimed item is this parent's current (lowest ordinal
+           -- non-terminal) item and the claim never writes `stage`, so its
+           -- stage is the parent's current stage. One item per parent is
+           -- claimed, so `min` is that single value.
+           min(claimed.stage) AS current_stage
+    FROM context69.task_items item
+    LEFT JOIN locked ON locked.id = item.id
+    LEFT JOIN claimed ON claimed.id = item.id
+    WHERE item.task_id IN (SELECT task_id FROM claimed)
+    GROUP BY item.task_id
+),
 expired AS (
     UPDATE context69.task_attempts AS attempt
     SET status = 'interrupted',
@@ -212,6 +237,48 @@ expired AS (
       AND item.status = 'running'
       AND (item.lease_until IS NULL OR item.lease_until < now())
       AND attempt.finished_at IS NULL
+),
+parents AS (
+    -- The single parent UPDATE: lease grant/renewal plus the item-derived
+    -- projection, both driven by `claim_counts`. Only a parent whose item was
+    -- actually claimed is written, so an admission candidate whose item row
+    -- was SKIP LOCKED or rejected by the status guard never takes a global
+    -- slot. A still-fresh admitted lease keeps its token and deadline; a
+    -- slot-less parent mints one. A running item carries no wait reason,
+    -- dependency, or retry time, so those clear here exactly as
+    -- `recompute.sql` clears them for a running current item.
+    UPDATE context69.tasks task
+    SET lease_token = CASE
+            WHEN candidate.id IS NOT NULL THEN gen_random_uuid()
+            ELSE task.lease_token
+        END,
+        lease_until = CASE
+            WHEN candidate.id IS NOT NULL
+                 OR admitted.lease_until < now() + interval '4 minutes'
+                THEN now() + interval '8 minutes'
+            ELSE task.lease_until
+        END,
+        status = 'running',
+        started_at = COALESCE(task.started_at, now()),
+        queued_count = counts.queued_count,
+        running_count = counts.running_count,
+        waiting_count = counts.waiting_count,
+        succeeded_count = counts.succeeded_count,
+        failed_count = counts.failed_count,
+        cancelled_count = counts.cancelled_count,
+        stage = counts.current_stage,
+        waiting_reason = NULL,
+        dependency_key = NULL,
+        next_attempt_at = NULL,
+        updated_at = now()
+    FROM claim_counts counts
+    LEFT JOIN slot_candidates candidate ON candidate.id = counts.task_id
+    LEFT JOIN admitted_work admitted ON admitted.id = counts.task_id
+    WHERE task.id = counts.task_id
+      -- Never resurrect a parent that was cancelled or finished after the
+      -- candidate CTEs read it.
+      AND task.status IN ('queued', 'running', 'waiting')
+    RETURNING task.id AS task_id
 )
 SELECT claimed.id,
        claimed.task_id,

@@ -559,6 +559,77 @@ async fn concurrent_admissions_do_not_oversell_the_parent_capacity() {
 }
 
 #[tokio::test]
+async fn admission_candidate_without_a_claimed_item_never_takes_a_slot() {
+    let Some(db) = connect().await else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping slot without claim test");
+        return;
+    };
+    let _guard = ADMISSION_LOCK.lock().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, items) = seed_task(
+        &db,
+        user_id,
+        &[json!({"external_id": "locked"})],
+        "slot-without-claim",
+    )
+    .await;
+    assert_eq!(held_parent_leases(&db).await, 0);
+
+    // Hold the item row in a second connection so the claim's
+    // `FOR UPDATE ... SKIP LOCKED` cannot take it while the parent is still an
+    // admission candidate. The parent is then the only candidate, so a parent
+    // UPDATE that ignored the claim would hand it the whole global capacity.
+    let mut blocker = db.pool().begin().await.expect("begin the item lock");
+    sqlx::query("SELECT 1 FROM context69.task_items WHERE id = $1 FOR UPDATE")
+        .bind(items[0])
+        .fetch_one(&mut *blocker)
+        .await
+        .expect("lock the claimable item row");
+
+    let claimed = db
+        .claim_items_fast(1)
+        .await
+        .expect("fast claim while the item is locked");
+    assert!(
+        claimed.iter().all(|item| item.task_id != task_id),
+        "a locked item must not be claimed"
+    );
+    let (token, until) = parent_lease(&db, task_id).await;
+    assert!(
+        token.is_none() && until.is_none(),
+        "a parent must not hold a concurrency slot without a successfully claimed item"
+    );
+    assert_eq!(held_parent_leases(&db).await, 0);
+    let status: String = sqlx::query_scalar("SELECT status FROM context69.tasks WHERE id = $1")
+        .bind(task_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("load task status");
+    assert_eq!(
+        status, "queued",
+        "an unclaimed parent must not be pre-activated"
+    );
+    blocker.rollback().await.expect("release the item lock");
+
+    // The same parent is admitted as soon as its item can actually be claimed.
+    let claimed = db
+        .claim_items_fast(1)
+        .await
+        .expect("fast claim after the item is free");
+    assert!(
+        claimed.iter().any(|item| item.task_id == task_id),
+        "the parent must be admitted once its item is claimable"
+    );
+    let (token, until) = parent_lease(&db, task_id).await;
+    assert!(
+        token.is_some() && until.map(|until| until > Utc::now()).unwrap_or(false),
+        "a parent with a claimed item holds a live slot"
+    );
+
+    cleanup(&db, &[task_id], user_id).await;
+}
+
+#[tokio::test]
 async fn maintenance_renews_and_revokes_parent_leases() {
     let Some(db) = connect().await else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parent lease maintenance test");

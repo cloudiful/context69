@@ -33,7 +33,10 @@
 --   * `revoked_parent_leases` releases the slot as soon as the worker item
 --     lease that owned it is declared expired, instead of waiting out the full
 --     parent lease TTL. Recovery is therefore bounded by the item lease, the
---     same fence that already decides a worker is gone.
+--     same fence that already decides a worker is gone. It also reclaims a
+--     lease that no claim can ever serve again (a non-terminal parent with no
+--     running item and no claimable or retry-scheduled item), so a slot lost to
+--     a crashed claim is freed on this tick rather than after the 8-minute TTL.
 -- Both updates target disjoint task rows (an expired running item cannot also
 -- be a live running item) and exclude the rows `recomputed` writes, because a
 -- task row may only be updated by one CTE per statement.
@@ -78,14 +81,21 @@ WITH to_exhaust AS (
     WHERE item.id = to_exhaust.id
     RETURNING item.task_id, item.id AS item_id, item.file_id, to_exhaust.old_status, to_exhaust.ordinal
 ), exhausted_files AS (
+    -- Propagate the exhausted item's failure to its file with the same rule
+    -- `project_file_status.sql` uses: never regress a file that already
+    -- succeeded, and never steal one that still has an active sibling item.
+    -- The guard was `ingest_status = 'failed'`, which restricted the UPDATE to
+    -- files that were already failed, so an exhausted item left its file
+    -- `running` forever.
     UPDATE context69.library_files AS file
     SET ingest_status = 'failed',
         error_message = 'exceeded maximum attempt count',
+        ingested_at = NULL,
         updated_at = now()
     FROM exhausted
     WHERE file.id = exhausted.file_id
       AND exhausted.file_id IS NOT NULL
-      AND file.ingest_status = 'failed'
+      AND file.ingest_status <> 'succeeded'
       AND NOT EXISTS (
           SELECT 1
           FROM context69.task_items other
@@ -165,6 +175,9 @@ WITH to_exhaust AS (
         next_attempt_at = current_item.next_attempt_at,
         lease_token = CASE WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count THEN NULL ELSE t.lease_token END,
         lease_until = CASE WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count THEN NULL ELSE t.lease_until END,
+        -- Head-of-line waiting, identical to `recompute.sql`: the current item
+        -- is the lowest-ordinal non-terminal row (the rows exhausted above are
+        -- terminal and already excluded), and its status decides the parent.
         status = CASE
             WHEN t.status = 'cancelled'
                  AND counts.queued_count + counts.running_count + counts.waiting_count = 0
@@ -174,10 +187,8 @@ WITH to_exhaust AS (
                  AND counts.failed_count = 0 THEN 'succeeded'
             WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count
                  THEN 'failed'
-            WHEN counts.running_count > 0 THEN 'running'
-            WHEN counts.queued_count > 0 THEN 'queued'
-            WHEN counts.waiting_count > 0 THEN 'waiting'
-            ELSE 'queued'
+            WHEN current_item.status IS NULL THEN 'queued'
+            ELSE current_item.status
         END,
         finished_at = CASE
             WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count
@@ -197,16 +208,14 @@ WITH to_exhaust AS (
         FROM (SELECT DISTINCT task_id FROM to_exhaust) agg
     ) counts
     LEFT JOIN LATERAL (
-        SELECT stage, waiting_reason, dependency_key, next_attempt_at
-        FROM (
-            SELECT ti.stage, ti.waiting_reason, ti.dependency_key, ti.next_attempt_at, ti.ordinal,
-                   CASE ti.status WHEN 'queued' THEN 0 WHEN 'running' THEN 1 ELSE 2 END AS prio
-            FROM context69.task_items ti
-            WHERE ti.task_id = counts.task_id
-              AND ti.status IN ('queued', 'running', 'waiting')
-              AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)
-        ) sub
-        ORDER BY prio, next_attempt_at NULLS FIRST, ordinal
+        -- Same current-item ordering as `recompute.sql` and `claim_items.sql`:
+        -- lowest ordinal non-terminal item, no running/queued/waiting ranking.
+        SELECT ti.status, ti.stage, ti.waiting_reason, ti.dependency_key, ti.next_attempt_at
+        FROM context69.task_items ti
+        WHERE ti.task_id = counts.task_id
+          AND ti.status IN ('queued', 'running', 'waiting')
+          AND NOT EXISTS (SELECT 1 FROM to_exhaust te WHERE te.id = ti.id)
+        ORDER BY ti.ordinal
         LIMIT 1
     ) current_item ON TRUE
     WHERE t.id = counts.task_id
@@ -231,9 +240,14 @@ WITH to_exhaust AS (
 ), revoked_parent_leases AS (
     -- No live worker item lease remains for these tasks: the slot they held is
     -- no longer owned by anything, so release it now instead of letting it idle
-    -- until the parent lease TTL runs out. Rows already written by `recomputed`
-    -- are excluded because a task row may only be updated by one CTE per
-    -- statement.
+    -- until the parent lease TTL runs out. Two shapes qualify. Either an item
+    -- lease was declared expired in this statement, or the lease is orphaned
+    -- outright: the parent is non-terminal but holds a slot with no running
+    -- item and nothing left that any claim could ever serve, so no worker and
+    -- no later wake can use it. A parent whose current item is queued (claimable)
+    -- or waiting on a scheduled retry legitimately keeps its slot and is never
+    -- touched here. Rows already written by `recomputed` are excluded because a
+    -- task row may only be updated by one CTE per statement.
     UPDATE context69.tasks AS task
     SET lease_token = NULL,
         lease_until = NULL,
@@ -242,7 +256,7 @@ WITH to_exhaust AS (
       AND task.status IN ('queued', 'running', 'waiting')
       AND task.deleted_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM exhausted e WHERE e.task_id = task.id)
-      AND EXISTS (SELECT 1 FROM expired_items revoked WHERE revoked.task_id = task.id)
+      AND NOT EXISTS (SELECT 1 FROM recomputed r WHERE r.id = task.id)
       AND NOT EXISTS (
           SELECT 1
           FROM context69.task_items item
@@ -250,6 +264,16 @@ WITH to_exhaust AS (
             AND item.status = 'running'
             AND item.lease_until > now()
             AND NOT EXISTS (SELECT 1 FROM expired_items revoked WHERE revoked.id = item.id)
+      )
+      AND (
+          EXISTS (SELECT 1 FROM expired_items revoked WHERE revoked.task_id = task.id)
+          OR NOT EXISTS (
+              SELECT 1
+              FROM context69.task_items item
+              WHERE item.task_id = task.id
+                AND item.status IN ('queued', 'running', 'waiting')
+                AND item.attempt_count < 5
+          )
       )
     RETURNING task.id
 ), expired AS (
