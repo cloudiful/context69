@@ -66,6 +66,7 @@ declare module 'vue' {
     SettingsSearchSection: typeof import('./src/components/settings-sections/SettingsSearchSection.vue')['default']
     SourceConfigEditor: typeof import('./src/components/SourceConfigEditor.vue')['default']
     TablePagination: typeof import('./src/components/TablePagination.vue')['default']
+    TaskDiagnosePanel: typeof import('./src/components/TaskDiagnosePanel.vue')['default']
     TaskItemAction: typeof import('./src/components/TaskItemAction.vue')['default']
     TaskItemsExpanded: typeof import('./src/components/TaskItemsExpanded.vue')['default']
     UAlert: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Alert.vue')['default']

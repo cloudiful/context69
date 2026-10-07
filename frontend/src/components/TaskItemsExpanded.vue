@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import TaskDiagnosePanel from "./TaskDiagnosePanel.vue";
 import TaskItemAction from "./TaskItemAction.vue";
 import { apiClient, type TaskItemResponse, type TaskItemStatus, type TaskResponse } from "../services/api";
 import { queueStageLabel } from "../composables/queue-helpers";
@@ -132,10 +133,27 @@ function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" |
   if (status === "running") return "primary";
   return "neutral";
 }
+
+// Item statuses are backend enum identifiers; the row badge renders the locale
+// key so zh-CN never shows raw English. The raw value is kept only as the
+// fallback for a value this build does not yet know.
+const KNOWN_ITEM_STATUSES: ReadonlySet<string> = new Set<TaskItemStatus>([
+  "queued",
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+function itemStatusLabel(status: TaskItemResponse["status"]): string {
+  return KNOWN_ITEM_STATUSES.has(status) ? t(`processingQueue.statuses.${status}`) : status;
+}
 </script>
 
 <template>
   <div class="p-3">
+    <TaskDiagnosePanel :task-id="props.task.task_id" />
     <div class="mb-2 flex flex-wrap items-center gap-2">
       <span class="text-xs text-muted" data-testid="task-items-count">
         {{ t("processingQueue.itemsCount", { shown: shownCount, total: totalCount }) }}
@@ -189,7 +207,7 @@ function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" |
         class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
       >
         <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
-        <UBadge :label="item.status" :color="itemSeverity(item.status)" variant="subtle" />
+        <UBadge :label="itemStatusLabel(item.status)" :color="itemSeverity(item.status)" variant="subtle" data-testid="task-item-status" />
         <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage ?? null) }}</span>
         <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
         <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
