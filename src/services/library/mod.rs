@@ -78,6 +78,7 @@ pub(crate) mod remote_download;
 pub(crate) mod remote_proxy;
 mod resources;
 mod s3_gate_cache;
+mod s3_gate_probe;
 mod source_cleanup_dispatcher;
 pub use source_cleanup_dispatcher::{SOURCE_CLEANUP_FALLBACK_INTERVAL, SourceCleanupDispatcher};
 mod source_object_cleanup;
