@@ -49,7 +49,8 @@ use rows::*;
 pub use tasks::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow,
     DoclingRecoverySummary, FinishTaskItemRequest, InsertTaskItemRequest, StoredDoclingRemoteJob,
-    StoredTask, StoredTaskItem, TaskCountFilter, TaskListFilter, WaitTaskItemRequest,
+    StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter,
+    TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
 };
 pub use vector_index_state::VectorIndexState;
 

@@ -2,7 +2,8 @@ use anyhow::Result;
 use uuid::Uuid;
 
 use super::types::{
-    StoredTask, StoredTaskItem, TaskCountFilter, TaskListFilter, TaskProcessingHealth,
+    StoredTask, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemOrder, TaskListFilter,
+    TaskProcessingHealth,
 };
 use crate::db::Database;
 
@@ -81,13 +82,83 @@ impl Database {
         offset: i64,
         status: Option<&str>,
     ) -> Result<Vec<StoredTaskItem>> {
+        self.list_task_items_ordered(
+            task_id,
+            limit,
+            offset,
+            status,
+            TaskItemOrder::ActiveFirst,
+            None,
+        )
+        .await
+    }
+
+    /// Items of one task in ordinal order (issue 702 P3).
+    ///
+    /// Diagnose documents that a truncated response carries the task's lowest
+    /// ordinals, so it must select them *before* truncating. Reusing the
+    /// active-first ordering here would let a later running or failed item
+    /// displace a lower-ordinal one.
+    pub async fn list_task_items_by_ordinal(
+        &self,
+        task_id: Uuid,
+        limit: i64,
+        offset: i64,
+        status: Option<&str>,
+    ) -> Result<Vec<StoredTaskItem>> {
+        self.list_task_items_ordered(
+            task_id,
+            limit,
+            offset,
+            status,
+            TaskItemOrder::OrdinalFirst,
+            None,
+        )
+        .await
+    }
+
+    /// The ordinal of exactly one item, for a lifecycle log that must report
+    /// item position (issue 702 P3).
+    ///
+    /// `claim_items.sql` returns no ordinal, and it is P1 SQL this phase must
+    /// not edit, so the dispatcher and the worker resolve it here instead. This
+    /// is a `LIMIT 1` lookup on `idx_task_items_task_status (task_id, ...)`.
+    /// Returns `None` when the item does not belong to the task, so a log can
+    /// never report an ordinal for a row outside its own parent.
+    pub async fn task_item_ordinal(&self, task_id: Uuid, item_id: Uuid) -> Result<Option<i32>> {
+        Ok(self
+            .list_task_items_ordered(
+                task_id,
+                1,
+                0,
+                None,
+                TaskItemOrder::OrdinalFirst,
+                Some(item_id),
+            )
+            .await?
+            .into_iter()
+            .next()
+            .map(|item| item.ordinal))
+    }
+
+    async fn list_task_items_ordered(
+        &self,
+        task_id: Uuid,
+        limit: i64,
+        offset: i64,
+        status: Option<&str>,
+        order: TaskItemOrder,
+        only_item_id: Option<Uuid>,
+    ) -> Result<Vec<StoredTaskItem>> {
         Ok(sqlx::query_file_as!(
             StoredTaskItem,
             "src/sql/db/tasks/items.sql",
             task_id,
             limit,
             offset,
-            status
+            status,
+            order.as_str(),
+            only_item_id
         )
         .fetch_all(self.pool())
         .await?)
@@ -105,6 +176,22 @@ impl Database {
         Ok(sqlx::query_file_as!(
             TaskProcessingHealth,
             "src/sql/db/tasks/processing_health.sql"
+        )
+        .fetch_one(self.pool())
+        .await?)
+    }
+
+    /// Parent/item consistency snapshot (issue 702 P3).
+    ///
+    /// `task_id = None` reports the whole-queue gauges behind `/healthz`;
+    /// `Some(task_id)` reports that task's verdict plus its per-item lease and
+    /// attempt forensics behind the diagnose endpoint. Read-only: it never
+    /// repairs a mismatch, it only names it.
+    pub async fn task_consistency(&self, task_id: Option<Uuid>) -> Result<TaskConsistencyRow> {
+        Ok(sqlx::query_file_as!(
+            TaskConsistencyRow,
+            "src/sql/db/tasks/task_consistency.sql",
+            task_id
         )
         .fetch_one(self.pool())
         .await?)

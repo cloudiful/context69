@@ -5,11 +5,7 @@ use context69_contracts::{
     TaskResponse, TaskStatus,
 };
 
-use crate::{
-    db::{StoredTask, StoredTaskItem},
-    domain::GroupRecord,
-    domain_errors::DomainError,
-};
+use crate::{db::StoredTaskItem, domain::GroupRecord, domain_errors::DomainError};
 
 pub(super) fn parse_kind(value: &str) -> Result<TaskKind> {
     match value {
@@ -27,7 +23,7 @@ pub(super) fn parse_kind(value: &str) -> Result<TaskKind> {
     }
 }
 
-pub(super) fn task_response(task: StoredTask) -> TaskResponse {
+pub(super) fn task_response(task: crate::db::StoredTask) -> TaskResponse {
     let completed = task.succeeded_count + task.failed_count + task.cancelled_count;
     let eta_seconds = task
         .started_at

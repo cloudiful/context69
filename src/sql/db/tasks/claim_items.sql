@@ -39,6 +39,11 @@
 -- The crashed worker's attempt is still interrupted inside this statement,
 -- scoped to the items being claimed.
 --
+-- `claimed.ordinal` is returned so the claim result carries the item's position
+-- directly: the dispatcher and the worker report it on every lifecycle
+-- transition, and resolving it afterwards would mean a second read of a value
+-- this statement already has.
+--
 -- The one parent UPDATE (`parents`) is driven by `claimed`, not by the
 -- admission candidates. A candidate whose item row was SKIP LOCKED by a
 -- concurrent worker, or whose status guard rejected the claim, therefore
@@ -183,7 +188,7 @@ claimed AS (
             OR item.lease_until IS NULL
             OR item.lease_until < now()
         )
-    RETURNING item.id, item.task_id, item.attempt_count, item.lease_token,
+    RETURNING item.id, item.task_id, item.ordinal, item.attempt_count, item.lease_token,
               item.payload, item.file_id, item.stage, item.input_storage_object_id
 ),
 attempts AS (
@@ -282,6 +287,7 @@ parents AS (
 )
 SELECT claimed.id,
        claimed.task_id,
+       claimed.ordinal,
        claimed.attempt_count,
        claimed.lease_token AS "lease_token!",
        claimed.payload,

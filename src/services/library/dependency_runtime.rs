@@ -14,6 +14,9 @@ pub(super) use super::dependency_errors::{
     dependency_is_transient, is_configuration_error, is_s3_error, redact_dependency_error,
 };
 pub(super) use super::dependency_storage::bounded_s3_operation;
+use super::processing_health::{
+    dependency_gate_responses, log_parent_consistency_breach, parent_consistency_health,
+};
 use super::s3_gate_cache::observe_s3_gate_transition;
 use super::ttl_cache::TtlCache;
 use super::{LibraryDependency, LibraryService};
@@ -187,6 +190,10 @@ impl LibraryService {
     async fn load_processing_health(&self) -> Result<ProcessingHealthSnapshot> {
         let mut gates = self.store.list_dependency_gates().await?;
         let queue = self.db.task_processing_health().await?;
+        // One statement serves the whole-queue gauges and the per-task diagnose
+        // verdict, so `/healthz` reports the same consistency definition the
+        // diagnose endpoint does.
+        let consistency = self.db.task_consistency(None).await?;
         // Readiness is configuration-level: the embedding/vector runtime and
         // the S3 backend decide which gates must be closed. The queue snapshot
         // below is reported as-is and no longer influences the verdict.
@@ -233,18 +240,7 @@ impl LibraryService {
                 last_success_at: canonical.last_success_at,
             });
         }
-        let response = gates
-            .into_iter()
-            .map(|gate| LibraryDependencyGateResponse {
-                dependency_key: gate.dependency_key,
-                state: gate.state,
-                failure_count: u32::try_from(gate.failure_count.max(0)).unwrap_or(u32::MAX),
-                next_probe_at: gate.next_probe_at,
-                last_error: gate.last_error,
-                last_transition_at: gate.last_transition_at,
-                last_success_at: gate.last_success_at,
-            })
-            .collect();
+        let response = dependency_gate_responses(gates);
         let now = Utc::now();
         let status_counts = parse_processing_metrics(queue.status_counts)?;
         let stage_counts = parse_processing_metrics(queue.stage_counts)?;
@@ -258,6 +254,8 @@ impl LibraryService {
         } else {
             failed_last_hour as f64 * 100.0 / processed_last_hour as f64
         };
+        let parent_consistency = parent_consistency_health(&consistency, now);
+        log_parent_consistency_breach(&consistency, &parent_consistency);
         let snapshot = (
             ready,
             response,
@@ -280,6 +278,7 @@ impl LibraryService {
                 failed_last_hour,
                 processing_rate_per_minute,
                 failure_rate_percent,
+                parent_consistency: Some(parent_consistency),
             },
         );
         Ok(snapshot)

@@ -12,11 +12,11 @@ pub use context69_contracts::{
     MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind, OffsetPageQuery,
     OffsetPagination, RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex,
     ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
-    SourcePolicy, TaskItemResponse, TaskItemStatus, TaskItemsQuery, TaskItemsResponse, TaskKind,
-    TaskListQuery, TaskListView, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
-    TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
-    TranslationDirective, TranslationStatus, UpsertLibraryTextRequest as TextBatchItem,
-    UrlBatchRequest, Visibility,
+    SourcePolicy, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
+    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
+    TextBatchRequest, TranslationDirective, TranslationStatus,
+    UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -314,6 +314,19 @@ impl Context69Client {
                 .query(&pairs),
         )
         .await
+    }
+
+    /// Canonical `diagnose_task` (`GET /v1/tasks/{task_id}/diagnose`).
+    ///
+    /// Read-only operator detail: the parent projection, its items in ordinal
+    /// order with active/latest attempt forensics, the dependency gates those
+    /// items can wait on, and the parent/item consistency verdict. Scoped by
+    /// the same task-detail authorization as [`Self::get_task`], so a foreign
+    /// task reads as `404`.
+    pub async fn diagnose_task(&self, task_id: Uuid) -> Result<TaskDiagnoseResponse, Error> {
+        let path = format!("/v1/tasks/{task_id}/diagnose");
+        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+            .await
     }
 
     pub async fn wait(&self, task_id: Uuid, timeout: Duration) -> Result<TaskResponse, Error> {

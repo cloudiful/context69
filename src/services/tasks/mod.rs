@@ -35,13 +35,18 @@ mod item_processors;
 mod item_translation_processors;
 mod item_url_processor;
 mod lifecycle;
+mod lifecycle_logging;
 mod maintenance;
 mod responses;
 mod runtime;
+mod runtime_driver;
 mod scope;
 #[cfg(test)]
 mod sql_contract_tests;
+#[cfg(test)]
+mod sql_contract_tests_p3;
 mod submit;
+mod task_diagnostics;
 
 pub use events::{TASK_EVENT_BUS_CAPACITY, TASK_EVENTS_CHANNEL, TaskEvent};
 
@@ -197,7 +202,7 @@ impl TaskService {
     pub(super) fn spawn_item(&self, item: crate::db::ClaimedItem, permit: OwnedSemaphorePermit) {
         let service = self.clone();
         tokio::spawn(async move {
-            if let Err(error) = runtime::run_item(&service, item).await {
+            if let Err(error) = runtime_driver::run_item(&service, item).await {
                 tracing::warn!(%error, "context69 task item worker failed");
             }
             drop(permit);

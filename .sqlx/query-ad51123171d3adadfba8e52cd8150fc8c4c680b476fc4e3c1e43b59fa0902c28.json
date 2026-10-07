@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "-- Paged task items for `GET /v1/tasks/{task_id}/items` (issue 413 Phase 1).\n--\n-- `$4::text` narrows to one item status; NULL lists every status.\n-- Fixed active-first ordering (failed, running, queued, waiting,\n-- cancelled, succeeded, then ordinal) pins in-flight/failed to the top and\n-- sinks succeeded to the bottom. `cursor`/`offset` ($3) is scoped to the\n-- current status filter: clients reset to 0 when the filter changes, then\n-- follow `next_cursor` until NULL to page through the full filtered set.\nSELECT item.id,\n       item.task_id,\n       item.ordinal,\n       item.status,\n       item.resource_id,\n       item.file_id,\n       item.stage,\n       item.waiting_reason,\n       item.dependency_key,\n       item.next_attempt_at,\n       item.failure_stage,\n       item.error_message,\n       item.attempt_count,\n       item.retryable,\n       item.created_at,\n       item.started_at,\n       item.finished_at\nFROM context69.task_items item\nWHERE item.task_id = $1\n  AND ($4::text IS NULL OR item.status = $4::text)\nORDER BY\n    CASE item.status\n        WHEN 'failed' THEN 0\n        WHEN 'running' THEN 1\n        WHEN 'queued' THEN 2\n        WHEN 'waiting' THEN 3\n        WHEN 'cancelled' THEN 4\n        WHEN 'succeeded' THEN 5\n        ELSE 6\n    END,\n    item.ordinal\nLIMIT $2 OFFSET $3\n",
+  "query": "-- Paged task items for `GET /v1/tasks/{task_id}/items` (issue 413 Phase 1).\n--\n-- `$4::text` narrows to one item status; NULL lists every status.\n-- `$5::text` selects the ordering. `'ordinal'` returns the lowest ordinals\n-- first, which is what `GET /v1/tasks/{task_id}/diagnose` needs: its contract\n-- promises the first `limit` items of the task's sequence, so it must select\n-- them before it truncates. Every other value keeps the fixed active-first\n-- ordering the paged items endpoint documents.\n-- `$6::uuid` narrows to one item; NULL lists every item of the task. This is\n-- how a lifecycle log resolves one claimed item's ordinal without assuming\n-- which item a claim picked.\n-- Fixed active-first ordering (failed, running, queued, waiting,\n-- cancelled, succeeded, then ordinal) pins in-flight/failed to the top and\n-- sinks succeeded to the bottom. `cursor`/`offset` ($3) is scoped to the\n-- current status filter: clients reset to 0 when the filter changes, then\n-- follow `next_cursor` until NULL to page through the full filtered set.\nSELECT item.id,\n       item.task_id,\n       item.ordinal,\n       item.status,\n       item.resource_id,\n       item.file_id,\n       item.stage,\n       item.waiting_reason,\n       item.dependency_key,\n       item.next_attempt_at,\n       item.failure_stage,\n       item.error_message,\n       item.attempt_count,\n       item.retryable,\n       item.created_at,\n       item.started_at,\n       item.finished_at\nFROM context69.task_items item\nWHERE item.task_id = $1\n  AND ($4::text IS NULL OR item.status = $4::text)\n  AND ($6::uuid IS NULL OR item.id = $6::uuid)\nORDER BY\n    CASE\n        WHEN $5::text = 'ordinal' THEN 0\n        ELSE CASE item.status\n            WHEN 'failed' THEN 0\n            WHEN 'running' THEN 1\n            WHEN 'queued' THEN 2\n            WHEN 'waiting' THEN 3\n            WHEN 'cancelled' THEN 4\n            WHEN 'succeeded' THEN 5\n            ELSE 6\n        END\n    END,\n    item.ordinal\nLIMIT $2 OFFSET $3\n",
   "describe": {
     "columns": [
       {
@@ -196,7 +196,9 @@
         "Uuid",
         "Int8",
         "Int8",
-        "Text"
+        "Text",
+        "Text",
+        "Uuid"
       ]
     },
     "nullable": [
@@ -219,5 +221,5 @@
       true
     ]
   },
-  "hash": "b2dd1fb78126643338c4b84d7aea615b9042eaafa51289843113dd4c629ec66b"
+  "hash": "ad51123171d3adadfba8e52cd8150fc8c4c680b476fc4e3c1e43b59fa0902c28"
 }

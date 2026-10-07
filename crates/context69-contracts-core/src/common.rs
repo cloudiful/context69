@@ -139,7 +139,7 @@ pub struct HealthResponse {
     pub library_processing_queue: Option<LibraryProcessingQueueHealth>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct LibraryDependencyGateResponse {
     pub dependency_key: String,
     pub state: String,
@@ -180,6 +180,43 @@ pub struct LibraryProcessingQueueHealth {
     pub failed_last_hour: u64,
     pub processing_rate_per_minute: f64,
     pub failure_rate_percent: f64,
+    /// Parent-task consistency gauges. Optional and additive: absent when the
+    /// consistency snapshot could not be read, so an older deployment never
+    /// fails the health probe on this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_consistency: Option<TaskQueueConsistencyHealth>,
+}
+
+/// Parent-level task consistency gauges for `/healthz`.
+///
+/// `task_items` is the execution-state source of truth and the parent counters
+/// are its projection, so every gauge here compares a parent against its own
+/// items. A non-zero mismatch or orphan-lease count is an internal-invariant
+/// breach, not a user error.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct TaskQueueConsistencyHealth {
+    /// Parent tasks counted by the snapshot (all non-trashed tasks).
+    pub parent_count: u64,
+    /// Parents still holding work (`queued`/`running`/`waiting`).
+    pub active_parent_count: u64,
+    /// Active parents whose `current` item is parked on a dependency gate.
+    pub dependency_waiting_parent_count: u64,
+    /// Parent status distribution, so a queue stuck in one state is visible.
+    pub parent_status_counts: Vec<LibraryProcessingMetric>,
+    /// Parents reporting `running` while no item of theirs is `running`.
+    pub running_parent_without_running_item_count: u64,
+    /// Parents holding a durable admission lease with no live item lease:
+    /// the slot is occupied but no worker owns the work.
+    pub lease_without_running_item_count: u64,
+    /// `task_attempts` rows without `finished_at`; every live claim has one.
+    pub open_attempt_count: u64,
+    /// Items at or one attempt below the five-attempt cap.
+    pub near_exhaustion_item_count: u64,
+    /// Age of the oldest admitted parent lease.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_admitted_age_seconds: Option<u64>,
+    /// Parents whose stored counters/stage disagree with their item rows.
+    pub parent_item_mismatch_count: u64,
 }
 
 /// Explicit object map for `metadata_json` payloads.

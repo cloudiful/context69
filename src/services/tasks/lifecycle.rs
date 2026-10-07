@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use context69_contracts::{
-    SortDirection, TaskItemStatus, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
-    TaskPageResponse, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
+    SortDirection, TaskDiagnoseResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
+    TaskListQuery, TaskListView, TaskPageResponse, TaskRef, TaskResponse, TaskRetryResponse,
+    TaskSortBy, TaskStatus,
 };
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{domain_errors::DomainError, pagination::PageBounds};
@@ -10,6 +12,7 @@ use crate::{domain_errors::DomainError, pagination::PageBounds};
 use super::{
     TaskService,
     responses::{task_item_response, task_response},
+    task_diagnostics::{DIAGNOSE_ITEM_LIMIT, task_diagnose_response},
 };
 
 impl TaskService {
@@ -103,6 +106,53 @@ impl TaskService {
             items: items.into_iter().map(task_item_response).collect(),
             next_cursor,
         })
+    }
+
+    /// Read-only operator detail for one task (issue 702 P3).
+    ///
+    /// Authorization is the existing task-detail model: `get_task` resolves the
+    /// owner or an inheriting group member, so a task the caller cannot read is
+    /// `not_found` here too. Nothing in this path mutates a row, exposes a
+    /// lease token, or returns an item payload.
+    pub async fn diagnose(&self, task_id: Uuid, user_id: i64) -> Result<TaskDiagnoseResponse> {
+        let task = self
+            .db
+            .get_task(task_id, user_id)
+            .await?
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
+        let items = self
+            .db
+            .list_task_items_by_ordinal(task_id, DIAGNOSE_ITEM_LIMIT, 0, None)
+            .await
+            .with_context(|| format!("diagnose task {task_id} could not read its items"))?;
+        // Ordinal-first selection, so the items below are the task's lowest
+        // ordinals and `items_truncated` really does mean "there are more".
+        let items_truncated = items.len() as i64 == DIAGNOSE_ITEM_LIMIT;
+        let consistency = self.db.task_consistency(Some(task_id)).await?;
+        // A gate read failure degrades the dependency section instead of the
+        // whole diagnose: the parent/item verdict does not depend on it.
+        let dependency_gates = self
+            .library()
+            .dependency_gate_snapshot()
+            .await
+            .unwrap_or_else(|error| {
+                warn!(
+                    %error,
+                    task_id = %task_id,
+                    "diagnose could not read dependency gates"
+                );
+                Vec::new()
+            });
+        let response =
+            task_diagnose_response(task, items, items_truncated, consistency, dependency_gates)?;
+        if !response.consistency.consistent {
+            warn!(
+                task_id = %task_id,
+                mismatches = ?response.consistency.mismatches,
+                "task parent projection disagrees with its items"
+            );
+        }
+        Ok(response)
     }
 
     pub async fn retry(&self, task_id: Uuid, user_id: i64) -> Result<TaskRetryResponse> {

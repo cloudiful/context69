@@ -1,6 +1,14 @@
 -- Paged task items for `GET /v1/tasks/{task_id}/items` (issue 413 Phase 1).
 --
 -- `$4::text` narrows to one item status; NULL lists every status.
+-- `$5::text` selects the ordering. `'ordinal'` returns the lowest ordinals
+-- first, which is what `GET /v1/tasks/{task_id}/diagnose` needs: its contract
+-- promises the first `limit` items of the task's sequence, so it must select
+-- them before it truncates. Every other value keeps the fixed active-first
+-- ordering the paged items endpoint documents.
+-- `$6::uuid` narrows to one item; NULL lists every item of the task. This is
+-- how a lifecycle log resolves one claimed item's ordinal without assuming
+-- which item a claim picked.
 -- Fixed active-first ordering (failed, running, queued, waiting,
 -- cancelled, succeeded, then ordinal) pins in-flight/failed to the top and
 -- sinks succeeded to the bottom. `cursor`/`offset` ($3) is scoped to the
@@ -26,15 +34,19 @@ SELECT item.id,
 FROM context69.task_items item
 WHERE item.task_id = $1
   AND ($4::text IS NULL OR item.status = $4::text)
+  AND ($6::uuid IS NULL OR item.id = $6::uuid)
 ORDER BY
-    CASE item.status
-        WHEN 'failed' THEN 0
-        WHEN 'running' THEN 1
-        WHEN 'queued' THEN 2
-        WHEN 'waiting' THEN 3
-        WHEN 'cancelled' THEN 4
-        WHEN 'succeeded' THEN 5
-        ELSE 6
+    CASE
+        WHEN $5::text = 'ordinal' THEN 0
+        ELSE CASE item.status
+            WHEN 'failed' THEN 0
+            WHEN 'running' THEN 1
+            WHEN 'queued' THEN 2
+            WHEN 'waiting' THEN 3
+            WHEN 'cancelled' THEN 4
+            WHEN 'succeeded' THEN 5
+            ELSE 6
+        END
     END,
     item.ordinal
 LIMIT $2 OFFSET $3

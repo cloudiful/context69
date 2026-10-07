@@ -1597,6 +1597,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/{task_id}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diagnose_task"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/{task_id}/items": {
         parameters: {
             query?: never;
@@ -3174,6 +3190,7 @@ export interface components {
             oldest_queued_age_seconds?: number | null;
             /** Format: int64 */
             oldest_waiting_age_seconds?: number | null;
+            parent_consistency?: null | components["schemas"]["TaskQueueConsistencyHealth"];
             /** Format: int64 */
             pending_count: number;
             /** Format: int64 */
@@ -3776,6 +3793,136 @@ export interface components {
             records_changed: number;
             records_seen: number;
         };
+        /**
+         * @description One `task_attempts` row projected for inspection.
+         *
+         *     Attempts are append-only forensics; this view is a read projection of the
+         *     newest row per item plus the open row, never a mutable attempt state.
+         */
+        TaskAttemptView: {
+            /** Format: int32 */
+            attempt: number;
+            /** Format: int64 */
+            attempt_id: number;
+            error_message?: string | null;
+            failure_stage?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            retryable: boolean;
+            /** Format: date-time */
+            started_at: string;
+            status: string;
+        };
+        /**
+         * @description Parent-versus-item consistency verdict for one task.
+         *
+         *     `mismatches` names the disagreeing fields so an operator sees the breach,
+         *     not just a boolean.
+         */
+        TaskConsistencyReport: {
+            consistent: boolean;
+            /**
+             * Format: uuid
+             * @description The lowest-ordinal non-terminal item: the one the parent reports as its
+             *     current item.
+             */
+            current_item_id?: string | null;
+            mismatches: string[];
+            /** Format: int64 */
+            near_exhaustion_item_count: number;
+            /** Format: int64 */
+            open_attempt_count: number;
+        };
+        /**
+         * @description One item with its attempt forensics and lease deadline, ordered by
+         *     `ordinal`. Carries no payload: the diagnose view explains progress, it does
+         *     not re-expose item input.
+         */
+        TaskDiagnoseItem: {
+            active_attempt?: null | components["schemas"]["TaskAttemptView"];
+            /** Format: int32 */
+            attempt_count: number;
+            /** Format: date-time */
+            created_at: string;
+            dependency_key?: string | null;
+            error_message?: string | null;
+            failure_stage?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            item_id: string;
+            latest_attempt?: null | components["schemas"]["TaskAttemptView"];
+            /**
+             * Format: date-time
+             * @description Item lease deadline; absent for an item that holds no lease.
+             */
+            lease_expires_at?: string | null;
+            /** Format: date-time */
+            next_attempt_at?: string | null;
+            /** Format: int32 */
+            ordinal: number;
+            retryable: boolean;
+            stage?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["TaskItemStatus"];
+            waiting_reason?: string | null;
+        };
+        /**
+         * @description Parent projection for `GET /v1/tasks/{task_id}/diagnose`.
+         *
+         *     Carries the stored parent row plus the admission lease deadline. The lease
+         *     token itself is never projected: it authorizes writes and has no diagnostic
+         *     value.
+         */
+        TaskDiagnoseParent: {
+            /** Format: date-time */
+            created_at: string;
+            dependency_key?: string | null;
+            error_summary?: string | null;
+            failure_stage?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            kind: components["schemas"]["TaskKind"];
+            /**
+             * Format: date-time
+             * @description Deadline of the durable parent admission slot, absent when no slot is
+             *     held.
+             */
+            lease_expires_at?: string | null;
+            /** Format: date-time */
+            next_attempt_at?: string | null;
+            progress: components["schemas"]["TaskProgress"];
+            stage?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            status: components["schemas"]["TaskStatus"];
+            /** Format: uuid */
+            task_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            waiting_reason?: string | null;
+        };
+        /**
+         * @description Response body for `GET /v1/tasks/{task_id}/diagnose`.
+         *
+         *     Read-only operator detail for one task: the parent projection, its items in
+         *     ordinal order with attempt forensics, the dependency gates those items can
+         *     wait on, and the parent/item consistency verdict.
+         */
+        TaskDiagnoseResponse: {
+            consistency: components["schemas"]["TaskConsistencyReport"];
+            dependency_gates: components["schemas"]["LibraryDependencyGateResponse"][];
+            items: components["schemas"]["TaskDiagnoseItem"][];
+            /**
+             * @description `true` when the task has more items than one response can carry; the
+             *     returned items are then the lowest ordinals.
+             */
+            items_truncated: boolean;
+            /** Format: date-time */
+            observed_at: string;
+            task: components["schemas"]["TaskDiagnoseParent"];
+        };
         TaskItemResponse: {
             /** Format: int32 */
             attempt_count: number;
@@ -3871,6 +4018,64 @@ export interface components {
             total: number;
             /** Format: int64 */
             waiting: number;
+        };
+        /**
+         * @description Parent-level task consistency gauges for `/healthz`.
+         *
+         *     `task_items` is the execution-state source of truth and the parent counters
+         *     are its projection, so every gauge here compares a parent against its own
+         *     items. A non-zero mismatch or orphan-lease count is an internal-invariant
+         *     breach, not a user error.
+         */
+        TaskQueueConsistencyHealth: {
+            /**
+             * Format: int64
+             * @description Parents still holding work (`queued`/`running`/`waiting`).
+             */
+            active_parent_count: number;
+            /**
+             * Format: int64
+             * @description Active parents whose `current` item is parked on a dependency gate.
+             */
+            dependency_waiting_parent_count: number;
+            /**
+             * Format: int64
+             * @description Parents holding a durable admission lease with no live item lease:
+             *     the slot is occupied but no worker owns the work.
+             */
+            lease_without_running_item_count: number;
+            /**
+             * Format: int64
+             * @description Items at or one attempt below the five-attempt cap.
+             */
+            near_exhaustion_item_count: number;
+            /**
+             * Format: int64
+             * @description Age of the oldest admitted parent lease.
+             */
+            oldest_admitted_age_seconds?: number | null;
+            /**
+             * Format: int64
+             * @description `task_attempts` rows without `finished_at`; every live claim has one.
+             */
+            open_attempt_count: number;
+            /**
+             * Format: int64
+             * @description Parent tasks counted by the snapshot (all non-trashed tasks).
+             */
+            parent_count: number;
+            /**
+             * Format: int64
+             * @description Parents whose stored counters/stage disagree with their item rows.
+             */
+            parent_item_mismatch_count: number;
+            /** @description Parent status distribution, so a queue stuck in one state is visible. */
+            parent_status_counts: components["schemas"]["LibraryProcessingMetric"][];
+            /**
+             * Format: int64
+             * @description Parents reporting `running` while no item of theirs is `running`.
+             */
+            running_parent_without_running_item_count: number;
         };
         TaskRef: {
             item_ids?: string[];
@@ -8988,6 +9193,35 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    diagnose_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDiagnoseResponse"];
+                };
             };
             404: {
                 headers: {

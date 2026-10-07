@@ -50,6 +50,7 @@ mod files;
 mod folders;
 mod ingest_batches;
 mod ingest_checkpoint;
+mod processing_health;
 pub use ingest_checkpoint::{
     IndexingCheckpoint, indexing_checkpoint_to_value, parse_indexing_checkpoint,
     payload_with_checkpoint,

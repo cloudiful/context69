@@ -86,6 +86,20 @@ pub(crate) async fn list_task_items(
     }
 }
 
+#[utoipa::path(get, path = "/v1/tasks/{task_id}/diagnose", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskDiagnoseResponse), (status = 404, body = ApiErrorResponse)))]
+pub(crate) async fn diagnose_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    // Same task-detail authorization as `get_task`: the task must belong to the
+    // caller or to a group they inherit, so a foreign task is `not_found`.
+    match state.app.tasks.diagnose(task_id, session.user.id).await {
+        Ok(diagnose) => (StatusCode::OK, Json(diagnose)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
 #[utoipa::path(post, path = "/v1/tasks/{task_id}/retry", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::TaskRetryResponse), (status = 409, body = ApiErrorResponse)))]
 pub(crate) async fn retry_task(
     State(state): State<ApiState>,

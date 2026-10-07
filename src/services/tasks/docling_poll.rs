@@ -551,6 +551,7 @@ mod tests {
         let item = crate::db::ClaimedItem {
             id: item_id,
             task_id,
+            ordinal: 0,
             attempt_count: 1,
             lease_token: lease,
             attempt_id: 1,

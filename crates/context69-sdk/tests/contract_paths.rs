@@ -95,6 +95,76 @@ fn task_page_json(id: &str) -> Value {
     })
 }
 
+fn task_diagnose_json() -> Value {
+    json!({
+        "task": {
+            "task_id": task_id(),
+            "kind": "text_batch",
+            "status": "running",
+            "progress": {"total": 1, "queued": 0, "running": 1, "waiting": 0, "succeeded": 0, "failed": 0, "cancelled": 0},
+            "stage": "storage",
+            "waiting_reason": null,
+            "dependency_key": null,
+            "next_attempt_at": null,
+            "failure_stage": null,
+            "error_summary": null,
+            "lease_expires_at": "2026-01-01T00:08:00Z",
+            "created_at": now(),
+            "started_at": now(),
+            "finished_at": null,
+            "updated_at": now()
+        },
+        "items": [{
+            "item_id": task_id(),
+            "ordinal": 0,
+            "status": "running",
+            "stage": "storage",
+            "waiting_reason": null,
+            "dependency_key": null,
+            "next_attempt_at": null,
+            "failure_stage": null,
+            "error_message": null,
+            "attempt_count": 1,
+            "retryable": true,
+            "lease_expires_at": "2026-01-01T00:05:00Z",
+            "active_attempt": {
+                "attempt_id": 42,
+                "attempt": 1,
+                "status": "running",
+                "retryable": true,
+                "started_at": now(),
+                "finished_at": null
+            },
+            "latest_attempt": {
+                "attempt_id": 42,
+                "attempt": 1,
+                "status": "running",
+                "retryable": true,
+                "started_at": now(),
+                "finished_at": null
+            },
+            "created_at": now(),
+            "started_at": now(),
+            "finished_at": null
+        }],
+        "items_truncated": false,
+        "dependency_gates": [{
+            "dependency_key": "s3",
+            "state": "closed",
+            "failure_count": 0,
+            "last_transition_at": now()
+        }],
+        "consistency": {
+            "consistent": true,
+            "current_item_id": task_id(),
+            "mismatches": [],
+            "open_attempt_count": 1,
+            "near_exhaustion_item_count": 0
+        },
+        "observed_at": now()
+    })
+}
+
 fn task_items_json() -> Value {
     json!({
         "items": [{
@@ -382,6 +452,19 @@ async fn test_router(log: SharedLog) -> axum::Router {
                     async move {
                         record(&method, &uri, &headers, &log);
                         (StatusCode::OK, Json(task_items_json()))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/v1/tasks/{task_id}/diagnose",
+            get({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
+                    let log = log.clone();
+                    async move {
+                        record(&method, &uri, &headers, &log);
+                        (StatusCode::OK, Json(task_diagnose_json()))
                     }
                 }
             }),
@@ -904,6 +987,26 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert_eq!(last(&log).method, "GET");
     assert_eq!(last(&log).path, format!("/v1/tasks/{task_uuid}"));
     assert!(last(&log).idempotency.is_none());
+
+    let diagnose: context69_contracts::TaskDiagnoseResponse = client
+        .diagnose_task(task_uuid)
+        .await
+        .expect("diagnose_task");
+    assert_eq!(last(&log).method, "GET");
+    assert_eq!(last(&log).path, format!("/v1/tasks/{task_uuid}/diagnose"));
+    assert!(last(&log).idempotency.is_none());
+    assert!(last(&log).auth.is_some(), "diagnose must send the token");
+    assert_eq!(diagnose.task.task_id, task_uuid);
+    assert!(diagnose.consistency.consistent);
+    let item = diagnose.items.first().expect("diagnose item");
+    assert_eq!(item.ordinal, 0);
+    assert_eq!(
+        item.active_attempt
+            .as_ref()
+            .map(|attempt| attempt.attempt_id),
+        Some(42),
+        "the open attempt must decode from the diagnose response"
+    );
 
     client
         .list_tasks(&TaskListOptions::default())
