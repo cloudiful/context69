@@ -1,10 +1,11 @@
 //! SQL contract for the parent projection shared by the task recompute paths.
 //!
 //! Three statements write `tasks` counters/summary fields from `task_items`:
-//! `claim_items.sql`, `recompute.sql`, and `maintain_claim_state.sql`. They are
-//! separate files because they run in different transactions, so the invariants
-//! that keep them consistent cannot be expressed in the type system and are
-//! pinned here instead:
+//! `claim_items.sql`, `recompute.sql`, and `maintain_claim_state.sql`, and the
+//! read-only `task_consistency.sql` oracle reports whether the three agree. They
+//! are separate files because they run in different transactions, so the
+//! invariants that keep them consistent cannot be expressed in the type system
+//! and are pinned here instead:
 //!
 //!   * one current-item ordering (head-of-line) in every path,
 //!   * the parent write driven by the items that actually exist,
@@ -12,10 +13,14 @@
 //!     a transition took effect,
 //!   * a task kind that the create-time stage map forgets would otherwise be
 //!     created already labelled `finalize`.
+//!
+//! The P5 task SQL reference guard has its own integration test,
+//! `tests/task_sql_reference_guard.rs`.
 
 const CLAIM_ITEMS: &str = include_str!("../../src/sql/db/tasks/claim_items.sql");
 const RECOMPUTE: &str = include_str!("../../src/sql/db/tasks/recompute.sql");
 const MAINTAIN: &str = include_str!("../../src/sql/db/tasks/maintain_claim_state.sql");
+const TASK_CONSISTENCY: &str = include_str!("../../src/sql/db/tasks/task_consistency.sql");
 const CREATE: &str = include_str!("../../src/sql/db/tasks/create.sql");
 const FINISH_ITEM: &str = include_str!("../../src/sql/db/tasks/finish_item.sql");
 const WAIT_ITEM: &str = include_str!("../../src/sql/db/tasks/wait_item.sql");
@@ -48,32 +53,51 @@ fn cte_body(sql: &str, name: &str) -> String {
 }
 
 #[test]
-fn every_recompute_path_selects_the_head_of_line_item() {
-    // `recompute.sql` and `maintain_claim_state.sql` both pick the current item
-    // as the lowest-ordinal non-terminal row. Ranking running above queued
-    // above waiting (the old `prio` ordering) let the two paths disagree about
-    // which item the parent describes.
-    for (name, sql) in [("recompute.sql", RECOMPUTE), ("maintain", MAINTAIN)] {
+fn every_current_item_path_selects_the_same_head_of_line_row() {
+    // `recompute.sql`, `maintain_claim_state.sql`, `claim_items.sql`, and the
+    // `task_consistency.sql` oracle must all describe the same parent: the
+    // current item is the lowest-ordinal non-terminal row. Ranking running
+    // above queued above waiting (the old `prio` ordering) let the writers and
+    // the oracle disagree, so a healthy parent read as mismatched.
+    for (name, sql, ordering) in [
+        (
+            "claim_items.sql",
+            CLAIM_ITEMS,
+            "ORDER BY item.task_id, item.ordinal",
+        ),
+        ("recompute.sql", RECOMPUTE, "ORDER BY ordinal\n    LIMIT 1"),
+        (
+            "maintain_claim_state.sql",
+            MAINTAIN,
+            "ORDER BY ti.ordinal\n        LIMIT 1",
+        ),
+        (
+            "task_consistency.sql",
+            TASK_CONSISTENCY,
+            "ORDER BY item.task_id, item.ordinal",
+        ),
+    ] {
         let code = code(sql);
         assert!(
-            code.contains("status IN ('queued', 'running', 'waiting')"),
-            "{name} must restrict the current item to non-terminal rows"
+            code.contains("IN ('queued', 'running', 'waiting')"),
+            "{name} must restrict the current item to the same non-terminal rows"
         );
         assert!(
-            code.contains("ORDER BY ordinal\n    LIMIT 1")
-                || code.contains("ORDER BY ti.ordinal\n        LIMIT 1"),
-            "{name} must pick the current item by ordinal alone"
+            code.contains(ordering),
+            "{name} must pick the current item by ordinal alone ({ordering})"
+        );
+        assert!(
+            !code.contains("prio"),
+            "{name} must not rank item statuses ahead of ordinal order"
         );
     }
-    assert!(
-        !code(MAINTAIN).contains("prio"),
-        "maintain_claim_state.sql must not rank item statuses ahead of ordinal order"
-    );
-    // The claim path narrows each parent to its current item the same way.
+    // The claim and diagnose paths narrow each parent to that row with
+    // `DISTINCT ON`; recompute and maintenance use the equivalent lateral
+    // `LIMIT 1`. The shared ordering token above is the contract either way.
     assert!(
         code(CLAIM_ITEMS).contains("SELECT DISTINCT ON (item.task_id)")
-            && code(CLAIM_ITEMS).contains("ORDER BY item.task_id, item.ordinal"),
-        "claim_items.sql must claim the head-of-line item of each parent"
+            && code(TASK_CONSISTENCY).contains("SELECT DISTINCT ON (item.task_id)"),
+        "claim and diagnose must select one head-of-line item per parent"
     );
 }
 

@@ -48,9 +48,9 @@ pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenReco
 use rows::*;
 pub use tasks::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow,
-    DoclingRecoverySummary, FinishTaskItemRequest, InsertTaskItemRequest, StoredDoclingRemoteJob,
-    StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter,
-    TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
+    DoclingRecoverySummary, FinishTaskItemRequest, StoredDoclingRemoteJob, StoredTask,
+    StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemDiagnostic,
+    TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
 };
 pub use vector_index_state::VectorIndexState;
 

@@ -171,28 +171,6 @@ impl Database {
             > 0)
     }
 
-    pub async fn fail_task(
-        &self,
-        task_id: Uuid,
-        lease_token: Uuid,
-        failure_stage: &str,
-        error_message: &str,
-    ) -> Result<()> {
-        let mut tx = self.pool().begin().await?;
-        sqlx::query_file!(
-            "src/sql/db/tasks/fail_task.sql",
-            task_id,
-            lease_token,
-            failure_stage,
-            error_message
-        )
-        .execute(&mut *tx)
-        .await?;
-        recompute_parent(&mut tx, task_id).await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     pub async fn wait_task_item(&self, request: WaitTaskItemRequest<'_>) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
         let updated: bool = sqlx::query_file_scalar!(

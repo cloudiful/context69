@@ -164,14 +164,6 @@ impl Database {
         .await?)
     }
 
-    pub async fn list_task_item_ids(&self, task_id: Uuid) -> Result<Vec<Uuid>> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", task_id)
-                .fetch_all(self.pool())
-                .await?,
-        )
-    }
-
     pub async fn task_processing_health(&self) -> Result<TaskProcessingHealth> {
         Ok(sqlx::query_file_as!(
             TaskProcessingHealth,

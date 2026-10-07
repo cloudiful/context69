@@ -16,8 +16,8 @@ pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
 pub use types::{
     ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, FinishTaskItemRequest,
-    InsertTaskItemRequest, StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow,
-    TaskCountFilter, TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
+    StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter,
+    TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
 };
 
 /// Every item of the collapsed pipeline (issue 529 Task 4) is created in the

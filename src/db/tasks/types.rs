@@ -213,18 +213,6 @@ pub struct CreateTaskSubmissionRequest<'a> {
     pub request_hash: &'a str,
 }
 
-/// Grouped arguments for inserting one task item.
-#[derive(Debug, Clone, Copy)]
-pub struct InsertTaskItemRequest<'a> {
-    pub item_id: Uuid,
-    pub task_id: Uuid,
-    pub ordinal: i32,
-    pub payload: &'a Value,
-    pub stage: Option<&'a str>,
-    pub file_id: Option<Uuid>,
-    pub input_storage_object_id: Option<Uuid>,
-}
-
 /// Ordering of a task-item read (issue 702 P3).
 ///
 /// One statement serves both task-item reads, so the ordering is a parameter
