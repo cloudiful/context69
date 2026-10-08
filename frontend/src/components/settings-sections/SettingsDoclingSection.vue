@@ -8,11 +8,15 @@ import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppNumberField from "../AppNumberField.vue";
+import SettingsTestButton from "./SettingsTestButton.vue";
 import type { DraftDoclingSettings, DraftDoclingVlmMode } from "../../utils/settings";
 
 const props = defineProps<{
   doclingDraft: DraftDoclingSettings;
+  doclingTesting: boolean;
 }>();
+
+const emit = defineEmits<{ "test-docling": [] }>();
 
 const { t } = useI18n();
 
@@ -41,6 +45,15 @@ const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
   <AppSettingsSection :legend="t('settings.docling.title')">
     <div class="grid gap-6">
       <AppSettingsBlock id="settings-connection" compact :title="t('settings.docling.connectionTitle')">
+        <template #actions>
+          <SettingsTestButton
+            :testing="doclingTesting"
+            :disabled="!doclingDraft.connection.base_url.trim()"
+            test-id="docling-connection-test"
+            :label="t('settings.docling.test')"
+            @test="emit('test-docling')"
+          />
+        </template>
         <div class="grid max-w-2xl gap-3">
           <AppTextField
             input-id="docling-base-url"

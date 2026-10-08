@@ -1,7 +1,8 @@
 /**
  * The settings view itself: the shared save flow across sections, the page
  * layout, navigation and theme/locale switching, the runtime credential save, the
- * Valkey connection test, and the access-token and Docling VLM forms.
+ * Valkey and Docling connection tests, and the access-token and Docling VLM
+ * forms.
  *
  * The runtime-first save ordering and the embedding connection test live in
  * SettingsViewSaveFlow.test.ts; the mount harness and the API spies live in
@@ -13,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   installSettingsViewSpies,
   mountSettingsView,
+  surfacedReasons,
   type SettingsApiSpies,
 } from "./settings-view-test-support";
 import { createTestI18n } from "../test-utils/i18n";
@@ -224,6 +226,60 @@ describe("SettingsView", () => {
     await flushPromises();
 
     expect(wrapper.get('[data-testid="personal-access-token-create"]').attributes("disabled")).toBeUndefined();
+  });
+
+  it("tests the current Docling endpoint without saving settings", async () => {
+    const { wrapper } = await mountSettingsView("/settings/docling");
+
+    await wrapper.get("#docling-base-url").setValue(" http://docling.internal:5001 ");
+    await wrapper.get('[data-testid="docling-connection-test"]').trigger("click");
+    await flushPromises();
+
+    // The probe carries exactly the connection block a save would store, built
+    // from the draft on screen, and no VLM block: a Docling connectivity check
+    // resolves no credential.
+    expect(apiSpies.testDoclingConnection).toHaveBeenCalledWith({
+      base_url: "http://docling.internal:5001",
+      timeout_secs: 120,
+      poll_interval_secs: 2,
+      task_timeout_secs: 600,
+      max_inflight: 2,
+    });
+    expect(apiSpies.updateDoclingSettings).not.toHaveBeenCalled();
+  });
+
+  it("requires a Docling endpoint before the connection test can run", async () => {
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    const testButton = wrapper.get('[data-testid="docling-connection-test"]');
+
+    // The loaded draft has an endpoint, so the action starts available; a blank
+    // one is not something the probe can check.
+    expect(testButton.attributes("disabled")).toBeUndefined();
+
+    await wrapper.get("#docling-base-url").setValue("   ");
+    await flushPromises();
+    expect(
+      wrapper.get('[data-testid="docling-connection-test"]').attributes("disabled"),
+    ).toBeDefined();
+
+    await wrapper.get('[data-testid="docling-connection-test"]').trigger("click");
+    await flushPromises();
+    expect(apiSpies.testDoclingConnection).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failed Docling connection test without saving settings", async () => {
+    apiSpies.testDoclingConnection.mockRejectedValueOnce(
+      Object.assign(new Error("the Docling endpoint answered 503"), { name: "ApiError" }),
+    );
+
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
+    await wrapper.get('[data-testid="docling-connection-test"]').trigger("click");
+    await flushPromises();
+
+    expect(apiSpies.testDoclingConnection).toHaveBeenCalledTimes(1);
+    expect(surfacedReasons()).toContain("the Docling endpoint answered 503");
+    expect(apiSpies.updateDoclingSettings).not.toHaveBeenCalled();
   });
 
   it("switches the docling VLM form between disabled, preset, and custom modes", async () => {

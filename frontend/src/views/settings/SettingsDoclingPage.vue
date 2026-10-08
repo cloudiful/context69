@@ -6,5 +6,9 @@ const state = useSettingsPageContext();
 </script>
 
 <template>
-  <SettingsDoclingSection :docling-draft="state.doclingDraft" />
+  <SettingsDoclingSection
+    :docling-draft="state.doclingDraft"
+    :docling-testing="state.doclingTesting.value"
+    @test-docling="state.testDoclingConnection"
+  />
 </template>

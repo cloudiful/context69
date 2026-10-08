@@ -5177,6 +5177,49 @@
         }
       }
     },
+    "/v1/settings/docling/test": {
+      "post": {
+        "tags": [],
+        "summary": "A non-persisting connectivity check against the submitted Docling endpoint.",
+        "description": "It reuses the connection settings block as its body, so the checked values\nare exactly the ones a save would store, and it never returns them: a\nreachable endpoint answers 204 and nothing else.",
+        "operationId": "test_docling_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDoclingConnectionSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/runtime": {
       "get": {
         "tags": [],

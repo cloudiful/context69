@@ -107,6 +107,34 @@ describe("apiClient", () => {
     });
   });
 
+  it("tests a Docling connection against the draft without saving settings", async () => {
+    POST.mockResolvedValue({
+      data: undefined,
+      response: { ok: true, status: 204 },
+    });
+
+    await expect(apiClient.testDoclingConnection({
+      base_url: "http://docling.internal:5001",
+      timeout_secs: 120,
+      poll_interval_secs: 2,
+      task_timeout_secs: 600,
+      max_inflight: 2,
+    })).resolves.toBeUndefined();
+    // The connection test is its own route: it never rides on the settings
+    // update, so probing an endpoint cannot overwrite the stored one.
+    expect(POST).toHaveBeenCalledWith("/v1/settings/docling/test", {
+      body: {
+        base_url: "http://docling.internal:5001",
+        timeout_secs: 120,
+        poll_interval_secs: 2,
+        task_timeout_secs: 600,
+        max_inflight: 2,
+      },
+      signal: undefined,
+    });
+    expect(PUT).not.toHaveBeenCalled();
+  });
+
   it("gets and updates docling settings", async () => {
     GET.mockResolvedValueOnce({
       data: {

@@ -52,6 +52,7 @@ export function useSettingsPage() {
   const s3Testing = ref(false);
   const valkeyTesting = ref(false);
   const embeddingTesting = ref(false);
+  const doclingTesting = ref(false);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
@@ -283,6 +284,29 @@ export function useSettingsPage() {
     }
   }
 
+  /**
+   * Probe the Docling endpoint currently in the draft, without saving it.
+   *
+   * The submitted block is the same normalized connection payload a save would
+   * store, so what is checked is exactly what is on screen; the VLM block is not
+   * part of it, and the probe resolves no credential.
+   */
+  async function testDoclingConnection() {
+    doclingTesting.value = true;
+    try {
+      await apiClient.testDoclingConnection(buildDoclingPayload(doclingDraft).connection);
+      toast.add({
+        color: "success",
+        title: t("settings.docling.testSuccess"),
+        duration: 2500,
+      });
+    } catch (error) {
+      showErrorToast(error, t("settings.docling.testFailed"));
+    } finally {
+      doclingTesting.value = false;
+    }
+  }
+
   function assignRuntimeDraft(response: RuntimeSettingsResponse) {
     Object.assign(runtimeDraft, runtimeResponseToDraft(response));
   }
@@ -334,6 +358,7 @@ export function useSettingsPage() {
   return {
     ...adminUsersState,
     doclingDraft,
+    doclingTesting,
     hasChanges,
     loading,
     qdrantToggleModel,
@@ -351,6 +376,7 @@ export function useSettingsPage() {
     testS3Connection,
     testValkeyConnection,
     testEmbeddingConnection,
+    testDoclingConnection,
     embeddingTesting,
     translationProviders,
     valkeyTesting,

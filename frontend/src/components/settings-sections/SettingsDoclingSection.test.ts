@@ -23,9 +23,9 @@ function createDraft(): DraftDoclingSettings {
   };
 }
 
-function mountSection(draft: DraftDoclingSettings = createDraft()) {
+function mountSection(draft: DraftDoclingSettings = createDraft(), doclingTesting = false) {
   return mount(SettingsDoclingSection, {
-    props: { doclingDraft: draft },
+    props: { doclingDraft: draft, doclingTesting },
     global: {
       plugins: [testNuxtUiPlugin, createTestI18n("en")],
       stubs: {
@@ -115,5 +115,56 @@ describe("SettingsDoclingSection", () => {
     await nextTick();
     expect(wrapper.get(".tooltip-stub").text()).toContain("OpenAI-compatible base URL");
     expect(wrapper.get('[data-testid="docling-vlm-mode-info"]').attributes("aria-label")).toBe("VLM mode details");
+  });
+
+  it("puts the test action in the connection block title row", () => {
+    const wrapper = mountSection();
+    const connection = wrapper.get("#settings-connection");
+
+    // The action belongs to the connection block's title row, beside its title,
+    // rather than in the block body: the title row is the first child of the
+    // block element, the same place the other settings test actions sit.
+    const titleRow = connection.element.firstElementChild!;
+    expect(titleRow.textContent).toContain("Connection");
+    expect(titleRow.textContent).toContain("Test Connection");
+    expect(titleRow.querySelector('[data-testid="docling-connection-test"]')).not.toBeNull();
+    expect(wrapper.get('[data-testid="docling-connection-test"]').text()).toBe("Test Connection");
+
+    // It is the connection block's action, not the VLM block's.
+    expect(wrapper.get("#settings-vlm").find('[data-testid="docling-connection-test"]').exists()).toBe(false);
+  });
+
+  it("disables the test action until the endpoint has a value", async () => {
+    const draft = reactive(createDraft());
+    const wrapper = mountSection(draft);
+
+    draft.connection.base_url = "   ";
+    await nextTick();
+    expect(wrapper.get('[data-testid="docling-connection-test"]').attributes("disabled")).toBeDefined();
+
+    draft.connection.base_url = "http://docling.internal:5001";
+    await nextTick();
+    expect(
+      wrapper.get('[data-testid="docling-connection-test"]').attributes("disabled"),
+    ).toBeUndefined();
+  });
+
+  it("disables the test action while a probe is already running", () => {
+    const wrapper = mountSection(createDraft(), true);
+
+    const button = wrapper.get('[data-testid="docling-connection-test"]');
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("aria-busy")).toBe("true");
+  });
+
+  it("asks for a probe and never for a save", async () => {
+    const wrapper = mountSection();
+
+    await wrapper.get('[data-testid="docling-connection-test"]').trigger("click");
+
+    // The section owns only the intent: it emits the probe request and exposes
+    // no way to persist the draft, so a test cannot be mistaken for a save.
+    expect(wrapper.emitted("test-docling")).toHaveLength(1);
+    expect(wrapper.emitted()).not.toHaveProperty("update:doclingDraft");
   });
 });

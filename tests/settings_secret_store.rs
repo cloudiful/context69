@@ -14,7 +14,9 @@
 //! per category keeps each file small enough to review on its own, and the
 //! embedding category is split further into its settings round trip, its identity
 //! guard, and the probe's credential, redaction and bounded-output behaviour, all
-//! sharing one loopback probe endpoint.
+//! sharing one loopback probe endpoint. The Docling category is split between
+//! its VLM key round trip and the connectivity probe, which runs against its own
+//! loopback Docling stand-in.
 //!
 //! These tests run only when `CONTEXT69_TEST_DATABASE_URL` points at a disposable
 //! migrated database; they are skipped otherwise. Every value is synthetic, no
@@ -27,6 +29,9 @@ mod support;
 
 #[path = "settings_secret_store/cases_docling.rs"]
 mod cases_docling;
+
+#[path = "settings_secret_store/cases_docling_probe.rs"]
+mod cases_docling_probe;
 
 #[path = "settings_secret_store/cases_embedding.rs"]
 mod cases_embedding;

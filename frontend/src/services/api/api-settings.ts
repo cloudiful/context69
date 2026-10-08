@@ -2,6 +2,7 @@ import type { components } from "../../generated/openapi";
 import type {
   RequestOptions,
   TestRuntimeValkeyRequest,
+  UpdateDoclingConnectionSettings,
   UpdateDoclingSettingsRequest,
   UpdateRuntimeSettingsRequest,
   UpdateRuntimeS3Settings,
@@ -76,6 +77,14 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
     updateDoclingSettings(payload: UpdateDoclingSettingsRequest, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.PUT("/v1/settings/docling", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      );
+    },
+    testDoclingConnection(payload: UpdateDoclingConnectionSettings, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/docling/test", {
           body: payload,
           signal: options?.signal,
         }),

@@ -13,7 +13,8 @@ use context69_contracts_core::common::ApiErrorResponse;
 use context69_contracts_settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
     SearchSettingsResponse, TestRuntimeEmbeddingRequest, TestRuntimeValkeyRequest,
-    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings,
+    UpdateRuntimeSettingsRequest,
 };
 use context69_http_support::{internal_error_response, map_settings_error};
 use utoipa::OpenApi;
@@ -33,6 +34,11 @@ pub trait SettingsApi: Send + Sync {
         &self,
         request: &UpdateDoclingSettingsRequest,
     ) -> Result<DoclingSettingsResponse>;
+    /// A non-persisting connectivity check against a submitted Docling endpoint.
+    async fn test_docling_connection(
+        &self,
+        request: &UpdateDoclingConnectionSettings,
+    ) -> Result<()>;
     async fn get_search_settings(&self) -> Result<SearchSettingsResponse>;
     async fn update_search_settings(
         &self,
@@ -72,6 +78,10 @@ where
             get(get_docling_settings).put(update_docling_settings),
         )
         .route(
+            "/v1/settings/docling/test",
+            axum::routing::post(test_docling_connection),
+        )
+        .route(
             "/v1/settings/search",
             get(get_search_settings).put(update_search_settings),
         )
@@ -87,6 +97,7 @@ where
         test_embedding_connection,
         get_docling_settings,
         update_docling_settings,
+        test_docling_connection,
         get_search_settings,
         update_search_settings
     ),
@@ -100,6 +111,7 @@ where
             TestRuntimeEmbeddingRequest,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
+            UpdateDoclingConnectionSettings,
             SearchSettingsResponse,
             CanonicalUpdateSearchSettingsRequest
         )
@@ -179,6 +191,22 @@ async fn update_docling_settings(
 ) -> impl IntoResponse {
     match state.settings.update_docling_settings(&request).await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
+/// A non-persisting connectivity check against the submitted Docling endpoint.
+///
+/// It reuses the connection settings block as its body, so the checked values
+/// are exactly the ones a save would store, and it never returns them: a
+/// reachable endpoint answers 204 and nothing else.
+#[utoipa::path(post, path = "/v1/settings/docling/test", request_body = UpdateDoclingConnectionSettings, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn test_docling_connection(
+    State(state): State<SettingsHttpState>,
+    axum::Json(request): axum::Json<UpdateDoclingConnectionSettings>,
+) -> impl IntoResponse {
+    match state.settings.test_docling_connection(&request).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => settings_management_error_response(error),
     }
 }
