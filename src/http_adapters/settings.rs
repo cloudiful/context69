@@ -63,6 +63,13 @@ impl SettingsApi for SettingsApiAdapter {
         self.service.update_docling_settings(request).await
     }
 
+    async fn test_docling_connection(
+        &self,
+        request: &crate::contracts::UpdateDoclingConnectionSettings,
+    ) -> anyhow::Result<()> {
+        self.service.test_docling_connection(request).await
+    }
+
     async fn get_search_settings(
         &self,
     ) -> anyhow::Result<crate::contracts::SearchSettingsResponse> {

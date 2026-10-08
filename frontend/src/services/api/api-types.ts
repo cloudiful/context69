@@ -92,6 +92,7 @@ export type PersonalAccessTokenPageResponse = Schemas["PersonalAccessTokenPageRe
 export type SyncOutcome = Schemas["SyncOutcome"];
 export type UpdateAdminUserRequest = Schemas["UpdateAdminUserRequest"];
 export type UpdateDoclingSettingsRequest = Schemas["UpdateDoclingSettingsRequest"];
+export type UpdateDoclingConnectionSettings = Schemas["UpdateDoclingConnectionSettings"];
 export type UpdateGroupRequest = Schemas["UpdateGroupRequest"];
 export type TaskSubmitRequest = Schemas["TaskSubmitRequest"];
 export type FileRetryItem = Schemas["FileRetryItem"];

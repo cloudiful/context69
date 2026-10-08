@@ -1313,6 +1313,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/docling/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A non-persisting connectivity check against the submitted Docling endpoint.
+         * @description It reuses the connection settings block as its body, so the checked values
+         *     are exactly the ones a save would store, and it never returns them: a
+         *     reachable endpoint answers 204 and nothing else.
+         */
+        post: operations["test_docling_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/runtime": {
         parameters: {
             query?: never;
@@ -8278,6 +8300,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DoclingSettingsResponse"];
                 };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    test_docling_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDoclingConnectionSettings"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: {
                 headers: {

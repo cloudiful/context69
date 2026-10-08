@@ -198,6 +198,9 @@ export const settings = {
   docling: {
     title: "Docling",
     connectionTitle: "Connection",
+    test: "Test Connection",
+    testSuccess: "Docling connection succeeded",
+    testFailed: "Docling connection failed",
     vlmTitle: "VLM / Models",
     baseUrl: "Base URL",
     timeout: "Timeout (seconds)",

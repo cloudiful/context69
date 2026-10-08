@@ -159,6 +159,7 @@ function createApiSpies() {
     submitVectorIndexRebuild: vi.spyOn(apiClient, "submitVectorIndexRebuild").mockResolvedValue({ task_id: vectorRebuildStatus.task_id, item_ids: [] } as never),
     getTask: vi.spyOn(apiClient, "getTask").mockResolvedValue(vectorRebuildStatus as never),
     getDoclingSettings: vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never),
+    testDoclingConnection: vi.spyOn(apiClient, "testDoclingConnection").mockResolvedValue(undefined as never),
     getSearchSettings: vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never),
     updateDoclingSettings: vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never),
     updateSearchSettings: vi.spyOn(apiClient, "updateSearchSettings").mockResolvedValue({

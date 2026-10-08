@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::domain_errors::DomainError;
 
+mod docling_probe;
 mod embedding_probe;
 mod mappers;
 mod runtime_mappers;

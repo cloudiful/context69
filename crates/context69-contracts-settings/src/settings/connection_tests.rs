@@ -1,8 +1,11 @@
 //! The non-persisting runtime connection tests.
 //!
-//! Both requests describe a value an operator typed to check reachability. They
-//! are never persisted: the embedding probe falls back to the stored credential
-//! when no key is submitted, and the Valkey test posts nothing back.
+//! Every request here describes a value an operator typed to check
+//! reachability, and none of them is ever persisted: the embedding probe falls
+//! back to the stored credential when no key is submitted, and the Valkey test
+//! posts nothing back. The Docling connectivity test reuses the Docling
+//! connection settings block itself as its body, the way the S3 test reuses the
+//! S3 block, so a probe always runs against the exact draft a save would store.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
