@@ -1,7 +1,8 @@
 //! SQL-contract tests: the task list/count/items/clear queries must keep the
 //! view predicate, user scoping, and active-first ordering that the service
-//! layer relies on, and the issue #667 Phase 2B terminal-payload migration
-//! must strip only the planned keys under kind/status/file guards.
+//! layer relies on, the resume statement must stay a same-row transition, and
+//! the issue #667 Phase 2B terminal-payload migration must strip only the
+//! planned keys under kind/status/file guards.
 //!
 //! The issue 702 P3 statements have their own module, `sql_contract_tests_p3.rs`.
 
@@ -147,6 +148,180 @@ fn task_items_sql_filters_status_and_pins_active_first() {
         code.contains("LIMIT $2 OFFSET $3"),
         "cursor paging must stay offset-based (limit $2, offset $3)"
     );
+}
+
+/// Resume is a same-row state transition: it reopens the cancelled task's own
+/// items and never inserts a replacement parent task, so the queue keeps one
+/// visible record per submission while the item/attempt rows keep their audit
+/// history.
+#[test]
+fn resume_sql_reopens_the_same_items_and_never_inserts_a_task() {
+    let sql = include_str!("../../sql/db/tasks/resume_items.sql");
+    let code: String = sql
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // The statement is one guarded item UPDATE and nothing else: no parent row
+    // is written, so a resume can never create a second visible task.
+    assert_eq!(
+        code.matches("UPDATE").count(),
+        1,
+        "resume must be a single item UPDATE"
+    );
+    assert!(
+        code.contains("UPDATE context69.task_items item"),
+        "resume must reopen the task's own item rows in place"
+    );
+    for forbidden in [
+        "INSERT INTO",
+        "DELETE FROM",
+        "context69.task_attempts",
+        "UPDATE context69.tasks",
+        "library_files",
+        "documents",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "resume must not touch {forbidden}; the item rows are the record"
+        );
+    }
+
+    // Only unfinished items are reopened, which is what makes a repeated or
+    // concurrent resume match nothing and stay idempotent.
+    assert!(
+        code.contains("item.status IN ('cancelled', 'failed')"),
+        "resume must reopen only cancelled and failed items"
+    );
+    for live in [
+        "item.status = 'queued'",
+        "item.status = 'running'",
+        "item.status = 'waiting'",
+    ] {
+        assert!(
+            !code.contains(live),
+            "resume must leave an already-active item alone ({live})"
+        );
+    }
+    for arm in [
+        "status = 'queued'",
+        "stage = 'processing'",
+        "lease_token = NULL",
+        // A resumed translation item must re-create its remote jobs.
+        "WHEN task.kind = 'translation' THEN item.payload - 'job_ids'",
+    ] {
+        assert!(
+            code.contains(arm),
+            "resume must apply the same in-place restart as a retry ({arm})"
+        );
+    }
+
+    // Authorization is enforced in SQL as well, so an unauthorized caller
+    // updates no row instead of relying on the service check alone.
+    assert!(
+        code.contains("task.user_id = $2"),
+        "resume must scope ownership to the calling user"
+    );
+    assert!(
+        code.contains("inherited_groups.role_rank >= 2"),
+        "resume must keep the group maintainer rule of retry_items.sql"
+    );
+
+    // The per-file guard stays: a file already covered by an active item
+    // elsewhere keeps its current processing slot.
+    assert!(
+        code.contains("active.status IN ('queued', 'running', 'waiting')"),
+        "resume must skip files that already have an active item elsewhere"
+    );
+}
+
+/// The collapsed-row projection and the per-item projection must resolve the
+/// same way: a row the user reads and the item behind it must never disagree
+/// about which file or which title they are.
+#[test]
+fn the_file_and_title_projection_is_identical_for_a_task_and_its_items() {
+    let statements = [
+        ("items.sql", include_str!("../../sql/db/tasks/items.sql")),
+        ("get.sql", include_str!("../../sql/db/tasks/get.sql")),
+        ("list.sql", include_str!("../../sql/db/tasks/list.sql")),
+        (
+            "get_internal.sql",
+            include_str!("../../sql/db/tasks/get_internal.sql"),
+        ),
+    ];
+    for (name, sql) in statements {
+        let code: String = sql
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for fragment in [
+            // File name: library file, else the retained payload filename, else
+            // the submitted URL's last path segment.
+            "NULLIF(file.filename, '')",
+            "NULLIF(item.payload ->> 'filename', '')",
+            "WHEN item.payload ? 'url'",
+            "^.*/",
+            // Title: submitted title, else the title of the document this file
+            // produced, else the library file's own stored title. Every candidate
+            // is NULLIF-guarded so an empty one falls through.
+            "NULLIF(item.payload ->> 'title', '')",
+            "NULLIF(doc.title, '')",
+            "NULLIF(file.metadata_json ->> 'title', '')",
+            // The linked document is reached through the item's own file, never
+            // by matching a document on its own keys, and it must belong to the
+            // group that owns that file.
+            "FROM context69.library_file_documents link",
+            "WHERE link.file_id = file.id",
+            "AND document.group_id = file.group_id",
+            "ORDER BY link.sort_order, link.section_key",
+        ] {
+            assert!(
+                code.contains(fragment),
+                "{name} must carry the shared projection fragment `{fragment}`"
+            );
+        }
+        // The document link is per section, so it must stay a single-row
+        // LATERAL: a plain join would fan the row out.
+        assert!(
+            code.contains("SELECT document.title"),
+            "{name} must select the linked document through a one-row LATERAL"
+        );
+        for join in ["LEFT JOIN context69.library_files file ON file.id = item.file_id"] {
+            assert!(
+                code.contains(join),
+                "{name} must keep the 1:1 join `{join}`"
+            );
+        }
+        assert!(
+            !code.contains("item.payload -> 'options' -> 'metadata' ->> 'external_id'"),
+            "{name} must not reach a document by external id; the file link is the authority"
+        );
+    }
+
+    // The task queries keep one row per task: the focus item is a LATERAL with
+    // LIMIT 1, so the projection can never fan a task row out.
+    for (name, sql) in statements.iter().skip(1) {
+        assert!(
+            sql.contains("LEFT JOIN LATERAL ("),
+            "{name} must select the focus item through a LATERAL join"
+        );
+    }
+    for name in ["get.sql", "list.sql", "get_internal.sql"] {
+        let sql = statements
+            .iter()
+            .find(|(file, _)| *file == name)
+            .map(|(_, sql)| *sql)
+            .expect("statement");
+        // Two bounded selections: the linked document of the item's file and the
+        // task's focus item.
+        assert_eq!(
+            sql.matches("LIMIT 1").count(),
+            2,
+            "{name} must bound both the linked document and the focus item to one row"
+        );
+    }
 }
 
 #[test]

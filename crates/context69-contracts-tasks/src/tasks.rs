@@ -144,6 +144,13 @@ pub struct TaskResponse {
     /// only soft-deletes the task record; files, processed text, and vectors
     /// are never affected.
     pub deleted_at: Option<DateTime<Utc>>,
+    /// File name of the task's focus item, so a collapsed queue row can be
+    /// read by subject instead of by identifier. `None` until the task has an
+    /// item with a durable library file.
+    pub file_name: Option<String>,
+    /// Document title of the same focus item, `None` when the item and its
+    /// file carry no title.
+    pub document_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -164,6 +171,11 @@ pub struct TaskItemResponse {
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
+    /// File name of the item's library file, `None` while the item has none.
+    pub file_name: Option<String>,
+    /// Document title of the item, `None` when neither the item nor its file
+    /// carries one.
+    pub document_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]

@@ -256,6 +256,62 @@ describe("TaskItemsExpanded", () => {
     wrapper.unmount();
   });
 
+  it("moves the task UUID and the item identifiers into a structured detail panel", async () => {
+    getTaskItems.mockResolvedValue({
+      items: [
+        {
+          ...item("item-uuid-1", "failed"),
+          ordinal: 3,
+          file_id: "file-uuid-1",
+          file_name: "2026-09-30-report.pdf",
+          document_title: "Q3 disclosure report",
+          dependency_key: "qdrant",
+          error_message: "Qdrant unreachable",
+        },
+      ],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded();
+    await flushPromises();
+
+    // The identifiers are detail, not the row's headline: they are present and
+    // labeled, and every field sits in its own definition-list row.
+    const panel = wrapper.find('[data-testid="task-detail-panel"]');
+    expect(panel.exists()).toBe(true);
+    expect(panel.text()).toContain("Task details");
+    expect(panel.text()).toContain("Task ID");
+    expect(panel.text()).toContain("task-id");
+
+    const detail = wrapper.find('[data-testid="task-item-detail"]');
+    expect(detail.exists()).toBe(true);
+    for (const label of ["Item ID", "Position", "Stage", "File name", "Document title", "File ID", "Dependency", "Attempts", "Latest error"]) {
+      expect(detail.text()).toContain(label);
+    }
+    expect(detail.text()).toContain("item-uuid-1");
+    expect(detail.text()).toContain("2026-09-30-report.pdf");
+    expect(detail.text()).toContain("Q3 disclosure report");
+    expect(detail.text()).toContain("file-uuid-1");
+    expect(detail.text()).toContain("Qdrant");
+    expect(wrapper.find('[data-testid="task-item-row"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("omits the file-name, title, and dependency rows for an item that has none", async () => {
+    getTaskItems.mockResolvedValue({
+      items: [{ ...item("item-1", "queued") }],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded();
+    await flushPromises();
+
+    const detail = wrapper.find('[data-testid="task-item-detail"]');
+    expect(detail.exists()).toBe(true);
+    for (const label of ["Dependency", "File name", "Document title", "File ID"]) {
+      expect(detail.text()).not.toContain(label);
+    }
+    wrapper.unmount();
+  });
+
   it("falls back to Unknown for unknown and null item stages", async () => {
     getTaskItems.mockResolvedValue({
       items: [

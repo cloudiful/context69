@@ -74,6 +74,29 @@ export function isTerminalTask(task: TaskResponse): boolean {
   return TERMINAL_STATUSES.includes(task.status);
 }
 
+// Primary context of a collapsed queue row (issue 723).
+//
+// The backend projects the task's focus item, so a row leads with the file the
+// user recognizes. Identifiers never appear here — the task UUID and the
+// per-item diagnostics live in the first-column expansion panel instead.
+export function taskFileName(task: TaskResponse): string | null {
+  return task.file_name?.trim() || null;
+}
+
+export function taskDocumentTitle(task: TaskResponse): string | null {
+  return task.document_title?.trim() || null;
+}
+
+// Deterministic fallback chain, so the cell always says something: file name,
+// then document title, then the library group or source the task belongs to.
+export function taskSubject(task: TaskResponse): string | null {
+  return taskFileName(task)
+    ?? taskDocumentTitle(task)
+    ?? task.group_path?.trim()
+    ?? task.source_key?.trim()
+    ?? null;
+}
+
 export function summarizeResults(results: PromiseSettledResult<unknown>[], skippedMessagePattern?: RegExp): RecoverySummary {
   const summary: RecoverySummary = { succeeded: 0, skipped: 0, failed: 0 };
   for (const result of results) {

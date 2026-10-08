@@ -57,7 +57,19 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
 
 <template>
   <section class="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
-    <ProcessingQueueTabs v-model="activeTab" class="shrink-0" />
+    <!-- One header row: status tabs on the left, the view's actions and the
+         refresh control on the right. The page title lives in the sidebar, so
+         repeating it here only duplicated the same label. -->
+    <header class="flex shrink-0 flex-wrap items-center justify-between gap-2" data-testid="processing-queue-header">
+      <ProcessingQueueTabs v-model="activeTab" class="min-w-0" />
+      <div class="flex flex-wrap items-center justify-end gap-2">
+        <UButton v-if="activeTab !== 'trash' && queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
+        <UButton v-if="activeTab !== 'trash' && queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
+        <UButton v-if="activeTab === 'completed'" data-testid="clear-completed-button" color="neutral" variant="outline" icon="i-lucide-trash-2" :loading="queue.clearAction === 'completed'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.clearCompleted')" @click="queue.confirmClearCompleted" />
+        <UButton v-if="activeTab === 'trash'" data-testid="clear-trash-button" color="error" variant="outline" icon="i-lucide-trash-2" :loading="queue.clearAction === 'trash'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.clearTrash')" @click="queue.confirmClearTrash" />
+        <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction || !!queue.clearAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
+      </div>
+    </header>
 
     <AppServerList
       data-testid="processing-queue-list"
@@ -70,23 +82,10 @@ function handleSort(value: { field: TaskSortBy; direction: SortDirection } | nul
       @update:page-size="queue.changePageSize($event)"
     >
       <template #toolbar>
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <h1 class="text-lg font-semibold text-color">{{ t("processingQueue.title") }}</h1>
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <UButton v-if="activeTab !== 'trash' && queue.recoverableCount > 0" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :loading="queue.bulkAction === 'recover'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.recoverAll') + ' (' + queue.recoverableCount + ')'" @click="queue.confirmRecoverAll" />
-            <UButton v-if="activeTab !== 'trash' && queue.activeCount > 0" color="error" variant="outline" icon="i-lucide-ban" :loading="queue.bulkAction === 'cancel'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.cancelActive') + ' (' + queue.activeCount + ')'" @click="queue.confirmCancelActive" />
-            <UButton v-if="activeTab === 'completed'" data-testid="clear-completed-button" color="neutral" variant="outline" icon="i-lucide-trash-2" :loading="queue.clearAction === 'completed'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.clearCompleted')" @click="queue.confirmClearCompleted" />
-            <UButton v-if="activeTab === 'trash'" data-testid="clear-trash-button" color="error" variant="outline" icon="i-lucide-trash-2" :loading="queue.clearAction === 'trash'" :disabled="!!queue.bulkAction || !!queue.clearAction" :label="t('processingQueue.clearTrash')" @click="queue.confirmClearTrash" />
-            <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="queue.loading" :disabled="!!queue.bulkAction || !!queue.clearAction" :aria-label="t('processingQueue.refresh')" :title="t('processingQueue.refresh')" @click="queue.refresh" />
-          </div>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <form class="flex min-w-64 max-w-full flex-1 gap-2" @submit.prevent="queue.submitSearch">
-            <UInput v-model="queue.searchInput" class="min-w-0 flex-1" icon="i-lucide-search" :placeholder="t('processingQueue.searchPlaceholder')" />
-            <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-search" :aria-label="t('processingQueue.searchHint')" />
-          </form>
-        </div>
+        <form class="flex min-w-64 max-w-full gap-2" @submit.prevent="queue.submitSearch">
+          <UInput v-model="queue.searchInput" class="min-w-0 flex-1" icon="i-lucide-search" :placeholder="t('processingQueue.searchPlaceholder')" />
+          <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-search" :aria-label="t('processingQueue.searchHint')" />
+        </form>
 
         <UAlert v-if="queue.error && queue.items.length" color="error" variant="subtle" :title="t('common.error')" :description="queue.error" />
       </template>

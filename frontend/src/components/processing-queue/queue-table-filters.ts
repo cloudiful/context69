@@ -29,7 +29,19 @@ export function useQueueFilterOptions(t: Translate) {
   ]);
   const waitingReasonOptions = computed<QueueHeaderFilterOption[]>(() => [
     { label: t("processingQueue.allWaitingReasons"), value: null },
-    ...WAITING_REASON_FILTERS.map((value) => ({ label: t(`processingQueue.waitingReasons.${value}`), value })),
+    // "Dependency unavailable" is a submenu: the reason plus the library
+    // dependency that caused it, so the waiting column keeps one filter
+    // control instead of a second dependency button.
+    {
+      label: t("processingQueue.waitingReasons.dependency"),
+      value: "dependency",
+      children: [
+        { label: t("processingQueue.allDependencies"), value: null },
+        ...DEPENDENCY_FILTERS.map((value) => ({ label: t(`processingQueue.dependencies.${value}`), value })),
+      ],
+    },
+    ...WAITING_REASON_FILTERS.filter((value) => value !== "dependency")
+      .map((value) => ({ label: t(`processingQueue.waitingReasons.${value}`), value })),
   ]);
   const dependencyOptions = computed<QueueHeaderFilterOption[]>(() => [
     { label: t("processingQueue.allDependencies"), value: null },
@@ -52,8 +64,20 @@ export function createQueueFilterSelects(emit: QueueFilterEmit) {  return {
     selectStatusFilter(value: string | null) { emit("update:statusFilter", value as TaskStatus | null); },
     selectKindFilter(value: string | null) { emit("update:kindFilter", value as TaskKind | null); },
     selectStageFilter(value: string | null) { emit("update:stageFilter", value); },
-    selectWaitingReasonFilter(value: string | null) { emit("update:waitingReasonFilter", value); },
     selectDependencyKeyFilter(value: string | null) { emit("update:dependencyKeyFilter", value); },
+    // The dependency reason is one filter with a nested submenu: choosing the
+    // reason narrows the waiting set, and choosing a child narrows it to one
+    // library dependency. The completed view keeps its own dependency column,
+    // which calls `selectDependencyKeyFilter` directly.
+    selectWaitingReasonOption(value: string | null, group?: string | null) {
+      if (group != null) {
+        emit("update:waitingReasonFilter", group);
+        emit("update:dependencyKeyFilter", value);
+        return;
+      }
+      emit("update:waitingReasonFilter", value);
+      if (value !== "dependency") emit("update:dependencyKeyFilter", null);
+    },
   };
 }
 
@@ -65,7 +89,7 @@ export function useQueueTableColumns(t: Translate, completed: Ref<boolean>) {
   const columns = computed<TableColumn<TaskResponse>[]>(() => {
     const leading: TableColumn<TaskResponse>[] = [
       { id: "expand", enableHiding: false },
-      { accessorKey: "task_id", header: t("processingQueue.task") },
+      { id: "task", header: t("processingQueue.task") },
       { accessorKey: "kind", header: t("processingQueue.type"), enableSorting: true },
       { accessorKey: "group_path", header: t("processingQueue.group"), enableSorting: true },
       { accessorKey: "status", header: t("processingQueue.status"), enableSorting: true },

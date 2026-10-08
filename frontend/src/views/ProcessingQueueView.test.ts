@@ -90,6 +90,23 @@ function response(items: TaskResponse[]) {
   };
 }
 
+// Header filters are Nuxt UI menus portalled to the document body, so a test
+// reads the open menu from there instead of from the wrapper.
+function menuItems() {
+  const menu = document.body.querySelector('[role="menu"]');
+  expect(menu).not.toBeNull();
+  return [...(menu as HTMLElement).querySelectorAll<HTMLElement>('[role="menuitem"]')];
+}
+
+// A nested menu entry opens its submenu with the documented keyboard gesture,
+// which is also how a keyboard user reaches it.
+async function openSubmenu(item: HTMLElement) {
+  item.focus();
+  item.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushPromises();
+}
+
 async function mountQueue(locale: "en" | "zh-CN" = "en") {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -163,13 +180,41 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
+  it("renders the collapsed row by file name and document title instead of the task UUID", async () => {
+    const named: TaskResponse = {
+      ...row,
+      task_id: "named-task-id",
+      file_name: "2026-09-30-report.pdf",
+      document_title: "Q3 disclosure report",
+    };
+    listTasks.mockReset().mockResolvedValue(response([named]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const cell = wrapper.find('[data-testid="queue-task"]');
+    expect(cell.text()).toContain("2026-09-30-report.pdf");
+    expect(wrapper.find('[data-testid="queue-task-title"]').text()).toBe("Q3 disclosure report");
+    expect(wrapper.text()).not.toContain("named-task-id");
+    wrapper.unmount();
+  });
+
+  it("falls back to the group when a task has no file name or title", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const cell = wrapper.find('[data-testid="queue-task"]');
+    expect(cell.text()).toBe("research");
+    expect(wrapper.find('[data-testid="queue-task-title"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("renders the Docling waiting reason with the dependency suffix instead of a raw key", async () => {
     listTasks.mockReset().mockResolvedValue(response([waitingDoclingRow]) as never);
     const wrapper = await mountQueue();
     await flushPromises();
 
     expect(wrapper.text()).toContain("Remote conversion: Docling");
-    expect(wrapper.text()).toContain("waiting-docling-task-id");
+    expect(wrapper.find('[data-testid="queue-task"]').text()).toBe("research");
     expect(wrapper.text()).not.toContain("processingQueue.waitingReasons.");
     wrapper.unmount();
   });
@@ -180,33 +225,57 @@ describe("ProcessingQueueView", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("远端转换: Docling");
-    expect(wrapper.text()).toContain("waiting-docling-task-id");
+    expect(wrapper.find('[data-testid="queue-task"]').text()).toBe("research");
     expect(wrapper.text()).not.toContain("processingQueue.waitingReasons.");
     wrapper.unmount();
   });
 
-  it("offers Docling in the waiting-reason filter popover while keeping existing options", async () => {
+  it("offers every waiting reason and nests the dependency submenu behind the reason", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
     await wrapper.find('[aria-label="Waiting reason"]').trigger("click");
     await flushPromises();
 
-    const listbox = document.body.querySelector('[role="listbox"][aria-label="Waiting reason"]');
-    expect(listbox).not.toBeNull();
-    const options = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')].map((el) => el.textContent?.trim());
+    const labels = menuItems().map((el) => el.textContent?.trim() ?? "");
     for (const label of ["All waiting reasons", "Dependency", "Backoff", "Remote conversion"]) {
-      expect(options).toContain(label);
+      expect(labels.some((text) => text.endsWith(label))).toBe(true);
     }
 
-    const docling = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
-      .find((el) => el.textContent?.trim() === "Remote conversion");
-    expect(docling).toBeDefined();
-    (docling as HTMLElement).click();
+    // "Dependency unavailable" is a nested entry: the submenu carries the
+    // library dependency that caused the wait.
+    const dependency = menuItems().find((el) => el.textContent?.trim().endsWith("Dependency"));
+    expect(dependency?.getAttribute("aria-haspopup")).toBe("menu");
+    await openSubmenu(dependency!);
+
+    const submenu = [...document.body.querySelectorAll('[role="menu"]')].pop() as HTMLElement;
+    const submenuLabels = [...submenu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent?.trim());
+    expect(submenuLabels).toEqual(["All dependencies", "S3", "Docling", "Embedding", "Qdrant"]);
+
+    const qdrant = [...submenu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find((el) => el.textContent?.trim() === "Qdrant");
+    qdrant!.click();
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ waitingReason: "docling" }),
+      expect.objectContaining({ waitingReason: "dependency", dependencyKey: "qdrant" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    wrapper.unmount();
+  });
+
+  it("clears the dependency narrowing when a plain waiting reason is chosen", async () => {
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="Waiting reason"]').trigger("click");
+    await flushPromises();
+    const docling = menuItems().find((el) => el.textContent?.trim().endsWith("Remote conversion"));
+    docling!.click();
+    await flushPromises();
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ waitingReason: "docling", dependencyKey: null }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     wrapper.unmount();
@@ -240,24 +309,21 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("offers every entry stage in the stage filter popover", async () => {
+  it("offers every entry stage in the stage filter menu", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
     await wrapper.find('[aria-label="Task stage"]').trigger("click");
     await flushPromises();
 
-    const listbox = document.body.querySelector('[role="listbox"][aria-label="Task stage"]');
-    expect(listbox).not.toBeNull();
-    const options = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')].map((el) => el.textContent?.trim());
+    const labels = menuItems().map((el) => el.textContent?.trim());
     for (const label of ["All stages", "Download", "Storage", "Sync", "Delete", "Translation", "Indexing", "Processing", "Finalize"]) {
-      expect(options).toContain(label);
+      expect(labels).toContain(label);
     }
 
-    const download = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
-      .find((el) => el.textContent?.trim() === "Download");
+    const download = menuItems().find((el) => el.textContent?.trim() === "Download");
     expect(download).toBeDefined();
-    (download as HTMLElement).click();
+    download!.click();
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
@@ -273,7 +339,7 @@ describe("ProcessingQueueView", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Dependency: Qdrant");
-    expect(wrapper.text()).toContain("waiting-qdrant-task-id");
+    expect(wrapper.find('[data-testid="queue-task"]').text()).toBe("research");
     wrapper.unmount();
   });
 
@@ -306,17 +372,35 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("renders header filter popovers for the column-specific filters", async () => {
+  it("renders header filter menus for the column-specific filters", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    // Column-specific filters moved from the toolbar into header popovers;
-    // global search stays in the toolbar.
-    const labels = ["Task status", "Task type", "Task stage", "Waiting reason", "Library dependency"];
+    // Column-specific filters moved from the toolbar into header menus; global
+    // search stays in the toolbar. The waiting column owns one control whose
+    // dependency choice is nested, so there is no second dependency button.
+    const labels = ["Task status", "Task type", "Task stage", "Waiting reason"];
     for (const label of labels) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
     }
+    expect(wrapper.findAll('[aria-label="Waiting reason"]')).toHaveLength(1);
+    expect(wrapper.find('[aria-label="Library dependency"]').exists()).toBe(false);
     expect(wrapper.find("input[placeholder]").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("puts the status tabs, recovery actions, and refresh in one header row without the page heading", async () => {
+    listTasks.mockReset().mockResolvedValue(response([failedRow, row]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const header = wrapper.find('[data-testid="processing-queue-header"]');
+    expect(header.exists()).toBe(true);
+    expect(header.find('[data-testid="processing-queue-tabs"]').exists()).toBe(true);
+    expect(header.find('[aria-label="Refresh queue"]').exists()).toBe(true);
+    expect(header.text()).toContain("Retry recoverable tasks");
+    expect(header.text()).toContain("Cancel active");
+    expect(header.find("h1").exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -348,24 +432,21 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
-  it("offers processing statuses without the completed value in the status popover", async () => {
+  it("offers processing statuses without the completed value in the status menu", async () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
     await wrapper.find('[aria-label="Task status"]').trigger("click");
     await flushPromises();
 
-    const listbox = document.body.querySelector('[role="listbox"][aria-label="Task status"]');
-    expect(listbox).not.toBeNull();
-    const options = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')].map((el) => el.textContent?.trim());
-    expect(options).toContain("All statuses");
-    expect(options).toContain("Failed");
-    expect(options).not.toContain("Succeeded");
+    const labels = menuItems().map((el) => el.textContent?.trim());
+    expect(labels).toContain("All statuses");
+    expect(labels).toContain("Failed");
+    expect(labels).not.toContain("Succeeded");
 
-    const failed = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
-      .find((el) => el.textContent?.trim() === "Failed");
+    const failed = menuItems().find((el) => el.textContent?.trim() === "Failed");
     expect(failed).toBeDefined();
-    (failed as HTMLElement).click();
+    failed!.click();
     await flushPromises();
 
     expect(listTasks).toHaveBeenLastCalledWith(
@@ -373,15 +454,12 @@ describe("ProcessingQueueView", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
-    // Re-selecting the active value closes the popover without a duplicate request.
+    // Re-selecting the active value closes the menu without a duplicate request.
     const callsAfterSelect = listTasks.mock.calls.length;
     await wrapper.find('[aria-label="Task status"]').trigger("click");
     await flushPromises();
-    const reopened = document.body.querySelector('[role="listbox"][aria-label="Task status"]');
-    expect(reopened).not.toBeNull();
-    const failedAgain = [...(reopened as HTMLElement).querySelectorAll('[role="option"]')]
-      .find((el) => el.textContent?.trim() === "Failed");
-    (failedAgain as HTMLElement).click();
+    const failedAgain = menuItems().find((el) => el.textContent?.trim() === "Failed");
+    failedAgain!.click();
     await flushPromises();
     expect(listTasks.mock.calls.length).toBe(callsAfterSelect);
     wrapper.unmount();
@@ -482,7 +560,7 @@ describe("ProcessingQueueView", () => {
 
     await wrapper.find('[aria-label="Waiting reason"]').trigger("click");
     await flushPromises();
-    expect(document.body.querySelector('[role="listbox"][aria-label="Waiting reason"]')).not.toBeNull();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
 
     wrapper.unmount();
   });

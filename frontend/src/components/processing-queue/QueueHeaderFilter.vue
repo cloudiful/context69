@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed } from "vue";
+import type { DropdownMenuItem } from "@nuxt/ui";
 
 export interface QueueHeaderFilterOption {
   label: string;
   value: string | null;
+  /** Nested submenu entries. A parent opens its submenu instead of selecting. */
+  children?: QueueHeaderFilterOption[];
 }
 
 const props = defineProps<{
@@ -11,54 +14,60 @@ const props = defineProps<{
   label: string;
   options: QueueHeaderFilterOption[];
   selected: string | null;
+  // Marks the button active even when the paired filter carries the selection
+  // (the waiting-reason filter also owns the dependency narrowing).
+  active?: boolean;
 }>();
 
 const emit = defineEmits<{
-  select: [value: string | null];
+  select: [value: string | null, group?: string | null];
 }>();
 
-const open = ref(false);
+const isActive = computed(() => props.active ?? props.selected !== null);
 
-function choose(value: string | null, close: () => void) {
-  // Selecting the active value only closes the popover; the caller (and the
-  // queue's setFilter guard) sends no duplicate request for it.
-  if (value !== props.selected) {
-    emit("select", value);
+// A child of a submenu reports its own value plus the parent reason it belongs
+// to, so one filter control can set both without a second button.
+function toItem(option: QueueHeaderFilterOption, group: string | null = null): DropdownMenuItem {
+  if (option.children?.length) {
+    return {
+      label: option.label,
+      children: option.children.map((child) => toItem(child, option.value)),
+    };
   }
-  close();
+  return {
+    label: option.label,
+    // The leading check is the only selection affordance: it keeps the menu
+    // item semantics plain while still naming the active value.
+    icon: option.value === props.selected && group === null ? "i-lucide-check" : undefined,
+    class: option.value === props.selected ? "text-primary" : undefined,
+    onSelect: () => choose(option, group),
+  };
+}
+
+const menuItems = computed(() => props.options.map((option) => toItem(option)));
+
+// Selecting the active value only closes the menu; the caller (and the queue's
+// setFilter guard) sends no duplicate request for it.
+function choose(option: QueueHeaderFilterOption, group: string | null) {
+  if (option.value === props.selected && group === null) return;
+  emit("select", option.value, group);
 }
 </script>
 
 <template>
-  <UPopover v-model:open="open">
+  <UDropdownMenu
+    :items="menuItems"
+    :content="{ align: 'start', 'aria-label': props.label }"
+  >
     <UButton
       variant="ghost"
       color="neutral"
       size="xs"
       icon="i-lucide-filter"
-      :class="props.selected !== null ? 'text-primary' : 'text-muted'"
+      :class="isActive ? 'text-primary' : 'text-muted'"
       :aria-label="props.label"
-      :aria-pressed="props.selected !== null"
-      :data-active="props.selected !== null"
+      :aria-pressed="isActive"
+      :data-active="isActive"
     />
-    <template #content="{ close }">
-      <div role="listbox" :aria-label="props.label" class="flex min-w-40 flex-col gap-0.5 p-1.5">
-        <UButton
-          v-for="option in props.options"
-          :key="option.label"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          class="justify-start"
-          :class="option.value === props.selected ? 'text-primary' : ''"
-          :aria-selected="option.value === props.selected"
-          role="option"
-          @click="choose(option.value, close)"
-        >
-          <span class="min-w-0 flex-1 truncate text-left">{{ option.label }}</span>
-          <UIcon v-if="option.value === props.selected" name="i-lucide-check" class="size-4 shrink-0" />
-        </UButton>
-      </div>
-    </template>
-  </UPopover>
+  </UDropdownMenu>
 </template>

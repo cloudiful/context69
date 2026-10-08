@@ -58,6 +58,14 @@ function tabButton(wrapper: ReturnType<typeof mount>, label: string) {
   return wrapper.findAll("button").find((button) => button.text().includes(label));
 }
 
+// Header filters are Nuxt UI menus portalled to the document body, so a test
+// reads the open menu from there instead of from the wrapper.
+function menuItems() {
+  const menu = document.body.querySelector('[role="menu"]');
+  expect(menu).not.toBeNull();
+  return [...(menu as HTMLElement).querySelectorAll<HTMLElement>('[role="menuitem"]')];
+}
+
 function headerLabels(wrapper: ReturnType<typeof mount>) {
   return wrapper.find('[data-testid="processing-queue-table"]').findAll("th").map((th) => th.text().trim());
 }
@@ -294,7 +302,6 @@ describe("ProcessingQueueView tabs", () => {
     expect(wrapper.find('[aria-label="Task type"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Task stage"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Waiting reason"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="Library dependency"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="queue-sort-created_at"]').exists()).toBe(true);
     expect(listTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({ view: "trash", sortBy: "created_at", sortDirection: "desc" }),
@@ -332,15 +339,12 @@ describe("ProcessingQueueView tabs", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
-    // The dependency filter forwards from the completed header popover.
+    // The dependency filter forwards from the completed header menu.
     await wrapper.find('[aria-label="Library dependency"]').trigger("click");
     await flushPromises();
-    const listbox = document.body.querySelector('[role="listbox"][aria-label="Library dependency"]');
-    expect(listbox).not.toBeNull();
-    const qdrant = [...(listbox as HTMLElement).querySelectorAll('[role="option"]')]
-      .find((el) => el.textContent?.trim() === "Qdrant");
+    const qdrant = menuItems().find((el) => el.textContent?.trim() === "Qdrant");
     expect(qdrant).toBeDefined();
-    (qdrant as HTMLElement).click();
+    qdrant!.click();
     await flushPromises();
     expect(listTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({ view: "completed", dependencyKey: "qdrant" }),

@@ -59,6 +59,11 @@ pub(super) fn task_response(task: crate::db::StoredTask) -> TaskResponse {
         finished_at: task.finished_at,
         updated_at: task.updated_at,
         deleted_at: task.deleted_at,
+        // Collapsed-row context: the focus item's file name and document title
+        // (issue 723). Both are optional, so the client keeps a null-safe
+        // fallback instead of rendering a blank cell.
+        file_name: task.file_name,
+        document_title: task.document_title,
     }
 }
 
@@ -104,6 +109,8 @@ pub(super) fn task_item_response(item: StoredTaskItem) -> TaskItemResponse {
         created_at: item.created_at,
         started_at: item.started_at,
         finished_at: item.finished_at,
+        file_name: item.file_name,
+        document_title: item.document_title,
     }
 }
 

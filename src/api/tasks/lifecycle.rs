@@ -1,5 +1,5 @@
 //! Task lifecycle handlers: reads (`get_task`, `list_tasks`,
-//! `list_task_items`), retry/rerun, trash/restore/delete, cancel, and the
+//! `list_task_items`), retry/resume, trash/restore/delete, cancel, and the
 //! history clear.
 
 use axum::{
@@ -118,6 +118,8 @@ pub(crate) async fn rerun_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    // Routing: a cancelled submission reopens its own items and keeps its id,
+    // while a failed task keeps the documented fresh-parent rerun.
     match state.app.tasks.rerun(task_id, session.user.id).await {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
         Err(error) => task_error(error),

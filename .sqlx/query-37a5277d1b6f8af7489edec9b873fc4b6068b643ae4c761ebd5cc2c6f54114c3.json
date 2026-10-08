@@ -1,0 +1,239 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- `file_name` and `document_title` are the human-readable context of one item\n-- (issue 723). Both are projected from rows the item already owns, with a\n-- deterministic fallback chain so a row is never blank:\n--\n--   file_name      library file name, else the filename the payload retained,\n--                  else the last path segment of the submitted URL. A cancelled\n--                  or not-yet-materialized item has no library file yet, so the\n--                  retained payload is what still names it.\n--   document_title the title the submission carried, else the title of the\n--                  document this item's file produced (via\n--                  `library_file_documents`), else the library file's own\n--                  `metadata_json.title`.\n--\n-- Every join is 1:1 — `library_files` on its primary key, and the linked\n-- document through one LATERAL row — so neither can multiply an item row. The\n-- document comes from `library_file_documents`, the authoritative record of\n-- which document an item's own file produced, so an item can never name a\n-- document another file produced. Every candidate goes through `NULLIF`: an\n-- empty string must fall through to the next source instead of masking it, and\n-- it is also what makes the file name nullable, since a plain joined column\n-- reference is described as NOT NULL.\n--\n-- `$4::text` narrows to one item status; NULL lists every status.\n-- `$5::text` selects the ordering. `'ordinal'` returns the lowest ordinals\n-- first, which is what `GET /v1/tasks/{task_id}/diagnose` needs: its contract\n-- promises the first `limit` items of the task's sequence, so it must select\n-- them before it truncates. Every other value keeps the fixed active-first\n-- ordering the paged items endpoint documents.\n-- `$6::uuid` narrows to one item; NULL lists every item of the task. This is\n-- how a lifecycle log resolves one claimed item's ordinal without assuming\n-- which item a claim picked.\n-- Fixed active-first ordering (failed, running, queued, waiting,\n-- cancelled, succeeded, then ordinal) pins in-flight/failed to the top and\n-- sinks succeeded to the bottom. `cursor`/`offset` ($3) is scoped to the\n-- current status filter: clients reset to 0 when the filter changes, then\n-- follow `next_cursor` until NULL to page through the full filtered set.\nSELECT item.id,\n       item.task_id,\n       item.ordinal,\n       item.status,\n       item.resource_id,\n       item.file_id,\n       item.stage,\n       item.waiting_reason,\n       item.dependency_key,\n       item.next_attempt_at,\n       item.failure_stage,\n       item.error_message,\n       item.attempt_count,\n       item.retryable,\n       item.created_at,\n       item.started_at,\n       item.finished_at,\n       COALESCE(\n           NULLIF(file.filename, ''),\n           NULLIF(item.payload ->> 'filename', ''),\n           CASE\n               WHEN item.payload ? 'url'\n                   THEN NULLIF(\n                       regexp_replace(\n                           split_part(split_part(item.payload ->> 'url', '?', 1), '#', 1),\n                           '^.*/',\n                           ''\n                       ),\n                       ''\n                   )\n           END\n       ) AS file_name,\n       COALESCE(\n           NULLIF(item.payload ->> 'title', ''),\n           NULLIF(doc.title, ''),\n           NULLIF(file.metadata_json ->> 'title', '')\n       ) AS document_title\nFROM context69.task_items item\nLEFT JOIN context69.library_files file ON file.id = item.file_id\n-- The document a file produced is recorded per section, so a plain join would\n-- fan the item row out. One LATERAL row picks the first section in document\n-- order, which keeps the projection at one row per item and makes the choice\n-- deterministic. The document must also belong to the group that owns the file,\n-- so a title can never cross a group boundary.\nLEFT JOIN LATERAL (\n    SELECT document.title\n    FROM context69.library_file_documents link\n    JOIN context69.documents document ON document.id = link.document_id\n    WHERE link.file_id = file.id\n      AND document.group_id = file.group_id\n    ORDER BY link.sort_order, link.section_key\n    LIMIT 1\n) doc ON TRUE\nWHERE item.task_id = $1\n  AND ($4::text IS NULL OR item.status = $4::text)\n  AND ($6::uuid IS NULL OR item.id = $6::uuid)\nORDER BY\n    CASE\n        WHEN $5::text = 'ordinal' THEN 0\n        ELSE CASE item.status\n            WHEN 'failed' THEN 0\n            WHEN 'running' THEN 1\n            WHEN 'queued' THEN 2\n            WHEN 'waiting' THEN 3\n            WHEN 'cancelled' THEN 4\n            WHEN 'succeeded' THEN 5\n            ELSE 6\n        END\n    END,\n    item.ordinal\nLIMIT $2 OFFSET $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "ordinal",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "ordinal"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "resource_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "resource_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "stage"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "waiting_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "dependency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "next_attempt_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "retryable",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "retryable"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "file_name",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 18,
+        "name": "document_title",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "37a5277d1b6f8af7489edec9b873fc4b6068b643ae4c761ebd5cc2c6f54114c3"
+}

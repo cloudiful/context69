@@ -110,6 +110,8 @@ fn task_stream_event_frames_carry_snapshot_update_done_error_shapes() {
             .expect("time")
             .with_timezone(&chrono::Utc),
         deleted_at: None,
+        file_name: None,
+        document_title: None,
     };
     let snapshot = TaskStreamSnapshot {
         tasks: vec![task.clone()],
@@ -222,6 +224,8 @@ fn coalescer_test_task(
             .expect("time")
             .with_timezone(&chrono::Utc),
         deleted_at: None,
+        file_name: None,
+        document_title: None,
     }
 }
 
