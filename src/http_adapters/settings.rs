@@ -43,6 +43,13 @@ impl SettingsApi for SettingsApiAdapter {
         self.service.test_valkey_connection(request).await
     }
 
+    async fn test_embedding_connection(
+        &self,
+        request: &crate::contracts::settings::TestRuntimeEmbeddingRequest,
+    ) -> anyhow::Result<()> {
+        self.service.test_embedding_connection(request).await
+    }
+
     async fn get_docling_settings(
         &self,
     ) -> anyhow::Result<crate::contracts::DoclingSettingsResponse> {

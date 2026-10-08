@@ -102,6 +102,7 @@ fn parse_error_includes_response_context() {
         "http://127.0.0.1:11434/v1/embeddings",
         "nomic-embed-text",
         "text/html",
+        None,
     )
     .expect_err("html should not parse as embedding response");
 
@@ -120,6 +121,7 @@ fn http_error_extracts_provider_error_message() {
         "nomic-embed-text",
         "application/json",
         r#"{"error":{"message":"model not found"}}"#,
+        None,
     );
 
     let message = error.to_string();
@@ -146,6 +148,7 @@ fn transport_error_includes_concrete_cause() {
         "not a url/embeddings",
         "test-model",
         error,
+        None,
     )
     .to_string();
 
@@ -164,6 +167,7 @@ fn retry_classifier_distinguishes_transient_and_permanent_errors() {
         "model",
         "application/json",
         r#"{"error":{"message":"temporarily unavailable"}}"#,
+        None,
     );
     let rate_limited = format_embedding_http_error(
         ReqwestStatusCode::TOO_MANY_REQUESTS,
@@ -171,12 +175,14 @@ fn retry_classifier_distinguishes_transient_and_permanent_errors() {
         "model",
         "application/json",
         r#"{"error":{"message":"slow down"}}"#,
+        None,
     );
     let parse_error = parse_embedding_response(
         r#"{"error":{"message":"invalid response"}}"#,
         "http://embedding/v1/embeddings",
         "model",
         "application/json",
+        None,
     )
     .expect_err("error response without data should not parse");
     let vector_mismatch = anyhow!("embedding provider returned 0 vectors for 1 inputs");
@@ -200,6 +206,7 @@ fn retry_classifier_distinguishes_transient_and_permanent_errors() {
             "model",
             "application/json",
             r#"{"error":{"message":"permanent failure"}}"#,
+            None,
         );
         assert!(
             !retry::is_retryable(&error),
@@ -304,7 +311,7 @@ async fn response_body_limit_rejects_oversized_body_before_parse() {
         Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"1234")),
         Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"56789")),
     ]);
-    let error = read_response_body_stream(stream, 8, "http://embedding", "model")
+    let error = read_response_body_stream(stream, 8, "http://embedding", "model", None)
         .await
         .expect_err("oversized response should be rejected");
 
@@ -317,7 +324,7 @@ async fn response_body_limit_accepts_normal_body() {
     let stream = futures::stream::iter([Ok::<Bytes, reqwest::Error>(Bytes::from_static(
         b"{\"data\":[]}",
     ))]);
-    let body = read_response_body_stream(stream, 1024, "http://embedding", "model")
+    let body = read_response_body_stream(stream, 1024, "http://embedding", "model", None)
         .await
         .expect("normal response should be read");
 

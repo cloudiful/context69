@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -14,6 +15,7 @@ pub(super) use super::dependency_errors::{
     dependency_is_transient, is_configuration_error, is_s3_error, redact_dependency_error,
 };
 pub(super) use super::dependency_storage::bounded_s3_operation;
+use super::embedding_gate::embedding_gate_configuration;
 use super::processing_health::{
     dependency_gate_responses, log_parent_consistency_breach, parent_consistency_health,
 };
@@ -69,10 +71,19 @@ impl LibraryService {
         self.store
             .ensure_dependency_gate(LibraryDependency::EmbeddingVector.as_str())
             .await?;
-        let configured = self.embedding_vector_configured;
+        let runtime_ready = self
+            .vector_index_ready
+            .as_ref()
+            .is_none_or(|ready| ready.load(Ordering::Acquire));
         let fingerprint = self.embedding_vector_configuration_fingerprint.clone();
-        let not_configured_error =
-            (!configured).then_some("configuration: embedding/vector runtime is not configured");
+        // A configured runtime that is mid-rebuild is deliberately reported as
+        // unavailable: the embedding and qdrant gates stay closed so the
+        // pipeline waits, instead of adding vectors with one identity to a
+        // collection being re-embedded with another. `false` here is a
+        // configuration-level hold, reopened by the readiness refresh after the
+        // rebuild completes.
+        let (configured, not_configured_error) =
+            embedding_gate_configuration(self.embedding_vector_configured, runtime_ready);
         for dependency in [
             LibraryDependency::Embedding,
             LibraryDependency::Qdrant,

@@ -63,6 +63,15 @@ impl LibraryService {
         document_id: i64,
         runtime: &LibraryRuntime,
     ) -> IngestResult<(usize, usize)> {
+        // Acquire the provider once for the whole document so a settings save
+        // mid-ingest cannot switch the provider between batches, and refuse
+        // while an identity-changing rebuild is in progress so the writer does
+        // not add vectors to a collection being re-embedded.
+        let embedding = runtime
+            .embedding
+            .require_ready()
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Embedding, error))?;
+
         self.db
             .delete_document_chunks(document_id)
             .await
@@ -83,8 +92,7 @@ impl LibraryService {
                 .map(|chunk| chunk.text.clone())
                 .collect::<Vec<_>>();
             let batch_started = Instant::now();
-            let embeddings = runtime
-                .embedding
+            let embeddings = embedding
                 .embed_texts(&texts)
                 .await
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Embedding, error))?;

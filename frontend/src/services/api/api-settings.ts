@@ -1,3 +1,4 @@
+import type { components } from "../../generated/openapi";
 import type {
   RequestOptions,
   TestRuntimeValkeyRequest,
@@ -9,6 +10,8 @@ import type {
   TranslationProviderPageResponse,
   TaskRef,
 } from "./api-types";
+
+type TestRuntimeEmbeddingRequest = components["schemas"]["TestRuntimeEmbeddingRequest"];
 
 type Deps = {
   openapiClient: import("./api-core").OpenApiClient;
@@ -43,6 +46,14 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
     testValkeyConnection(payload: TestRuntimeValkeyRequest, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.POST("/v1/settings/runtime/valkey/test", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      );
+    },
+    testEmbeddingConnection(payload: TestRuntimeEmbeddingRequest, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/embedding/test", {
           body: payload,
           signal: options?.signal,
         }),

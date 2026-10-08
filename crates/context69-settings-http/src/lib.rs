@@ -12,8 +12,8 @@ use axum::{
 use context69_contracts_core::common::ApiErrorResponse;
 use context69_contracts_settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
-    SearchSettingsResponse, TestRuntimeValkeyRequest, UpdateDoclingSettingsRequest,
-    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    SearchSettingsResponse, TestRuntimeEmbeddingRequest, TestRuntimeValkeyRequest,
+    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
 use context69_http_support::{internal_error_response, map_settings_error};
 use utoipa::OpenApi;
@@ -27,6 +27,7 @@ pub trait SettingsApi: Send + Sync {
     ) -> Result<RuntimeSettingsResponse>;
     async fn test_s3_connection(&self, request: &UpdateRuntimeS3Settings) -> Result<()>;
     async fn test_valkey_connection(&self, request: &TestRuntimeValkeyRequest) -> Result<()>;
+    async fn test_embedding_connection(&self, request: &TestRuntimeEmbeddingRequest) -> Result<()>;
     async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse>;
     async fn update_docling_settings(
         &self,
@@ -63,6 +64,10 @@ where
             axum::routing::post(test_valkey_connection),
         )
         .route(
+            "/v1/settings/runtime/embedding/test",
+            axum::routing::post(test_embedding_connection),
+        )
+        .route(
             "/v1/settings/docling",
             get(get_docling_settings).put(update_docling_settings),
         )
@@ -79,6 +84,7 @@ where
         update_runtime_settings,
         test_s3_connection,
         test_valkey_connection,
+        test_embedding_connection,
         get_docling_settings,
         update_docling_settings,
         get_search_settings,
@@ -91,6 +97,7 @@ where
             UpdateRuntimeSettingsRequest,
             UpdateRuntimeS3Settings,
             TestRuntimeValkeyRequest,
+            TestRuntimeEmbeddingRequest,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
             SearchSettingsResponse,
@@ -141,6 +148,17 @@ async fn test_valkey_connection(
     axum::Json(request): axum::Json<TestRuntimeValkeyRequest>,
 ) -> impl IntoResponse {
     match state.settings.test_valkey_connection(&request).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/settings/runtime/embedding/test", request_body = TestRuntimeEmbeddingRequest, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn test_embedding_connection(
+    State(state): State<SettingsHttpState>,
+    axum::Json(request): axum::Json<TestRuntimeEmbeddingRequest>,
+) -> impl IntoResponse {
+    match state.settings.test_embedding_connection(&request).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => settings_management_error_response(error),
     }

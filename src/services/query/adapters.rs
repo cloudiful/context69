@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -13,7 +13,7 @@ use crate::{
     contracts::{DocumentResponse, SearchHit, SearchRequest},
     db::{Database, StoredRerankItemScore},
     domain::AccessScope,
-    embedding::EmbeddingProvider,
+    embedding::EmbeddingRuntime,
     qdrant_index::QdrantIndex,
     services::auth::AuthService,
     services::settings::secrets::SettingsSecrets,
@@ -57,11 +57,11 @@ impl AuthScopeResolver {
 
 #[derive(Clone)]
 pub(super) struct EmbeddingAdapter {
-    embedding: Arc<dyn EmbeddingProvider>,
+    embedding: EmbeddingRuntime,
 }
 
 impl EmbeddingAdapter {
-    pub(super) fn new(embedding: Arc<dyn EmbeddingProvider>) -> Self {
+    pub(super) fn new(embedding: EmbeddingRuntime) -> Self {
         Self { embedding }
     }
 }
@@ -248,7 +248,15 @@ impl SearchScopeResolver for AuthScopeResolver {
 #[async_trait]
 impl SearchEmbeddingProvider for EmbeddingAdapter {
     async fn embed_query(&self, query: &str) -> Result<Vec<f32>> {
-        self.embedding.embed_query(query).await
+        // The query path acquires the current provider per request; the lock is
+        // released before the embedding network call. `require_ready` refuses
+        // while a rebuild is re-embedding the collection, so a query cannot
+        // embed against an old collection with a new provider.
+        self.embedding.require_ready()?.embed_query(query).await
+    }
+
+    fn embedding_identity(&self) -> String {
+        self.embedding.cache_identity()
     }
 }
 

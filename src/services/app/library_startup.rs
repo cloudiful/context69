@@ -51,6 +51,9 @@ pub async fn initialize(
         services.extraction.clone(),
     )
     .await?;
+    // Wire the shared readiness flag before the startup gates resolve, so a
+    // startup rebuild keeps the embedding/qdrant gates closed until it is done.
+    library.set_vector_index_ready(vector.gate.flag());
     // Shared source-cleanup dispatcher (issue 389): one Notify for the
     // process. Manual and auto releases wake it after commit; the
     // background loop drains on wake with a 5-minute fallback. Wired

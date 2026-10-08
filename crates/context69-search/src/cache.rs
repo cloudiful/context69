@@ -113,14 +113,24 @@ impl SearchCache {
     }
 
     pub fn settings_hash(settings: &SearchSettings) -> String {
+        Self::settings_hash_with_identity(settings, "")
+    }
+
+    /// Settings hash that also binds the live embedding identity, so a cached
+    /// response cannot be reused after a same-width model/base change.
+    pub fn settings_hash_with_identity(
+        settings: &SearchSettings,
+        embedding_identity: &str,
+    ) -> String {
         hash_string(&format!(
-            "mode={}\nrerank_enabled={}\nrerank_model={}\ncandidate_limit={}\nvector_weight={}\nkeyword_weight={}",
+            "mode={}\nrerank_enabled={}\nrerank_model={}\ncandidate_limit={}\nvector_weight={}\nkeyword_weight={}\nembedding_identity={}",
             settings.mode.as_str(),
             settings.rerank_enabled,
             settings.rerank_model,
             settings.candidate_limit,
             settings.vector_weight,
-            settings.keyword_weight
+            settings.keyword_weight,
+            embedding_identity
         ))
     }
 

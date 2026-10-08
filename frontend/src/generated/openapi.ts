@@ -1329,6 +1329,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/runtime/embedding/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["test_embedding_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/runtime/s3/test": {
         parameters: {
             query?: never;
@@ -4218,6 +4234,21 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "vector_rebuild";
+        };
+        /**
+         * @description A non-persisting embedding provider probe.
+         *
+         *     An absent `api_key` falls back to the stored key, so a saved deployment can
+         *     be tested without re-entering the credential; a submitted key is used as
+         *     given and never written.
+         */
+        TestRuntimeEmbeddingRequest: {
+            api_key?: string | null;
+            base_url: string;
+            dimensions: number;
+            model: string;
+            /** Format: int64 */
+            timeout_secs: number;
         };
         TestRuntimeValkeyRequest: {
             valkey_url: string;
@@ -8313,6 +8344,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RuntimeSettingsResponse"];
                 };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    test_embedding_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRuntimeEmbeddingRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: {
                 headers: {

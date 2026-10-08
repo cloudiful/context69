@@ -15,8 +15,13 @@ use crate::{
 };
 
 use super::{
-    library_startup::LibraryStartup, services_init::ServicesInit, task_worker_capacity,
-    vector_rebuild, vector_runtime::VectorRuntime,
+    library_startup::LibraryStartup,
+    services_init::ServicesInit,
+    task_worker_capacity, vector_rebuild,
+    vector_runtime::{
+        EmbeddingRuntimeReloader, EmbeddingRuntimeReloaderContext, EmbeddingSettingsGuard,
+        VectorRuntime,
+    },
 };
 
 pub struct BackgroundTasks {
@@ -47,14 +52,65 @@ pub async fn start(
             });
         }
     })));
-    // A runtime settings save can change the S3 configuration, so refresh the
-    // gates and re-probe the S3 backend through the same observer/probe path as
-    // the periodic recovery loop. The probe never mutates stored objects.
-    settings.set_runtime_settings_observer(Some(Arc::new({
+    // While a fixed vector index is live, only credential and timeout changes
+    // are hot-swappable: a model/base-URL/dimensions change is rejected here,
+    // before any secret or settings write, so the save fails loudly instead of
+    // being accepted and silently ignored. An identity-changing save is also
+    // refused while a live reload or rebuild is in progress, so a racing save
+    // can never report success while its identity remains unapplied.
+    let embedding_reload_in_progress = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    settings.set_runtime_embedding_guard(Some(Arc::new({
+        let guard = EmbeddingSettingsGuard::new(
+            vector.embedding.clone(),
+            vector.index.is_some(),
+            embedding_reload_in_progress.clone(),
+        );
+        move |embedding| guard.check(embedding)
+    })));
+    // Refreshes the dependency gates once a rebuild reopens reads, so the
+    // embedding/qdrant gates closed during the rebuild become available again.
+    let readiness_refresh: Arc<dyn Fn() + Send + Sync> = Arc::new({
         let library = startup.library.clone();
         move || {
             let library = library.clone();
             tokio::spawn(async move {
+                if let Err(error) = library.refresh_dependency_configuration().await {
+                    warn!(
+                        %error,
+                        "failed to refresh dependency gates after the vector index rebuild"
+                    );
+                }
+            });
+        }
+    });
+    // A runtime settings save can change the S3 configuration, so refresh the
+    // gates and re-probe the S3 backend through the same observer/probe path as
+    // the periodic recovery loop. The probe never mutates stored objects. The
+    // same save can change the embedding credential or timeout, so the reloader
+    // installs that (identity-preserving) change on the shared runtime.
+    let embedding_reloader = Arc::new(EmbeddingRuntimeReloader::new(
+        EmbeddingRuntimeReloaderContext {
+            db: db.clone(),
+            store: services.secrets.clone(),
+            runtime: vector.embedding.clone(),
+            index_present: vector.index.is_some(),
+            base_config: config.clone(),
+            reload_in_progress: embedding_reload_in_progress.clone(),
+        },
+    ));
+    settings.set_runtime_settings_observer(Some(Arc::new({
+        let library = startup.library.clone();
+        let embedding_reloader = embedding_reloader.clone();
+        move || {
+            let library = library.clone();
+            let embedding_reloader = embedding_reloader.clone();
+            tokio::spawn(async move {
+                if let Err(error) = embedding_reloader.reload().await {
+                    warn!(
+                        %error,
+                        "failed to reload the embedding runtime after runtime settings change"
+                    );
+                }
                 if let Err(error) = library.refresh_dependency_configuration().await {
                     warn!(
                         %error,
@@ -113,7 +169,10 @@ pub async fn start(
             config.clone(),
             vector.fingerprint.clone(),
             vector.fingerprint_changed && !vector.collection_needs_rebuild,
-            services.vector_index_ready.clone(),
+            vector
+                .gate
+                .rebuild_ticket()
+                .with_on_settled(readiness_refresh.clone()),
         );
     }
 

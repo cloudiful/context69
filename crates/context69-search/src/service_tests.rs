@@ -2784,3 +2784,109 @@ fn date_mode_punctuation_only_query_uses_phrase_substring_fallback() {
         "blank/whitespace query must surface a date-mode validation error; got {error}"
     );
 }
+
+/// A provider whose reported identity is configurable, so a test can move it.
+struct IdentifiedEmbedding {
+    identity: String,
+}
+
+#[async_trait]
+impl SearchEmbeddingProvider for IdentifiedEmbedding {
+    async fn embed_query(&self, _query: &str) -> anyhow::Result<Vec<f32>> {
+        Ok(vec![0.0; 8])
+    }
+
+    fn embedding_identity(&self) -> String {
+        self.identity.clone()
+    }
+}
+
+fn identity_service(embedding: Arc<dyn SearchEmbeddingProvider>, startup: &str) -> SearchService {
+    block_on(SearchService::new(
+        Arc::new(MockRepo {
+            settings: vector_settings(),
+            hydrated: HashMap::new(),
+            keyword_hits: Vec::new(),
+            seen_keyword_limit: Arc::new(Mutex::new(None)),
+            upper_bound: None,
+        }),
+        Arc::new(MockScope),
+        embedding,
+        Arc::new(MockIndex {
+            hits: Vec::new(),
+            seen_limit: Arc::new(Mutex::new(None)),
+            date_hits: Vec::new(),
+            seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+            fetch_limit_override: None,
+        }),
+        None,
+        startup.to_string(),
+    ))
+    .expect("service")
+}
+
+#[test]
+fn query_cache_identity_follows_the_live_embedding_provider() {
+    // The live provider identity wins, so a same-width model/base change after
+    // a rebuild cannot reuse a vector embedded by the previous provider.
+    let live = identity_service(
+        Arc::new(IdentifiedEmbedding {
+            identity: "base-a|model-a|8".to_string(),
+        }),
+        "base-a|model-a|8",
+    );
+    assert_eq!(live.cache_embedding_identity(), "base-a|model-a|8");
+
+    let moved = identity_service(
+        Arc::new(IdentifiedEmbedding {
+            identity: "base-b|model-b|8".to_string(),
+        }),
+        "base-a|model-a|8",
+    );
+    assert_eq!(moved.cache_embedding_identity(), "base-b|model-b|8");
+    assert_ne!(
+        live.cache_embedding_identity(),
+        moved.cache_embedding_identity()
+    );
+
+    // A provider that reports no identity falls back to the configured startup
+    // string, preserving the pre-existing behaviour for identity-less mocks.
+    let fallback = identity_service(Arc::new(MockEmbedding), "startup-model");
+    assert_eq!(fallback.cache_embedding_identity(), "startup-model");
+}
+
+#[test]
+fn settings_hash_binds_the_embedding_identity() {
+    let settings = vector_settings();
+    assert_eq!(
+        SearchCache::settings_hash(&settings),
+        SearchCache::settings_hash_with_identity(&settings, "")
+    );
+    assert_ne!(
+        SearchCache::settings_hash_with_identity(&settings, "identity-a"),
+        SearchCache::settings_hash_with_identity(&settings, "identity-b")
+    );
+}
+
+/// The date-mode cursor carries the settings hash so a replayed cursor can be
+/// validated. It deliberately uses the identity-less hash, which is what keeps an
+/// in-flight cursor valid across a live identity change instead of rejecting it
+/// as a mismatched context. Pinning that here means a future change to the
+/// cursor hash has to move this expectation too.
+#[test]
+fn an_identeless_settings_hash_is_what_a_date_cursor_carries() {
+    let settings = vector_settings();
+    let carried = SearchCache::settings_hash(&settings);
+    // Stable across a live identity move: the identity is not part of it.
+    assert_eq!(
+        carried,
+        SearchCache::settings_hash_with_identity(&settings, "")
+    );
+    assert_eq!(carried, SearchCache::settings_hash(&settings));
+    // But the response cache is still identity-scoped, so it is a strict
+    // refinement rather than the same key.
+    assert_ne!(
+        carried,
+        SearchCache::settings_hash_with_identity(&settings, "moved")
+    );
+}

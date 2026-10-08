@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (132 operations, sorted by `operation_id` for deterministic diffs).
+//! (133 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -1273,6 +1273,17 @@ pub const OPERATIONS: &[Operation] = &[
         request_schema: "-",
         response_schema: "TaskRef",
         success_status: 202,
+        idempotent: false,
+    },
+    Operation {
+        id: "test_embedding_connection",
+        method: "POST",
+        path_template: "/v1/settings/runtime/embedding/test",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "TestRuntimeEmbeddingRequest",
+        response_schema: "-",
+        success_status: 204,
         idempotent: false,
     },
     Operation {

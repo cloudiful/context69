@@ -15,37 +15,44 @@ use crate::{
     chunking::{ChunkingConfig, chunk_document},
     contracts::Visibility,
     domain::SourceRecord,
-    embedding::EmbeddingProvider,
+    embedding::{EmbeddingProvider, EmbeddingRuntime},
     normalize::normalize_record,
     qdrant_index::QdrantIndex,
 };
 
 #[derive(Clone)]
 pub struct TranslationPublisherAdapter {
-    embedding: Option<Arc<dyn EmbeddingProvider>>,
+    embedding: EmbeddingRuntime,
     index: Option<QdrantIndex>,
     chunking: ChunkingConfig,
 }
 
 impl TranslationPublisherAdapter {
     pub fn new(
-        embedding: Option<Arc<dyn EmbeddingProvider>>,
+        embedding: impl Into<EmbeddingRuntime>,
         index: Option<QdrantIndex>,
         chunking: ChunkingConfig,
     ) -> Self {
         Self {
-            embedding,
+            embedding: embedding.into(),
             index,
             chunking,
         }
     }
 
-    fn runtime(&self) -> Result<(&Arc<dyn EmbeddingProvider>, &QdrantIndex)> {
-        self.embedding
-            .as_ref()
-            .zip(self.index.as_ref())
-            .ok_or_else(|| DomainError::unavailable("translation embedding runtime is unavailable"))
-            .map_err(anyhow::Error::from)
+    fn runtime(&self) -> Result<(Arc<dyn EmbeddingProvider>, &QdrantIndex)> {
+        // Translation publishes new vectors, so it waits out an
+        // identity-changing rebuild instead of adding vectors to a collection
+        // being re-embedded.
+        let embedding = self.embedding.require_ready().map_err(|error| {
+            DomainError::unavailable(format!(
+                "translation embedding runtime is unavailable: {error}"
+            ))
+        })?;
+        let index = self.index.as_ref().ok_or_else(|| {
+            DomainError::unavailable("translation embedding runtime is unavailable")
+        })?;
+        Ok((embedding, index))
     }
 }
 

@@ -19,7 +19,7 @@ use crate::{
     },
     db::{Database, StoredSourceConnection},
     domain::SyncCheckpoint,
-    embedding::EmbeddingProvider,
+    embedding::EmbeddingRuntime,
     normalize::normalize_record,
     qdrant_index::QdrantIndex,
     services::secret_store::SecretStore,
@@ -49,7 +49,7 @@ pub(super) struct PendingSourceConnection {
 
 #[derive(Clone)]
 struct SyncRuntime {
-    embedding: Arc<dyn EmbeddingProvider>,
+    embedding: EmbeddingRuntime,
     index: QdrantIndex,
 }
 
@@ -81,15 +81,16 @@ impl SyncService {
     pub fn new(
         db: Database,
         store: SecretStore,
-        embedding: Option<Arc<dyn EmbeddingProvider>>,
+        embedding: impl Into<EmbeddingRuntime>,
         index: Option<QdrantIndex>,
         chunking: ChunkingConfig,
         max_concurrency: usize,
         translation: TranslationService,
     ) -> Self {
-        let runtime = embedding
-            .zip(index)
-            .map(|(embedding, index)| SyncRuntime { embedding, index });
+        let embedding = embedding.into();
+        let runtime = index
+            .filter(|_| embedding.is_configured())
+            .map(|index| SyncRuntime { embedding, index });
         Self {
             db: db.clone(),
             store,

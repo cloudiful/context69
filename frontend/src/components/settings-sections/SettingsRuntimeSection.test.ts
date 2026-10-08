@@ -38,6 +38,7 @@ function mountSection(draft: DraftRuntimeSettings = createDraft()) {
       schedulerToggleModel: { run_on_start: draft.scheduler.run_on_start },
       s3Testing: false,
       valkeyTesting: false,
+      embeddingTesting: false,
       vectorRebuildStatus: null,
     },
     global: { plugins: [testNuxtUiPlugin, createTestI18n("en")] },
@@ -142,5 +143,99 @@ describe("SettingsRuntimeSection", () => {
     await wrapper.get('[data-testid="runtime-vector-rebuild"]').trigger("click");
 
     expect(wrapper.emitted("rebuild-vector-index")).toHaveLength(1);
+  });
+
+  it("wires the embedding test to its title-row action", async () => {
+    const wrapper = mountSection();
+    const button = wrapper.get('[data-testid="runtime-embedding-test"]');
+
+    expect(button.text()).toContain("Test Connection");
+    await button.trigger("click");
+    expect(wrapper.emitted("test-embedding")).toHaveLength(1);
+
+    await wrapper.setProps({ embeddingTesting: true });
+    expect(wrapper.get('[data-testid="runtime-embedding-test"]').attributes("aria-busy")).toBe("true");
+  });
+
+  it("places the connection tests on their section title rows", async () => {
+    const wrapper = mountSection();
+
+    expect(wrapper.get("#settings-embedding").find('[data-testid="runtime-embedding-test"]').exists()).toBe(true);
+    expect(wrapper.get("#settings-scheduler").find('[data-testid="runtime-valkey-test"]').exists()).toBe(true);
+
+    const draft = reactive(createDraft());
+    draft.file_library.s3_enabled = true;
+    const withS3 = mountSection(draft);
+    expect(withS3.get("#settings-file-library").find('[data-testid="runtime-file-library-s3-test"]').exists()).toBe(true);
+  });
+
+  it("leaves the vector rebuild control in the qdrant body, not on a title row", () => {
+    const wrapper = mountSection();
+    const qdrant = wrapper.get("#settings-qdrant");
+    const titleRow = qdrant.element.firstElementChild!;
+
+    expect(titleRow.querySelector('[data-testid="runtime-vector-rebuild"]')).toBeNull();
+    expect(qdrant.find('[data-testid="runtime-vector-rebuild"]').exists()).toBe(true);
+  });
+});
+
+const CONNECTION_TESTS = [
+  { testId: "runtime-embedding-test", section: "#settings-embedding", prop: "embeddingTesting", event: "test-embedding" },
+  { testId: "runtime-valkey-test", section: "#settings-scheduler", prop: "valkeyTesting", event: "test-valkey" },
+  { testId: "runtime-file-library-s3-test", section: "#settings-file-library", prop: "s3Testing", event: "test-s3" },
+] as const;
+
+describe("the runtime connection tests", () => {
+  it("are rendered by one shared presentation on their own section title row", () => {
+    const draft = reactive(createDraft());
+    draft.file_library.s3_enabled = true;
+    const wrapper = mountSection(draft);
+
+    const presentations = CONNECTION_TESTS.map(({ testId, section }) => {
+      const button = wrapper.get(`${section} [data-testid="${testId}"]`);
+      // One style for all three, so the layout cannot drift per section.
+      return {
+        classes: button.attributes("class"),
+        icons: button.findAll("svg").length,
+        label: button.text(),
+        busy: button.attributes("aria-busy"),
+        disabled: button.attributes("disabled"),
+      };
+    });
+
+    expect(new Set(presentations.map((item) => item.classes)).size).toBe(1);
+    expect(new Set(presentations.map((item) => item.label)).size).toBe(1);
+    for (const presentation of presentations) {
+      expect(presentation.icons).toBe(1);
+      expect(presentation.busy).toBe("false");
+      expect(presentation.disabled).toBeUndefined();
+    }
+  });
+
+  it("all switch to one busy state and back", async () => {
+    const draft = reactive(createDraft());
+    draft.file_library.s3_enabled = true;
+    const wrapper = mountSection(draft);
+    const label = wrapper.get('[data-testid="runtime-embedding-test"]').text();
+
+    for (const { testId, prop, event } of CONNECTION_TESTS) {
+      await wrapper.setProps({ [prop]: true });
+
+      const running = wrapper.get(`[data-testid="${testId}"]`);
+      expect(running.attributes("aria-busy"), testId).toBe("true");
+      expect(running.attributes("disabled"), testId).toBeDefined();
+      // The spinner replaces the resting icon in place, and the label stays put.
+      expect(running.findAll("svg").length, testId).toBe(1);
+      expect(running.text(), testId).toBe(label);
+
+      await wrapper.setProps({ [prop]: false });
+      const idle = wrapper.get(`[data-testid="${testId}"]`);
+      expect(idle.attributes("aria-busy"), testId).toBe("false");
+      expect(idle.attributes("disabled"), testId).toBeUndefined();
+      expect(idle.attributes("class"), testId).toBe(running.attributes("class"));
+
+      await idle.trigger("click");
+      expect(wrapper.emitted(event) ?? [], event).toHaveLength(1);
+    }
   });
 });

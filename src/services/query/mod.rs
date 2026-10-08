@@ -12,7 +12,7 @@ use context69_search::SearchService;
 use crate::contracts::{DocumentResponse, SearchRequest, SearchResponse};
 use crate::db::Database;
 use crate::domain::AccessScope;
-use crate::embedding::EmbeddingProvider;
+use crate::embedding::EmbeddingRuntime;
 use crate::qdrant_index::QdrantIndex;
 use crate::services::auth::AuthService;
 use crate::services::secret_store::SecretStore;
@@ -31,7 +31,7 @@ pub struct QueryDeps<'a> {
     /// The application database.
     pub db: Database,
     /// The embedding provider.
-    pub embedding: Arc<dyn EmbeddingProvider>,
+    pub embedding: EmbeddingRuntime,
     /// The vector index.
     pub index: QdrantIndex,
     /// Valkey URL for distributed throttling.

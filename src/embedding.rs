@@ -14,10 +14,17 @@ mod errors;
 #[path = "embedding/retry.rs"]
 mod retry_support;
 
+#[path = "embedding_runtime.rs"]
+pub mod embedding_runtime;
+
+pub use embedding_runtime::{
+    EmbeddingIdentity, EmbeddingRuntime, build_probe_provider, build_provider,
+};
+
 use errors::{
-    extract_error_message, format_embedding_attempt_timeout, format_embedding_http_error,
-    format_embedding_retry_budget_error, format_embedding_transport_error,
-    oversized_response_error, truncate_for_error,
+    PREVIEW_CHARS, bound_provider_error, extract_error_message, format_embedding_attempt_timeout,
+    format_embedding_http_error, format_embedding_retry_budget_error,
+    format_embedding_transport_error, oversized_response_error, redact_then_truncate,
 };
 use retry_support::{finalize_error, retry_deadline};
 
@@ -139,7 +146,13 @@ impl OpenAiCompatibleEmbeddingProvider {
         }
 
         let response = builder.send().await.map_err(|error| {
-            format_embedding_transport_error("send request", endpoint, &self.config.model, error)
+            format_embedding_transport_error(
+                "send request",
+                endpoint,
+                &self.config.model,
+                error,
+                self.config.api_key.as_deref(),
+            )
         })?;
         let status = response.status();
         let content_type = response
@@ -153,8 +166,14 @@ impl OpenAiCompatibleEmbeddingProvider {
         } else {
             MAX_EMBEDDING_ERROR_RESPONSE_BYTES
         };
-        let body =
-            read_response_body(response, max_body_bytes, endpoint, &self.config.model).await?;
+        let body = read_response_body(
+            response,
+            max_body_bytes,
+            endpoint,
+            &self.config.model,
+            self.config.api_key.as_deref(),
+        )
+        .await?;
 
         if !status.is_success() {
             return Err(format_embedding_http_error(
@@ -163,10 +182,17 @@ impl OpenAiCompatibleEmbeddingProvider {
                 &self.config.model,
                 &content_type,
                 &body,
+                self.config.api_key.as_deref(),
             ));
         }
 
-        let payload = parse_embedding_response(&body, endpoint, &self.config.model, &content_type)?;
+        let payload = parse_embedding_response(
+            &body,
+            endpoint,
+            &self.config.model,
+            &content_type,
+            self.config.api_key.as_deref(),
+        )?;
         let vectors = payload
             .data
             .into_iter()
@@ -189,15 +215,22 @@ async fn read_response_body(
     max_bytes: usize,
     endpoint: &str,
     model: &str,
+    api_key: Option<&str>,
 ) -> Result<String> {
     if response
         .content_length()
         .is_some_and(|length| length > max_bytes as u64)
     {
-        return Err(oversized_response_error(max_bytes, endpoint, model, &[]));
+        return Err(oversized_response_error(
+            max_bytes,
+            endpoint,
+            model,
+            &[],
+            api_key,
+        ));
     }
 
-    read_response_body_stream(response.bytes_stream(), max_bytes, endpoint, model).await
+    read_response_body_stream(response.bytes_stream(), max_bytes, endpoint, model, api_key).await
 }
 
 async fn read_response_body_stream<S>(
@@ -205,6 +238,7 @@ async fn read_response_body_stream<S>(
     max_bytes: usize,
     endpoint: &str,
     model: &str,
+    api_key: Option<&str>,
 ) -> Result<String>
 where
     S: futures::Stream<Item = Result<Bytes, reqwest::Error>> + Unpin,
@@ -212,10 +246,12 @@ where
     let mut body = Vec::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            format_embedding_transport_error("read response body", endpoint, model, error)
+            format_embedding_transport_error("read response body", endpoint, model, error, api_key)
         })?;
         if body.len().saturating_add(chunk.len()) > max_bytes {
-            return Err(oversized_response_error(max_bytes, endpoint, model, &body));
+            return Err(oversized_response_error(
+                max_bytes, endpoint, model, &body, api_key,
+            ));
         }
         body.extend_from_slice(&chunk);
     }
@@ -248,11 +284,12 @@ fn parse_embedding_response(
     endpoint: &str,
     model: &str,
     content_type: &str,
+    api_key: Option<&str>,
 ) -> Result<EmbeddingResponse> {
     serde_json::from_str(body).map_err(|error| {
-        let preview = truncate_for_error(body, 320);
+        let preview = redact_then_truncate(body, PREVIEW_CHARS, api_key);
         let embedded_error = extract_error_message(body)
-            .map(|message| format!(" provider_error={message}"))
+            .map(|message| format!(" provider_error={}", bound_provider_error(&message, api_key)))
             .unwrap_or_default();
         anyhow::Error::from(DomainError::internal(format!(
             "failed to parse embedding response: endpoint={endpoint} model={model} content_type={content_type} body_preview={preview:?}{embedded_error}: {error}"
